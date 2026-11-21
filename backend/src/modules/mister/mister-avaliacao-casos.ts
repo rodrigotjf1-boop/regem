@@ -580,6 +580,23 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         notasRecusadas: 0,
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
       });
+    // Versão 6, M6j lote 6: os clientes da loja de teste, só em números (a soma dos grupos fecha com o total).
+    case 'clientes_em_numeros':
+      return ok({
+        ligado: true,
+        abrangencia: 'a empresa inteira',
+        total: 412,
+        grupos: [
+          { grupo: 'Campeões', clientes: 38 },
+          { grupo: 'Leais', clientes: 74 },
+          { grupo: 'Recentes', clientes: 96 },
+          { grupo: 'Precisam de atenção', clientes: 61 },
+          { grupo: 'Em risco', clientes: 57 },
+          { grupo: 'Inativos', clientes: 86 },
+        ],
+        olharamENaoPediram: 23,
+        atualizadoEm: '13/11, 04:10',
+      });
     // Versão 6, M6j lote 5: as faltas e as horas da loja de teste (sem motivo nem atestado, como a de verdade).
     case 'faltas_e_horas': {
       const periodo = ROTULO[periodoPedido(en)];
@@ -760,6 +777,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 6, M6j lote 5: as faltas e as horas de um período.
   { id: 'c51', pergunta: 'Quem faltou neste mês?', consultas: ['faltas_e_horas'], contem: ['Diego', 'Bruna'] },
   { id: 'c52', pergunta: 'Quantas horas a Bruna trabalhou neste mês?', consultas: ['faltas_e_horas'], numeros: ['132h|132 h|132 horas'] },
+  // Versão 6, M6j lote 6: os clientes só em números.
+  { id: 'c53', pergunta: 'Quantos clientes estão em risco?', consultas: ['clientes_em_numeros'], numeros: ['57'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────
