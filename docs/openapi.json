@@ -17939,6 +17939,26 @@
         }
       }
     },
+    "/api/v1/publico/cardapio/{token}/clube/regras": {
+      "get": {
+        "operationId": "CardapioPublicoController_regrasDoClube",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/publico/cardapio/{token}": {
       "get": {
         "operationId": "CardapioPublicoController_menu",
@@ -24098,6 +24118,33 @@
           },
           {
             "name": "ct",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/marketing/clube/resultados": {
+      "get": {
+        "operationId": "ClubeController_resultados",
+        "parameters": [
+          {
+            "name": "periodo",
             "required": true,
             "in": "query",
             "schema": {
