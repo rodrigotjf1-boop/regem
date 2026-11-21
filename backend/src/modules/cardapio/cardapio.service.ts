@@ -136,6 +136,7 @@ import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { CashbackService } from '../cashback/cashback.service';
 
 import { hojeISO } from '../../common/data';
+import { bannerNoPeriodo, lerDestinoDoBanner, lerPeriodoDoBanner } from './banner-destino';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
 import { montarMensagemDaPausa, pausaVigenteDoCanal, rotuloDoMotivo, textoDaRecusa, type PausaVigente } from '../../common/pausa-do-canal';
@@ -1198,25 +1199,57 @@ export class CardapioService {
   async setBanners(
     tenantId: string,
     unidadeId: string | null,
-    banners: { imagemRef: string; titulo?: string; link?: string; ativo?: boolean }[],
+    banners: { imagemRef: string; titulo?: string; link?: string; ativo?: boolean; apareceDe?: string | null; apareceAte?: string | null }[],
   ) {
-    await this.db.delete(banner).where(eq(banner.tenantId, tenantId));
-    // Máximo de 3 banners no carrossel do cardápio.
-    const validos = (banners ?? []).filter((b) => b.imagemRef?.trim()).slice(0, 3);
-    if (validos.length) {
-      await this.db.insert(banner).values(
-        validos.map((b, i) => ({
-          tenantId,
-          unidadeId,
-          imagemRef: b.imagemRef.trim(),
-          titulo: b.titulo?.trim() || null,
-          link: b.link?.trim() || null,
-          ativo: b.ativo !== false,
-          ordem: i,
-        })),
-      );
-    }
+    // Máximo de 3 banners no carrossel do cardápio. O destino ("Ao tocar, abre") e o período (B3, mig 482) são conferidos
+    // ANTES de apagar os de hoje (V86: toda recusa antes da 1ª gravação); trocar a lista é uma transação só.
+    const validos = (Array.isArray(banners) ? banners : []).filter((b) => typeof b?.imagemRef === 'string' && b.imagemRef.trim()).slice(0, 3);
+    const linhas = validos.map((b, i) => {
+      const periodo = lerPeriodoDoBanner(b.apareceDe, b.apareceAte, i + 1);
+      return {
+        tenantId,
+        unidadeId,
+        imagemRef: b.imagemRef.trim(),
+        titulo: (typeof b.titulo === 'string' && b.titulo.trim()) || null,
+        link: lerDestinoDoBanner(b.link, i + 1),
+        ativo: b.ativo !== false,
+        ordem: i,
+        apareceDe: periodo.de,
+        apareceAte: periodo.ate,
+      };
+    });
+    await this.db.transaction(async (tx: any) => {
+      await tx.delete(banner).where(eq(banner.tenantId, tenantId));
+      if (linhas.length) await tx.insert(banner).values(linhas);
+    });
     return this.listarBanners(tenantId);
+  }
+
+  /**
+   * Os banners que o cardápio público mostra: ativos, com imagem e dentro do período (dia da operação). O destino "vagas"
+   * vira o endereço da página de vagas da loja (`vagas:<código>`) — sem a página ligada, o banner fica sem ação.
+   */
+  private async bannersDoPublico(tenantId: string, unidadeId: string | null) {
+    const hoje = hojeISO();
+    const lista = (await this.listarBanners(tenantId)).filter((b: any) => b.ativo !== false && b.imagemRef && bannerNoPeriodo(b, hoje));
+    let vagas: string | null = null;
+    if (lista.some((b: any) => b.link === 'vagas')) {
+      try {
+        // `vaga_pagina` é só da nuvem (mig 389): a da loja do cardápio, senão a única ligada da empresa.
+        const r: any = await this.db.execute(sql`
+          select codigo from vaga_pagina
+           where tenant_id = ${tenantId}::uuid and ligada
+           order by (unidade_id = ${unidadeId}::uuid) desc nulls last, codigo limit 1`);
+        vagas = ((r?.rows ?? r) as any[])[0]?.codigo ?? null;
+      } catch (e) {
+        this.logger.warn(`banner de vagas sem a página de vagas (${e instanceof Error ? e.name : 'erro'})`);
+      }
+    }
+    return lista.map((b: any) => ({
+      imagemRef: b.imagemRef,
+      titulo: b.titulo ?? null,
+      link: b.link === 'vagas' ? (vagas ? `vagas:${vagas}` : null) : (b.link ?? null),
+    }));
   }
 
   // ===== Cupons — gestor =====
@@ -2475,10 +2508,8 @@ export class CardapioService {
               }))
           : [],
       categorias: cats.map((c: any) => ({ id: c.id, nome: c.nome, descricao: c.descricao ?? null, imagemRef: c.imagemRef ?? null })),
-      // Banners ativos (aparecem no topo do cardápio no lugar da busca).
-      banners: (await this.listarBanners(cfg.tenantId))
-        .filter((b: any) => b.ativo !== false && b.imagemRef)
-        .map((b: any) => ({ imagemRef: b.imagemRef, titulo: b.titulo ?? null, link: b.link ?? null })),
+      // Banners ativos e no período (aparecem no topo do cardápio no lugar da busca; B3: o destino de vagas resolvido).
+      banners: await this.bannersDoPublico(cfg.tenantId, cfg.unidadeId ?? null),
       produtos: lista.map((p: any) => {
         const promo = p.precoPromocional != null ? Number(p.precoPromocional) : null;
         return {

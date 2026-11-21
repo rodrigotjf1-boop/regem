@@ -16,7 +16,7 @@ import { LARGURAS, LARGURAS_RAPIDO, abrirNavegador, criarConferencia } from './c
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 const front = join(aqui, '..');
-const ROTEIROS = ['kds', 'tv', 'alertas', 'rota-cozinha', 'caixa-turno', 'pdv-balcao', 'mister', 'mister-console', 'area-entrega', 'delivery-painel', 'listas-largas', 'importar', 'candidatos-conducao', 'candidatos-origens', 'candidatos-banco', 'mister-link', 'mister-relatorio-link', 'landing', 'como-faco', 'whatsapp-gasto', 'graph-clique', 'avaliacoes', 'calendario', 'clientes-perfil', 'saude-da-base', 'cardapio-para-voce', 'clube', 'quando-enviar'];
+const ROTEIROS = ['kds', 'tv', 'alertas', 'rota-cozinha', 'caixa-turno', 'pdv-balcao', 'mister', 'mister-console', 'area-entrega', 'delivery-painel', 'listas-largas', 'importar', 'candidatos-conducao', 'candidatos-origens', 'candidatos-banco', 'mister-link', 'mister-relatorio-link', 'landing', 'como-faco', 'whatsapp-gasto', 'graph-clique', 'avaliacoes', 'calendario', 'clientes-perfil', 'saude-da-base', 'cardapio-para-voce', 'clube', 'quando-enviar', 'banners'];
 
 const args = process.argv.slice(2);
 const opcao = (n) => args.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3);

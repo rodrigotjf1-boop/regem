@@ -720,3 +720,6 @@ body.tema-escuro .p-root .c-origem button{color:var(--p-ink)}
 .p-root .c-meta-sub{font-size:14px}
 .p-root .c-meta-premios summary{cursor:pointer;color:var(--p-ink);font-weight:600;font-size:13px;min-height:44px;display:flex;align-items:center;text-decoration:underline;text-underline-offset:2px}
 .p-root .c-meta-premios ul{margin:0;padding-left:18px;display:grid;gap:4px;font-size:13px;color:var(--p-ink)}
+
+/* As regras do clube (o banner "Regras do clube" — B3): a lista no painel. */
+.p-root .c-regras{margin:0;padding-left:18px;display:grid;gap:8px;font-size:14px;line-height:1.45;color:var(--p-ink);overflow-wrap:anywhere}

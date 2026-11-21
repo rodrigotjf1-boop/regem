@@ -24,6 +24,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { CardapioService } from './cardapio.service';
+import { ClubeService } from '../clube/clube.service';
 import { menuParaOPublico } from './menu-publico';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -42,7 +43,17 @@ export class CardapioPublicoController {
     private readonly service: CardapioService,
     // O aviso do gateway de um Pix que não é de pedido pode ser do Pix do ADICIONAL (mig 373): ele confere.
     @Optional() private readonly adicionalPix?: AdicionalPixService,
+    // O Clube (só nuvem, módulo global): as regras que o banner "Regras do clube" abre (B3).
+    @Optional() private readonly clube?: ClubeService,
   ) {}
+
+  /** As regras do clube para o cliente (o banner "Regras do clube" — B3). Sem o Clube ligado, a lista vem vazia. */
+  @Get(':token/clube/regras')
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  async regrasDoClube(@Param('token') token: string) {
+    const cfg = await this.service.resolver(token);
+    return { regras: this.clube ? await this.clube.regrasPublicas(cfg.tenantId) : [] };
+  }
 
   /** O aviso que não achou pedido (`naoCorrelacionado`) vai ao Pix do adicional — que confere no gateway, nunca pelo corpo. */
   private async ouDoAdicional(r: any, paymentId: string) {
