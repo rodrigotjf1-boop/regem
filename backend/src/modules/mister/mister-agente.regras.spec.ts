@@ -255,6 +255,7 @@ describe('Mister — o que o modelo recebe', () => {
       'atendimento_agora',
       'conciliacao_do_periodo',
       'contas_a_pagar_e_receber',
+      'faltas_e_horas',
       'vencimentos_e_versoes',
       'como_usar_o_regem',
       'conversas_anteriores',

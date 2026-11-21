@@ -360,8 +360,40 @@ export function testesDoMisterComPostgres(): void {
           { colaboradorId: null, colaboradorNome: null, setorNome: 'Cozinha', presenca: 'prevista', turnoInicio: '10:00:00', turnoFim: '18:00:00' },
         ];
       },
+      // M6j lote 5: o relatório de faltas, com o motivo e o atestado que NÃO podem sair da consulta do Mister.
+      faltas: async (tenantId: string, de?: string, ate?: string, unidadeId?: string | null) => {
+        lidos.push(['faltas', tenantId, de, ate, unidadeId]);
+        const f = (colaboradorId: string, colaboradorNome: string, presenca: string, data: string) => ({ colaboradorId, colaboradorNome, presenca, data, presencaObs: 'cirurgia no joelho', comprovanteRef: 'atestado-123.pdf' });
+        const alvo = faltasDeMentira.alvo ?? 'col-3';
+        return {
+          faltas: [f(alvo, 'Dani Salão', 'falta_justificada', '2026-11-05'), f(alvo, 'Dani Salão', 'falta_injustificada', '2026-11-12'), f('col-2', 'Caio Caixa', 'falta_injustificada', '2026-11-10')],
+          resumo: [
+            { colaboradorId: alvo, nome: 'Dani Salão', justificadas: 1, injustificadas: 1 },
+            { colaboradorId: 'col-2', nome: 'Caio Caixa', justificadas: 0, injustificadas: 1 },
+          ],
+        };
+      },
     };
+    const faltasDeMentira: { alvo?: string } = {};
     const pontoDeMentira = {
+      // M6j lote 5: o espelho (2 dias: um com extra e abono; a justificativa não pode sair da consulta do Mister).
+      espelho: async (tenantId: string, colaboradorId: string, inicio: string, fim: string, atual: string | null) => {
+        lidos.push(['espelho', tenantId, colaboradorId, inicio, fim, atual]);
+        return {
+          colaboradorId,
+          inicio,
+          fim,
+          dias: [
+            { data: '2026-11-05', trabalhadoMin: 0, abonoMin: 480, ajustes: [{ tipo: 'atestado', justificativa: 'cirurgia no joelho', atestadoRef: 'atestado-123.pdf' }] },
+            { data: '2026-11-06', trabalhadoMin: 510, abonoMin: 0, ajustes: [] },
+          ],
+          totalTrabalhadoMin: 990,
+          totalEsperadoMin: 960,
+          totalExtraMin: 30,
+          totalNoturnoMin: 45,
+          saldoMin: 30,
+        };
+      },
       pessoas: async (tenantId: string, _data: string, atual: string | null) => {
         lidos.push(['ponto', tenantId, atual]);
         return [{ colaboradorId: 'col-2', nome: 'Caio Caixa', marcacoes: 1, primeiraEntrada: haMin(95).toISOString(), ultimaMarcacao: { tipo: 'entrada', hora: haMin(95).toISOString() }, trabalhadoMin: 95, status: 'trabalhando' }];
@@ -1985,6 +2017,69 @@ export function testesDoMisterComPostgres(): void {
       expect(s.dados).not.toHaveProperty('escaladosSemPontoAteAgora');
       const semNada = { ...e, nivel: 'gerente' as const, permissoes: { dashboard: true } as any };
       expect((await ferramentas.executar(semNada, 'equipe_do_dia', {})).dados.erro).toContain('não dá acesso');
+    });
+
+    it('faltas e horas de um período (M6j lote 5): a loja em uso, sem motivo nem atestado, e por pessoa com as horas', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+      lidos.length = 0;
+      const todos = await ferramentas.executar(e, 'faltas_e_horas', { de: '2026-11-01', ate: '2026-11-15' });
+      expect(lidos).toEqual([['faltas', A, '2026-11-01', '2026-11-15', null]]);
+      expect(todos.dados).toMatchObject({
+        totalDeFaltas: 3,
+        justificadas: 1,
+        injustificadas: 2,
+        pessoas: [
+          { nome: 'Dani Salão', justificadas: 1, injustificadas: 1, dias: ['05/11', '12/11'] },
+          { nome: 'Caio Caixa', justificadas: 0, injustificadas: 1, dias: ['10/11'] },
+        ],
+      });
+      expect(JSON.stringify(todos.dados)).not.toMatch(/cirurgia|atestado-123/);
+
+      // Por pessoa: as faltas dela e as horas do espelho. A pessoa é procurada no banco (a Ana é a de verdade da suíte).
+      const [{ nome: nomeDaAna }] = await q(`select nome from colaborador where id = $1`, [pessoa.ana]);
+      faltasDeMentira.alvo = pessoa.ana;
+      try {
+        lidos.length = 0;
+        const dela = await ferramentas.executar(e, 'faltas_e_horas', { de: '2026-11-01', ate: '2026-11-15', pessoa: String(nomeDaAna).slice(0, 6) });
+        expect(lidos).toEqual([
+          ['faltas', A, '2026-11-01', '2026-11-15', null],
+          ['espelho', A, pessoa.ana, '2026-11-01', '2026-11-15', null],
+        ]);
+        expect(dela.dados).toMatchObject({
+          pessoa: nomeDaAna,
+          faltas: { justificadas: 1, injustificadas: 1, dias: ['05/11', '12/11'] },
+          horas: { trabalhado: '8h 30min', abonos: '8h 00min', previsto: '16h 00min', extra: '30min', noturno: '45min', saldo: '+30min', diasComPonto: 1 },
+        });
+        expect(JSON.stringify(dela.dados)).not.toMatch(/cirurgia|atestado-123/);
+        // Só com a permissão do ponto: as horas vêm, as faltas não; e o inverso.
+        const soPonto = { ...e, nivel: 'gerente' as const, permissoes: { ponto_gerencial: true } as any };
+        const sp = await ferramentas.executar(soPonto, 'faltas_e_horas', { pessoa: String(nomeDaAna).slice(0, 6) });
+        expect((sp.dados.faltas as any).aviso).toContain('não dá acesso');
+        expect((sp.dados.horas as any).trabalhado).toBe('8h 30min');
+        const soEscala = { ...e, nivel: 'gerente' as const, permissoes: { escalas: true } as any };
+        const se = await ferramentas.executar(soEscala, 'faltas_e_horas', { pessoa: String(nomeDaAna).slice(0, 6) });
+        expect((se.dados.horas as any).aviso).toContain('não dá acesso');
+        expect((se.dados.faltas as any).injustificadas).toBe(1);
+        // Sem a escala, a lista de todos não sai.
+        expect((await ferramentas.executar(soPonto, 'faltas_e_horas', {})).ok).toBe(false);
+      } finally {
+        delete faltasDeMentira.alvo;
+      }
+
+      // Nome que não existe; coringa não vira "todo mundo"; pessoa de outra empresa não aparece.
+      expect((await ferramentas.executar(e, 'faltas_e_horas', { pessoa: 'Ninguém Assim' })).dados.erro).toContain('Não achei');
+      const [{ id: deOutra }] = await q(`insert into colaborador (tenant_id, nome) values ($1, 'Zuleide Só da Pizzaria') returning id`, [B]);
+      try {
+        const outra = await ferramentas.executar(e, 'faltas_e_horas', { pessoa: 'Zuleide' });
+        expect(outra.ok).toBe(false);
+        expect(String(outra.dados.erro)).toContain('Não achei');
+      } finally {
+        await q(`delete from colaborador where id = $1`, [deOutra]);
+      }
+      const semNada = { ...e, nivel: 'gerente' as const, permissoes: { dashboard: true } as any };
+      expect((await ferramentas.executar(semNada, 'faltas_e_horas', {})).dados.erro).toContain('não dá acesso');
     });
 
     it('o estoque abaixo do mínimo sai em páginas de 15 e dá para procurar pelo nome', async () => {
@@ -4006,6 +4101,8 @@ export function testesDoMisterComPostgres(): void {
         c47: { acao: 'comecar', alvo: 'canal', qual: 'iFood' },
         c48: { tipo: 'vendas_por_hora', periodo: 'ontem' },
         c49: { acao: 'pausar_canal', canais: ['ifood'], motivo: 'pedidos', minutos: 30 },
+        c51: { periodo: 'este_mes' },
+        c52: { periodo: 'este_mes', pessoa: 'Bruna' },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
       const entradaDe = (c: CasoDaAvaliacao, nome: string): Record<string, unknown> =>
@@ -4058,18 +4155,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 50 de 50, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 52 de 52, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(50);
+        expect(r.total).toBe(52);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 50, acertos: 50, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 52, acertos: 52, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 50, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 50, acertos: 50, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 52, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 52, acertos: 52, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4089,7 +4186,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 49 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 51 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -5712,6 +5809,7 @@ export function testesDoMisterComPostgres(): void {
         const e = (await comPropostas.escopo(A, pessoa.ana, tel))!;
         expect({ pendente: e.pinPendente, valores: e.verValores, horas: e.horasDoPin }).toEqual({ pendente: true, valores: false, horas: 12 });
         expect(await comPropostas.executar(e, 'equipe_do_dia', {})).toEqual({ ok: false, dados: { erro: SESSAO_PEDE_PIN } });
+        expect(await comPropostas.executar(e, 'faltas_e_horas', {})).toEqual({ ok: false, dados: { erro: SESSAO_PEDE_PIN } });
         expect(comPropostas.conversa(e)).toMatchObject({ pinPendente: true, verValores: false });
         // a tela (entrou com a senha) não pede o PIN
         expect((await comPropostas.escopoDaTela(A, pessoa.ana))!.pinPendente ?? false).toBe(false);

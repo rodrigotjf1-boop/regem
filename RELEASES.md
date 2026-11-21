@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6j lote 5 — as faltas e as horas de um período (21/11; SEM migration).** Só na nuvem (o Mister): vai
+  no `.zip` sem efeito na loja.
+
 - **Mister versão 6, M6j lote 4 — consultar as contas a pagar e a receber (21/11; SEM migration).** Só na nuvem (o Mister):
   vai no `.zip` sem efeito na loja.
 
