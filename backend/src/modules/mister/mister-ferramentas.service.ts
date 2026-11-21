@@ -170,7 +170,7 @@ export interface EscopoDoMister {
 }
 
 /** Versão 6, M6d: as consultas que trazem dados de pessoas — esperam o PIN quando a sessão está pendente. */
-export const FERRAMENTAS_DE_PESSOAS: readonly string[] = ['equipe_do_dia'];
+export const FERRAMENTAS_DE_PESSOAS: readonly string[] = ['equipe_do_dia', 'faltas_e_horas'];
 export const SESSAO_PEDE_PIN = 'Os dados das pessoas esperam o PIN: o link para confirmar vai logo depois desta resposta. Diga isso em uma frase.';
 
 export interface ResultadoDaFerramenta {
@@ -543,6 +543,8 @@ export class MisterFerramentasService {
         return this.conciliacao(e, en, loja);
       case 'contas_a_pagar_e_receber':
         return this.contasAPagarEReceber(e, en, loja);
+      case 'faltas_e_horas':
+        return this.faltasEHoras(e, en, loja);
       case 'como_usar_o_regem':
         return this.comoUsarORegem(e, en);
       case 'conversas_anteriores':
@@ -1371,6 +1373,76 @@ export class MisterFerramentasService {
         ...(e.verValores ? {} : { aviso: SEM_VALORES }),
       },
     };
+  }
+
+  private async faltasEHoras(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    // Versão 6, M6j lote 5: só leitura, pelos MESMOS serviços da tela (o relatório de faltas e o espelho do ponto), com a
+    // loja em uso. O motivo da falta, a justificativa e o atestado NÃO saem daqui: são dado de saúde ou da vida da pessoa.
+    const verEscala = this.pode(e, 'escalas');
+    const verPonto = this.pode(e, 'ponto_gerencial');
+    if (!verEscala && !verPonto) return recusa(SEM_PERMISSAO);
+    const p = periodoDaFerramenta(en, hojeISO(), 'este_mes');
+    if ('erro' in p) return recusa(p.erro);
+    const dito = (typeof en.pessoa === 'string' ? en.pessoa : '').replace(/[%_\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    const dados: Record<string, unknown> = { loja: loja.nome, periodo: p.rotulo };
+    const lerFaltas = async () => (await this.escala.faltas(e.tenantId, p.de, p.ate, loja.atual)) as { faltas: any[]; resumo: any[] };
+    const diasDe = (faltas: any[], id: unknown) => faltas.filter((f) => f.colaboradorId === id).map((f) => diaDaLinha(f.data));
+
+    if (!dito) {
+      if (!verEscala) return recusa(SEM_PERMISSAO);
+      const r = await lerFaltas();
+      const pessoas = r.resumo.filter((x) => x.colaboradorId);
+      dados.totalDeFaltas = r.faltas.length;
+      dados.justificadas = pessoas.reduce((s, x) => s + inteiro(x.justificadas), 0);
+      dados.injustificadas = pessoas.reduce((s, x) => s + inteiro(x.injustificadas), 0);
+      dados.pessoas = pessoas.slice(0, 20).map((x) => ({
+        nome: String(x.nome ?? ''),
+        justificadas: inteiro(x.justificadas),
+        injustificadas: inteiro(x.injustificadas),
+        dias: diasDe(r.faltas, x.colaboradorId).slice(0, 10),
+      }));
+      if (pessoas.length > 20) dados.observacao = `Lista com 20 de ${pessoas.length} pessoas.`;
+      return { ok: true, dados };
+    }
+
+    const achados = linhas(
+      await this.db.execute(sql`
+        select c.id::text as id, c.nome from colaborador c
+         where c.tenant_id = ${e.tenantId}::uuid and c.deleted_at is null
+           ${loja.atual ? sql`and (c.unidade_id is null or c.unidade_id = ${loja.atual}::uuid)` : sql``}
+           and c.nome ilike ${`%${dito}%`}
+         order by c.nome
+         limit 6`),
+    );
+    if (!achados.length) return recusa(`Não achei ninguém com o nome "${dito}" nesta loja.`);
+    if (achados.length > 1) return recusa(`Tem mais de uma pessoa com esse nome: ${achados.map((a) => String(a.nome)).join(', ')}. Pergunte qual.`);
+    const pessoa = achados[0];
+    dados.pessoa = String(pessoa.nome);
+    if (verEscala) {
+      const r = await lerFaltas();
+      const dela = r.faltas.filter((f) => f.colaboradorId === pessoa.id);
+      dados.faltas = {
+        justificadas: dela.filter((f) => f.presenca === 'falta_justificada').length,
+        injustificadas: dela.filter((f) => f.presenca === 'falta_injustificada').length,
+        dias: diasDe(r.faltas, pessoa.id).slice(0, 15),
+      };
+    } else dados.faltas = { aviso: SEM_PERMISSAO };
+    if (verPonto) {
+      const m: any = await this.ponto.espelho(e.tenantId, pessoa.id, p.de, p.ate, loja.atual);
+      const somar = (k: string) => (m.dias as any[]).reduce((s, d) => s + inteiro(d[k]), 0);
+      const saldo = inteiro(m.saldoMin);
+      dados.horas = {
+        trabalhado: duracao(somar('trabalhadoMin')),
+        abonos: duracao(somar('abonoMin')),
+        previsto: duracao(m.totalEsperadoMin),
+        extra: duracao(m.totalExtraMin),
+        noturno: duracao(m.totalNoturnoMin),
+        saldo: `${saldo < 0 ? '-' : '+'}${duracao(Math.abs(saldo))}`,
+        diasComPonto: (m.dias as any[]).filter((d) => inteiro(d.trabalhadoMin) > 0).length,
+        observacao: 'Prévia gerencial: a conta oficial é a do fechamento do ponto.',
+      };
+    } else dados.horas = { aviso: SEM_PERMISSAO };
+    return { ok: true, dados };
   }
 
   private async vencimentosEVersoes(e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {

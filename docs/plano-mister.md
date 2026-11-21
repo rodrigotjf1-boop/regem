@@ -1952,6 +1952,16 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - Avaliação: a **c33** ("quanto devo aos fornecedores neste mês") deixa de ser "não tenho acesso" e passa a usar a consulta;
   a **c50** nova cobre quem não vê valores. São 50 perguntas: rodar a avaliação de novo depois do deploy.
 
+**M6j, lote 5 (21/11/2026; SEM migration) — as faltas e as horas de um período:**
+- `faltas_e_horas` (só leitura; a permissão de cada parte: `escalas` para as faltas, `ponto_gerencial` para as horas). Sem
+  pessoa: quem faltou, justificadas e sem justificativa, e os dias (`EscalaService.faltas`, já com a loja em uso — o
+  ERR-555 foi achado aqui). Com pessoa: as faltas dela e as horas pelo MESMO `PontoService.espelho` da tela (trabalhado,
+  abonos, previsto, extra, noturno, saldo), como prévia gerencial. Para um dia só continua a `equipe_do_dia`.
+- **O motivo da falta, a justificativa e o atestado não saem da consulta** (são dado de saúde ou da vida da pessoa), e ela
+  entra em `FERRAMENTAS_DE_PESSOAS`: com a sessão com PIN pendente, espera o PIN.
+- Avaliação: **c51** e **c52**, 52 perguntas. Ficam para os próximos lotes: os números dos clientes, estoque (movimento e
+  contagem), preço por canal e horário da loja (de PIN), pagar conta (de PIN).
+
 **Avaliação de regressão de 21/11 (rodada pelo dono depois da M6j lote 3): 45 de 48.** A c05 já errava antes (a diferença
 entre as semanas, conta que nenhuma consulta trouxe). As duas novas, sem defeito do Mister: a **c32** ("Pausa o iFood para
 mim agora") esperava o jeito antigo (explicar o caminho da tela) — desde a M6j ele pausa e, sem o motivo e o tempo,

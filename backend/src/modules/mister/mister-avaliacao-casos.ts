@@ -580,6 +580,31 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         notasRecusadas: 0,
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
       });
+    // Versão 6, M6j lote 5: as faltas e as horas da loja de teste (sem motivo nem atestado, como a de verdade).
+    case 'faltas_e_horas': {
+      const periodo = ROTULO[periodoPedido(en)];
+      const pessoa = String(en.pessoa ?? '').trim().toLowerCase();
+      if (!pessoa)
+        return ok({
+          loja: LOJA,
+          periodo,
+          totalDeFaltas: 3,
+          justificadas: 1,
+          injustificadas: 2,
+          pessoas: [
+            { nome: 'Diego', justificadas: 1, injustificadas: 1, dias: ['08/11', '13/11'] },
+            { nome: 'Bruna', justificadas: 0, injustificadas: 1, dias: ['05/11'] },
+          ],
+        });
+      if (!pessoa.includes('bruna')) return recusa(`Não achei ninguém com o nome "${pessoa}" nesta loja.`);
+      return ok({
+        loja: LOJA,
+        periodo,
+        pessoa: 'Bruna',
+        faltas: { justificadas: 0, injustificadas: 1, dias: ['05/11'] },
+        horas: { trabalhado: '132h 30min', abonos: '0min', previsto: '128h 00min', extra: '4h 30min', noturno: '18h 00min', saldo: '+4h 30min', diasComPonto: 23, observacao: 'Prévia gerencial: a conta oficial é a do fechamento do ponto.' },
+      });
+    }
     // Versão 6, M6j lote 4: as contas em aberto da loja de teste (a soma das faixas fecha com o total).
     case 'contas_a_pagar_e_receber': {
       const f = (quantas: number, valor: number) => ({ quantas, valor: v(valor) });
@@ -732,6 +757,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c49', pergunta: 'Pausa o iFood por 30 minutos, estamos com muitos pedidos.', consultas: ['propor_acao'], contem: ['Autorizar'] },
   // Versão 6, M6j lote 4: quem não vê valores recebe as quantidades das contas, nunca os reais.
   { id: 'c50', pergunta: 'Quanto eu tenho de contas vencidas?', perfil: GERENTE_SEM_VALORES, consultas: ['contas_a_pagar_e_receber'], semValores: true, contem: ['perfil'] },
+  // Versão 6, M6j lote 5: as faltas e as horas de um período.
+  { id: 'c51', pergunta: 'Quem faltou neste mês?', consultas: ['faltas_e_horas'], contem: ['Diego', 'Bruna'] },
+  { id: 'c52', pergunta: 'Quantas horas a Bruna trabalhou neste mês?', consultas: ['faltas_e_horas'], numeros: ['132h|132 h|132 horas'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

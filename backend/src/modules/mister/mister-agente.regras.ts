@@ -295,6 +295,7 @@ export type NomeDaFerramenta =
   | 'atendimento_agora'
   | 'conciliacao_do_periodo'
   | 'contas_a_pagar_e_receber'
+  | 'faltas_e_horas'
   | 'vencimentos_e_versoes'
   | 'como_usar_o_regem'
   | 'conversas_anteriores'
@@ -605,6 +606,16 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
     input_schema: {
       type: 'object',
       properties: { busca: { type: 'string', description: 'Parte do nome do fornecedor ou da descrição, para ver só essas contas a pagar.' }, loja: LOJA },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'faltas_e_horas',
+    description:
+      'As faltas e as horas de um PERÍODO (para um dia só, use equipe_do_dia). Sem "pessoa": quem faltou, com as faltas justificadas e sem justificativa e os dias. Com "pessoa" (parte do nome): as faltas dela e as horas do ponto (trabalhado, abonos, previsto, extra, noturno, saldo, dias com ponto), uma prévia gerencial: a conta oficial é a do fechamento. Use para "quem faltou neste mês", "quantas horas a Bruna fez", "quantas faltas o Diego tem". O motivo da falta e o atestado não vêm. Sem período, este mês.',
+    input_schema: {
+      type: 'object',
+      properties: { ...PERIODO, pessoa: { type: 'string', description: 'Parte do nome de uma pessoa da equipe.' }, loja: LOJA },
       additionalProperties: false,
     },
   },
