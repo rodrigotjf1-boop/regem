@@ -28,6 +28,7 @@ import {
   juntarPerguntas,
   lojaPedida,
   numerosDosResultados,
+  diferencaEmReais,
   perguntaDaMemoria,
   periodoDaFerramenta,
   valoresEmReais,
@@ -544,6 +545,20 @@ describe('Mister — o filtro de saída', () => {
     expect(numerosDosResultados(doGrafico).has(511085)).toBe(true);
     expect(filtrarSaida('Ontem foram R$ 5.110,85; o pico, às 20h, com R$ 1.720,85.', doGrafico).notas).toEqual([]);
     expect(filtrarSaida('Ontem foram R$ 5.999,00.', doGrafico).notas).toEqual(['valor_sem_origem']);
+  });
+});
+
+describe('Mister — a diferença entre dois períodos em reais', () => {
+  it('sai em centavos exatos, sem sinal e com o sentido; sem um dos valores, não há diferença', () => {
+    expect(diferencaEmReais(24876.45, 22410.15)).toEqual({ valor: 2466.3, sentido: 'a mais' });
+    expect(diferencaEmReais('100.10', '100.30')).toEqual({ valor: 0.2, sentido: 'a menos' });
+    expect(diferencaEmReais(50, 50)).toEqual({ valor: 0, sentido: 'igual' });
+    expect(diferencaEmReais(null, 10)).toBeNull();
+    expect(diferencaEmReais(10, undefined)).toBeNull();
+    expect(diferencaEmReais('x', 10)).toBeNull();
+    // O valor que a consulta devolve tem origem na resposta.
+    const r = [{ diferencaDeFaturamento: diferencaEmReais(24876.45, 22410.15) }];
+    expect(filtrarSaida('Foram R$ 2.466,30 a mais.', r).notas).toEqual([]);
   });
 });
 

@@ -2381,7 +2381,7 @@ export function testesDoMisterComPostgres(): void {
         await venda(49, 50);
         const c = await ferramentas.executar(e, 'vendas_do_periodo', { de: somarDias(hojeISO(), -1), ate: hojeISO(), comparar: true });
         expect(c.dados).toMatchObject({ numeroDeVendas: 2, faturamento: 100 });
-        expect(c.dados.comparacao).toMatchObject({ numeroDeVendas: 1, faturamento: 50, variacaoPct: { vendas: 100, faturamento: 100, ticketMedio: 0 } });
+        expect(c.dados.comparacao).toMatchObject({ numeroDeVendas: 1, faturamento: 50, variacaoPct: { vendas: 100, faturamento: 100, ticketMedio: 0 }, diferencaDeVendas: 1, diferencaDeFaturamento: { valor: 50, sentido: 'a mais' } });
         expect(c.dados.horarioDePico).toMatch(/^\d{2}h$/);
         expect((c.dados.porHora as any[]).reduce((s, h) => s + h.vendas, 0)).toBe(2);
       } finally {
@@ -9457,6 +9457,20 @@ export function testesDoMisterComPostgres(): void {
         ]);
         // A descrição da conta a receber (pode ter nome de cliente) não vai à IA.
         expect(JSON.stringify(d)).not.toContain('João');
+      });
+
+      it('com mais contas do que cabem na lista, a resposta avisa que a lista é parcial (c29)', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const hoje = hojeISO();
+        const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+        for (let i = 0; i < 12; i++) await conta('pagar', `Conta ${i}`, 10, hoje);
+        expect((await ferramentas.executar(e, 'contas_a_pagar_e_receber', {})).dados).not.toHaveProperty('observacao');
+        await conta('pagar', 'A décima terceira', 10, hoje);
+        const d = (await ferramentas.executar(e, 'contas_a_pagar_e_receber', {})).dados as any;
+        expect(d.proximasAPagar).toHaveLength(12);
+        expect(d.aPagar).toMatchObject({ quantas: 13, valor: 130 });
+        expect(d.observacao).toContain('12 mais próximas de 13');
       });
 
       it('a busca filtra as contas a pagar; sem valores vêm só as quantidades; sem a permissão, nada', async () => {

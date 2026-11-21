@@ -1222,6 +1222,18 @@ const LINK_DO_MARKDOWN = /\[([^\]\n]{1,200})\]\((?:https?:\/\/|www\.)[^\s)]+\)/g
 /** "R$ 1.234,56", "R$1234,5", "R$ 87" → centavos. */
 const VALOR = /R\$\s?(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?/g;
 
+/**
+ * A diferença entre dois valores em reais, em centavos exatos e sem sinal, com o sentido escrito: assim o "R$ 2.466,30 a
+ * mais" da comparação sai da consulta, e não de uma conta da IA (a c05 da avaliação errava por isso desde 18/11).
+ */
+export function diferencaEmReais(atual: unknown, anterior: unknown): { valor: number; sentido: 'a mais' | 'a menos' | 'igual' } | null {
+  if (atual === null || atual === undefined || anterior === null || anterior === undefined) return null;
+  const a = Math.round(Number(atual) * 100);
+  const b = Math.round(Number(anterior) * 100);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return { valor: Math.abs(a - b) / 100, sentido: a > b ? 'a mais' : a < b ? 'a menos' : 'igual' };
+}
+
 /** Os valores em reais escritos num texto, em centavos. */
 export function valoresEmReais(texto: string): number[] {
   const achados: number[] = [];

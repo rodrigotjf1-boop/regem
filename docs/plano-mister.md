@@ -1969,6 +1969,13 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - Avaliação: **c53**, 53 perguntas. Ficam para os próximos lotes: estoque (movimento e contagem), preço por canal e horário
   da loja (de PIN), pagar conta (de PIN).
 
+**Avaliação de 21/11, segunda rodada (depois dos lotes 4 a 6): 51 de 53, 24 consultas.** As duas erradas, corrigidas:
+- **c05** (errava desde 18/11): a IA fazia a conta da diferença entre as semanas. Agora a consulta traz
+  `diferencaDeVendas` e `diferencaDeFaturamento` (valor em centavos exatos e o sentido), e a instrução manda usar.
+- **c29** (nova, do lote 4): a loja de teste dizia "2 vencidas, R$ 420" e listava só uma de R$ 420, e a IA tentou explicar a
+  diferença com uma conta. A lista de teste passou a fechar com as faixas. Na consulta de verdade, com mais contas do que
+  cabem na lista, a resposta agora avisa que a lista é parcial e que a soma vem dos totais de cada faixa.
+
 **Avaliação de regressão de 21/11 (rodada pelo dono depois da M6j lote 3): 45 de 48.** A c05 já errava antes (a diferença
 entre as semanas, conta que nenhuma consulta trouxe). As duas novas, sem defeito do Mister: a **c32** ("Pausa o iFood para
 mim agora") esperava o jeito antigo (explicar o caminho da tela) — desde a M6j ele pausa e, sem o motivo e o tempo,

@@ -93,6 +93,7 @@ import {
   pedidoComoNoQuadro,
   periodoAnterior,
   periodoDaFerramenta,
+  diferencaEmReais,
   semAcento,
   ASSUNTO_DO_CASO,
   SITUACAO_DO_CASO,
@@ -1370,13 +1371,16 @@ export class MisterFerramentasService {
       return { quantas: inteiro(l?.n), valor: dinheiro(l?.v ?? 0), ...Object.fromEntries(faixas.map(([k]) => [k, faixa(k)])) };
     };
     const situacao = (v: string | null) => (!v ? 'sem data' : v < hoje ? 'vencida' : v === hoje ? 'vence hoje' : 'a vencer');
+    const aPagar = doTipo('pagar');
     return {
       ok: true,
       dados: {
         loja: loja.nome,
         hoje: diaMes(hoje),
         ...(busca ? { busca } : {}),
-        aPagar: doTipo('pagar'),
+        aPagar,
+        // A lista é das mais próximas: com mais contas, os totais de cada faixa é que valem (a IA não soma a lista).
+        ...(aPagar.quantas > proximas.length ? { observacao: `A lista traz as ${proximas.length} mais próximas de ${aPagar.quantas} contas a pagar: para somar, use os totais de cada faixa.` } : {}),
         ...(busca ? {} : { aReceber: doTipo('receber') }),
         proximasAPagar: proximas.map((p) => ({
           descricao: String(p.descricao ?? '').replace(/\s+/g, ' ').trim().slice(0, 60),
@@ -1969,7 +1973,9 @@ export class MisterFerramentasService {
           ticketMedio: variacaoPct(n(r?.resumo?.ticketMedio), n(ra?.resumo?.ticketMedio)),
           ...(dl && da ? { pedidosDoDelivery: variacaoPct(inteiro(dl.pedidos), inteiro(da.pedidos)), faturamentoDoDelivery: variacaoPct(n(dl.total), n(da.total)) } : {}),
         },
-        comoComparar: 'O período anterior tem o mesmo número de dias (a semana até hoje contra a semana passada até o mesmo dia). Variação nula = o período anterior não teve nada para comparar.',
+        diferencaDeVendas: inteiro(r?.resumo?.vendas) - inteiro(ra?.resumo?.vendas),
+        diferencaDeFaturamento: e.verValores ? diferencaEmReais(r?.resumo?.faturado, ra?.resumo?.faturado) : null,
+        comoComparar: 'O período anterior tem o mesmo número de dias (a semana até hoje contra a semana passada até o mesmo dia). Variação nula = o período anterior não teve nada para comparar. Para dizer quanto mudou em reais, use diferencaDeFaturamento (valor e sentido); não faça a conta.',
       };
     }
     return {
