@@ -124,7 +124,8 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
           return responder(route, { periodo, titulo: 'Outubro', ganharam: 0, revelaram: 0, usaram: 0, desconto: 0, vendido: 0, campanhas: null });
         return responder(route, {
           periodo: 'mes', titulo: 'Novembro', ganharam: 214, revelaram: 176, usaram: 131, desconto: 1902.4, vendido: 7448.9,
-          campanhas: { receberam: 100, voltaram: 18, dias: 15 },
+          // Os 90 dias: campanhas sem grupo de controle (o cartão diz onde ligar); este mês: contra quem não recebeu.
+          campanhas: { receberam: 100, voltaram: 18, dias: 15, controle: periodo === '90d' ? null : { base: 44, voltaram: 4, pouco: true } },
         });
       }
       if (p === '/marketing/clube' && metodo === 'GET') {
@@ -405,7 +406,20 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
         t.includes('R$ 7.448,90') && t.includes('18 de 100 que receberam voltaram a pedir em até 15 dias (18%)'),
       `${w}px · os resultados: os cinco números e as campanhas com prêmio`,
     );
+    ok(
+      t.includes('Contra quem não recebeu') && t.includes('do grupo de controle, 4 de 44 (9%)') && t.includes('menos de 100 clientes'),
+      `${w}px · os resultados: contra quem não recebeu, com o aviso do controle pequeno`,
+    );
     if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-resultados-${w}.png`), fullPage: true });
+    // Sem grupo de controle nas campanhas do período: o cartão diz onde ligar (o caminho do menu conferido no shell).
+    await page.getByLabel('Período').selectOption('90d');
+    await page.waitForSelector('text=Para comparar com quem não recebeu', { timeout: 10000 });
+    t = await texto(page);
+    achados = await medir(page);
+    ok(
+      achados.length === 0 && t.includes('Nas campanhas com prêmio') && t.includes('Delivery › Marketing › Automáticas › Para todas as automáticas'),
+      `${w}px · os resultados sem controle: diz onde ligar, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`,
+    );
     await page.getByLabel('Período').selectOption('mes_passado');
     await page.waitForSelector('text=Ainda sem números', { timeout: 10000 });
     achados = await medir(page);

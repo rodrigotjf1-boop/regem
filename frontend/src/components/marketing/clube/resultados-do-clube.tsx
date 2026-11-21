@@ -11,7 +11,8 @@ import { brl } from '@/components/ui/lista';
 
 // Marketing › Clube › Resultados (fase A4 do `docs/plano-clube-e-banner.md`; protótipo `mockups/regem-clube-banner.html`,
 // "Marketing › Clube" › Resultados): o período, os prêmios dados, revelados e usados, o desconto e o vendido nos pedidos
-// com prêmio, e as campanhas com prêmio (quem voltou em 15 dias). Só leitura. Vazio, carregando e erro com "Tentar de novo".
+// com prêmio, e as campanhas com prêmio (quem voltou em 15 dias, contra o grupo de controle quando ele está ligado). Só
+// leitura. Vazio, carregando e erro com "Tentar de novo".
 
 type Resultados = {
   periodo: string;
@@ -21,7 +22,12 @@ type Resultados = {
   usaram: number;
   desconto: number;
   vendido: number;
-  campanhas: { receberam: number; voltaram: number; dias: number } | null;
+  campanhas: {
+    receberam: number;
+    voltaram: number;
+    dias: number;
+    controle: { base: number; voltaram: number; pouco: boolean } | null;
+  } | null;
 };
 
 const PERIODOS = [
@@ -109,13 +115,26 @@ export function ResultadosDoClube() {
             <Numero valor={brl(r.vendido)} rotulo="vendido nos pedidos com prêmio" />
           </div>
           <Card className="p-4">
-            <h3 className="font-semibold">Nas campanhas com prêmio</h3>
+            <h3 className="font-semibold">{r.campanhas?.controle ? 'Contra quem não recebeu' : 'Nas campanhas com prêmio'}</h3>
             {r.campanhas ? (
-              <p className="text-sm text-secondary-foreground">
-                {r.campanhas.voltaram} de {r.campanhas.receberam} que receberam voltaram a pedir em até {r.campanhas.dias} dias (
-                {pct(r.campanhas.voltaram, r.campanhas.receberam)}). A comparação com o grupo de controle chega quando a campanha guardar
-                quem ficou de fora.
-              </p>
+              <div className="space-y-1 text-sm text-secondary-foreground">
+                <p>
+                  {r.campanhas.voltaram} de {r.campanhas.receberam} que receberam voltaram a pedir em até {r.campanhas.dias} dias (
+                  {pct(r.campanhas.voltaram, r.campanhas.receberam)})
+                  {r.campanhas.controle
+                    ? `; do grupo de controle, ${r.campanhas.controle.voltaram} de ${r.campanhas.controle.base} (${pct(r.campanhas.controle.voltaram, r.campanhas.controle.base)}).`
+                    : '.'}
+                </p>
+                {r.campanhas.controle?.pouco && (
+                  <p className="text-xs">Grupo de controle com menos de 100 clientes: a diferença ainda varia muito.</p>
+                )}
+                {!r.campanhas.controle && (
+                  <p className="text-xs">
+                    Para comparar com quem não recebeu, ligue "Grupo de controle das campanhas (10%)" em Delivery › Marketing › Automáticas ›
+                    Para todas as automáticas. Vale para as próximas campanhas.
+                  </p>
+                )}
+              </div>
             ) : (
               <p className="text-sm text-secondary-foreground">Nenhuma campanha com prêmio surpresa saiu neste período.</p>
             )}

@@ -34,7 +34,7 @@
 
 - **Clube — os resultados (20/11; SEM migration; fase A4 do `docs/plano-clube-e-banner.md`).** Marketing › Clube ›
   Resultados: o período, os prêmios dados, revelados e usados, o desconto, o vendido e as campanhas com prêmio (quem voltou
-  em 15 dias). Só na nuvem e só leitura: no `.zip` só por acompanhar o código.
+  em 15 dias, contra o grupo de controle desde 21/11). Só na nuvem e só leitura: no `.zip` só por acompanhar o código.
 
 - **Mister versão 6, M6k lote 4 — os 7 últimos assuntos do "como faço", com imagem; M6k completa (20/11; SEM
   migration).** O guia é da nuvem; vai no `.zip` a correção da Visão C&O (ERR-550: "carregando" × "não li" × "nenhuma"),
