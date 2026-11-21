@@ -46,6 +46,14 @@ describe('as regras do banner com IA', () => {
     expect(conferirPedidoDoBanner({ pedido: 'a', chave: CHAVE, textoPelaIa: 'false' }).textoPelaIa).toBe(false);
   });
 
+  it('"A IA escreve" sem Título nem Chamada é recusado antes de gastar; com um dos dois, ou com o texto por cima, passa', () => {
+    const frase = 'preencha o Título ou a Chamada';
+    expect(() => conferirPedidoDoBanner({ pedido: 'a', chave: CHAVE, textoPelaIa: 'true' })).toThrow(frase);
+    expect(() => conferirPedidoDoBanner({ pedido: 'a', chave: CHAVE, textoPelaIa: true, titulo: '   ', chamada: '' })).toThrow(frase);
+    expect(conferirPedidoDoBanner({ pedido: 'a', chave: CHAVE, textoPelaIa: 'true', chamada: 'Só hoje' }).chamada).toBe('Só hoje');
+    expect(conferirPedidoDoBanner({ pedido: 'a', chave: CHAVE, textoPelaIa: 'false' }).titulo).toBeNull();
+  });
+
   it('por padrão a IA não escreve; com "A IA escreve", leva exatamente o título e a chamada; com foto, mantém o produto', () => {
     const base = { pedido: 'hambúrguer', chave: CHAVE, textoPelaIa: false, titulo: 'Sextou', chamada: 'Só hoje' };
     const semTexto = textoParaAImagem(base, false);

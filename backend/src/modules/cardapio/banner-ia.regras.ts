@@ -76,7 +76,10 @@ export function conferirPedidoDoBanner(corpo: Record<string, unknown> | null | u
   const chamada = limpo(c.chamada);
   if (titulo.length > TITULO_DO_BANNER_MAX) throw new BadRequestException(`O título passa de ${TITULO_DO_BANNER_MAX} letras.`);
   if (chamada.length > CHAMADA_DO_BANNER_MAX) throw new BadRequestException(`A chamada passa de ${CHAMADA_DO_BANNER_MAX} letras.`);
-  return { pedido, chave, textoPelaIa: c.textoPelaIa === true || c.textoPelaIa === 'true', titulo: titulo || null, chamada: chamada || null };
+  const textoPelaIa = c.textoPelaIa === true || c.textoPelaIa === 'true';
+  // "A IA escreve" sem nada para escrever sairia sem letras e gastaria a franquia: recusa antes de chamar o Graph.
+  if (textoPelaIa && !titulo && !chamada) throw new BadRequestException('Para a IA escrever na imagem, preencha o Título ou a Chamada.');
+  return { pedido, chave, textoPelaIa, titulo: titulo || null, chamada: chamada || null };
 }
 
 /** O texto que vai ao modelo de imagem. Com foto, ela é a referência: o produto real não vira outro. */

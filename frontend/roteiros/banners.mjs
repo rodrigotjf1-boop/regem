@@ -142,6 +142,16 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
       await g.getByRole('button', { name: 'Melhorar o pedido' }).click();
       await g.getByText('Você escreveu:').waitFor({ timeout: 5000 });
       ok((await g.getByLabel('O que você quer no banner').inputValue()) === MELHORADO, `${w}px · "Melhorar o pedido" troca o texto e mostra o que a pessoa escreveu`);
+      // "A IA escreve" sem Título nem Chamada: a tela pede o texto e o "Criar banner" não gasta a franquia
+      await g.getByRole('button', { name: 'A IA escreve na imagem' }).click();
+      const avisoDoTexto = g.getByText('Preencha o Título ou a Chamada');
+      await avisoDoTexto.waitFor({ timeout: 3000 });
+      achados = await medir(page);
+      ok(achados.length === 0 && (await g.getByRole('button', { name: 'Criar banner' }).isDisabled()) && criados.length === 0, `${w}px · "A IA escreve" sem texto: pede o texto, sem criar e sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      await g.getByLabel('Chamada', { exact: true }).fill('Só hoje');
+      await avisoDoTexto.waitFor({ state: 'hidden', timeout: 3000 });
+      ok(await g.getByRole('button', { name: 'Criar banner' }).isEnabled(), `${w}px · "A IA escreve" com a Chamada: libera o "Criar banner"`);
+      await g.getByRole('button', { name: 'Por cima, escrito pelo Regem' }).click();
       await g.getByLabel('Título', { exact: true }).fill(TITULO_LONGO);
       await g.getByLabel('Chamada', { exact: true }).fill(CHAMADA_LONGA);
       achados = await medir(page);
