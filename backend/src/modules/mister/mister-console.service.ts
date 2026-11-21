@@ -161,6 +161,15 @@ export class MisterConsoleService {
     return this.numero.liberacao(dto, autor);
   }
 
+  /** Versão 6, M6b (A1.0, mig 484): a conferência do aparelho, que só observa. */
+  aparelho() {
+    return this.numero.conferenciaDoAparelho();
+  }
+
+  mudarAparelho(dto: unknown, autor: Autor) {
+    return this.numero.mudarConferenciaDoAparelho(dto, autor);
+  }
+
   /** Os modelos de mensagem do Mister e a situação de cada um na Meta (lida ao vivo). */
   modelos() {
     return this.numero.modelosNaMeta();

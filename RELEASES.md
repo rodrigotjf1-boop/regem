@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6b (A1.0) — a conferência do aparelho, só observando (21/11; mig 484 só nuvem, JÁ APLICADA).** Só na
+  nuvem (o Mister e o console): vai no `.zip` sem efeito na loja. `mister_numero` e `mister_vinculo` já estão em `SO_NUVEM`.
+
 - **Mister: o valor em reais que a consulta escreveu em texto tem origem; a avaliação com 49 perguntas (21/11; SEM
   migration; ERR-553).** Só na nuvem (o Mister): vai no `.zip` sem efeito na loja.
 

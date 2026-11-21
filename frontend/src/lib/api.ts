@@ -679,6 +679,9 @@ export const distApi = {
   misterPessoas: (empresa: string) => distReq(`/distribuicao/mister/pessoas?empresa=${encodeURIComponent(empresa)}`),
   misterDesligarPessoa: (empresa: string, colaborador: string, motivo: string, encerrarSessoes = false) =>
     distReq('/distribuicao/mister/pessoas/desligar', { method: 'POST', body: JSON.stringify({ empresa, colaborador, motivo, encerrarSessoes }) }),
+  // Versão 6, M6b (A1.0, mig 484): a conferência do aparelho, que só observa.
+  misterAparelho: () => distReq('/distribuicao/mister/aparelho'),
+  misterMudarAparelho: (ligado: boolean) => distReq('/distribuicao/mister/aparelho', { method: 'POST', body: JSON.stringify({ ligado }) }),
   misterConectar: (dto: { code: string; phoneNumberId: string; wabaId: string; forma: 'coexistencia' | 'api'; pin?: string }) =>
     distReq('/distribuicao/mister/numero/conectar', { method: 'POST', body: JSON.stringify(dto) }),
   misterDesconectar: () => distReq('/distribuicao/mister/numero/desconectar', { method: 'POST', body: '{}' }),

@@ -12,6 +12,7 @@ import { pessoaVale } from './mister-vinculo.service';
 import { ToqueNoModelo, toqueNoModelo } from './mister-modelos';
 import { TEXTOS_DA_PROPOSTA } from './mister-procedimentos';
 import { TEXTOS_DA_MIDIA } from './mister-midia.regras';
+import { hashDoRemetente } from './mister-aparelho';
 import {
   CODIGOS_ERRADOS_JANELA_MIN,
   CODIGOS_ERRADOS_MAX,
@@ -240,6 +241,12 @@ export class MisterEntradaService {
         // M3a: a foto (`type: image`) ou o arquivo (`type: document`) — o conteúdo se baixa pelo id.
         midia: midiaDaMeta(m),
       };
+      // Versão 6, M6b (A1.0, mig 484): só ANOTA o hash do aparelho, antes de tratar (a mensagem que liga o telefone não
+      // conta, porque o vínculo ainda não existe). Falhar aqui nunca impede a resposta.
+      const aparelho = hashDoRemetente(valor?.contacts, m?.from);
+      if (aparelho && entrada.telefone) {
+        await this.numero.anotarAparelho(entrada.telefone, aparelho).catch((e) => this.logger.warn(`anotar o aparelho falhou: ${e?.message ?? e}`));
+      }
       try {
         const desfecho = await this.receber(entrada);
         this.logger.log(`mister de=${mascarar(entrada.telefone)} tipo=${m?.type} id=${m?.id} → ${desfecho}`);
