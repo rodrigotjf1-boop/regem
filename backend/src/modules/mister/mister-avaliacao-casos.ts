@@ -19,7 +19,7 @@ import { conferirMemoria } from './mister-memoria';
 import { canalDito, conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
 import { AVISOS_QUE_NAO_SE_CALAM, conferirRegra, descreverRegra } from './mister-regra';
 import { lerPedidos } from './mister-lista';
-import { conferirAcao, resumoDoPedido } from './mister-acoes';
+import { conferirAcao, resumoDoPedido, sigaDaAcao } from './mister-acoes';
 import { ehTipoDeAviso } from './mister-avisos.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -304,7 +304,7 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       if ('erro' in c) return recusa(c.erro);
       const p = c.parametros;
       const resumo = p.acao === 'aceitar_pedido' || p.acao === 'pedido_pronto' || p.acao === 'despachar_pedido' ? resumoDoPedido(p.acao, `#${p.numero}`) : c.resumo;
-      return ok({ oQueVouFazer: resumo, siga: 'Mostre o "oQueVouFazer" como veio e diga que os botões "Autorizar" e "Não agora" chegam logo abaixo. Nada é feito sem o "Autorizar". Não diga que fez.' });
+      return ok({ oQueVouFazer: resumo, siga: sigaDaAcao(p.acao) });
     }
     case 'lista_de_compras': {
       // Versão 6, M6g: a mesma leitura das linhas da de verdade; na avaliação nenhuma lista é guardada nem pedida.
@@ -790,6 +790,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c52', pergunta: 'Quantas horas a Bruna trabalhou neste mês?', consultas: ['faltas_e_horas'], numeros: ['132h|132 h|132 horas'] },
   // Versão 6, M6j lote 6: os clientes só em números.
   { id: 'c53', pergunta: 'Quantos clientes estão em risco?', consultas: ['clientes_em_numeros'], numeros: ['57'] },
+  // Versão 6, M6l: a imagem mostra o pedido antes e espera o "Gerar".
+  { id: 'c54', pergunta: 'Faz um cartaz vertical da promoção de terça: smash duplo + batata por R$ 29,90.', consultas: ['propor_acao'], contem: ['Gerar'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

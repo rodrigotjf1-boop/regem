@@ -3,7 +3,10 @@ import {
   ACOES,
   ACOES_DO_MISTER,
   canaisDoProduto,
+  PEDIDO_DA_IMAGEM_MAX,
   conferirAcao,
+  pareceDadoPessoal,
+  sigaDaAcao,
   ehAcaoDoMister,
   lerCanal,
   lerCanalDoProduto,
@@ -23,7 +26,7 @@ const AGORA = instanteDeSaoPaulo('2026-11-20T20:00')!;
 describe('Mister · ações — o catálogo e os canais', () => {
   it('os lotes 1 e 2: de botão, cada uma pela permissão da rota da tela', () => {
     expect([...ACOES_DO_MISTER]).toEqual([
-      'pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa',
+      'pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa', 'criar_imagem',
     ]);
     expect(ACOES.criar_tarefa).toMatchObject({ nivel: 'botao', permissao: 'checklist' });
     for (const a of ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] as const)
@@ -152,5 +155,30 @@ describe('Mister · ações (lote 3) — criar a tarefa de hoje', () => {
     expect(conferirAcao('criar_tarefa', { titulo: 'Repor guardanapos', funcao: 'Salão', horario: '18h30' }, AGORA)).toEqual({ erro: 'O horário da tarefa vai em HH:MM (por exemplo 15:30).' });
     expect(conferirAcao('criar_tarefa', { titulo: 'R', funcao: 'Salão' }, AGORA)).toEqual({ erro: 'Diga o título da tarefa (de 2 a 120 letras).' });
     expect(conferirAcao('criar_tarefa', { titulo: 'Repor guardanapos', funcao: 'Salão' }, AGORA)).toMatchObject({ parametros: { horario: null, responsavel: null } });
+  });
+});
+
+describe('Mister · ações (M6l) — a imagem', () => {
+  const PEDIDO = "Cartaz vertical da terça do smash. Foto de um smash duplo com batata, fundo escuro, luz quente. Texto exato: \"TERÇA DO SMASH\" e \"Smash duplo + batata · R$ 29,90\".";
+  it('o pedido vale como veio, com a proporção; sem dizer, 1:1', () => {
+    expect(conferirAcao('criar_imagem', { pedidoDaImagem: PEDIDO, proporcao: '9:16' }, AGORA)).toEqual({ parametros: { acao: 'criar_imagem', pedido: PEDIDO, proporcao: '9:16' }, resumo: PEDIDO });
+    expect(conferirAcao('criar_imagem', { pedidoDaImagem: PEDIDO }, AGORA)).toMatchObject({ parametros: { proporcao: '1:1' } });
+    expect(ACOES.criar_imagem).toMatchObject({ nivel: 'botao', permissao: 'delivery', prazoMin: 30 });
+  });
+  it('pedido curto, longo ou com proporção que não existe volta à pessoa', () => {
+    expect(conferirAcao('criar_imagem', { pedidoDaImagem: 'um cartaz' }, AGORA)).toHaveProperty('erro');
+    expect(conferirAcao('criar_imagem', { pedidoDaImagem: 'x'.repeat(PEDIDO_DA_IMAGEM_MAX + 1) }, AGORA)).toHaveProperty('erro');
+    expect(conferirAcao('criar_imagem', { pedidoDaImagem: PEDIDO, proporcao: '4:3' }, AGORA)).toHaveProperty('erro');
+  });
+  it('telefone, e-mail, CPF e CNPJ não vão à IA de imagem; preço, data e @ da loja vão', () => {
+    for (const t of ['ligue (21) 99999-0000', 'fale em dono@loja.com.br', 'CPF 123.456.789-09', 'CNPJ 12.345.678/0001-95'])
+      expect(pareceDadoPessoal(t)).toBe(true);
+    for (const t of ['R$ 29,90 ou R$ 39,90', 'válido até 25/11/2026', 'siga @mister.burger', 'combo 2 por 1'])
+      expect(pareceDadoPessoal(t)).toBe(false);
+    expect(conferirAcao('criar_imagem', { pedidoDaImagem: `${PEDIDO} Peça pelo (21) 99999-0000.` }, AGORA)).toHaveProperty('erro');
+  });
+  it('a instrução para a IA diz os botões certos de cada ação', () => {
+    expect(sigaDaAcao('criar_imagem')).toContain('"Gerar" e "Mudar"');
+    expect(sigaDaAcao('pausar_canal')).toContain('"Autorizar" e "Não agora"');
   });
 });

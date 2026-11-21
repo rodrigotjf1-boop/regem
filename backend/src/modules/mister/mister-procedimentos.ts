@@ -8,7 +8,7 @@
 
 import type { TipoDeAviso } from './mister-avisos.regras';
 import { compararVersao } from '../edge/release-selecao';
-import { ACOES, type AcaoDoMister } from './mister-acoes';
+import { ACOES, TEXTOS_DAS_ACOES, type AcaoDoMister } from './mister-acoes';
 
 // Versão 6, M6j: as AÇÕES da porta `propor_acao` (`mister-acoes.ts`) também são propostas — de botão, de quem pediu.
 export type ProcedimentoDoMister = 'consultar_nota' | 'imprimir_teste' | 'cancelar_pedido' | 'reiniciar_impressao' | 'abrir_sessao' | AcaoDoMister;
@@ -126,15 +126,17 @@ export function lerBotao(botaoId: unknown): { propostaId: string; autorizar: boo
   const m = /^prop:([0-9a-f-]{36}):(sim|nao)$/i.exec(String(botaoId ?? ''));
   return m && UUID.test(m[1]) ? { propostaId: m[1].toLowerCase(), autorizar: m[2].toLowerCase() === 'sim' } : null;
 }
-export const botoesDaProposta = (propostaId: string) => [
-  { id: idDoBotao(propostaId, true), titulo: BOTOES_DA_PROPOSTA.autorizar },
-  { id: idDoBotao(propostaId, false), titulo: BOTOES_DA_PROPOSTA.naoAgora },
+export const botoesDaProposta = (propostaId: string, titulos: { autorizar: string; naoAgora: string } = BOTOES_DA_PROPOSTA) => [
+  { id: idDoBotao(propostaId, true), titulo: titulos.autorizar },
+  { id: idDoBotao(propostaId, false), titulo: titulos.naoAgora },
 ];
 
 /** As respostas ao toque. */
 export const TEXTOS_DA_PROPOSTA = {
   autorizada: (p: ProcedimentoDoMister) =>
-    p in ACOES
+    p === 'criar_imagem'
+      ? TEXTOS_DAS_ACOES.imagemGerando
+      : p in ACOES
       ? 'Autorizado. Fazendo agora…'
       : p === 'consultar_nota'
         ? 'Autorizado. Consultando a SEFAZ…'

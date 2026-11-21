@@ -17,11 +17,15 @@ import {
   ACOES,
   AcaoDoMister,
   CanalDoProduto,
+  BOTOES_DA_IMAGEM,
   ParametrosDaAcao,
+  type ProporcaoDaImagem,
   TEXTOS_DAS_ACOES,
   canaisDoProduto,
   conferirAcao,
   ehAcaoDoMister,
+  imagemLigada,
+  sigaDaAcao,
   nomeDoEstadoDaTarefa,
   nomesDosCanais,
   ondeOProduto,
@@ -34,6 +38,7 @@ import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from 
 import { MisterNumeroService } from './mister-numero.service';
 import { botoesDaProposta } from './mister-procedimentos';
 import { MisterPropostasService } from './mister-propostas.service';
+import { GraphImagemService } from '../graph/graph-imagem.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -85,6 +90,8 @@ export class MisterAcoesService implements OnModuleInit {
     @Optional() private readonly produtos?: ProdutoService,
     // Lote 3: a definição da tarefa (a primeira etapa do "Nova tarefa" da tela).
     @Optional() private readonly defs?: TarefaDefService,
+    // M6l: a imagem pelo DMS Graph (módulo só da nuvem).
+    @Optional() private readonly imagens?: GraphImagemService,
   ) {}
 
   onModuleInit(): void {
@@ -102,6 +109,7 @@ export class MisterAcoesService implements OnModuleInit {
       if ('erro' in c) return recusa(c.erro);
       const def = ACOES[c.parametros.acao];
       if (e.nivel !== 'presidente' && !podeAcessar(e.permissoes, def.permissao)) return recusa(semPermissaoDe(def.permissao));
+      if (c.parametros.acao === 'criar_imagem' && !imagemLigada()) return recusa(TEXTOS_DAS_ACOES.imagemDesligada);
       if (this.numero && (await this.numero.ler()).provedor === 'evolution') return recusa(TEXTOS_DAS_ACOES.semBotao);
       // A loja: a da conversa (o gerente, a dele); a empresa de uma loja só, ela.
       const lojas = loja.atual ? [loja.atual] : e.lojas.map((l) => l.id);
@@ -174,15 +182,21 @@ export class MisterAcoesService implements OnModuleInit {
           return recusa('A empresa tem mais de um cardápio digital: diga de qual loja é a pausa.');
         }
       }
+      // M6l: cada pedido de imagem é um alvo (o mesmo pedido repetido é a mesma proposta e não paga de novo).
+      if (c.parametros.acao === 'criar_imagem') alvo = `${c.parametros.proporcao}:${c.parametros.pedido}`;
       const p = await this.gravar(e, c.parametros.acao, unidadeId, parametros, `${alvo}:${unidadeId ?? 'empresa'}`);
       if (!p) return recusa('Essa mesma ação já foi autorizada e está em andamento; o resultado chega na conversa.');
       return {
         ok: true,
         dados: {
           oQueVouFazer: resumo,
-          siga: 'Mostre o "oQueVouFazer" como veio e diga que os botões "Autorizar" e "Não agora" chegam logo abaixo. Nada é feito sem o "Autorizar". Não diga que fez.',
+          siga: sigaDaAcao(c.parametros.acao),
         },
-        mensagens: [{ texto: TEXTOS_DAS_ACOES.pergunta(resumo, def.prazoMin), botoes: botoesDaProposta(p) }],
+        mensagens: [
+          c.parametros.acao === 'criar_imagem'
+            ? { texto: TEXTOS_DAS_ACOES.perguntaDaImagem(resumo, def.prazoMin), botoes: botoesDaProposta(p, BOTOES_DA_IMAGEM) }
+            : { texto: TEXTOS_DAS_ACOES.pergunta(resumo, def.prazoMin), botoes: botoesDaProposta(p) },
+        ],
       };
     } catch (err: any) {
       if (semTabela(err)) return recusa('As ações do Mister ainda não estão disponíveis neste servidor.');
@@ -305,6 +319,33 @@ export class MisterAcoesService implements OnModuleInit {
     return p?.id ?? null;
   }
 
+  /**
+   * M6l: a imagem pelo DMS Graph (a porta única do Regem, `GraphImagemService`, que nunca lança). A chave é a proposta: repetir
+   * não paga de novo. Só é "feito" com a imagem ENTREGUE na conversa de quem pediu.
+   */
+  private async gerarImagem(
+    p: { id: string; tenantId: string; autorizadaPor: string | null },
+    a: { pedido: string; proporcao: ProporcaoDaImagem },
+  ): Promise<{ feita: boolean; texto: string }> {
+    if (!imagemLigada() || !this.imagens || !this.numero) return { feita: false, texto: 'a criação de imagem não está ligada. Nada foi gerado.' };
+    const r = await this.imagens.criarImagem(p.tenantId, { descricao: a.pedido, proporcao: a.proporcao, formato: 'jpeg', chave: `mister:${p.id}` });
+    if (!r.ok) return { feita: false, texto: r.mensagem.charAt(0).toLowerCase() + r.mensagem.slice(1) };
+    const [v] = linhas(
+      await this.db.execute(sql`
+        select telefone from mister_vinculo
+         where tenant_id = ${p.tenantId}::uuid and colaborador_id = ${p.autorizadaPor}::uuid and ligado_em is not null and telefone is not null`),
+    );
+    if (!v?.telefone) return { feita: false, texto: 'o seu WhatsApp não está mais ligado ao Mister. A imagem não foi enviada.' };
+    try {
+      await this.numero.enviarImagem(v.telefone, r.bytes, '', r.mimeType);
+    } catch (err: any) {
+      this.logger.warn(`a imagem da proposta ${p.id} não saiu pelo WhatsApp: ${String(err?.message ?? err).slice(0, 200)}`);
+      return { feita: false, texto: 'a imagem foi gerada, mas não consegui mandar por aqui. Peça de novo.' };
+    }
+    const franquia = r.franquia ? ` São ${r.franquia.usados} de ${r.franquia.total} imagens neste mês.` : '';
+    return { feita: true, texto: `A imagem está logo acima.${franquia} Para mudar, me diga o que trocar.` };
+  }
+
   // ───────────────────────────── executar ─────────────────────────────
 
   /**
@@ -326,6 +367,7 @@ export class MisterAcoesService implements OnModuleInit {
     const user: AuthUser = { tenantId: p.tenantId, colaboradorId: quem, categoria: e.nivel, unidadeId: e.nivel === 'presidente' ? null : (p.unidadeId ?? null), nome: e.nome ?? null } as AuthUser;
     const motivo = (err: any) => String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240);
     try {
+      if (parametros.acao === 'criar_imagem') return await this.gerarImagem(p, parametros);
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };
         if (parametros.acao === 'pausar_canal') {

@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6l parte 1 — criar uma imagem pelo DMS Graph (21/11; SEM migration; nasce desligada em
+  `MISTER_CRIAR_IMAGEM`).** Só na nuvem (o Mister): vai no `.zip` sem efeito na loja.
+
 - **Mister: a diferença entre períodos sai pronta da consulta e a lista de contas avisa quando é parcial (21/11; SEM
   migration).** Só na nuvem (o Mister): vai no `.zip` sem efeito na loja.
 

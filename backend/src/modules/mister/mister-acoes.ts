@@ -31,6 +31,8 @@ export const ACOES_DO_MISTER = [
   'reativar_produto',
   // Lote 3: criar a tarefa de hoje.
   'criar_tarefa',
+  // M6l: uma imagem pelo DMS Graph (cartaz, post), com o pedido mostrado antes.
+  'criar_imagem',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -60,7 +62,26 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   reativar_produto: { id: 'reativar_produto', nivel: 'botao', permissao: 'loja', prazoMin: 10, nome: 'reativar um produto' },
   // Lote 3: a permissão das rotas `POST /tarefas` e `POST /tarefas-instancias/instanciar` (Checklist & registros).
   criar_tarefa: { id: 'criar_tarefa', nivel: 'botao', permissao: 'checklist', prazoMin: 10, nome: 'criar uma tarefa para hoje' },
+  // M6l: quem cuida do Delivery e do Marketing; vale por 30 minutos, para dar tempo de ler o pedido.
+  criar_imagem: { id: 'criar_imagem', nivel: 'botao', permissao: 'delivery', prazoMin: 30, nome: 'criar uma imagem' },
 };
+
+// ───────────────────────────── M6l: a imagem ─────────────────────────────
+
+/** Nasce desligada: quem liga é o dono, com `MISTER_CRIAR_IMAGEM=1` (a imagem é paga, pela franquia do DMS Graph). */
+export const imagemLigada = (): boolean => process.env.MISTER_CRIAR_IMAGEM === '1';
+export const PROPORCOES_DA_IMAGEM = ['1:1', '9:16', '16:9'] as const;
+export type ProporcaoDaImagem = (typeof PROPORCOES_DA_IMAGEM)[number];
+/** O pedido vai no corpo da mensagem com botões, que a Meta limita a 1.024 letras. */
+export const PEDIDO_DA_IMAGEM_MAX = 800;
+export const BOTOES_DA_IMAGEM = { autorizar: 'Gerar', naoAgora: 'Mudar' } as const;
+/** Telefone, CPF ou CNPJ (10 dígitos ou mais em sequência) e e-mail não vão à IA de imagem. */
+export const pareceDadoPessoal = (t: string): boolean => /[^\s@]+@[^\s@]+\.[^\s@]+/.test(t) || /(?:\d[\s().\/-]*){10,}/.test(t);
+/** O que a IA faz com a resposta da ação. */
+export const sigaDaAcao = (acao: AcaoDoMister): string =>
+  acao === 'criar_imagem'
+    ? 'Mostre o "oQueVouFazer" como veio, entre aspas, e diga que os botões "Gerar" e "Mudar" chegam logo abaixo e que usa 1 da franquia de imagens do mês. Nada é gerado sem o "Gerar". Não diga que gerou.'
+    : 'Mostre o "oQueVouFazer" como veio e diga que os botões "Autorizar" e "Não agora" chegam logo abaixo. Nada é feito sem o "Autorizar". Não diga que fez.';
 
 // ───────────────────────────── lote 2: a tarefa e o produto ─────────────────────────────
 
@@ -118,7 +139,8 @@ export type ParametrosDaAcao =
   | { acao: 'aceitar_pedido' | 'pedido_pronto' | 'despachar_pedido'; numero: string }
   | { acao: 'concluir_tarefa'; tarefa: string; estado: EstadoDaTarefa; justificativa: string | null }
   | { acao: 'pausar_produto' | 'reativar_produto'; produto: string; canais: CanalDoProduto[] | null }
-  | { acao: 'criar_tarefa'; titulo: string; funcao: string; horario: string | null; responsavel: string | null };
+  | { acao: 'criar_tarefa'; titulo: string; funcao: string; horario: string | null; responsavel: string | null }
+  | { acao: 'criar_imagem'; pedido: string; proporcao: ProporcaoDaImagem };
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -188,6 +210,15 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
       resumo: `Criar para hoje a tarefa "${titulo}"${horario ? ` às ${horario}` : ''}, da função ${funcao}${responsavel ? `, para ${responsavel}` : ''}.`,
     };
   }
+  if (acao === 'criar_imagem') {
+    const pedido = String(en.pedidoDaImagem ?? '').trim().replace(/[ \t]+/g, ' ');
+    if (pedido.length < 20 || pedido.length > PEDIDO_DA_IMAGEM_MAX)
+      return { erro: `Escreva o pedido da imagem completo (o que aparece, o texto exato, o estilo e as cores), de 20 a ${PEDIDO_DA_IMAGEM_MAX} letras.` };
+    if (pareceDadoPessoal(pedido)) return { erro: 'O pedido da imagem não pode levar telefone, e-mail, CPF ou CNPJ. Tire isso e mande de novo.' };
+    const proporcao = String(en.proporcao ?? '1:1') as ProporcaoDaImagem;
+    if (!PROPORCOES_DA_IMAGEM.includes(proporcao)) return { erro: 'A proporção é 1:1 (feed), 9:16 (story ou cartaz vertical) ou 16:9 (horizontal).' };
+    return { parametros: { acao, pedido, proporcao }, resumo: pedido };
+  }
   const numero = String(en.numero ?? '').trim().replace(/^#/, '');
   if (!numero || numero.length > 40) return { erro: 'Diga o número do pedido como aparece no painel do Delivery.' };
   return { parametros: { acao, numero }, resumo: '' };
@@ -223,6 +254,10 @@ export function pedidoAndou(acao: 'aceitar_pedido' | 'pedido_pronto' | 'despacha
 export const TEXTOS_DAS_ACOES = {
   pergunta: (resumo: string, prazo: number) => `${resumo}\n\nAutorizo? A pergunta vale por ${prazo} minutos.`,
   autorizada: 'Autorizado. Fazendo agora…',
+  perguntaDaImagem: (pedido: string, prazo: number) => `Vou pedir assim:\n\n${pedido}\n\nGero assim? Usa 1 da franquia de imagens do mês. A pergunta vale por ${prazo} minutos.`,
+  imagemDesligada: 'A criação de imagem ainda não está ligada nesta instalação.',
+  imagemGerando: 'Gerando a imagem. Pode levar até um minuto, e ela chega aqui.',
+  imagemMudar: 'Certo, não gerei. Me diga o que mudar no pedido.',
   semPermissao: 'O seu perfil no Regem não dá acesso ao Delivery: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
   soGestor: 'Só o presidente e o gerente fazem ações pelo Mister.',
   semBotao: 'Pela conexão por QR Code a ação não tem o botão "Autorizar". Faça no Regem, no painel do Delivery.',

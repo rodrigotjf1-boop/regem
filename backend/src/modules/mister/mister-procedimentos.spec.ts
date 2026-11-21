@@ -37,7 +37,7 @@ describe('o catálogo das propostas do Mister', () => {
     for (const p of Object.values(PROCEDIMENTOS)) {
       // M6d: a sessão com PIN também é de PIN, vale 15 minutos e nasce da conversa.
       if (p.id === 'cancelar_pedido' || p.id === 'abrir_sessao') expect(p).toMatchObject({ nivel: 'pin', prazoMin: 15, tipoDoAviso: null });
-      else expect(p).toMatchObject({ nivel: 'botao', prazoMin: 10 });
+      else expect(p).toMatchObject({ nivel: 'botao', prazoMin: p.id === 'criar_imagem' ? 30 : 10 });
       // M6j: as ações da porta `propor_acao` são de botão e nascem da conversa (de quem pediu), não de um aviso.
       if (p.nivel === 'botao') expect(p.tipoDoAviso === null).toBe(ehAcaoDoMister(p.id));
       expect(p.conferirMin).toBeGreaterThan(0);
@@ -45,8 +45,9 @@ describe('o catálogo das propostas do Mister', () => {
   });
 
   it('M6j: as ações entram no catálogo das propostas, com a frase do autorizado e a da recusa sem aviso por trás', () => {
-    for (const a of ACOES_DO_MISTER) expect(PROCEDIMENTOS[a]).toMatchObject({ id: a, nivel: 'botao', tipoDoAviso: null, prazoMin: 10 });
+    for (const a of ACOES_DO_MISTER) expect(PROCEDIMENTOS[a]).toMatchObject({ id: a, nivel: 'botao', tipoDoAviso: null, prazoMin: a === 'criar_imagem' ? 30 : 10 });
     expect(TEXTOS_DA_PROPOSTA.autorizada('pausar_canal')).toBe('Autorizado. Fazendo agora…');
+    expect(TEXTOS_DA_PROPOSTA.autorizada('criar_imagem')).toBe('Gerando a imagem. Pode levar até um minuto, e ela chega aqui.');
     expect(TEXTOS_DA_PROPOSTA.autorizada('consultar_nota')).toBe('Autorizado. Consultando a SEFAZ…');
     expect(TEXTOS_DA_PROPOSTA.recusadaAcao).toBe('Certo, não faço nada.');
   });
