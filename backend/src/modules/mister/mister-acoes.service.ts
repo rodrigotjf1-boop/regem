@@ -34,6 +34,12 @@ import {
   type MudancaDePreco,
   resumoDoHorario,
   type MudancaDeHorario,
+  linhaDaConta,
+  resumoDaBaixa,
+  textoDaBaixaFeita,
+  type BaixaDeConta,
+  type DefinicaoDaAcao,
+  type FormaDaBaixa,
   sigaDaAcao,
   nomeDoEstadoDaTarefa,
   nomesDosCanais,
@@ -49,6 +55,8 @@ import { botoesDaProposta } from './mister-procedimentos';
 import { MisterPropostasService, type PropostaPendente } from './mister-propostas.service';
 import { GraphImagemService } from '../graph/graph-imagem.service';
 import { EstoqueService } from '../estoque/estoque.service';
+import { FinanceiroService } from '../financeiro/financeiro.service';
+import { sqlUnidade } from '../../common/filtro-unidade';
 import { ifoodPeloOrzuniLigado } from '../../common/ifood-pelo-orzuni';
 import { precosNa99Ligado } from '../../common/precos-na-99';
 import {
@@ -85,8 +93,10 @@ function escolherUm<T>(achados: any[], dito: string, nome: (a: any) => string, n
   return { erro: varios(achados.map((a) => `"${nome(a)}"`).join(', ')) };
 }
 /** A frase de quem não tem a permissão da ação (a mesma da rota da tela). */
-const semPermissaoDe = (p: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque') =>
-  p === 'estoque'
+const semPermissaoDe = (p: DefinicaoDaAcao['permissao']) =>
+  p === 'financeiro'
+    ? TEXTOS_DAS_ACOES.semPermissaoConta
+    : p === 'estoque'
     ? TEXTOS_DAS_ACOES.semPermissaoEstoque
     : p === 'meu_dia'
     ? TEXTOS_DAS_ACOES.semPermissaoTarefas
@@ -96,7 +106,7 @@ const semPermissaoDe = (p: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'esto
         ? TEXTOS_DAS_ACOES.semPermissaoChecklist
         : TEXTOS_DAS_ACOES.semPermissao;
 /** A MESMA conta do `PermissoesGuard`: o estoque é CRUD (a rota do movimento pede `editar`), os outros são chaves simples. */
-const temAPermissao = (perm: Permissoes | undefined | null, p: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque') =>
+const temAPermissao = (perm: Permissoes | undefined | null, p: DefinicaoDaAcao['permissao']) =>
   p === 'estoque' ? pode(perm, 'estoque', 'editar') : podeAcessar(perm, p);
 /** A permissão da ação: a da rota e, no preço, "Ver valores em R$" (o `exigirVerValores` da rota). O presidente pode tudo. */
 const podeFazer = (e: { nivel: string; permissoes?: Permissoes | null }, def: (typeof ACOES)[AcaoDoMister]) =>
@@ -124,6 +134,8 @@ export class MisterAcoesService implements OnModuleInit {
     @Optional() private readonly imagens?: GraphImagemService,
     // Lote 7: o movimento pelo MESMO serviço de Estoque › Produtos.
     @Optional() private readonly estoque?: EstoqueService,
+    // Lote 10: a baixa pelo MESMO serviço de Financeiro › Contas a pagar.
+    @Optional() private readonly financeiro?: FinanceiroService,
   ) {}
 
   onModuleInit(): void {
@@ -141,7 +153,9 @@ export class MisterAcoesService implements OnModuleInit {
       if ('erro' in c) return recusa(c.erro);
       const def = ACOES[c.parametros.acao];
       if (!podeFazer(e, def))
-        return recusa(def.id === 'mudar_horario' ? TEXTOS_DAS_ACOES.semPermissaoHorario : def.pedeVerValores ? TEXTOS_DAS_ACOES.semPermissaoPreco : semPermissaoDe(def.permissao));
+        return recusa(def.id === 'mudar_horario' ? TEXTOS_DAS_ACOES.semPermissaoHorario : def.id === 'mudar_preco' ? TEXTOS_DAS_ACOES.semPermissaoPreco : semPermissaoDe(def.permissao));
+      // Lote 10: quem autoriza dinheiro VÊ o valor. Com o PIN da sessão vencido, o link da sessão vai depois desta resposta.
+      if (c.parametros.acao === 'pagar_conta' && !e.verValores) return recusa(TEXTOS_DAS_ACOES.contaPedePin);
       if (c.parametros.acao === 'criar_imagem' && !imagemLigada()) return recusa(TEXTOS_DAS_ACOES.imagemDesligada);
       // A de PIN vai pelo link, que também sai pela conexão por QR Code (escrito na mensagem).
       if (def.nivel === 'botao' && this.numero && (await this.numero.ler()).provedor === 'evolution') return recusa(TEXTOS_DAS_ACOES.semBotao);
@@ -252,6 +266,16 @@ export class MisterAcoesService implements OnModuleInit {
         parametros.mudancaDeHorario = h.mudanca;
         resumo = resumoDoHorario(h.mudanca);
         alvo = `${h.unidadeDoCardapio ?? 'empresa'}:${h.coluna}`;
+      }
+      if (c.parametros.acao === 'pagar_conta') {
+        // Lote 10: uma proposta por conta. Pedir de novo troca a anterior, e o link dela para de valer.
+        const b = await this.prepararBaixa(e, c.parametros, loja.atual ?? e.presa ?? null);
+        if ('erro' in b) return recusa(b.erro);
+        unidadeId = b.unidadeId ?? unidadeId;
+        parametros.tituloId = b.id;
+        parametros.baixa = b.baixa;
+        resumo = resumoDaBaixa(b.baixa);
+        alvo = b.id;
       }
       // M6l: cada pedido de imagem é um alvo (o mesmo pedido repetido é a mesma proposta e não paga de novo).
       if (c.parametros.acao === 'criar_imagem') alvo = `${c.parametros.proporcao}:${c.parametros.pedido}`;
@@ -605,6 +629,90 @@ export class MisterAcoesService implements OnModuleInit {
     return { feita: true, texto: TEXTOS_DAS_ACOES.horarioFeito(m.dias.map((d) => `${NOMES_DOS_DIAS[d.dia]} ${textoDaJanela(d.para)}`).join('; ')) };
   }
 
+  /**
+   * Lote 10: a conta pelo nome, entre as a pagar em aberto da loja em uso (o filtro de `contas_a_pagar_e_receber`). Mexe com
+   * dinheiro: só passa com UMA conta achada (conta recorrente repete o nome, e o nome igual não decide) e com o valor dela.
+   */
+  private async prepararBaixa(
+    e: EscopoDoMister,
+    a: { conta: string; venceEm: string | null; forma: FormaDaBaixa; pagoEm: string | null; valorPago: number | null },
+    atual: string | null,
+  ): Promise<{ id: string; unidadeId: string | null; baixa: BaixaDeConta } | { erro: string }> {
+    const achados = linhas(
+      await this.db.execute(sql`
+        select t.id::text as id, t.unidade_id::text as "unidadeId", t.descricao, f.nome as fornecedor, t.valor::text as valor,
+               t.vencimento::text as vencimento, t.recorrencia
+          from titulo_financeiro t
+          left join fornecedor f on f.id = t.fornecedor_id
+         where t.tenant_id = ${e.tenantId}::uuid and t.tipo = 'pagar' and t.status = 'aberto' ${sqlUnidade('t.unidade_id', atual)}
+           and (t.descricao ilike ${comoTexto(a.conta)} or f.nome ilike ${comoTexto(a.conta)})
+           ${a.venceEm ? sql`and to_char(t.vencimento, 'DD/MM') = ${a.venceEm}` : sql``}
+         order by t.vencimento asc nulls last, t.created_at desc, t.id
+         limit 6`),
+    );
+    if (!achados.length) return { erro: TEXTOS_DAS_ACOES.contaNaoAchada };
+    if (achados.length > 1) {
+      if (a.venceEm) return { erro: TEXTOS_DAS_ACOES.contaRepetida };
+      const lista = achados.slice(0, 5).map((c) => linhaDaConta({ descricao: String(c.descricao).replace(/\s+/g, ' ').trim().slice(0, 60), valor: Number(c.valor), vencimento: c.vencimento ?? null }));
+      return { erro: TEXTOS_DAS_ACOES.contasDemais(lista.join('; ')) };
+    }
+    const t = achados[0];
+    const valor = Number(t.valor);
+    if (!(valor > 0)) return { erro: TEXTOS_DAS_ACOES.contaSemValor };
+    if (a.valorPago !== null && Math.round(a.valorPago * 100) !== Math.round(valor * 100)) return { erro: TEXTOS_DAS_ACOES.contaOutroValor(reaisDaAcao(valor)) };
+    return {
+      id: t.id,
+      unidadeId: t.unidadeId ?? null,
+      baixa: {
+        descricao: String(t.descricao).replace(/\s+/g, ' ').trim().slice(0, 80),
+        fornecedor: t.fornecedor ? String(t.fornecedor).slice(0, 60) : null,
+        valor,
+        vencimento: t.vencimento ?? null,
+        forma: a.forma,
+        // A data fica fixa na proposta: autorizar depois da meia-noite não muda o dia que a pessoa viu.
+        pagoEm: a.pagoEm ?? hojeISO(),
+        recorrente: !!t.recorrencia && t.recorrencia !== 'nenhuma',
+      },
+    };
+  }
+
+  /**
+   * Lote 10: a baixa pelo MESMO `FinanceiroService.pagar` da tela (uma vez só, pela troca condicional; ele lança a saída, cria a
+   * próxima recorrente e audita), com o valor que a pessoa viu. O "feito" só com a conta paga E a saída no caixa.
+   */
+  private async aplicarBaixa(
+    p: { id: string; tenantId: string },
+    a: { tituloId?: string; baixa?: BaixaDeConta },
+    e: { nivel: string; presa?: string | null },
+    quem: string,
+  ): Promise<{ feita: boolean; texto: string }> {
+    if (!this.financeiro || !a.tituloId || !a.baixa) return { feita: false, texto: 'o financeiro não está disponível agora. Nada foi lançado.' };
+    const b = a.baixa;
+    const centavos = Math.round(b.valor * 100);
+    const [t] = linhas(await this.db.execute(sql`select status, valor::text as valor from titulo_financeiro where id = ${a.tituloId}::uuid and tenant_id = ${p.tenantId}::uuid`));
+    if (!t || t.status !== 'aberto') return { feita: false, texto: TEXTOS_DAS_ACOES.contaNaoAberta };
+    if (Math.round(Number(t.valor) * 100) !== centavos) return { feita: false, texto: TEXTOS_DAS_ACOES.contaMudouDeValor(reaisDaAcao(Number(t.valor))) };
+    let proxima: string | null = null;
+    try {
+      const r: any = await this.financeiro.pagar(p.tenantId, quem, e.nivel, a.tituloId, { data: b.pagoEm, forma: b.forma, valor: b.valor }, e.presa ?? null);
+      proxima = r?.proximoVencimento ?? null;
+    } catch (err: any) {
+      const motivo = String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 200).replace(/[.\s]+$/, '');
+      this.logger.warn(`a baixa da proposta ${p.id} foi recusada: ${motivo}`);
+      return { feita: false, texto: TEXTOS_DAS_ACOES.contaRecusada(motivo) };
+    }
+    const [l] = linhas(
+      await this.db.execute(sql`
+        select t.status,
+               (select count(*)::int from lancamento_caixa c
+                 where c.tenant_id = t.tenant_id and c.titulo_id = t.id and c.tipo = 'saida' and c.estorno_de is null
+                   and round(c.valor * 100) = ${centavos} and c.data = ${b.pagoEm}::date and c.criado_por_id = ${quem}::uuid) as lancados
+          from titulo_financeiro t where t.id = ${a.tituloId}::uuid and t.tenant_id = ${p.tenantId}::uuid`),
+    );
+    if (l?.status !== 'pago' || !(Number(l?.lancados) > 0)) return { feita: false, texto: TEXTOS_DAS_ACOES.contaNaoFicou };
+    return { feita: true, texto: textoDaBaixaFeita(b, proxima) };
+  }
+
   /** Lote 7: o item de estoque pelo nome (o da ficha ou o comercial), da empresa ou das lojas da pessoa. */
   private async acharItem(tenantId: string, dito: string, lojas: string[] | null): Promise<{ id: string; nome: string; unidadeId: string | null; unidade: string } | { erro: string }> {
     const achados = linhas(
@@ -678,7 +786,7 @@ export class MisterAcoesService implements OnModuleInit {
     const e = await this.ferramentas.escopoDaTela(p.tenantId, quem);
     const def = ACOES[p.procedimento];
     if (!e || !podeFazer(e, def)) {
-      const a = def.id === 'mudar_horario' ? 'às configurações da loja' : def.pedeVerValores ? 'à mudança de preço' : def.permissao === 'meu_dia' ? 'às Tarefas' : def.permissao === 'loja' ? 'ao cadastro dos produtos' : def.permissao === 'estoque' ? 'ao lançamento do estoque' : 'ao Delivery';
+      const a = def.id === 'mudar_horario' ? 'às configurações da loja' : def.id === 'pagar_conta' ? 'ao Financeiro' : def.pedeVerValores ? 'à mudança de preço' : def.permissao === 'meu_dia' ? 'às Tarefas' : def.permissao === 'loja' ? 'ao cadastro dos produtos' : def.permissao === 'estoque' ? 'ao lançamento do estoque' : 'ao Delivery';
       return { feita: false, texto: `o seu perfil não dá mais acesso ${a}. Nada foi feito.` };
     }
     const parametros = p.parametros as ParametrosDaAcao & { pedidoId?: string; pedido?: string; instanciaId?: string; titulo?: string; produtoId?: string; nome?: string };
@@ -694,6 +802,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (parametros.acao === 'movimentar_estoque') return this.lancarEstoque(p, parametros as any, user);
     if (parametros.acao === 'mudar_preco') return this.aplicarPreco(p, parametros as any, { id: quem, perfil: e.nivel });
     if (parametros.acao === 'mudar_horario') return this.aplicarHorario(p, parametros as any, { id: quem, perfil: e.nivel });
+    if (parametros.acao === 'pagar_conta') return this.aplicarBaixa(p, parametros as any, e, quem);
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };
