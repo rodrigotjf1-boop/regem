@@ -162,6 +162,10 @@
   revela na página do pedido (`/r/…`) e vê "Prêmios para revelar" em Sua conta. Nasce desligado. A tabela entra como
   SO_NUVEM no `sync-daemon.mjs` (o `.exe` do próximo corte leva o daemon junto). Só na nuvem.
 
+- **"Início do mês" nas Automáticas (21/11; mig 486 SÓ NUVEM — `relacionamento_config.inicio_mes_ativo` e o tipo novo em
+  `ck_rel_envio_tipo`; F7.4c do `docs/plano-perfil-cliente.md`).** Delivery › Marketing › Automáticas ganha "Início do mês"
+  (com o perfil do cliente ligado; nasce desligada). Nenhuma tabela nova e nada muda no `sync-daemon.mjs`. Só na nuvem.
+
 - **"Viu e não pediu" na conversa do atendente (20/11; mig 481 SÓ NUVEM — `relacionamento_config.viu_ativo`,
   `cliente_lembrete_viu`; F7.4d do `docs/plano-perfil-cliente.md`).** Delivery › Marketing › Automáticas ganha "Viu e
   não pediu" (com o perfil do cliente ligado; nasce desligada): o atendente virtual sugere uma vez o produto que o cliente

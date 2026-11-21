@@ -6,10 +6,10 @@ import { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ehServidorLocal } from '../../common/modo';
 import { dataNoFuso, hojeISO, somarDias } from '../../common/data';
-import { FUSO_SQL } from '../../common/fuso-sql';
+import { FUSO_SQL, instanteDe } from '../../common/fuso-sql';
 import { sqlChaveTelefone, sqlPodeTerAChave } from '../../common/telefone-chave';
 import { saiuDoMarketing, sqlRecebeMarketing } from '../../common/marketing-quem-recebe';
-import { perfilLigado } from '../../common/segmentos-do-perfil';
+import { perfilLigado, sqlAceiteClicado, sqlTemAceiteClicado } from '../../common/segmentos-do-perfil';
 import { REGRAS_DO_PERFIL } from '../perfil-cliente/calculo-do-perfil';
 import { aniversarioValendoEntre, sqlOcorrenciaEntre, valePara } from '../../common/aniversario';
 import { descricaoDoCupom, validadeDoPresente } from '../aniversario/aniversario.service';
@@ -32,6 +32,9 @@ import {
   VOLTA_TENTATIVAS,
   VOLTA_VALIDADE,
   textoVoltaQr,
+  textoInicioMesQr,
+  janelaDoInicioDoMes,
+  diaDoProximoInicioDeMes,
   type AnivDesconto,
   type VoltaDesconto,
   CASHBACK_DIAS_ANTES,
@@ -76,23 +79,26 @@ export const MODELO_ANIV_PARABENS = 'aniversario_parabens';
 /** Os modelos de marketing do "sentimos sua falta": com o cupom e só o lembrete. */
 export const MODELO_VOLTA_CUPOM = 'volta_cupom';
 export const MODELO_VOLTA_LEMBRETE = 'volta_lembrete';
+/** O modelo de marketing do "Início do mês" (F7 parte 4c). */
+export const MODELO_INICIO_MES = 'inicio_mes';
 /** Quantas mensagens por minuto, por empresa: a API oficial aguenta; o QR vai devagar (protege o número). */
 const POR_MINUTO = { cloud: 10, evolution: 1 } as const;
 /** Quantos nomes a prévia mostra ("Ver quem"). */
 const NA_PREVIA = 5;
 const NA_PREVIA_ANIV = 8;
 
-export type Tipo = 'cashback' | 'aniversario' | 'volta';
+export type Tipo = 'cashback' | 'aniversario' | 'volta' | 'inicio_mes';
 /** O número que manda: o aviso do cashback é utilidade (o principal, como os avisos do pedido); o resto, o de marketing.
  *  A sincronização dos modelos confere cada um na conta deste número (`whatsapp/modelos-por-conta.ts` — o teste de lá
  *  cobra que as duas listas batam). */
-export const PAPEL: Record<Tipo, 'principal' | 'marketing'> = { cashback: 'principal', aniversario: 'marketing', volta: 'marketing' };
+export const PAPEL: Record<Tipo, 'principal' | 'marketing'> = { cashback: 'principal', aniversario: 'marketing', volta: 'marketing', inicio_mes: 'marketing' };
 /** A ordem da rotina: o que tem prazo primeiro (o limite do dia é de todas juntas). */
-const ORDEM: Tipo[] = ['cashback', 'aniversario', 'volta'];
+const ORDEM: Tipo[] = ['cashback', 'aniversario', 'volta', 'inicio_mes'];
 const LIGADA: Record<Tipo, (a: AjustesRelacionamento) => boolean> = {
   cashback: (a) => a.cashbackAtivo,
   aniversario: (a) => a.aniversarioAtivo,
   volta: (a) => a.voltaAtivo,
+  inicio_mes: (a) => a.inicioMesAtivo,
 };
 
 type Prontidao = { pronto: boolean; provedor: 'cloud' | 'evolution'; motivo?: string; instancia?: string | null; phoneId?: string | null; oferta: boolean };
@@ -155,6 +161,7 @@ export class RelacionamentoService {
       voltaPeloRitmo: 'volta_pelo_ritmo',
       grupoControle: 'grupo_controle',
       viuAtivo: 'viu_ativo',
+      inicioMesAtivo: 'inicio_mes_ativo',
     };
     const nomes = mudou.map((k) => sql.raw(colunas[k]));
     const valores = mudou.map((k) => sql`${parcial[k] as any}`);
@@ -206,6 +213,7 @@ export class RelacionamentoService {
   modeloDe(tipo: Tipo, a: AjustesRelacionamento): string {
     if (tipo === 'cashback') return MODELO_CASHBACK;
     if (tipo === 'volta') return a.voltaPresente === 'cupom' ? MODELO_VOLTA_CUPOM : MODELO_VOLTA_LEMBRETE;
+    if (tipo === 'inicio_mes') return MODELO_INICIO_MES;
     return a.aniversarioPresente === 'cupom' ? MODELO_ANIV_PRESENTE : MODELO_ANIV_PARABENS;
   }
 
@@ -260,7 +268,7 @@ export class RelacionamentoService {
 
   /** "Enviar à Meta" (só API oficial). O aniversário manda os dois modelos (com o presente e só os parabéns). */
   async enviarModelo(user: AuthUser, tipo: string): Promise<{ status: string }> {
-    if (tipo !== 'cashback' && tipo !== 'aniversario' && tipo !== 'volta') throw new BadRequestException('Automática desconhecida.');
+    if (tipo !== 'cashback' && tipo !== 'aniversario' && tipo !== 'volta' && tipo !== 'inicio_mes') throw new BadRequestException('Automática desconhecida.');
     const num = await this.numeros.resolver(user.tenantId, PAPEL[tipo]).catch(() => null);
     if (num?.provedor !== 'cloud')
       throw new BadRequestException(
@@ -269,7 +277,13 @@ export class RelacionamentoService {
           : 'O modelo é da API oficial: o número de marketing usa o QR, e a mensagem sai como texto.',
       );
     const nomes =
-      tipo === 'cashback' ? [MODELO_CASHBACK] : tipo === 'volta' ? [MODELO_VOLTA_CUPOM, MODELO_VOLTA_LEMBRETE] : [MODELO_ANIV_PRESENTE, MODELO_ANIV_PARABENS];
+      tipo === 'cashback'
+        ? [MODELO_CASHBACK]
+        : tipo === 'inicio_mes'
+          ? [MODELO_INICIO_MES]
+          : tipo === 'volta'
+            ? [MODELO_VOLTA_CUPOM, MODELO_VOLTA_LEMBRETE]
+            : [MODELO_ANIV_PRESENTE, MODELO_ANIV_PARABENS];
     let status = '';
     for (const nome of nomes) status = await this.cloud.garantirModeloRelacionamento(user.tenantId, nome);
     await this.auditoria?.registrar({
@@ -475,6 +489,43 @@ export class RelacionamentoService {
       ${this.frequencia(tenantId, a, true)}`;
   }
 
+  /**
+   * "Início do mês" (F7 parte 4c, mig 486): quem tem o selo "dinheiro no bolso" (o método honesto da F3: só sai quando a loja
+   * e o cliente mostram o efeito), o aceite de ofertas CLICADO (usa o perfil — D4/D15), pediu nos últimos 12 meses, ainda
+   * não pediu neste mês de operação, recebe marketing, pediu fora do iFood e da 99, sem caso aberto, uma vez por mês (a
+   * referência é o mês) e respeitando "uma oferta a cada N dias".
+   */
+  private candidatosInicioMes(tenantId: string, dia: string, a: AjustesRelacionamento) {
+    const { mes, inicio } = janelaDoInicioDoMes(dia);
+    const chave = sqlChaveTelefone(sql`c.telefone`);
+    return sql`
+      select x.* from (
+        select distinct on (${chave})
+               ${chave} as chave, c.id as cliente_id, c.nome, c.telefone, c.ultimo_pedido_em, ${mes}::text as referencia,
+               (select p.unidade_id from pedido_externo p where p.tenant_id = c.tenant_id and p.cliente_id = c.id
+                 order by p.criado_em desc limit 1) as unidade_id
+          from cliente c
+          join cliente_evento_sensibilidade s on s.cliente_id = c.id and s.tenant_id = c.tenant_id and s.tipo = 'dinheiro' and s.selo
+         where c.tenant_id = ${tenantId}::uuid and c.ultimo_pedido_em is not null
+           and c.ultimo_pedido_em >= now() - interval '12 months'
+           and c.ultimo_pedido_em < ${this.comecoDoMes(inicio)}
+           ${sqlRecebeMarketing()}
+           ${sqlAceiteClicado()}
+           ${this.pediuNaLoja()}
+           and not exists (select 1 from atendimento_chamado ac where ac.tenant_id = c.tenant_id and ac.status <> 'resolvido'
+                             and ${sqlChaveTelefone(sql`ac.telefone`)} = ${chave})
+         order by ${chave}, c.ultimo_pedido_em desc
+      ) x
+      where not exists (select 1 from relacionamento_envio e where e.tenant_id = ${tenantId}::uuid and e.tipo = 'inicio_mes'
+                          and e.chave_telefone = x.chave and e.referencia = x.referencia)
+      ${this.frequencia(tenantId, a, true)}`;
+  }
+
+  /** O instante em que começa o mês de operação (a madrugada do dia 1 ainda é do mês anterior). */
+  private comecoDoMes(inicio: string) {
+    return instanteDe(`${inicio} ${String(REGRAS_DO_PERFIL.corteDiaOperacaoHoras).padStart(2, '0')}:00:00`);
+  }
+
   /** Quantas mensagens das automáticas a empresa já separou no dia (o limite é de todas juntas). */
   private async usadasNoDia(tenantId: string, dia: string): Promise<number> {
     const r = this.rows(
@@ -525,10 +576,13 @@ export class RelacionamentoService {
           this.rows(await this.db.execute(sql`select count(*)::int as n from (${this.candidatosAniversario(tenantId, prox.dia, a)}) q`))[0]?.n ?? 0,
         );
     }
+    const comPerfil = await perfilLigado(this.db, tenantId);
+    const volta = await this.painelVolta(tenantId, a, prox, antesDaVolta);
+    const antesDoInicio = antesDaVolta + (a.voltaAtivo && volta.pronto ? (volta.previa?.total ?? 0) : 0);
     return {
       ajustes: a,
       // O módulo "Perfil do cliente" ligado: a tela mostra "pelo ritmo de cada cliente" (F7 parte 2, mig 464).
-      perfilLigado: await perfilLigado(this.db, tenantId),
+      perfilLigado: comPerfil,
       opcoes: {
         intervalos: [...INTERVALOS_OFERTA],
         maxPorDia: [...MAX_POR_DIA],
@@ -570,7 +624,43 @@ export class RelacionamentoService {
         previa: await this.previaAniversario(tenantId, a),
         resultado: await this.resultado(tenantId, 'aniversario'),
       },
-      volta: await this.painelVolta(tenantId, a, prox, antesDaVolta),
+      volta,
+      // Só com o módulo ligado: a regra usa o selo do perfil.
+      inicioMes: comPerfil ? await this.painelInicioMes(tenantId, a, prox, antesDoInicio) : null,
+    };
+  }
+
+  /**
+   * O grupo do "Início do mês": o modelo, a próxima janela, o público de verdade (quantos têm o selo e quantos deles têm o
+   * aceite clicado — a tela diz por que a lista está vazia) e a prévia. `antes`: o que as outras automáticas gastam no dia.
+   */
+  private async painelInicioMes(tenantId: string, a: AjustesRelacionamento, prox: { dia: string } | null, antes = 0) {
+    const pronto = await this.prontidao(tenantId, 'inicio_mes', a, true);
+    const dia = diaDoProximoInicioDeMes(hojeISO());
+    const janela = janelaDoInicioDoMes(dia);
+    const [pub] = this.rows(
+      await this.db.execute(sql`
+        select count(*)::int as com_selo, count(*) filter (where ${sqlTemAceiteClicado()})::int as com_aceite
+          from cliente_evento_sensibilidade s
+          join cliente c on c.id = s.cliente_id and c.tenant_id = s.tenant_id
+         where s.tenant_id = ${tenantId}::uuid and s.tipo = 'dinheiro' and s.selo`),
+    );
+    const total = Number(this.rows(await this.db.execute(sql`select count(*)::int as n from (${this.candidatosInicioMes(tenantId, dia, a)}) q`))[0]?.n ?? 0);
+    const vagas = prox?.dia === dia ? Math.max(0, a.maxPorDia - (await this.usadasNoDia(tenantId, dia)) - antes) : a.maxPorDia;
+    const lista = this.rows(
+      await this.db.execute(sql`
+        select q.nome, q.ultimo_pedido_em from (${this.candidatosInicioMes(tenantId, dia, a)}) q
+         order by q.ultimo_pedido_em desc limit ${NA_PREVIA}`),
+    ).map((x) => ({ nome: nomeCurto(x.nome), detalhe: `último pedido em ${dataCurta(x.ultimo_pedido_em)}` }));
+    return {
+      provedor: pronto.provedor,
+      pronto: pronto.pronto,
+      motivo: pronto.motivo ?? null,
+      modelo: pronto.provedor === 'cloud' ? await this.modelo(tenantId, MODELO_INICIO_MES) : null,
+      janela: { inicio: janela.inicio, fim: janela.fim, valendo: janela.valendo && dia === hojeISO() },
+      publico: { comSelo: Number(pub?.com_selo ?? 0), comAceite: Number(pub?.com_aceite ?? 0) },
+      previa: { dia, total, vagas, lista },
+      resultado: await this.resultado(tenantId, 'inicio_mes'),
     };
   }
 
@@ -615,7 +705,7 @@ export class RelacionamentoService {
    * se usou o cupom da mensagem. A mesma conta do resultado (a das campanhas).
    */
   async quemVoltou(tenantId: string, tipo: string) {
-    if (!['cashback', 'aniversario', 'volta'].includes(tipo)) throw new BadRequestException('Automática desconhecida.');
+    if (!['cashback', 'aniversario', 'volta', 'inicio_mes'].includes(tipo)) throw new BadRequestException('Automática desconhecida.');
     const r = this.rows(
       await this.db.execute(sql`
         select c.nome, e.enviado_em, p.criado_em, p.total::float8 as total,
@@ -741,7 +831,10 @@ export class RelacionamentoService {
     this.rodando = true;
     try {
       const empresas = this.rows(
-        await this.db.execute(sql`select tenant_id from relacionamento_config where cashback_ativo or aniversario_ativo or volta_ativo`),
+        // `to_jsonb`: a coluna da mig 486 não pode derrubar a rotina das outras automáticas se o deploy chegar antes dela.
+        await this.db.execute(sql`select rc.tenant_id from relacionamento_config rc
+                                   where rc.cashback_ativo or rc.aniversario_ativo or rc.volta_ativo
+                                      or (to_jsonb(rc) ->> 'inicio_mes_ativo') = 'true'`),
       );
       for (const e of empresas) {
         try {
@@ -771,6 +864,8 @@ export class RelacionamentoService {
     let enviados = 0;
     for (const tipo of ORDEM) {
       if (!LIGADA[tipo](a)) continue;
+      // O "Início do mês" só vale do dia 1 ao 5º dia útil e com o módulo do perfil ligado.
+      if (tipo === 'inicio_mes' && !(janelaDoInicioDoMes(dia).valendo && (await perfilLigado(this.db, tenantId)))) continue;
       const chave = `${tenantId}|${tipo}`;
       const perguntar = this.perguntouMeta.get(chave) !== dia;
       const pronto = await this.prontidao(tenantId, tipo, a, perguntar);
@@ -782,7 +877,9 @@ export class RelacionamentoService {
             ? await this.separarCashback(tenantId, dia, a, pronto.oferta)
             : tipo === 'volta'
               ? await this.separarVolta(tenantId, dia, a)
-              : await this.separarAniversario(tenantId, dia, a);
+              : tipo === 'inicio_mes'
+                ? await this.separarInicioMes(tenantId, dia, a)
+                : await this.separarAniversario(tenantId, dia, a);
         this.separado.set(chave, dia);
       }
       enviados += await this.mandar(tenantId, dia, a, pronto, tipo);
@@ -842,6 +939,22 @@ export class RelacionamentoService {
     return r.length;
   }
 
+  /** Separa o "Início do mês" do dia — quem pediu há menos tempo primeiro. A referência (o mês) é a trava: uma por mês. */
+  async separarInicioMes(tenantId: string, dia: string, a: AjustesRelacionamento): Promise<number> {
+    await this.soltarPendentesAntigos(tenantId, dia, 'inicio_mes');
+    const r = this.rows(
+      await this.db.execute(sql`
+        insert into relacionamento_envio (tenant_id, tipo, chave_telefone, referencia, telefone, cliente_id, unidade_id, dia, oferta, vence_em)
+        select ${tenantId}::uuid, 'inicio_mes', q.chave, q.referencia, q.telefone, q.cliente_id, q.unidade_id, ${dia}::date, true, q.ultimo_pedido_em
+          from (${this.candidatosInicioMes(tenantId, dia, a)}) q
+         order by q.ultimo_pedido_em desc
+         limit ${this.vagasSql(tenantId, dia, a)}
+        on conflict (tenant_id, tipo, chave_telefone, referencia) do nothing
+        returning id`),
+    );
+    return r.length;
+  }
+
   /** Separa os aniversariantes do dia (uma vez por ano por telefone — a referência é o ano). */
   async separarAniversario(tenantId: string, dia: string, a: AjustesRelacionamento): Promise<number> {
     await this.soltarPendentesAntigos(tenantId, dia, 'aniversario');
@@ -866,7 +979,7 @@ export class RelacionamentoService {
   async mandar(tenantId: string, dia: string, a: AjustesRelacionamento, pronto: Prontidao, tipo: Tipo = 'cashback'): Promise<number> {
     // A ordem: quem vence antes (cashback, aniversário); no "sentimos sua falta", quem sumiu há MENOS tempo (o `vence_em`
     // dele é o último pedido).
-    const recente = tipo === 'volta';
+    const recente = tipo === 'volta' || tipo === 'inicio_mes';
     const lote = this.rows(
       await this.db.execute(sql`
         update relacionamento_envio set status = 'enviado', enviado_em = now()
@@ -899,7 +1012,9 @@ export class RelacionamentoService {
             ? await this.mandarCashback(tenantId, e, a, pronto, fora)
             : tipo === 'volta'
               ? await this.mandarVolta(tenantId, e, a, pronto, fora)
-              : await this.mandarAniversario(tenantId, dia, e, a, pronto, fora);
+              : tipo === 'inicio_mes'
+                ? await this.mandarInicioMes(tenantId, e, pronto, fora)
+                : await this.mandarAniversario(tenantId, dia, e, a, pronto, fora);
         if (ok) enviados += 1;
       } catch (err: any) {
         const motivo = String(err?.message ?? err).slice(0, 300);
@@ -1081,6 +1196,41 @@ export class RelacionamentoService {
       throw err;
     }
     if (cupom) await this.db.execute(sql`update relacionamento_envio set cupom_id = ${cupom.id}::uuid where id = ${e.id}::uuid`);
+    return true;
+  }
+
+  /**
+   * O "Início do mês": confere de novo o que pode ter mudado depois de separado (pediu no mês, perdeu o selo, tirou o aceite,
+   * abriu um caso) e manda o modelo ou o texto do QR. Sem cupom: é só o lembrete.
+   */
+  private async mandarInicioMes(tenantId: string, e: any, pronto: Prontidao, fora: (m: string) => Promise<unknown>): Promise<boolean> {
+    const [c] = this.rows(
+      await this.db.execute(sql`
+        select c.nome, c.ultimo_pedido_em >= ${this.comecoDoMes(`${e.referencia}-01`)} as pediu_no_mes,
+               exists (select 1 from cliente_evento_sensibilidade s where s.cliente_id = c.id and s.tenant_id = c.tenant_id
+                         and s.tipo = 'dinheiro' and s.selo) as tem_selo,
+               ${sqlTemAceiteClicado()} as tem_aceite,
+               exists (select 1 from atendimento_chamado ac where ac.tenant_id = c.tenant_id and ac.status <> 'resolvido'
+                         and ${sqlChaveTelefone(sql`ac.telefone`)} = ${e.chave_telefone}) as tem_caso
+          from cliente c where c.id = ${e.cliente_id}::uuid and c.tenant_id = ${tenantId}::uuid`),
+    );
+    const motivo = !c ? 'cliente não encontrado' : c.pediu_no_mes ? 'já pediu neste mês' : !c.tem_selo ? 'perdeu o selo' : !c.tem_aceite ? 'tirou o aceite das ofertas' : c.tem_caso ? 'caso aberto no Atendimento' : '';
+    if (motivo) {
+      await fora(motivo);
+      return false;
+    }
+    const nome = String(c.nome ?? '');
+    const numero = this.numeroParaMandar(e.telefone);
+    if (pronto.provedor === 'cloud') {
+      await this.cloud.enviarTemplate(tenantId, numero, MODELO_INICIO_MES, 'pt_BR', [primeiroNome(nome) || 'cliente'], {
+        envioId: String(e.id),
+        phoneId: pronto.phoneId ?? undefined,
+      });
+    } else {
+      const loja = await this.nomeDaLoja(tenantId, e.unidade_id ?? null);
+      const texto = textoInicioMesQr({ nome, loja, link: `${PUB()}/publico/relacionamento/r/${e.id}` });
+      await this.whatsapp.enviarPorInstancia(tenantId, String(pronto.instancia), numero, texto);
+    }
     return true;
   }
 

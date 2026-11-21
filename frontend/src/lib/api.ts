@@ -2171,10 +2171,10 @@ export const api = {
   marketingAutomaticas: () => req('/marketing/automaticas'),
   salvarMarketingAutomaticas: (body: Record<string, unknown>) =>
     req('/marketing/automaticas', { method: 'PUT', body: JSON.stringify(body) }),
-  enviarModeloAutomatica: (tipo: 'cashback' | 'aniversario' | 'volta') =>
+  enviarModeloAutomatica: (tipo: 'cashback' | 'aniversario' | 'volta' | 'inicio_mes') =>
     req(`/marketing/automaticas/modelo/${encodeURIComponent(tipo)}`, { method: 'POST' }),
   // "Quem voltou" de uma automática (últimos 30 dias): pediu em até 7 dias depois da mensagem.
-  marketingQuemVoltou: (tipo: 'cashback' | 'aniversario' | 'volta') => req(`/marketing/automaticas/voltaram/${encodeURIComponent(tipo)}`),
+  marketingQuemVoltou: (tipo: 'cashback' | 'aniversario' | 'volta' | 'inicio_mes') => req(`/marketing/automaticas/voltaram/${encodeURIComponent(tipo)}`),
   // Delivery › Marketing › Clube (mig 471, fase A0): a configuração e o catálogo de prêmios. Presidente e gerente leem;
   // só o presidente muda (o servidor confere). Cada rota que muda devolve o painel inteiro.
   clubePainel: () => req('/marketing/clube'),

@@ -18,11 +18,13 @@ import { texto2 } from '@/components/ui/lista';
 //  • "🎂 Aniversário": os parabéns com o presente (cupom pessoal) ou só os parabéns (nasce desligado), e a PROTEÇÃO contra
 //    troca de data, sempre ligada (pedido do dono em 03/11);
 //  • "👋 Sentimos sua falta": quem não pede há N dias, com cupom pessoal opcional e no máximo 2 tentativas (nasce
-//    desligado).
+//    desligado);
+//  • "📅 Início do mês" (F7 parte 4c, mig 486; só com o Perfil do cliente ligado): do dia 1 ao 5º dia útil, para quem tem o
+//    selo "dinheiro no bolso" e o aceite clicado (nasce desligado). A tela mostra o público de verdade.
 // Cada uma com a mensagem (o modelo na API oficial; texto pelo QR), a prévia ("Ver quem") e o resultado dos últimos 30
 // dias, com o "Quem voltou". Tudo mora só na NUVEM; só gerente e presidente mudam (o servidor confere).
 
-type Tipo = 'cashback' | 'aniversario' | 'volta';
+type Tipo = 'cashback' | 'aniversario' | 'volta' | 'inicio_mes';
 type Item = { nome: string; detalhe: string };
 type Previa = { dia: string; hora: string; emDias: number; total: number; vagas: number; lista: Item[] };
 type Modelo = { nome?: string; status: string; categoria: string; motivo: string | null } | null;
@@ -53,6 +55,8 @@ type Painel = {
     grupoControle?: boolean;
     /** "Viu e não pediu" na conversa (F7 parte 4d, mig 481). */
     viuAtivo?: boolean;
+    /** "Início do mês" (F7 parte 4c, mig 486). */
+    inicioMesAtivo?: boolean;
   };
   /** O módulo "Perfil do cliente" ligado (mostra "pelo ritmo de cada cliente" — F7 parte 2, mig 464). */
   perfilLigado?: boolean;
@@ -99,6 +103,17 @@ type Painel = {
     previa: Previa | null;
     resultado: Resultado;
   };
+  /** Só com o módulo "Perfil do cliente" ligado. */
+  inicioMes?: {
+    provedor: 'cloud' | 'evolution';
+    pronto: boolean;
+    motivo: string | null;
+    modelo: Modelo;
+    janela: { inicio: string; fim: string; valendo: boolean };
+    publico: { comSelo: number; comAceite: number };
+    previa: { dia: string; total: number; vagas: number; lista: Item[] };
+    resultado: Resultado;
+  } | null;
 };
 
 const NUMERICOS = [
@@ -118,7 +133,9 @@ const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', curren
 const DIAS_SEMANA = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 const QUANDO: Record<string, string> = { no_dia: 'No dia', '3_antes': '3 dias antes', '7_antes': '7 dias antes' };
 const DESCONTO: Record<string, string> = { v5: 'R$ 5,00', v8: 'R$ 8,00', v10: 'R$ 10,00', v15: 'R$ 15,00', p10: '10%', p15: '15%', frete: 'Entrega grátis' };
-const NOME: Record<Tipo, string> = { cashback: 'cashback vencendo', aniversario: 'aniversário', volta: 'sentimos sua falta' };
+const NOME: Record<Tipo, string> = { cashback: 'cashback vencendo', aniversario: 'aniversário', volta: 'sentimos sua falta', inicio_mes: 'início do mês' };
+/** 'AAAA-MM-DD' → 'DD/MM' (a data vem pronta do servidor, sem conta de fuso aqui). */
+const diaMes = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 /** O "Quem voltou" traz no máximo estes (os mais recentes) — o mesmo `limit` do servidor. */
 const MAX_VOLTARAM = 50;
 
@@ -146,6 +163,7 @@ const paraValores = (p: Painel): Valores => ({
   voltaPeloRitmo: p.ajustes.voltaPeloRitmo === true,
   grupoControle: p.ajustes.grupoControle === true,
   viuAtivo: p.ajustes.viuAtivo === true,
+  inicioMesAtivo: p.ajustes.inicioMesAtivo === true,
 });
 
 /** "hoje às 17:00", "amanhã às 17:00", "sexta às 17:00". */
@@ -364,7 +382,7 @@ export function Automaticas() {
         rotulo: 'No máximo uma oferta por cliente a cada',
         tipo: 'selecao',
         opcoes: p.opcoes.intervalos.map((d) => ({ v: String(d), rotulo: `${d} dias` })),
-        ajuda: 'Soma o aniversário, o "sentimos sua falta" e as campanhas. O aviso do cashback não conta (se a Meta não o classificar como marketing).',
+        ajuda: `Soma o aniversário, o "sentimos sua falta"${p.perfilLigado ? ', o "início do mês"' : ''} e as campanhas. O aviso do cashback não conta (se a Meta não o classificar como marketing).`,
         palavras: 'frequência intervalo oferta dias',
       },
       {
@@ -766,13 +784,96 @@ export function Automaticas() {
     ],
   };
 
-  const grupos = [grupoGeral, grupoCashback, grupoAniversario, grupoProtecao, grupoVolta, ...(p.perfilLigado ? [grupoViu] : [])];
+  // "Início do mês" (F7 parte 4c, mig 486): só com o Perfil do cliente ligado; nasce desligada. O público de verdade fica à
+  // vista: sem selo ou sem aceite, a tela diz por que ninguém recebe.
+  const im = p.inicioMes ?? null;
+  const textoDoPublico = !im
+    ? ''
+    : im.publico.comSelo === 0
+      ? 'Ninguém tem o selo "dinheiro no bolso": a loja ainda não mostrou mais pedidos nessa época.'
+      : im.publico.comAceite === 0
+        ? `${im.publico.comSelo} ${im.publico.comSelo === 1 ? 'cliente tem' : 'clientes têm'} o selo, nenhum com o aceite de ofertas clicado.`
+        : `${im.publico.comSelo} com o selo · ${im.publico.comAceite} com o aceite de ofertas clicado.`;
+  const grupoInicioMes: GrupoDeAjustes | null = im
+    ? {
+        titulo: '📅 Início do mês',
+        nota: notaResultado(im.resultado, 'o cardápio', 'inicio_mes'),
+        itens: [
+          {
+            id: 'inicioMesAtivo',
+            rotulo: 'Lembrar quem pede mais no começo do mês',
+            tipo: 'chave',
+            ajuda:
+              `Do Perfil do cliente: do dia 1 ao 5º dia útil, uma mensagem no mês para quem tem o selo "dinheiro no bolso" e clicou para aceitar ofertas. Quem já pediu no mês não recebe, nem quem recebeu uma oferta nos últimos ${intervalo} dias ou tem caso aberto no Atendimento. A mensagem não fala em salário.`,
+            palavras: 'início do mês começo salário dinheiro no bolso quinto dia útil',
+          },
+          {
+            id: 'inicioMesPublico',
+            rotulo: 'Quem pode receber',
+            tipo: 'livre',
+            desenhar: () => <span className="text-sm font-semibold" data-publico-inicio-mes>{textoDoPublico}</span>,
+            palavras: 'início do mês público selo aceite',
+          },
+          {
+            id: 'inicioMesMensagem',
+            rotulo: 'A mensagem',
+            tipo: 'livre',
+            ajuda:
+              im.provedor === 'cloud'
+                ? 'Marketing para a Meta, sem cupom: um lembrete com o botão "Peça agora" e o jeito de sair.'
+                : 'Mensagem de texto pelo número de marketing, com o link do cardápio e o "responda SAIR".',
+            desenhar: () => (
+              <SeloModelo
+                provedor={im.provedor}
+                pronto={im.pronto}
+                modelo={im.modelo ? { ...im.modelo, nome: 'inicio_mes' } : null}
+                aoEnviar={() => void enviarModelo('inicio_mes')}
+                enviando={enviandoModelo === 'inicio_mes'}
+                semConexao="Conecte o número de marketing em Delivery › Configurações › Robô"
+              />
+            ),
+            palavras: 'início do mês mensagem modelo meta marketing',
+          },
+          {
+            id: 'inicioMesPrevia',
+            rotulo: 'Prévia',
+            tipo: 'livre',
+            ajuda: im.pronto ? 'Com os ajustes salvos.' : `Ainda não sai: ${im.motivo ?? 'falta conectar o WhatsApp'}.`,
+            desenhar: () => (
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold" data-previa-inicio-mes>
+                  {im.janela.valendo ? `Agora, até ${diaMes(im.janela.fim)}` : `De ${diaMes(im.janela.inicio)} a ${diaMes(im.janela.fim)}`}:{' '}
+                  {im.previa.total > im.previa.vagas
+                    ? `${im.previa.vagas} de ${im.previa.total} clientes no primeiro dia`
+                    : `${im.previa.total} ${im.previa.total === 1 ? 'cliente' : 'clientes'}`}
+                </span>
+                <Button type="button" size="sm" variant="outline" onClick={() => setVerQuem('inicio_mes')} disabled={!im.previa.total} aria-label="Ver quem recebe o início do mês">
+                  Ver quem
+                </Button>
+              </span>
+            ),
+            palavras: 'início do mês prévia ver quem',
+          },
+        ],
+      }
+    : null;
+
+  const grupos = [
+    grupoGeral,
+    grupoCashback,
+    grupoAniversario,
+    grupoProtecao,
+    grupoVolta,
+    ...(grupoInicioMes ? [grupoInicioMes] : []),
+    ...(p.perfilLigado ? [grupoViu] : []),
+  ];
   const ligadas =
     Number(!!valores.cashbackAtivo) +
     Number(!!valores.aniversarioAtivo) +
     Number(!!valores.voltaAtivo) +
-    Number(!!(p.perfilLigado && valores.viuAtivo));
-  const quantas = p.perfilLigado ? 4 : 3;
+    Number(!!(p.perfilLigado && valores.viuAtivo)) +
+    Number(!!(im && valores.inicioMesAtivo));
+  const quantas = (p.perfilLigado ? 4 : 3) + (im ? 1 : 0);
 
   async function salvar() {
     const chaves = alterados(grupos, valores, salvos).filter((k) => k in paraValores(p));
@@ -799,6 +900,7 @@ export function Automaticas() {
   const dlgCashback = verQuem === 'cashback' && previa;
   const dlgAniv = verQuem === 'aniversario';
   const dlgVolta = verQuem === 'volta' && previaVolta;
+  const dlgInicioMes = verQuem === 'inicio_mes' && im;
   return (
     <div className="space-y-3">
       <Ajustes
@@ -849,10 +951,21 @@ export function Automaticas() {
           <p className={`mt-3 text-xs ${texto2}`}>
             {previaVolta.total > previaVolta.lista.length ? `E mais ${previaVolta.total - previaVolta.lista.length}. ` : ''}
             {previaVolta.total > previaVolta.vagas
-              ? `O limite do dia é ${p.ajustes.maxPorDia}, somando as três automáticas (o cashback e o aniversário saem antes): os outros ficam para os próximos dias, começando por quem sumiu há menos tempo. `
+              ? `O limite do dia é ${p.ajustes.maxPorDia}, somando todas as automáticas (o cashback e o aniversário saem antes): os outros ficam para os próximos dias, começando por quem sumiu há menos tempo. `
               : ''}
             Ficam fora: quem pediu para sair, quem recebeu uma oferta nos últimos {p.ajustes.intervaloOfertasDias} dias, quem tem caso aberto no Atendimento e quem só pediu pelo
             iFood ou pela 99.
+          </p>
+        </Dialogo>
+      )}
+      {dlgInicioMes && (
+        <Dialogo titulo={`Quem recebe · de ${diaMes(im.janela.inicio)} a ${diaMes(im.janela.fim)} · início do mês`} aoFechar={() => setVerQuem('')} rodape={fechar(() => setVerQuem(''))}>
+          <ListaQuem lista={im.previa.lista} />
+          <p className={`mt-3 text-xs ${texto2}`}>
+            {im.previa.total > im.previa.lista.length ? `E mais ${im.previa.total - im.previa.lista.length}. ` : ''}
+            {im.previa.total > im.previa.vagas ? `O limite do dia é ${p.ajustes.maxPorDia}, somando todas as automáticas: os outros ficam para os próximos dias da janela. ` : ''}
+            Ficam fora: quem pediu para sair, quem já pediu no mês, quem recebeu uma oferta nos últimos {p.ajustes.intervaloOfertasDias} dias, quem tem caso aberto no Atendimento e
+            quem só pediu pelo iFood ou pela 99.
           </p>
         </Dialogo>
       )}
