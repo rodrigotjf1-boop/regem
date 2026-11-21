@@ -169,6 +169,18 @@ function useBanner(c: Cardapio, ir: (id: string) => void) {
 }
 
 /** Carrossel de banners (capa do Balcão, faixa da Oferta, faixa do Fluxo): passa sozinho e tem pontos. */
+/** A imagem do banner; com GIF (mig 487), ele só toca para quem NÃO pediu menos movimento no aparelho. */
+function ImagemDoBanner({ src, animada, alt, primeira }: { src: string; animada?: string | null; alt: string; primeira: boolean }) {
+  const imagem = <img src={src} alt={alt} loading={primeira ? 'eager' : 'lazy'} />;
+  if (!animada) return imagem;
+  return (
+    <picture>
+      <source media="(prefers-reduced-motion: no-preference)" srcSet={animada} type="image/gif" />
+      {imagem}
+    </picture>
+  );
+}
+
 function Banners({ c, classe, onAbrir }: { c: Cardapio; classe: string; onAbrir: (b: any) => void }) {
   const banners: any[] = c.showBanner ? c.menu?.banners ?? [] : [];
   const [i, setI] = useState(0);
@@ -187,7 +199,7 @@ function Banners({ c, classe, onAbrir }: { c: Cardapio; classe: string; onAbrir:
         {banners.map((b, k) => {
           // O texto por cima (B2) é texto de verdade; a descrição é o que o leitor de tela lê da imagem.
           const nome = [b.textoTitulo, b.textoChamada].filter(Boolean).join('. ') || b.titulo || b.descricao;
-          const imagem = <img src={b.imagemRef} alt={b.descricao || b.titulo || ''} loading={k === 0 ? 'eager' : 'lazy'} />;
+          const imagem = <ImagemDoBanner src={b.imagemRef} animada={b.imagemAnimadaRef} alt={b.descricao || b.titulo || ''} primeira={k === 0} />;
           const texto = (b.textoTitulo || b.textoChamada) && (
             <span className="p-ban-txt">
               {b.textoTitulo && <b>{b.textoTitulo}</b>}
@@ -304,14 +316,14 @@ export function VitrineGaleria({ c }: { c: Cardapio }) {
       return banners.map((b) => {
         const p = c.produtoDoBanner(b);
         const t = b.textoTitulo || b.titulo || p?.nome || '';
-        return { img: b.imagemRef, alt: b.descricao || t, k: p ? seloDe(p) : null, t, s: b.textoChamada || (p ? brl(p.precoVenda) : ''), acao: () => abrirBanner(b), toque: !!(b.link || b.deepLink) };
+        return { img: b.imagemRef, animada: b.imagemAnimadaRef ?? null, alt: b.descricao || t, k: p ? seloDe(p) : null, t, s: b.textoChamada || (p ? brl(p.precoVenda) : ''), acao: () => abrirBanner(b), toque: !!(b.link || b.deepLink) };
       });
     }
     if (!c.showDestaques) return [];
     return c.destaques
       .filter((p: any) => p.imagemRef)
       .slice(0, 3)
-      .map((p: any) => ({ img: p.imagemRef, alt: p.nome, k: seloDe(p), t: p.nome, s: brl(p.precoVenda), acao: () => c.abrirProduto(p), toque: true }));
+      .map((p: any) => ({ img: p.imagemRef, animada: null, alt: p.nome, k: seloDe(p), t: p.nome, s: brl(p.precoVenda), acao: () => c.abrirProduto(p), toque: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [c.menu, c.destaques, c.showBanner, c.showDestaques]);
   const [slide, setSlide] = useState(0);
@@ -389,7 +401,7 @@ export function VitrineGaleria({ c }: { c: Cardapio }) {
           >
             {slides.map((h, i) => (
               <button key={i} type="button" className="g-slide" onClick={h.acao} disabled={!h.toque}>
-                <img src={h.img} alt={h.alt} loading={i === 0 ? 'eager' : 'lazy'} />
+                <ImagemDoBanner src={h.img} animada={h.animada} alt={h.alt} primeira={i === 0} />
                 {(h.t || h.s) && (
                   <div className="g-cap">
                     {h.k && <small>{h.k}</small>}

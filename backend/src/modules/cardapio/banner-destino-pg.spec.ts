@@ -116,6 +116,28 @@ descrever('o destino e o período do banner (Postgres)', () => {
     ]);
   });
 
+  it('mig 487: o GIF grava, volta na lista e chega ao cardápio ao lado da imagem parada; sem GIF, o campo não vai', async () => {
+    const l = await loja();
+    const GIF_DO_BANNER = 'https://midia.exemplo.test/storage/v1/object/public/midia/t/b.gif';
+    const lista = await cardapio.setBanners(l.t, l.u, [
+      { imagemRef: IMG, imagemAnimadaRef: ` ${GIF_DO_BANNER} ` },
+      { imagemRef: IMG, imagemAnimadaRef: '' },
+    ]);
+    expect(lista.map((b: any) => b.imagemAnimadaRef)).toEqual([GIF_DO_BANNER, null]);
+    const m: any = await cardapio.menu(l.token);
+    expect(m.banners[0]).toEqual({ imagemRef: IMG, titulo: null, link: null, imagemAnimadaRef: GIF_DO_BANNER });
+    expect(m.banners[1]).toEqual({ imagemRef: IMG, titulo: null, link: null });
+  });
+
+  it('mig 487: o que não é um GIF por https é recusado antes de apagar os banners de hoje', async () => {
+    const l = await loja();
+    await cardapio.setBanners(l.t, l.u, [{ imagemRef: IMG, textoTitulo: 'Fica' }]);
+    for (const torto of ['http://midia.exemplo.test/b.gif', 'https://midia.exemplo.test/b.png', 'javascript:alert(1)//.gif', `https://m.test/${'x'.repeat(500)}.gif`]) {
+      await expect(cardapio.setBanners(l.t, l.u, [{ imagemRef: IMG, imagemAnimadaRef: torto }])).rejects.toThrow('Banner 1: a animação precisa ser um GIF');
+    }
+    expect(await q(`select texto_titulo from banner where tenant_id = $1`, [l.t])).toEqual([{ texto_titulo: 'Fica' }]);
+  });
+
   it('B2: o texto longo demais é recusado antes de apagar os banners de hoje', async () => {
     const l = await loja();
     await cardapio.setBanners(l.t, l.u, [{ imagemRef: IMG, textoTitulo: 'Fica' }]);

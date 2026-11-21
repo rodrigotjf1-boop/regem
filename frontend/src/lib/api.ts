@@ -2337,6 +2337,11 @@ export const api = {
   bannerIaSituacao: () => req('/cardapio/banners/ia/situacao') as Promise<any>,
   bannerIaMelhorar: (pedido: string) =>
     req('/cardapio/banners/ia/melhorar', { method: 'POST', body: JSON.stringify({ pedido }) }) as Promise<{ pedido: string }>,
+  // O GIF da imagem já guardada (mig 487): sem IA e sem franquia.
+  bannerIaAnimar: (imagemRef: string) =>
+    req('/cardapio/banners/ia/animar', { method: 'POST', body: JSON.stringify({ imagemRef }) }) as Promise<
+      { ok: true; imagemAnimadaRef: string } | { ok: false; motivo: string; mensagem: string }
+    >,
   bannerIaCriar: (campos: Record<string, string>, foto: File | null) =>
     uploadFile('/cardapio/banners/ia/criar', foto, campos) as unknown as Promise<
       | { ok: true; imagemRef: string; franquia: { usados: number; total: number } | null }

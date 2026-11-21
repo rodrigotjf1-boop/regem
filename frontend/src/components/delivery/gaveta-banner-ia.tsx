@@ -16,12 +16,14 @@ export type BannerDaIa = {
   textoChamada: string | null;
   descricao: string | null;
   feitoComIa: true;
+  imagemAnimadaRef: string | null;
 };
 
 type Situacao = {
   pode: boolean;
   podeCriar: boolean;
   podeEditar: boolean;
+  podeAnimar?: boolean;
   podeMelhorar: boolean;
   mensagem: string | null;
   franquia: { usados: number; total: number } | null;
@@ -75,6 +77,8 @@ export function GavetaBannerIa({
   const [chamada, setChamada] = useState('');
   const [criando, setCriando] = useState(false);
   const [imagem, setImagem] = useState<string | null>(null);
+  const [animada, setAnimada] = useState<string | null>(null);
+  const [animando, setAnimando] = useState(false);
   const [descricao, setDescricao] = useState('');
   const [erro, setErro] = useState('');
   const arquivo = useRef<HTMLInputElement>(null);
@@ -151,9 +155,28 @@ export function GavetaBannerIa({
     }
   }
 
+  async function animar() {
+    if (!imagem) return;
+    setErro('');
+    setAnimando(true);
+    try {
+      const r = await api.bannerIaAnimar(imagem);
+      if (!r.ok) {
+        setErro(r.mensagem);
+        return;
+      }
+      setAnimada(r.imagemAnimadaRef);
+    } catch (e) {
+      setErro((e as Error).message || 'O GIF não ficou pronto agora. Tente de novo.');
+    } finally {
+      setAnimando(false);
+    }
+  }
+
   function criarOutra() {
     tentativa.current = null;
     setImagem(null);
+    setAnimada(null);
     setErro('');
   }
 
@@ -165,6 +188,7 @@ export function GavetaBannerIa({
       textoChamada: textoPelaIa ? null : chamada.trim() || null,
       descricao: descricao.trim() || null,
       feitoComIa: true,
+      imagemAnimadaRef: animada,
     });
   }
 
@@ -185,8 +209,8 @@ export function GavetaBannerIa({
           <Button type="button" variant="outline" onClick={aoFechar} disabled={criando}>Cancelar</Button>
           {pronto ? (
             <>
-              <Button type="button" variant="outline" onClick={criarOutra} disabled={salvando || acabou}>Criar outra</Button>
-              <Button type="button" onClick={usar} disabled={salvando}>{salvando ? 'Salvando…' : 'Usar este banner'}</Button>
+              <Button type="button" variant="outline" onClick={criarOutra} disabled={salvando || acabou || animando}>Criar outra</Button>
+              <Button type="button" onClick={usar} disabled={salvando || animando}>{salvando ? 'Salvando…' : 'Usar este banner'}</Button>
             </>
           ) : (
             situacao?.pode && (
@@ -308,9 +332,23 @@ export function GavetaBannerIa({
           <div className="space-y-3">
             <span className="text-sm font-semibold">Prévia</span>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-              <PreviaDoBanner rotulo="No celular" imagem={imagem} {...legendaPrevia} classe="aspect-[5/2]" />
-              <PreviaDoBanner rotulo="No computador" imagem={imagem} {...legendaPrevia} classe="aspect-[3/1]" />
+              <PreviaDoBanner rotulo="No celular" imagem={animada ?? imagem} {...legendaPrevia} classe="aspect-[5/2]" />
+              <PreviaDoBanner rotulo="No computador" imagem={animada ?? imagem} {...legendaPrevia} classe="aspect-[3/1]" />
             </div>
+            {situacao?.podeAnimar && (
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  {animada ? (
+                    <Button type="button" size="sm" variant="outline" onClick={() => setAnimada(null)}>Tirar a animação</Button>
+                  ) : (
+                    <Button type="button" size="sm" variant="outline" onClick={animar} disabled={animando || salvando}>{animando ? 'Fazendo o GIF…' : 'Animar (GIF)'}</Button>
+                  )}
+                </div>
+                <p role={animando ? 'status' : undefined} className="text-xs text-secondary-foreground">
+                  {animando ? 'Fazendo o GIF… leva alguns segundos.' : 'O GIF não gasta a franquia. Quem pediu menos movimento no aparelho vê a imagem parada.'}
+                </p>
+              </div>
+            )}
             <div className="space-y-1">
               <label htmlFor={`${id}-descricao`} className="text-sm font-semibold">Texto para leitor de tela</label>
               <textarea id={`${id}-descricao`} className={`${sel} min-h-[64px]`} maxLength={200} value={descricao} onChange={(e) => setDescricao(e.target.value)} />
