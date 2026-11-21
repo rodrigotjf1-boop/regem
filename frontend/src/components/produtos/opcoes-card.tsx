@@ -14,6 +14,8 @@ import { chaveUnidade, comoFoiCadastrada, unidadesDoCadastro } from '@/lib/conve
 import { toast } from '@/lib/toast';
 import { destinosParaEscolher, foraDeUso } from '@/components/equipamentos/equipamento';
 import { UltimoEnvioIfood } from '@/components/produtos/ultimo-envio-ifood';
+import { CampoCodigoPdv } from '@/components/produtos/campo-codigo-pdv';
+import type { CodigosPdv } from '@/components/produtos/use-codigos-pdv';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -36,7 +38,7 @@ function custoDaOpcao(o: any): string {
 // Opções reutilizáveis do catálogo (Fase 2): produto simples / preparado c/ ficha /
 // insumo. Reaproveitadas pelos complementos (ligação vem na Fase 3).
 // `ifoodLigado`: direito `ifood_pelo_orzuni` da empresa (mig 369) — a janela da opção ganha o "Preço no iFood".
-export function OpcoesCard({ ifoodLigado = false }: { ifoodLigado?: boolean } = {}) {
+export function OpcoesCard({ ifoodLigado = false, codigos }: { ifoodLigado?: boolean; codigos?: CodigosPdv } = {}) {
   const [opcoes, setOpcoes] = useState<any[]>([]);
   const [fichas, setFichas] = useState<any[]>([]);
   const [itens, setItens] = useState<any[]>([]);
@@ -63,7 +65,8 @@ export function OpcoesCard({ ifoodLigado = false }: { ifoodLigado?: boolean } = 
     setItens(i as any[]);
     setComplementos(c as any[]);
   }, []);
-  useEffect(() => { carregar(); }, [carregar]);
+  const versaoDosCodigos = codigos?.versao;
+  useEffect(() => { carregar(); }, [carregar, versaoDosCodigos]);
 
   // Complementos que usam esta opção (ligação por opcaoId nos itens do complemento).
   const usosDe = (o: any) =>
@@ -194,20 +197,23 @@ export function OpcoesCard({ ifoodLigado = false }: { ifoodLigado?: boolean } = 
             const cadastrada = insumo ? comoFoiCadastrada(unidadeDaBaixa, insumo.unidadeMedida ?? 'un', insumo.conversoes ?? []) : null;
             const textoDaBaixa = cadastrada?.equivale ? `1 ${unidadeDaBaixa} = ${cadastrada.equivale}` : `1 ${unidadeDaBaixa}`;
             return (
-              <li key={o.id} className={`flex min-w-0 items-center gap-2.5 rounded-lg border bg-card p-2 ${o.ativo === false ? 'opacity-50' : ''} ${sel.has(o.id) ? 'border-primary bg-primary/5' : 'border-border'}`}>
+              <li key={o.id} className={`flex min-w-0 items-center gap-2.5 rounded-lg border bg-card p-2 ${codigos?.ligado ? 'flex-wrap' : ''} ${o.ativo === false ? 'opacity-50' : ''} ${sel.has(o.id) ? 'border-primary bg-primary/5' : 'border-border'}`}>
                 <input type="checkbox" className="h-4 w-4 flex-none accent-primary" checked={sel.has(o.id)} onChange={() => toggleSel(o.id)} aria-label={`Selecionar ${o.nome}`} />
                 {o.imagemRef ? (
                   <img src={o.imagemRef} alt={o.nome} className="h-9 w-9 flex-none rounded-md object-cover" />
                 ) : (
                   <span className="grid h-9 w-9 flex-none place-items-center rounded-md bg-secondary text-sm text-muted-foreground">🍽</span>
                 )}
-                <div className="min-w-0 flex-1">
+                <div className={`min-w-0 flex-1 ${codigos?.ligado ? 'basis-36' : ''}`}>
                   <p className="truncate text-sm font-medium">{o.nome} {o.esgotado && <span className="rounded bg-destructive/10 px-1 text-[10px] font-bold text-destructive">esgotado</span>}</p>
                   <p className="truncate text-[11px] text-muted-foreground">{TIPO_LABEL[o.tipo] ?? o.tipo}{o.fichaNome ? ` · ${o.fichaNome}` : o.itemNome ? ` · ${o.itemNome}${o.tipo === 'insumo' ? ` (${textoDaBaixa})` : ''}` : ''}{custoDaOpcao(o) ? ` · ${custoDaOpcao(o)}` : ''}</p>
                   {usos.length > 0 && (
                     <p className="truncate text-[10px] text-muted-foreground">Usado {usos.length}×: {usos.join(', ')}</p>
                   )}
                 </div>
+                {codigos?.ligado && (
+                  <CampoCodigoPdv codigos={codigos} alvo={{ tipo: 'opcao', id: o.id, nome: o.nome, de: o.codigoPdv ?? null }} className="ml-auto w-32 flex-none" />
+                )}
                 <KebabMenu
                   label={`Ações de ${o.nome}`}
                   items={[

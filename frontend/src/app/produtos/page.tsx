@@ -23,6 +23,8 @@ import { ProdutosLista } from '@/components/produtos/produtos-lista';
 import { PublicarIntegracoes } from '@/components/produtos/publicar-integracoes';
 import { AlergenosConferencia } from '@/components/produtos/alergenos-conferencia';
 import { AlergenosProdutoCard } from '@/components/produtos/alergenos-produto-card';
+import { BarraCodigosPdv } from '@/components/produtos/barra-codigos-pdv';
+import { useCodigosPdv } from '@/components/produtos/use-codigos-pdv';
 import Link from 'next/link';
 import {
   ONDE_VENDE_NOVO,
@@ -52,6 +54,8 @@ export default function ProdutosPage() {
   const router = useRouter();
   const { produtos, categorias, fichas, setores, equipamentos, erro, setErro, reload } =
     useProdutosData();
+  // "Mostrar código PDV": editar o código direto nas listas de Produtos, Complementos e Opções.
+  const codigos = useCodigosPdv(reload);
 
   const [f, setF] = useState<any>(vazio());
   const [editId, setEditId] = useState<string | null>(null);
@@ -690,6 +694,21 @@ export default function ProdutosPage() {
                 </button>
               ))}
               <div className="mb-1 ml-auto flex flex-wrap items-center justify-end gap-2">
+                {aba !== 'alergenos' && (
+                  <label
+                    title={codigos.ligado && codigos.pendentes.length ? 'Salve ou descarte os códigos antes de esconder.' : undefined}
+                    className="inline-flex min-h-8 cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold transition-colors hover:border-primary"
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-primary"
+                      checked={codigos.ligado}
+                      disabled={codigos.ligado && codigos.pendentes.length > 0}
+                      onChange={(e) => codigos.setLigado(e.target.checked)}
+                    />
+                    Mostrar código PDV
+                  </label>
+                )}
                 {aba === 'produtos' && (
                   <button
                     type="button"
@@ -704,13 +723,13 @@ export default function ProdutosPage() {
               </div>
             </div>
 
-            {aba === 'opcoes' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><OpcoesCard ifoodLigado={ifoodLigado} /></div>}
-            {aba === 'complementos' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><ComplementosCatalogoCard /></div>}
+            {aba === 'opcoes' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><OpcoesCard ifoodLigado={ifoodLigado} codigos={codigos} /></div>}
+            {aba === 'complementos' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><ComplementosCatalogoCard codigos={codigos} /></div>}
             {/* Alérgenos (mig 454, A8): a conferência do que o cardápio diz ao cliente. */}
             {aba === 'alergenos' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><AlergenosConferencia /></div>}
 
             {aba === 'produtos' && (
-              <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(240px,320px)_1fr]">
+              <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(240px,320px)_minmax(0,1fr)]">
                 {/* Sidebar de categorias — rola sozinha (separada do corpo) */}
                 <div className="scroll-fino rounded-xl border border-border bg-card/40 p-1 lg:min-h-0 lg:overflow-y-auto">
                   <CategoriasCard
@@ -743,10 +762,12 @@ export default function ProdutosPage() {
                     onDuplicar={duplicar}
                     onPrecoEPausa={(p) => router.push(linkDaGestao(p.nome))}
                     onCopiarLink={copiarLink}
+                    codigos={codigos}
                   />
                 </div>
               </div>
             )}
+            <BarraCodigosPdv codigos={codigos} />
           </>
         )}
       </div>

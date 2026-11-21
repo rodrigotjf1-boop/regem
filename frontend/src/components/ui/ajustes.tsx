@@ -244,7 +244,7 @@ function LinhaDeAjuste({ idTela, ajuste: it, valor, mudou, aoMudar }: { idTela: 
 
 // Com alteração pendente: fechar ou recarregar a aba pede a confirmação do navegador (não há como
 // trocar essa), e clicar num link do aplicativo abre o diálogo "Sair sem salvar?".
-function useSairSemSalvar(pendentes: number) {
+export function useSairSemSalvar(pendentes: number) {
   const router = useRouter();
   const [destino, setDestino] = useState<string | null>(null);
   useEffect(() => {

@@ -4,6 +4,8 @@ import { Pencil, Copy, Eye, Trash2, Link2, Tag } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { KebabMenu } from '@/components/ui/kebab-menu';
 import { brl } from '@/components/produtos/types';
+import { CampoCodigoPdv } from '@/components/produtos/campo-codigo-pdv';
+import type { CodigosPdv } from '@/components/produtos/use-codigos-pdv';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -23,6 +25,7 @@ export function ProdutosLista({
   onDuplicar,
   onPrecoEPausa,
   onCopiarLink,
+  codigos,
 }: {
   produtos: any[] | null;
   categorias: any[];
@@ -32,6 +35,7 @@ export function ProdutosLista({
   onDuplicar?: (p: any) => void;
   onPrecoEPausa?: (p: any) => void;
   onCopiarLink?: (p: any) => void;
+  codigos?: CodigosPdv;
 }) {
   if (!produtos) {
     return (
@@ -93,6 +97,7 @@ export function ProdutosLista({
                 onDuplicar={onDuplicar}
                 onPrecoEPausa={onPrecoEPausa}
                 onCopiarLink={onCopiarLink}
+                codigos={codigos}
               />
             ))}
           </div>
@@ -111,6 +116,7 @@ function ProdutoRow({
   onDuplicar,
   onPrecoEPausa,
   onCopiarLink,
+  codigos,
 }: {
   p: any;
   primeiro: boolean;
@@ -120,16 +126,18 @@ function ProdutoRow({
   onDuplicar?: (p: any) => void;
   onPrecoEPausa?: (p: any) => void;
   onCopiarLink?: (p: any) => void;
+  codigos?: CodigosPdv;
 }) {
   const off = pausado(p);
   const esgotado = p.pausadoEstoque && !p.permiteNegativo;
   const promo = p.precoPromocional != null && Number(p.precoPromocional) > 0;
+  const comCodigo = !!codigos?.ligado;
 
   return (
     <div
       className={`flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-secondary/40 ${
         primeiro ? '' : 'border-t border-border'
-      } ${off ? 'opacity-60' : ''}`}
+      } ${off ? 'opacity-60' : ''} ${comCodigo ? 'flex-wrap' : ''}`}
     >
       {p.imagemRef ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -138,13 +146,13 @@ function ProdutoRow({
         <span className="grid h-11 w-11 flex-none place-items-center rounded-lg bg-secondary text-lg text-muted-foreground">🍽</span>
       )}
 
-      <div className="min-w-0 flex-1">
+      <div className={`min-w-0 flex-1 ${comCodigo ? 'basis-40' : ''}`}>
         <p className="truncate text-sm font-semibold" title={p.nome}>{p.nome}</p>
         {p.descricao && (
           <p className="truncate text-xs text-muted-foreground" title={p.descricao}>{p.descricao}</p>
         )}
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-          {p.codigo && <span className="font-mono text-[11px] text-muted-foreground">#{p.codigo}</span>}
+          {p.codigo && !comCodigo && <span className="font-mono text-[11px] text-muted-foreground">#{p.codigo}</span>}
           {p.tipo !== 'simples' && (
             <span className="rounded bg-info/10 px-1.5 py-0.5 text-[10px] font-medium text-info">{p.tipo}</span>
           )}
@@ -163,8 +171,12 @@ function ProdutoRow({
         </div>
       </div>
 
+      {codigos?.ligado && (
+        <CampoCodigoPdv codigos={codigos} alvo={{ tipo: 'produto', id: p.id, nome: p.nome, de: p.codigo ?? null }} className="w-32 flex-none" />
+      )}
+
       {/* Preço (com "de/por" quando há promocional) */}
-      <div className="flex-none text-right">
+      <div className={`flex-none text-right ${comCodigo ? 'ml-auto' : ''}`}>
         {promo && (
           <span className="block font-mono text-[11px] text-muted-foreground line-through">
             {brl(Number(p.precoVenda))}

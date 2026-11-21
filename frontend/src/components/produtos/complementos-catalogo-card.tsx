@@ -10,6 +10,8 @@ import { KebabMenu } from '@/components/ui/kebab-menu';
 import { selectCls } from '@/components/produtos/types';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { CampoCodigoPdv } from '@/components/produtos/campo-codigo-pdv';
+import type { CodigosPdv } from '@/components/produtos/use-codigos-pdv';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -27,7 +29,7 @@ const CANAIS = [
 
 // Complementos reutilizáveis (etapas): regra de seleção, obrigatório, canais e as
 // opções ligadas. Depois são anexados aos produtos (Fase 4).
-export function ComplementosCatalogoCard() {
+export function ComplementosCatalogoCard({ codigos }: { codigos?: CodigosPdv } = {}) {
   const [lista, setLista] = useState<any[]>([]);
   const [opcoes, setOpcoes] = useState<any[]>([]);
   const [editar, setEditar] = useState<any>(null);
@@ -40,7 +42,8 @@ export function ComplementosCatalogoCard() {
     setLista(c as any[]);
     setOpcoes(o as any[]);
   }, []);
-  useEffect(() => { carregar(); }, [carregar]);
+  const versaoDosCodigos = codigos?.versao;
+  useEffect(() => { carregar(); }, [carregar, versaoDosCodigos]);
 
   async function excluir(c: any) {
     if (!confirm(`Excluir o complemento "${c.nome}"?`)) return;
@@ -77,7 +80,7 @@ export function ComplementosCatalogoCard() {
 
   return (
     <Card className="p-4">
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <h2 className="font-display text-sm font-bold">Complementos (etapas)</h2>
         <span className="font-mono text-xs text-muted-foreground">{lista.length}</span>
         <Button type="button" size="sm" variant="outline" className="ml-auto" onClick={sincronizar} disabled={sinc}>
@@ -85,14 +88,14 @@ export function ComplementosCatalogoCard() {
         </Button>
         <Button type="button" size="sm" onClick={() => setEditar({})}>＋ Novo complemento</Button>
       </div>
-      <p className="mb-3 text-[11px] text-muted-foreground">Etapa reutilizável (ex.: “Escolha a bebida”, “Adicionais”). Junta opções e vira etapa nos produtos. Importou o cardápio? Use <strong>Sincronizar do cardápio</strong> para trazer os grupos dos produtos para cá.</p>
+      <p className="mb-3 text-[11px] text-muted-foreground">Etapa reutilizável (ex.: “Escolha a bebida”, “Adicionais”). Junta opções e vira etapa nos produtos. Importou o cardápio? Use <strong>Sincronizar do cardápio</strong> para trazer os grupos dos produtos para cá.{codigos?.ligado && ' O código é da opção: muda em todas as etapas que usam a mesma opção.'}</p>
 
       {lista.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">Nenhum complemento ainda.</p>
       ) : (
-        <ul className="grid gap-1.5 sm:grid-cols-2">
+        <ul className="grid grid-cols-[minmax(0,1fr)] gap-1.5 sm:grid-cols-2">
           {lista.map((c) => (
-            <li key={c.id} className="rounded-lg border border-border bg-card p-2.5">
+            <li key={c.id} className="min-w-0 rounded-lg border border-border bg-card p-2.5">
               <div className="flex items-center gap-2">
                 <p className="min-w-0 flex-1 truncate text-sm font-medium">{c.nome}</p>
                 <KebabMenu
@@ -107,7 +110,16 @@ export function ComplementosCatalogoCard() {
               <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                 {REGRA_LABEL[c.regra] ?? c.regra}{c.obrigatorio ? ' · obrigatório' : ''} · {(c.itens ?? []).length} opção(ões)
               </p>
-              {(c.itens ?? []).length > 0 && (
+              {codigos?.ligado ? (
+                <ul className="mt-2 space-y-1.5">
+                  {(c.itens ?? []).map((i: any) => (
+                    <li key={i.opcaoId} className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 flex-1 break-words text-xs">{i.nome}</span>
+                      <CampoCodigoPdv codigos={codigos} alvo={{ tipo: 'opcao', id: i.opcaoId, nome: i.nome, de: i.codigoPdv ?? null }} className="w-28 flex-none" />
+                    </li>
+                  ))}
+                </ul>
+              ) : (c.itens ?? []).length > 0 && (
                 <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{(c.itens ?? []).map((i: any) => i.nome).join(', ')}</p>
               )}
             </li>

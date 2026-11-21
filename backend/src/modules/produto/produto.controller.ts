@@ -126,6 +126,13 @@ export class ProdutoController {
     return this.service.food99Envios(user.tenantId, id);
   }
 
+  // O código PDV de vários produtos e opções, direto da lista de Cadastros › Cardápio: um pedido, tudo ou nada.
+  @Patch('codigos-pdv')
+  @Roles(...GESTOR)
+  trocarCodigosPdv(@CurrentUser() user: AuthUser, @Body() corpo: any) {
+    return this.service.trocarCodigosPdv(user.tenantId, corpo, { id: user.colaboradorId ?? null, perfil: user.categoria ?? null });
+  }
+
   // ----- Opções (catálogo reutilizável, Fase 2) -----
   @Get('opcoes')
   listarOpcoes(@CurrentUser() user: AuthUser) {
