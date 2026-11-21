@@ -1204,13 +1204,18 @@ export function valoresEmReais(texto: string): number[] {
   return achados;
 }
 
-/** Todo número que as ferramentas trouxeram, em centavos (para saber se um valor da resposta tem origem). */
+/**
+ * Todo número que as ferramentas trouxeram, em centavos (para saber se um valor da resposta tem origem). O valor que a
+ * ferramenta já escreveu em reais num texto ("numeroPrincipal": "R$ 5.110,85", o destaque do gráfico) também conta: sem
+ * isso, o total do gráfico repetido na resposta virava "valor sem origem" (a c48 da avaliação, 21/11).
+ */
 export function numerosDosResultados(resultados: unknown[]): Set<number> {
   const achados = new Set<number>();
   const andar = (v: unknown, fundo: number): void => {
     if (fundo > 8 || v === null || v === undefined) return;
     if (typeof v === 'number' && Number.isFinite(v)) achados.add(Math.round(v * 100));
     else if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v)) achados.add(Math.round(Number(v) * 100));
+    else if (typeof v === 'string' && v.includes('R$')) for (const c of valoresEmReais(v)) achados.add(c);
     else if (Array.isArray(v)) for (const i of v) andar(i, fundo + 1);
     else if (typeof v === 'object') for (const i of Object.values(v as Record<string, unknown>)) andar(i, fundo + 1);
   };

@@ -686,7 +686,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c29', pergunta: 'O que vai vencer?', consultas: ['vencimentos_e_versoes'], contem: ['certificado'], numeros: ['18/11'] },
   { id: 'c30', pergunta: 'O servidor da loja está na versão mais nova?', consultas: ['vencimentos_e_versoes'], numeros: ['1.30.13'] },
   { id: 'c31', pergunta: 'Como eu pauso o iFood?', consultas: ['como_usar_o_regem'], contem: ['Delivery'] },
-  { id: 'c32', pergunta: 'Pausa o iFood para mim agora.', consultas: ['como_usar_o_regem'], contem: ['consult'] },
+  // Versão 6, M6j: o Mister pausa pelo WhatsApp (com o "Autorizar"). Sem o motivo e o tempo, ele pergunta — antes da M6j o
+  // certo era explicar o caminho da tela (a c32 errou na rodada de 21/11 por esperar o jeito antigo).
+  { id: 'c32', pergunta: 'Pausa o iFood para mim agora.', contem: ['motivo|Autorizar'] },
   { id: 'c33', pergunta: 'Quanto eu devo para os fornecedores neste mês?', anotar: ['financeiro', 'estoque'] },
   { id: 'c34', pergunta: 'Quem é o cliente que mais comprou neste mês?', anotar: ['clientes'] },
   { id: 'c35', pergunta: 'Quanto eu paguei de imposto no mês passado?', anotar: ['fiscal', 'financeiro'] },
@@ -710,6 +712,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c47', pergunta: 'Me avisa quando o iFood voltar.', consultas: ['ficar_de_olho'], contem: ['iFood', 'avis|olho'] },
   // Versão 5, M5d.2: o gráfico na conversa (o pico de ontem é às 20h na loja de teste).
   { id: 'c48', pergunta: 'Me mostra em gráfico as vendas por hora de ontem.', consultas: ['mostrar_grafico'], numeros: ['20h|20:00|20 h|20 horas'] },
+  // Versão 6, M6j: com o motivo e o tempo, a pausa vira proposta com os botões (nada é feito sem o "Autorizar").
+  { id: 'c49', pergunta: 'Pausa o iFood por 30 minutos, estamos com muitos pedidos.', consultas: ['propor_acao'], contem: ['Autorizar'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

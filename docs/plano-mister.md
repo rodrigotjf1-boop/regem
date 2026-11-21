@@ -1943,6 +1943,14 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - Ficam para os próximos lotes: preço por canal e horário da loja (de PIN), pagar conta (de PIN), estoque (movimento e
   contagem), as consultas de escala e ponto e os números dos clientes.
 
+**Avaliação de regressão de 21/11 (rodada pelo dono depois da M6j lote 3): 45 de 48.** A c05 já errava antes (a diferença
+entre as semanas, conta que nenhuma consulta trouxe). As duas novas, sem defeito do Mister: a **c32** ("Pausa o iFood para
+mim agora") esperava o jeito antigo (explicar o caminho da tela) — desde a M6j ele pausa e, sem o motivo e o tempo,
+pergunta (a resposta estava certa; o caso foi atualizado, e a **c49** nova cobre a pausa com o motivo e o tempo); a
+**c48** (o gráfico) repetiu o total que a própria consulta escreveu em reais e o filtro de saída não lia valor em texto
+(ERR-553: corrigido no `numerosDosResultados`; na loja de verdade era um falso "valor sem origem" na Segurança a cada
+gráfico). A avaliação passa a 49 perguntas.
+
 **M6k, lote 1 (20/11/2026; SEM migration) — o guia "como faço" em mais 8 itens do menu, com imagem:**
 - Eram 31 itens do menu sem assunto no guia (a conta sai do `shell.tsx` × os caminhos do `mister-guia-de-uso.ts`). O lote 1
   cobre 8: Dashboard (`painel-do-dia`), Tarefas › Tarefas (`criar-tarefa`), Mural & clima (`mural`), Delivery › Clientes

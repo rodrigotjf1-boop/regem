@@ -536,6 +536,11 @@ describe('Mister — o filtro de saída', () => {
     expect(filtrarSaida('Vendeu R$ 3.500,00.', resultados).notas).toEqual(['valor_sem_origem']);
     // Sem valor em reais na resposta, nada a conferir.
     expect(filtrarSaida('Foram 142 vendas.', []).notas).toEqual([]);
+    // O valor que a ferramenta já escreveu em reais num texto (o destaque do gráfico) tem origem (c48, 21/11).
+    const doGrafico = [{ numeroPrincipal: 'R$ 5.110,85', pontos: [{ hora: '20h', faturamento: 1720.85 }] }];
+    expect(numerosDosResultados(doGrafico).has(511085)).toBe(true);
+    expect(filtrarSaida('Ontem foram R$ 5.110,85; o pico, às 20h, com R$ 1.720,85.', doGrafico).notas).toEqual([]);
+    expect(filtrarSaida('Ontem foram R$ 5.999,00.', doGrafico).notas).toEqual(['valor_sem_origem']);
   });
 });
 
