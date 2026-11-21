@@ -88,7 +88,8 @@ export class GraphFotoService {
     }
   }
 
-  private cliente(cfg: ConfigGraph, segredo: string, prazoMs: number): ClienteMcp {
+  /** O cliente da porta MCP com a ligação da empresa (também o da imagem, `GraphImagemService`). */
+  cliente(cfg: ConfigGraph, segredo: string, prazoMs: number): ClienteMcp {
     const chave = `${cfg.emissor}|${cfg.aplicativo}`;
     if (!this.dmsId || this.dmsId.chave !== chave)
       this.dmsId = { chave, cliente: new ClienteDmsId({ emissor: cfg.emissor, aplicativo: cfg.aplicativo, segredo: cfg.segredo, buscar: this.buscar }) };

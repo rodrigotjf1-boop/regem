@@ -9,6 +9,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { GraphCliqueService } from './graph-clique.service';
 import { ConcluirGraphDto } from './dto/concluir-graph.dto';
+import { IniciarGraphDto } from './dto/iniciar-graph.dto';
 
 // O CLIQUE REGEM → DMS GRAPH (G5a; mig 450): o cartão "DMS Graph" (Delivery › Configurações › Integrações e a linha em
 // Atendimento › Fotos do cliente — as telas esperam a aprovação do protótipo). A ligação é da EMPRESA inteira (G-3). Só o
@@ -31,8 +32,8 @@ export class GraphCliqueController {
   @CloudOnly()
   @Roles('presidente')
   @RequirePerm('delivery')
-  iniciar(@CurrentUser() user: AuthUser) {
-    return this.clique.iniciar(user);
+  iniciar(@CurrentUser() user: AuthUser, @Body() dto: IniciarGraphDto) {
+    return this.clique.iniciar(user, dto?.pedir);
   }
 
   @Post('concluir')

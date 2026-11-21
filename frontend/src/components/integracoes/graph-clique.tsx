@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { haQuanto } from '@/components/integracoes/textos';
+import { RecursosAPedir, RecursosLiberados, type RecursoDoGraph } from '@/components/integracoes/graph-recursos';
 
 // O CLIQUE REGEM → DMS GRAPH (G5b; mig 450; protótipo `mockups/regem-graph-clique.html`, aprovado em 18/11/2026 com as
 // recomendadas GR-1 a GR-7): o cartão "DMS Graph" na grade de Delivery › Configurações › Integrações e a janela dele, e a
@@ -31,7 +32,10 @@ export type SituacaoDoGraph = {
     franquia: { mes: string; usados: number; total: number; em: string; doMesAtual: boolean } | null;
   };
   desligadaPeloGraphEm: string | null;
-  permissoes: Array<{ id: string; frase: string; necessaria: boolean }>;
+  /** Tudo o que o Regem pode ter no Graph. */
+  permissoes: RecursoDoGraph[];
+  /** Até este dia a ligação só com a leitura ainda ouve e fala. */
+  legadoAte: string;
 };
 
 /** As cores da marca do DMS Graph (a do produto, como a do Orzuni no cartão dele). */
@@ -258,10 +262,10 @@ function Janela({ s, onClose, onMudou }: { s: SituacaoDoGraph; onClose: () => vo
     return () => window.removeEventListener('keydown', onEsc);
   }, [onClose]);
 
-  async function conectar() {
+  async function conectar(pedir?: string[]) {
     setIndo(true);
     try {
-      const { url } = await api.graphCliqueIniciar();
+      const { url } = await api.graphCliqueIniciar(pedir);
       window.location.href = url; // a página do DMS Graph; a volta é /integracoes/graph/volta
     } catch (e: any) {
       toast.error(e?.message || 'Não foi possível abrir o DMS Graph agora.');
@@ -340,10 +344,11 @@ function Janela({ s, onClose, onMudou }: { s: SituacaoDoGraph; onClose: () => vo
                   )}
                 </dd>
               </dl>
+              <RecursosLiberados recursos={s.permissoes} permissoes={l.permissoes} legadoAte={s.legadoAte} podePedir={s.podeLigar && s.pronto} indo={indo} aoPedir={conectar} />
               <Franquia f={f} />
               {!s.podeLigar ? (
-                <Aviso tipo="info" titulo="Só quem é presidente desliga o DMS Graph">
-                  Você vê aqui a situação da empresa.
+                <Aviso tipo="info" titulo="Só quem é presidente pede mais ou desliga">
+                  Você vê aqui o que está liberado e o uso do mês.
                 </Aviso>
               ) : confirmarDesligar ? (
                 <div role="alertdialog" aria-label="Desligar o DMS Graph" className="grid gap-2 rounded-lg border border-border p-3">
@@ -384,22 +389,7 @@ function Janela({ s, onClose, onMudou }: { s: SituacaoDoGraph; onClose: () => vo
                 Vale para: <b className="text-foreground">{empresa}</b> (a empresa inteira, todas as lojas)
               </div>
               {!s.empresaTemCnpj && <CnpjDaEmpresa pode={s.podeLigar} aoSalvar={onMudou} />}
-              <div className="rounded-lg border border-border p-3">
-                <h3 className="mb-2 font-display text-sm font-semibold">O que o Regem vai pedir ao DMS Graph</h3>
-                <ul className="m-0 grid list-none gap-2 p-0 text-sm">
-                  {s.permissoes.map((p) => (
-                    <li key={p.id} className="flex items-start gap-2">
-                      <span aria-hidden="true" className="font-bold text-ok">
-                        ✓
-                      </span>
-                      <span className="min-w-0">
-                        {p.frase.replace(/\.$/, '')}
-                        <small className="block text-xs text-muted-foreground">O DMS Graph devolve só o que leu na foto; a foto continua na conversa do WhatsApp da loja.</small>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <RecursosAPedir recursos={s.permissoes} />
               {!s.podeLigar ? (
                 <Aviso tipo="info" titulo="Só quem é presidente liga o DMS Graph">
                   Você vê aqui quando a empresa estiver ligada.
@@ -410,7 +400,7 @@ function Janela({ s, onClose, onMudou }: { s: SituacaoDoGraph; onClose: () => vo
                 </Aviso>
               ) : (
                 <div className="grid gap-2">
-                  <Button onClick={conectar} disabled={indo || !s.empresaTemCnpj} className="w-full">
+                  <Button onClick={() => conectar()} disabled={indo || !s.empresaTemCnpj} className="w-full">
                     {indo ? 'Abrindo o DMS Graph…' : s.desligadaPeloGraphEm ? 'Conectar ao DMS Graph de novo' : 'Conectar ao DMS Graph'}
                   </Button>
                   {!s.empresaTemCnpj && <p className="m-0 text-xs text-muted-foreground">Salve o CNPJ para conectar.</p>}
@@ -462,7 +452,7 @@ export function GraphIntegracao() {
         <Selo tom={selo.tom}>{selo.texto}</Selo>
         <LogoGraph grande />
         <span className="text-center text-base font-semibold leading-tight">DMS Graph</span>
-        <small className="text-xs text-muted-foreground">Lê as fotos que os clientes mandam no WhatsApp</small>
+        <small className="text-xs text-muted-foreground">Lê fotos, PDFs e áudios; edita e cria imagem</small>
       </button>
       {aberto && <Janela s={s} onClose={() => setAberto(false)} onMudou={reler} />}
     </>

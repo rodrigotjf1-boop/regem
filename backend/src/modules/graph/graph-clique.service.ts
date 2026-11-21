@@ -19,11 +19,12 @@ import {
   resumoDoEstado,
 } from '../../common/clique-dms';
 import {
-  FRASE_DA_PERMISSAO,
-  PERMISSAO_DO_GRAPH,
+  LEGADO_DO_GRAPH_ATE,
   PERMISSOES_DO_GRAPH,
+  RECURSOS_DO_GRAPH,
   type ConfigGraph,
   codigoValido,
+  escopoDoPedido,
   fraseDaVolta,
   graphLigadoNoAmbiente,
   graphLigadoParaEmpresa,
@@ -68,7 +69,10 @@ export type SituacaoDoGraph = {
   };
   /** A ligação foi desfeita do lado do Graph (GR-6): quando. A tela avisa e oferece ligar de novo. */
   desligadaPeloGraphEm: string | null;
-  permissoes: Array<{ id: string; frase: string; necessaria: boolean }>;
+  /** Tudo o que o Regem pode ter no Graph: a tela mostra o que está liberado e oferece pedir o resto. */
+  permissoes: Array<{ id: string; nome: string; frase: string; motivo: string; necessaria: boolean; pago: boolean }>;
+  /** Até este dia a ligação só com a leitura ainda ouve e fala (depois, precisa pedir de novo). */
+  legadoAte: string;
 };
 
 /**
@@ -76,7 +80,8 @@ export type SituacaoDoGraph = {
  * (G-3): o Regem empurra o pedido ao Graph (`POST /v1/dms-id/autorizacao/pedido`, RFC 9126 + PKCE, com o token do DMS ID
  * do aplicativo do Regem, o `conta_empresa_id` = a empresa e o CNPJ dela, obrigatório), o presidente autoriza na página do
  * Graph, e na volta o Regem troca o código pelo segredo da ligação (`/token`), guardado CIFRADO. Desligar avisa o Graph
- * (`DELETE /v1/dms-id/ligacao`). Só o presidente liga e desliga (GR-2, no servidor). Só pede `arquivos.analisar` (GR-3).
+ * (`DELETE /v1/dms-id/ligacao`). Só o presidente liga e desliga (GR-2, no servidor). A leitura é necessária; o resto é
+ * opcional e se pede depois ("Pedir mais"), sempre com o conjunto inteiro, porque o Graph troca as permissões pelo que veio.
  * Tudo atrás de `GRAPH_LIGADO`: desligada, as rotas dizem que não está ligado e a foto segue como hoje.
  */
 @Injectable()
@@ -165,7 +170,8 @@ export class GraphCliqueService {
       podeLigar: user.categoria === 'presidente',
       ligacao: null,
       desligadaPeloGraphEm: null,
-      permissoes: [{ id: PERMISSAO_DO_GRAPH, frase: FRASE_DA_PERMISSAO, necessaria: true }],
+      permissoes: RECURSOS_DO_GRAPH.map((r) => ({ ...r })),
+      legadoAte: LEGADO_DO_GRAPH_ATE,
     };
     if (!base.ligado || ehServidorLocal()) return base;
     const [[emp], reservaIa, l] = await Promise.all([
@@ -209,11 +215,15 @@ export class GraphCliqueService {
 
   /**
    * `POST /graph/clique/iniciar`: empurra o pedido ao Graph e devolve o endereço da página. Toda recusa vem ANTES de
-   * gravar. Já ligada: ligar de novo gira o segredo lá (a anterior sai na volta).
+   * gravar. Já ligada: ligar de novo gira o segredo lá (a anterior sai na volta). `pedir` = os recursos novos do "Pedir
+   * mais": vai o conjunto inteiro (o que a ligação tem e o novo), e recusar lá não muda nada aqui.
    */
-  async iniciar(user: AuthUser): Promise<{ url: string }> {
+  async iniciar(user: AuthUser, pedir?: unknown): Promise<{ url: string }> {
     if (ehServidorLocal()) throw new BadRequestException('A ligação com o DMS Graph se faz no Regem na nuvem (app.dmsregem.com), não no servidor da loja.');
     const cfg = this.config(user.tenantId);
+    const viva = await this.ligacaoViva(user.tenantId);
+    const conjunto = escopoDoPedido(viva ? (Array.isArray(viva.permissoes) ? viva.permissoes.map(String) : []) : null, pedir);
+    if ('erro' in conjunto) throw new BadRequestException(conjunto.erro);
     const [emp] = await this.rows(sql`select nome, cnpj from empresa where id = ${user.tenantId}::uuid and deleted_at is null`);
     if (!emp) throw new BadRequestException('Empresa não encontrada.');
     const cnpj = String(emp.cnpj ?? '').replace(/\D/g, '');
@@ -231,7 +241,7 @@ export class GraphCliqueService {
       response_type: 'code',
       client_id: cfg.aplicativo,
       redirect_uri: voltaDoGraph(),
-      scope: PERMISSAO_DO_GRAPH,
+      scope: conjunto.escopo.join(' '),
       state: p.estado,
       code_challenge: p.desafio,
       code_challenge_method: 'S256',
@@ -248,7 +258,9 @@ export class GraphCliqueService {
       throw new BadGatewayException(
         problema === 'integracao-parada'
           ? 'O DMS Graph pausou novas ligações por enquanto. Tente de novo mais tarde.'
-          : 'O DMS Graph não aceitou o pedido agora. Tente de novo em alguns minutos; se continuar, avise o suporte.',
+          : problema === 'escopo-insuficiente'
+            ? 'A DMS ainda não liberou esse recurso para o Regem. Avise o suporte; o que já está ligado continua funcionando.'
+            : 'O DMS Graph não aceitou o pedido agora. Tente de novo em alguns minutos; se continuar, avise o suporte.',
       );
     }
     const vale = Math.min(Number(r.corpo?.expires_in) || 600, VALIDADE_DO_PEDIDO_MS / 1000);
@@ -259,7 +271,7 @@ export class GraphCliqueService {
     await this.db.execute(sql`
       insert into graph_clique_pedido (tenant_id, colaborador_id, estado_hash, verificador_cifrado, permissoes, vence_em)
       values (${user.tenantId}::uuid, ${user.colaboradorId}::uuid, ${resumoDoEstado(p.estado)}, ${cifrar(p.verificador)},
-              ${JSON.stringify(PERMISSOES_DO_GRAPH)}::jsonb, now() + make_interval(secs => ${vale}))`);
+              ${JSON.stringify(conjunto.escopo)}::jsonb, now() + make_interval(secs => ${vale}))`);
     return { url: paginaDeAutorizacao(r.corpo?.authorization_endpoint, paginaPadraoDoGraph(cfg), cfg.aplicativo, String(r.corpo.request_uri)) };
   }
 
@@ -283,7 +295,10 @@ export class GraphCliqueService {
 
     if (v.error) {
       await fim(v.error === 'access_denied' ? 'recusado' : 'vencido');
-      return { ligada: false, mensagem: fraseDaVolta(v.error === 'access_denied' ? 'access_denied' : 'invalid_request_uri') };
+      if (v.error !== 'access_denied') return { ligada: false, mensagem: fraseDaVolta('invalid_request_uri') };
+      // "Agora não" no "Pedir mais": a ligação segue viva, e a frase não pode dizer que as fotos foram para a IA da empresa
+      const aindaLigada = await this.ligacaoViva(user.tenantId).catch(() => null);
+      return { ligada: false, mensagem: fraseDaVolta(aindaLigada ? 'nao_autorizou_mais' : 'access_denied') };
     }
     if (new Date(p.vence_em).getTime() < Date.now()) {
       await fim('vencido');
@@ -332,18 +347,25 @@ export class GraphCliqueService {
       // Duas voltas da mesma empresa ao mesmo tempo: uma de cada vez (a ligação viva é uma só — índice único). A trava é
       // na linha da empresa, no modo que não segura as gravações das outras tabelas dela (a chave estrangeira).
       await tx.execute(sql`select 1 from empresa where id = ${user.tenantId}::uuid for no key update`);
-      const [ant] = await this.rows(sql`select prefixo from graph_ligacao where tenant_id = ${user.tenantId}::uuid and revogada_em is null`, tx);
+      const [ant] = await this.rows(
+        sql`select prefixo, ultimo_uso_em, ultima_leitura_em, ultima_leitura_resultado, franquia_mes, franquia_usados, franquia_total, franquia_em
+              from graph_ligacao where tenant_id = ${user.tenantId}::uuid and revogada_em is null`,
+        tx,
+      );
       // Ligar de novo GIRA o segredo no Graph: a anterior já não vale lá — sai aqui também, na mesma transação.
       await tx.execute(sql`
         update graph_ligacao set revogada_em = clock_timestamp(), revogada_origem = 'troca', revogada_por = ${quem},
                                  revogada_por_id = ${user.colaboradorId}::uuid, revogada_motivo = 'trocada por uma nova autorização por clique'
          where tenant_id = ${user.tenantId}::uuid and revogada_em is null`);
       await tx.execute(sql`
-        insert into graph_ligacao (tenant_id, segredo_cifrado, prefixo, conta_graph, conta_graph_nome, permissoes, criada_por, criada_por_id, segredo_em)
+        insert into graph_ligacao (tenant_id, segredo_cifrado, prefixo, conta_graph, conta_graph_nome, permissoes, criada_por, criada_por_id, segredo_em,
+                                   ultimo_uso_em, ultima_leitura_em, ultima_leitura_resultado, franquia_mes, franquia_usados, franquia_total, franquia_em)
         values (${user.tenantId}::uuid, ${cifrar(ligacao)}, ${String(r.corpo?.prefixo ?? '').slice(0, 40) || ligacao.slice(0, 18)},
                 ${r.corpo?.conta_id ? String(r.corpo.conta_id).slice(0, 100) : null}, ${contaNome}, ${JSON.stringify(permissoes)}::jsonb,
                 ${quem}, ${user.colaboradorId}::uuid,
-                ${typeof r.corpo?.segredo_em === 'string' && !Number.isNaN(Date.parse(r.corpo.segredo_em)) ? r.corpo.segredo_em : new Date().toISOString()}::timestamptz)`);
+                ${typeof r.corpo?.segredo_em === 'string' && !Number.isNaN(Date.parse(r.corpo.segredo_em)) ? r.corpo.segredo_em : new Date().toISOString()}::timestamptz,
+                ${ant?.ultimo_uso_em ?? null}::timestamptz, ${ant?.ultima_leitura_em ?? null}::timestamptz, ${ant?.ultima_leitura_resultado ?? null}::text,
+                ${ant?.franquia_mes ?? null}::text, ${ant?.franquia_usados ?? null}::int, ${ant?.franquia_total ?? null}::int, ${ant?.franquia_em ?? null}::timestamptz)`);
       await tx.execute(sql`update graph_clique_pedido set resultado = 'ligada' where id = ${p.id}`);
       return ant?.prefixo ?? null;
     });

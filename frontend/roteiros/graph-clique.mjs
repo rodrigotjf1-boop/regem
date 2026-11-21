@@ -15,7 +15,13 @@ const PAGINA_DO_GRAPH = 'https://graph.exemplo.test/autorizar?client_id=app-rege
 const AGORA = Date.now();
 const MES = new Date(AGORA).toISOString().slice(0, 7);
 
-const PERMISSOES = [{ id: 'arquivos.analisar', frase: 'Analisar as fotos e os documentos que os seus clientes mandam, sem guardar o arquivo.', necessaria: true }];
+const PERMISSOES = [
+  { id: 'arquivos.analisar', nome: 'Ler fotos, PDFs e vídeos', frase: 'Ler as fotos, os PDFs e os vídeos que os seus clientes e a sua equipe mandam, sem guardar o arquivo.', motivo: 'O atendente virtual e o Mister leem o que chega; o Graph não guarda o arquivo.', necessaria: true, pago: false },
+  { id: 'audio.ouvir', nome: 'Ouvir áudios', frase: 'Ouvir os áudios.', motivo: 'O Mister entende o áudio que você manda.', necessaria: false, pago: false },
+  { id: 'audio.falar', nome: 'Falar', frase: 'Transformar um texto em voz.', motivo: 'O Mister responde em áudio quando você pede.', necessaria: false, pago: false },
+  { id: 'imagens.editar', nome: 'Editar fotos', frase: 'Editar as fotos.', motivo: 'Melhorar a foto dos produtos do cardápio.', necessaria: false, pago: true },
+  { id: 'imagens.criar', nome: 'Criar imagens', frase: 'Criar imagens.', motivo: 'A arte de um banner a partir de uma descrição.', necessaria: false, pago: true },
+];
 const base = (o = {}) => ({
   ligado: true,
   empresaNome: 'Casa do Hambúrguer Ltda.',
@@ -27,6 +33,7 @@ const base = (o = {}) => ({
   ligacao: null,
   desligadaPeloGraphEm: null,
   permissoes: PERMISSOES,
+  legadoAte: '2099-03-01',
   ...o,
 });
 const ligacao = (o = {}) => ({
@@ -42,6 +49,9 @@ const ligacao = (o = {}) => ({
 const SITUACOES = {
   naoLigado: () => base(),
   ligado: () => base({ ligacao: ligacao() }),
+  comTudo: () => base({ ligacao: ligacao({ permissoes: PERMISSOES.map((p) => p.id) }) }),
+  soAudioNovo: () => base({ ligacao: ligacao({ permissoes: ['arquivos.analisar', 'audio.ouvir', 'audio.falar'] }) }),
+  legadoVencido: () => base({ legadoAte: '2020-01-01', ligacao: ligacao() }),
   cheia: () => base({ ligacao: ligacao({ franquia: { mes: MES, usados: 500, total: 500, em: new Date(AGORA).toISOString(), doMesAtual: true }, ultimaLeitura: { em: new Date(AGORA).toISOString(), resultado: 'franquia-esgotada' } }) }),
   desligadoNoGraph: () => base({ desligadaPeloGraphEm: new Date(AGORA - 86400000).toISOString() }),
   semReserva: () => base({ reservaIa: false, ligacao: ligacao() }),
@@ -96,7 +106,7 @@ const medir = (page) =>
 
 export default async function roteiroGraphClique({ nav, base: endereco, ok, foto, larguras }) {
   async function abrir(w, h, { token = PRESIDENTE, situacao = 'naoLigado', caminho = '/delivery/configuracoes?aba=integracoes', concluir = { ligada: true, contaNome: 'Casa do Hambúrguer Ltda.', permissoes: ['arquivos.analisar'] }, recusarCnpj = null } = {}) {
-    const S = { situacao, iniciar: 0, desligar: 0, concluir: [], leiturasSituacao: 0, cnpjs: [] };
+    const S = { situacao, pedidos: [], iniciar: 0, desligar: 0, concluir: [], leiturasSituacao: 0, cnpjs: [] };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: false });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), token);
     const page = await ctx.newPage();
@@ -116,6 +126,7 @@ export default async function roteiroGraphClique({ nav, base: endereco, ok, foto
       }
       if (p === '/graph/clique/iniciar' && req.method() === 'POST') {
         S.iniciar++;
+        S.pedidos.push(corpo);
         return responder(route, { url: PAGINA_DO_GRAPH });
       }
       if (p === '/graph/clique/desligar' && req.method() === 'POST') {
@@ -155,11 +166,11 @@ export default async function roteiroGraphClique({ nav, base: endereco, ok, foto
     await cartao(page).waitFor({ timeout: 20000 }).catch(() => {});
     ok(await cartao(page).isVisible(), 'o cartão "DMS Graph" aparece na grade de Integrações');
     ok(/não ligado/.test(await cartao(page).innerText()), `o cartão diz "não ligado" (${umaLinha(await cartao(page).innerText(), 80)})`);
-    ok(/Lê as fotos que os clientes mandam no WhatsApp/.test(await cartao(page).innerText()), 'o cartão diz o que o Graph faz');
+    ok(/Lê fotos, PDFs e áudios; edita e cria imagem/.test(await cartao(page).innerText()), 'o cartão diz o que o Graph faz');
     await abrirJanela(page);
     const t = await janela(page).innerText();
     ok(/Vale para:\s*Casa do Hambúrguer Ltda\.\s*\(a empresa inteira, todas as lojas\)/.test(t), 'a janela diz que vale para a empresa inteira (G-3)');
-    ok(/O que o Regem vai pedir ao DMS Graph/.test(t) && /Analisar as fotos e os documentos que os seus clientes mandam, sem guardar o arquivo/.test(t), 'a única permissão pedida (GR-3), com a frase do catálogo');
+    ok(/O que o Regem vai pedir ao DMS Graph/.test(t) && /Ler fotos, PDFs e vídeos/.test(t) && /Opcional: ouvir áudios/.test(t) && /Opcional: criar imagens/.test(t) && /cada uma começa desligada/.test(t), 'a leitura é necessária e o resto opcional, com a frase do catálogo');
     ok(/Ninguém copia chave/.test(t), 'a nota do caminho (DMS ID, conferir, autorizar)');
     await page.screenshot({ path: foto('graph-antes-de-ligar.png') });
     await page.click('[role="dialog"] button:has-text("Conectar ao DMS Graph")');
@@ -223,6 +234,62 @@ export default async function roteiroGraphClique({ nav, base: endereco, ok, foto
     ok(/A franquia de \S+ acabou/.test(t) && /as fotos são lidas pela IA da empresa/.test(t), 'franquia acabou: o aviso com a reserva');
     ok(/500\s*de\s*500/.test(t), 'franquia acabou: 500 de 500');
     ok(/a franquia do mês acabou; foi à IA da empresa/.test(t), 'a última leitura diz por que foi à IA');
+    await ctx.close();
+  }
+  // ── pedir mais (plano "recursos por produto"): a ligação antiga, as chaves e o que vai ao servidor ──
+  {
+    const { ctx, page, S, erros } = await abrir(1280, 900, { situacao: 'ligado' });
+    await abrirJanela(page);
+    const t = await janela(page).innerText();
+    ok(/O que está liberado/.test(t) && /Ler fotos, PDFs e vídeos/.test(t), 'ligado: a lista do que está liberado');
+    ok(/Peça de novo "ouvir áudios" e "falar" até 01\/03\/2099/.test(t) && (t.match(/Pela permissão antiga/g) ?? []).length === 2, 'a ligação antiga: o aviso e ouvir e falar pela permissão antiga');
+    ok(/Recurso pago: a empresa começa com franquia 0/.test(t), 'o recurso pago diz que começa em 0');
+    const pedirMais = page.locator('[role="dialog"] button:has-text("Pedir mais ao DMS Graph")');
+    ok(await pedirMais.isDisabled(), 'sem nada ligado, "Pedir mais" fica travado');
+    await page.getByRole('switch', { name: 'Pedir: editar fotos' }).click();
+    ok(await pedirMais.isEnabled(), 'com uma chave ligada, "Pedir mais" libera');
+    await page.getByRole('switch', { name: 'Pedir: criar imagens' }).click();
+    await page.getByRole('switch', { name: 'Pedir: criar imagens' }).click();
+    await pedirMais.click();
+    await page.waitForURL(/graph\.exemplo\.test\/autorizar/, { timeout: 8000 }).catch(() => {});
+    ok(S.iniciar === 1 && JSON.stringify(S.pedidos[0]) === '{"pedir":["imagens.editar"]}', `vai só o que ficou ligado (${JSON.stringify(S.pedidos[0])})`);
+    ok(erros.length === 0, `pedir mais: sem erro na página (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const { ctx, page, S } = await abrir(1280, 900, { situacao: 'ligado' });
+    await abrirJanela(page);
+    await page.click('[role="dialog"] button:has-text("Pedir de novo ouvir e falar")');
+    await page.waitForURL(/graph\.exemplo\.test\/autorizar/, { timeout: 8000 }).catch(() => {});
+    ok(JSON.stringify(S.pedidos[0]) === '{"pedir":["audio.ouvir","audio.falar"]}', '"Pedir de novo ouvir e falar" pede os dois');
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900, { situacao: 'comTudo' });
+    await abrirJanela(page);
+    const t = await janela(page).innerText();
+    ok(!/Pedir mais ao DMS Graph/.test(t) && !/Peça de novo/.test(t) && (await page.getByRole('switch').count()) === 0, 'com tudo liberado: sem chave e sem "Pedir mais"');
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900, { situacao: 'soAudioNovo' });
+    await abrirJanela(page);
+    const t = await janela(page).innerText();
+    ok(!/Peça de novo/.test(t) && !/Pela permissão antiga/.test(t) && (await page.getByRole('switch').count()) === 2, 'já com ouvir e falar próprios: sem o aviso, só as chaves de imagem');
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900, { situacao: 'legadoVencido' });
+    await abrirJanela(page);
+    const t = await janela(page).innerText();
+    ok(!/Pela permissão antiga/.test(t) && (await page.getByRole('switch', { name: 'Pedir: ouvir áudios' }).count()) === 1, 'depois da data: ouvir e falar aparecem como não liberados');
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await abrir(1280, 900, { situacao: 'ligado', token: GERENTE });
+    await abrirJanela(page);
+    const t = await janela(page).innerText();
+    ok(/Só quem é presidente pede mais ou desliga/.test(t) && (await page.getByRole('switch').count()) === 0 && !/Pedir mais ao DMS Graph/.test(t) && !/Pedir de novo/.test(t), 'o gerente vê o que está liberado, sem pedir');
     await ctx.close();
   }
   {

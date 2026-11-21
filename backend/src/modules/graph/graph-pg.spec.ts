@@ -10,6 +10,7 @@ import { gerarChave, montarChaveIdempotencia } from '../../dms/integracao-dms';
 import { FotoDoClienteService } from '../cardapio/foto-do-cliente.service';
 import { GraphCliqueService } from './graph-clique.service';
 import { GraphFotoService } from './graph-foto.service';
+import { GraphImagemService } from './graph-imagem.service';
 import {
   MIMES_DO_AUDIO,
   MIMES_DO_MISTER_NO_GRAPH,
@@ -88,6 +89,7 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
   let chamadasMcp: Array<{ args: any; ligacao: string | null; nome: string | null }> = [];
   let respostaDoPedido: () => Response = () => json(201, { request_uri: `urn:ietf:params:oauth:request_uri:gph_${randomBytes(32).toString('base64url')}`, expires_in: 600, authorization_endpoint: `${ORIGEM}/autorizar` });
   let segredosEntregues: string[] = [];
+  let concedidasNaTroca: string[] = ['arquivos.analisar'];
   /** O que a porta MCP responde (o `result` do JSON-RPC, ou um Response pronto para as recusas HTTP). */
   let porta: (c: { args: any; ligacao: string | null }) => Promise<any> | any = () => sucesso();
 
@@ -122,7 +124,7 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
       if (!confere || corpo?.redirect_uri !== pedido?.redirect_uri) return problema(400, 'autorizacao-invalida');
       const { chave, prefixo } = gerarChave('lg', 'graph');
       segredosEntregues.push(chave);
-      return json(200, { ligacao: chave, prefixo, conta_id: 'conta-graph-1', conta_nome: pedido.conta_nome, permissoes: ['arquivos.analisar'], segredo_em: new Date().toISOString() });
+      return json(200, { ligacao: chave, prefixo, conta_id: 'conta-graph-1', conta_nome: pedido.conta_nome, permissoes: concedidasNaTroca, segredo_em: new Date().toISOString() });
     }
     if (u === `${ORIGEM}/v1/dms-id/ligacao` && init?.method === 'DELETE') {
       desligados.push(cab.get('dms-ligacao') ?? '');
@@ -178,6 +180,7 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
     desligados = [];
     chamadasMcp = [];
     segredosEntregues = [];
+    concedidasNaTroca = ['arquivos.analisar'];
     auditados.length = 0;
     porta = () => sucesso();
   });
@@ -219,7 +222,14 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
       iaDeReserva = false;
       expect((await clique.situacao(ana)).reservaIa).toBe(false);
       iaDeReserva = true;
-      expect(antes.permissoes).toEqual([{ id: 'arquivos.analisar', frase: expect.stringMatching(/sem guardar o arquivo/), necessaria: true }]);
+      expect(antes.permissoes.map((x: any) => [x.id, x.necessaria, x.pago])).toEqual([
+        ['arquivos.analisar', true, false],
+        ['audio.ouvir', false, false],
+        ['audio.falar', false, false],
+        ['imagens.editar', false, true],
+        ['imagens.criar', false, true],
+      ]);
+      expect(antes.legadoAte).toBe('2027-03-01');
 
       const { url } = await clique.iniciar(ana);
       const pagina = new URL(url);
@@ -232,16 +242,16 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
         response_type: 'code',
         client_id: ENV.HUB_APLICATIVO,
         redirect_uri: VOLTA,
-        scope: 'arquivos.analisar',
+        scope: 'arquivos.analisar audio.ouvir audio.falar imagens.editar imagens.criar',
         code_challenge_method: 'S256',
         conta_nome: 'Casa do Hambúrguer',
         conta_cnpj: cnpj,
         conta_empresa_id: t,
       });
       expect(p.conta_email).toMatch(/@exemplo\.com\.br$/);
-      // O token do DMS ID: o destino é a porta do Graph, e só arquivos.analisar (GR-3).
+      // O token do DMS ID: o destino é a porta do Graph, com tudo o que o Regem pode ter (na chamada vale a menor com a ligação).
       expect(tokensPedidos[0].get('resource')).toBe(MCP);
-      expect(tokensPedidos[0].get('scope')).toBe('arquivos.analisar');
+      expect(tokensPedidos[0].get('scope')).toBe('arquivos.analisar audio.ouvir audio.falar imagens.editar imagens.criar');
       // O pedido em curso: o state só pelo resumo; o verificador cifrado.
       const [guardado] = await q(`select estado_hash, verificador_cifrado, vence_em > now() + interval '9 minutes' as vale from graph_clique_pedido where tenant_id = $1`, [t]);
       expect(guardado.estado_hash).toBe(createHash('sha256').update(String(p.state), 'utf8').digest('hex'));
@@ -345,6 +355,120 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
       // Quem ficou fora ainda desliga o que ligou (o Graph é avisado).
       expect(await clique.desligar(fora.ana)).toEqual({ desligada: true });
       expect(desligados).toContain(segredosEntregues[0]);
+    });
+  });
+
+  describe('pedir mais e a imagem pelo DMS Graph (contrato 1.4.0)', () => {
+    const graphImagem = new GraphImagemService(graphFoto);
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+    const imagemPronta = (franquia = { mes: MES, usados: 1, total: 30 }) => {
+      const sc = { tipoArquivo: 'imagem', mimeType: 'image/jpeg', imagemBase64: jpeg.toString('base64'), tamanho: '1K', proporcao: '1:1', franquia };
+      return { content: [{ type: 'text', text: '(imagem)' }], structuredContent: sc };
+    };
+
+    it('pedir mais: vai o conjunto inteiro; "Agora não" não muda nada; autorizar troca a ligação e guarda o uso', async () => {
+      const { t, ana } = await empresa();
+      await ligar(ana);
+      await q(`update graph_ligacao set franquia_mes = $1, franquia_usados = 87, franquia_total = 500, franquia_em = now(), ultimo_uso_em = now(),
+                      ultima_leitura_em = now(), ultima_leitura_resultado = 'lida' where tenant_id = $2 and revogada_em is null`, [MES, t]);
+      const antigo = segredosEntregues[0];
+
+      await clique.iniciar(ana, ['audio.ouvir', 'audio.falar']);
+      expect(pedidos.at(-1).scope).toBe('arquivos.analisar audio.ouvir audio.falar');
+      expect((await q(`select permissoes from graph_clique_pedido where tenant_id = $1 order by criado_em desc limit 1`, [t]))[0].permissoes).toEqual([
+        'arquivos.analisar', 'audio.ouvir', 'audio.falar',
+      ]);
+      // "Agora não" lá: a ligação segue viva, e a frase não diz que as fotos foram para a IA da empresa
+      const recusou = await clique.concluir(ana, { error: 'access_denied', state: String(pedidos.at(-1).state), iss: ORIGEM });
+      expect(recusou).toEqual({ ligada: false, mensagem: expect.stringMatching(/continua com o que já estava liberado/) });
+      let vivas = await q(`select segredo_cifrado, permissoes from graph_ligacao where tenant_id = $1 and revogada_em is null`, [t]);
+      expect(vivas).toHaveLength(1);
+      expect(decifrar(vivas[0].segredo_cifrado)).toBe(antigo);
+      expect(vivas[0].permissoes).toEqual(['arquivos.analisar']);
+
+      await clique.iniciar(ana, ['audio.ouvir']);
+      concedidasNaTroca = ['arquivos.analisar', 'audio.ouvir'];
+      const r = await clique.concluir(ana, { code: codigo(), state: String(pedidos.at(-1).state), iss: ORIGEM });
+      expect(r).toMatchObject({ ligada: true, permissoes: ['arquivos.analisar', 'audio.ouvir'] });
+      vivas = await q(`select * from graph_ligacao where tenant_id = $1 and revogada_em is null`, [t]);
+      expect(vivas).toHaveLength(1);
+      expect(decifrar(vivas[0].segredo_cifrado)).toBe(segredosEntregues[1]);
+      expect(vivas[0]).toMatchObject({ franquia_mes: MES, franquia_usados: 87, franquia_total: 500, ultima_leitura_resultado: 'lida' });
+      expect(vivas[0].ultimo_uso_em).not.toBeNull();
+      // o próximo pedido soma ao que ela já tem
+      await clique.iniciar(ana, ['imagens.criar']);
+      expect(pedidos.at(-1).scope).toBe('arquivos.analisar audio.ouvir imagens.criar');
+    });
+
+    it('recusa pedir o que não existe ou já está liberado, sem chamar o Graph; a falta no DMS ID tem frase própria', async () => {
+      const { ana } = await empresa();
+      await ligar(ana);
+      const antes = pedidos.length;
+      await expect(clique.iniciar(ana, ['videos.criar'])).rejects.toMatchObject({ status: 400 });
+      await expect(clique.iniciar(ana, ['arquivos.analisar'])).rejects.toMatchObject({ status: 400 });
+      await expect(clique.iniciar(ana, 'audio.ouvir')).rejects.toMatchObject({ status: 400 });
+      expect(pedidos).toHaveLength(antes);
+      const original = respostaDoPedido;
+      respostaDoPedido = () => problema(403, 'escopo-insuficiente');
+      try {
+        await expect(clique.iniciar(ana, ['audio.ouvir'])).rejects.toMatchObject({ status: 502, message: expect.stringMatching(/ainda não liberou esse recurso/) });
+      } finally {
+        respostaDoPedido = original;
+      }
+    });
+
+    it('criarImagem: chama a ferramenta com a chave própria e devolve os bytes; a repetição usa a mesma chave', async () => {
+      const { t, ana } = await empresa();
+      await ligar(ana);
+      porta = () => imagemPronta();
+      const r = await graphImagem.criarImagem(t, { descricao: 'Um hambúrguer', proporcao: '16:9', chave: 'banner:1' });
+      expect(r).toMatchObject({ ok: true, mimeType: 'image/jpeg', franquia: { mes: MES, usados: 1, total: 30 } });
+      expect((r as any).bytes.equals(jpeg)).toBe(true);
+      const c = chamadasMcp.at(-1)!;
+      expect(c.nome).toBe('criar_imagem');
+      expect(c.args).toEqual({ descricao: 'Um hambúrguer', proporcao: '16:9', chaveIdempotencia: montarChaveIdempotencia('regem-graph-imagem', t, 'criar_imagem', 'banner:1') });
+      await graphImagem.criarImagem(t, { descricao: 'Um hambúrguer', proporcao: '16:9', chave: 'banner:1' });
+      expect(chamadasMcp.at(-1)!.args.chaveIdempotencia).toBe(c.args.chaveIdempotencia);
+      // a franquia de imagem não mexe no medidor de leitura do cartão
+      expect((await q(`select franquia_usados from graph_ligacao where tenant_id = $1 and revogada_em is null`, [t]))[0].franquia_usados).toBeNull();
+    });
+
+    it('editarImagem: manda as fotos em base64; tipo que o Graph não aceita nem sai daqui', async () => {
+      const { t, ana } = await empresa();
+      await ligar(ana);
+      porta = () => imagemPronta();
+      const r = await graphImagem.editarImagem(t, { fotos: [{ buffer: jpeg, mime: 'image/jpg' }], instrucao: 'Troque o fundo', chave: 'produto:1' });
+      expect(r.ok).toBe(true);
+      expect(chamadasMcp.at(-1)!.nome).toBe('editar_imagem');
+      expect(chamadasMcp.at(-1)!.args.fotos).toEqual([{ mimeType: 'image/jpeg', arquivoBase64: jpeg.toString('base64') }]);
+      const n = chamadasMcp.length;
+      expect(await graphImagem.editarImagem(t, { fotos: [{ buffer: jpeg, mime: 'image/gif' }], instrucao: 'x', chave: 'produto:2' })).toMatchObject({ ok: false, motivo: 'pedido-invalido' });
+      expect(chamadasMcp).toHaveLength(n);
+    });
+
+    it('a imagem: desligado, sem ligação, sem franquia, permissão que falta, recusa e ligação desfeita viram o motivo, sem lançar', async () => {
+      const { t, ana } = await empresa();
+      expect(await graphImagem.criarImagem(t, { descricao: 'x', chave: 'a:1' })).toMatchObject({ ok: false, motivo: 'sem-ligacao' });
+      process.env.GRAPH_LIGADO = 'false';
+      expect(await graphImagem.criarImagem(t, { descricao: 'x', chave: 'a:1' })).toMatchObject({ ok: false, motivo: 'desligado' });
+      process.env.GRAPH_LIGADO = 'true';
+      await ligar(ana);
+      porta = () => recusa('limite-de-chamadas', { limite: 'franquia_imagem', franquia: { mes: MES, usados: 0, total: 0 } });
+      expect(await graphImagem.criarImagem(t, { descricao: 'x', chave: 'a:2' })).toMatchObject({ ok: false, motivo: 'sem-franquia', mensagem: expect.stringMatching(/ainda não tem franquia/) });
+      porta = () => recusa('limite-de-chamadas', { limite: 'franquia_imagem', franquia: { mes: MES, usados: 30, total: 30 } });
+      expect(await graphImagem.criarImagem(t, { descricao: 'x', chave: 'a:3' })).toMatchObject({ ok: false, motivo: 'franquia-esgotada' });
+      porta = () => recusa('regra-invalida');
+      expect(await graphImagem.criarImagem(t, { descricao: 'x', chave: 'a:4' })).toMatchObject({ ok: false, motivo: 'recusada' });
+      porta = () => new Response(JSON.stringify({ type: 'https://dms.exemplo/problemas/escopo-insuficiente', title: 'x', status: 403 }), {
+        status: 403,
+        headers: { 'content-type': 'application/problem+json', 'www-authenticate': 'Bearer error="insufficient_scope", scope="imagens.criar"' },
+      });
+      expect(await graphImagem.criarImagem(t, { descricao: 'x', chave: 'a:5' })).toMatchObject({ ok: false, motivo: 'sem-permissao' });
+      porta = () => ({ content: [{ type: 'text', text: '{}' }], structuredContent: { mimeType: 'text/html', imagemBase64: 'AAAA' } });
+      expect(await graphImagem.criarImagem(t, { descricao: 'x', chave: 'a:6' })).toMatchObject({ ok: false, motivo: 'fora-do-formato' });
+      porta = () => problema(401, 'ligacao-invalida');
+      expect(await graphImagem.criarImagem(t, { descricao: 'x', chave: 'a:7' })).toMatchObject({ ok: false, motivo: 'ligacao-desfeita' });
+      expect(await q(`select 1 from graph_ligacao where tenant_id = $1 and revogada_em is null`, [t])).toHaveLength(0);
     });
   });
 

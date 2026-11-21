@@ -18,12 +18,43 @@ import { ipPrivadoOuLocal } from '../../common/ssrf-guard';
 /** A porta MCP do Graph em produção (o recurso no DMS ID é o mesmo endereço — `GRAPH_RECURSO` lá). */
 export const ENDERECO_PADRAO = 'https://graph.dmstecnologias.com/mcp';
 
-/** O que o Regem pede (GR-3): só analisar. A porta ainda confere a ligação: vale a menor das duas. */
+/** A permissão que o Regem não funciona sem. A porta ainda confere a ligação: vale a menor das duas. */
 export const PERMISSAO_DO_GRAPH = 'arquivos.analisar';
-export const PERMISSOES_DO_GRAPH: readonly string[] = [PERMISSAO_DO_GRAPH];
 
-/** A frase que o dono lê (a mesma do catálogo do Graph; com os áudios e a equipe desde o contrato 1.1.0, M5b do Mister). */
-export const FRASE_DA_PERMISSAO = 'Analisar as fotos, os documentos e os áudios que os seus clientes e a sua equipe mandam, sem guardar o arquivo.';
+/**
+ * O que o Regem pode pedir ao Graph (plano "recursos por produto", contrato 1.3.0): a leitura é necessária; as outras são
+ * opcionais e a pessoa liga na página do Graph. As frases são as do catálogo do Graph (`permissoes.mjs` lá).
+ */
+export const RECURSOS_DO_GRAPH = [
+  { id: PERMISSAO_DO_GRAPH, nome: 'Ler fotos, PDFs e vídeos', frase: 'Ler as fotos, os PDFs e os vídeos que os seus clientes e a sua equipe mandam, sem guardar o arquivo.', motivo: 'O atendente virtual e o Mister leem o que chega; o Graph não guarda o arquivo.', necessaria: true, pago: false },
+  { id: 'audio.ouvir', nome: 'Ouvir áudios', frase: 'Ouvir os áudios que os seus clientes e a sua equipe mandam e passar para texto, sem guardar o áudio.', motivo: 'O Mister entende o áudio que você manda.', necessaria: false, pago: false },
+  { id: 'audio.falar', nome: 'Falar', frase: 'Transformar um texto em voz, para responder em áudio.', motivo: 'O Mister responde em áudio quando você pede.', necessaria: false, pago: false },
+  { id: 'imagens.editar', nome: 'Editar fotos', frase: 'Editar as fotos que você e a sua equipe mandam (fundo, luz, enquadramento), sem guardar a foto enviada.', motivo: 'Melhorar a foto dos produtos do cardápio.', necessaria: false, pago: true },
+  { id: 'imagens.criar', nome: 'Criar imagens', frase: 'Criar imagens a partir de uma descrição.', motivo: 'A arte de um banner a partir de uma descrição.', necessaria: false, pago: true },
+] as const;
+
+/** Tudo o que o Regem pode ter: é o que o token do DMS ID pede (na chamada vale a menor entre o token e a ligação). */
+export const PERMISSOES_DO_GRAPH: readonly string[] = RECURSOS_DO_GRAPH.map((r) => r.id);
+export const OPCIONAIS_DO_GRAPH: readonly string[] = RECURSOS_DO_GRAPH.filter((r) => !r.necessaria).map((r) => r.id);
+
+/** Até este dia, a ligação só com `arquivos.analisar` ainda ouve e fala (GR-11 do Graph, `LEGADO_ATE` lá). */
+export const LEGADO_DO_GRAPH_ATE = '2027-03-01';
+
+/**
+ * O conjunto que vai no pedido ao Graph, que TROCA as permissões da ligação pelo que veio. Sem ligação viva: tudo o que o
+ * Regem pode ter (as opcionais chegam desligadas na página). Com ligação: o que ela já tem mais o que a pessoa pediu agora.
+ * Pedir o que não existe ou o que já está liberado é recusado.
+ */
+export function escopoDoPedido(atuais: readonly string[] | null, pedir: unknown): { escopo: string[] } | { erro: string } {
+  const lista = pedir === undefined || pedir === null ? [] : pedir;
+  if (!Array.isArray(lista) || lista.some((id) => typeof id !== 'string' || !OPCIONAIS_DO_GRAPH.includes(id))) {
+    return { erro: 'Escolha só os recursos que o Regem pode pedir ao DMS Graph.' };
+  }
+  if (!atuais) return { escopo: [...PERMISSOES_DO_GRAPH] };
+  if (lista.some((id) => atuais.includes(id))) return { erro: 'Esse recurso já está liberado. Atualize a tela e confira.' };
+  const alvo = new Set<string>([PERMISSAO_DO_GRAPH, ...atuais, ...(lista as string[])]);
+  return { escopo: PERMISSOES_DO_GRAPH.filter((id) => alvo.has(id)) };
+}
 
 /** A ferramenta da porta (contrato do Graph, G3). */
 export const FERRAMENTA = 'analisar_arquivo';
@@ -143,10 +174,12 @@ export function voltaDoGraph(env: Record<string, string | undefined> = process.e
 export const paginaPadraoDoGraph = (cfg: ConfigGraph): string => `${cfg.origem}/autorizar`;
 
 /** A frase da tela para cada volta sem ligação (a página de volta mostra; as telas esperam o protótipo). */
-export function fraseDaVolta(motivo: 'access_denied' | 'invalid_request_uri' | 'vencido' | 'outra_sessao' | 'emissor' | 'desligado' | 'erro'): string {
+export function fraseDaVolta(motivo: 'access_denied' | 'nao_autorizou_mais' | 'invalid_request_uri' | 'vencido' | 'outra_sessao' | 'emissor' | 'desligado' | 'erro'): string {
   switch (motivo) {
     case 'access_denied':
       return 'Você não autorizou no DMS Graph. Nada mudou: as fotos dos clientes seguem pela IA da empresa. Se quiser ligar, comece de novo.';
+    case 'nao_autorizou_mais':
+      return 'Você não autorizou no DMS Graph. Nada mudou: o Regem continua com o que já estava liberado.';
     case 'invalid_request_uri':
     case 'vencido':
       return 'O pedido venceu: a página do DMS Graph ficou aberta mais de 10 minutos. Comece de novo; nada foi ligado.';
@@ -297,4 +330,70 @@ export function motivoDaFalha(e: unknown): string {
   }
   if (e.tipo === 'indisponivel' && e.problema === 'integracao-parada') return 'integracao-parada';
   return e.tipo;
+}
+
+// ───────────────────────────── a imagem (editar_imagem e criar_imagem, contrato 1.4.0) ─────────────────────────────
+
+export const FERRAMENTA_EDITAR_IMAGEM = 'editar_imagem';
+export const FERRAMENTA_CRIAR_IMAGEM = 'criar_imagem';
+
+export type MotivoDaImagem =
+  | 'desligado'
+  | 'sem-ligacao'
+  | 'sem-permissao'
+  | 'sem-franquia'
+  | 'franquia-esgotada'
+  | 'recusada'
+  | 'pedido-invalido'
+  | 'ocupado'
+  | 'indisponivel'
+  | 'demora'
+  | 'ligacao-desfeita'
+  | 'fora-do-formato'
+  | 'erro';
+
+/** Por que a imagem não veio, em poucas palavras para o código de quem chama. Nunca o conteúdo. */
+export function motivoDaImagem(e: unknown): MotivoDaImagem {
+  if (!(e instanceof ErroMcp)) return 'erro';
+  if (e.tipo === 'ligacao') return 'ligacao-desfeita';
+  if (e.tipo === 'permissao') return 'sem-permissao';
+  if (e.tipo === 'limite') return 'ocupado';
+  if (e.tipo === 'indisponivel') return 'indisponivel';
+  if (e.tipo === 'sem-resposta') return 'demora';
+  if (e.tipo !== 'ferramenta') return 'erro';
+  const d = e.dados && typeof e.dados === 'object' ? (e.dados as Record<string, unknown>) : {};
+  if (d.codigo === 'limite-de-chamadas') {
+    if (d.limite !== 'franquia_imagem') return 'ocupado';
+    return franquiaDe(d.franquia)?.total === 0 ? 'sem-franquia' : 'franquia-esgotada';
+  }
+  if (d.codigo === 'regra-invalida') return 'recusada';
+  if (d.codigo === 'parametro-invalido') return 'pedido-invalido';
+  if (d.codigo === 'integracao-parada') return 'indisponivel';
+  return 'erro';
+}
+
+/** A frase para a pessoa, por motivo. */
+export function fraseDaImagem(motivo: MotivoDaImagem): string {
+  switch (motivo) {
+    case 'desligado':
+    case 'sem-ligacao':
+    case 'ligacao-desfeita':
+      return 'O DMS Graph não está ligado nesta empresa. O presidente liga em Delivery › Configurações › Integrações.';
+    case 'sem-permissao':
+      return 'Este recurso ainda não foi liberado. O presidente pede em Delivery › Configurações › Integrações › DMS Graph.';
+    case 'sem-franquia':
+      return 'A empresa ainda não tem franquia de imagem. Fale com a DMS para liberar.';
+    case 'franquia-esgotada':
+      return 'A franquia de imagem deste mês acabou. Ela volta no dia 1º.';
+    case 'recusada':
+      return 'O Google não gerou a imagem. Use só fotos suas ou dos seus produtos, ou mude o pedido.';
+    case 'pedido-invalido':
+      return 'O pedido da imagem não está certo. Confira a foto e o texto.';
+    case 'ocupado':
+      return 'Muitas imagens ao mesmo tempo. Tente de novo em alguns segundos.';
+    case 'demora':
+      return 'A imagem demorou além do prazo. Tente de novo.';
+    default:
+      return 'A criação de imagem não respondeu agora. Tente de novo em instantes.';
+  }
 }
