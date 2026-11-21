@@ -22,7 +22,10 @@ const AGORA = instanteDeSaoPaulo('2026-11-20T20:00')!;
 
 describe('Mister · ações — o catálogo e os canais', () => {
   it('os lotes 1 e 2: de botão, cada uma pela permissão da rota da tela', () => {
-    expect([...ACOES_DO_MISTER]).toEqual(['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto']);
+    expect([...ACOES_DO_MISTER]).toEqual([
+      'pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa',
+    ]);
+    expect(ACOES.criar_tarefa).toMatchObject({ nivel: 'botao', permissao: 'checklist' });
     for (const a of ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] as const)
       expect(ACOES[a]).toMatchObject({ id: a, nivel: 'botao', permissao: 'delivery' });
     expect(ACOES.concluir_tarefa).toMatchObject({ nivel: 'botao', permissao: 'meu_dia' });
@@ -134,5 +137,20 @@ describe('Mister · ações (lote 2) — a tarefa e o produto', () => {
     expect(produtoFicou(p, ['regem', 'ifood', '99food'], true)).toEqual(['regem', 'ifood']);
     expect(produtoFicou({ ...p, disponivelCardapio: true }, ['regem'], true)).toEqual([]);
     expect(produtoFicou({ disponivelBalcao: true, disponivelCardapio: true, canaisPausados: [] }, ['regem', 'ifood'], false)).toEqual(['regem', 'ifood']);
+  });
+});
+
+describe('Mister · ações (lote 3) — criar a tarefa de hoje', () => {
+  it('o título e a função são obrigatórios (a tela exige a função); o horário em HH:MM; o responsável é opcional', () => {
+    expect(conferirAcao('criar_tarefa', { titulo: 'Repor guardanapos', funcao: 'Salão', horario: '18:30', responsavel: 'Edu' }, AGORA)).toEqual({
+      parametros: { acao: 'criar_tarefa', titulo: 'Repor guardanapos', funcao: 'Salão', horario: '18:30', responsavel: 'Edu' },
+      resumo: 'Criar para hoje a tarefa "Repor guardanapos" às 18:30, da função Salão, para Edu.',
+    });
+    expect(conferirAcao('criar_tarefa', { titulo: 'Repor guardanapos' }, AGORA)).toEqual({
+      erro: 'Diga a função da tarefa (quem faz: a cozinha, o caixa, a limpeza…), como está no cadastro das funções.',
+    });
+    expect(conferirAcao('criar_tarefa', { titulo: 'Repor guardanapos', funcao: 'Salão', horario: '18h30' }, AGORA)).toEqual({ erro: 'O horário da tarefa vai em HH:MM (por exemplo 15:30).' });
+    expect(conferirAcao('criar_tarefa', { titulo: 'R', funcao: 'Salão' }, AGORA)).toEqual({ erro: 'Diga o título da tarefa (de 2 a 120 letras).' });
+    expect(conferirAcao('criar_tarefa', { titulo: 'Repor guardanapos', funcao: 'Salão' }, AGORA)).toMatchObject({ parametros: { horario: null, responsavel: null } });
   });
 });
