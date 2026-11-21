@@ -253,6 +253,18 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
       /* o diagnóstico não derruba a leitura */
     }
   };
+  // 21/11 (ERR-556): o que o IM da 99 respondeu de ERRADO — só o tipo e o código, nunca o corpo —, no máximo uma linha por
+  // tipo de falha a cada 30 s (o polling repete sem parar). É a prova de que a falha foi da 99, e não da ponte.
+  const imPedidas = new Map(); // `${sessão}|${requestId}` → 'polling' | 'broker'
+  const falhasDoIm = new Map(); // `${tipo}|${código}` → quando anotou
+  const anotarFalhaDoIm = (tipo, o) => {
+    const k = `${tipo}|${o.status ?? o.errno ?? o.erro ?? ''}`;
+    const t = agora();
+    if (t - (falhasDoIm.get(k) ?? -Infinity) < 30000) return;
+    falhasDoIm.set(k, t);
+    if (falhasDoIm.size > 50) falhasDoIm.delete(falhasDoIm.keys().next().value);
+    anotarSemFalhar({ ev: 'im_99_falhou', tipo, ...o });
+  };
   const avisar = () => {
     if (aoMudar) aoMudar();
   };
@@ -286,7 +298,10 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
 
   function doPolling(txt) {
     const r = mensagensDoPolling(txt);
-    if (!r.ok) return;
+    if (!r.ok) {
+      anotarFalhaDoIm('polling', { errno: errnoDe(txt) ?? 'corpo' });
+      return;
+    }
     const antes = ultimoPolling;
     ultimoPolling = agora();
     if (r.loja) loja = r.loja;
@@ -317,6 +332,8 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
       else anotarSemFalhar({ ev: 'envio_99_recusado', errno: respostaDoEnvio.errno });
       return;
     }
+    const errno = errnoDe(txt);
+    if (errno !== null && errno !== '0') anotarFalhaDoIm('broker', { errno });
     for (const s of sessoesDoBroker(txt)) guardar(pedidos, s.sid, { externo: s.externo, numero: s.numero });
   }
 
@@ -334,6 +351,10 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
       }
       if (metodo === 'Network.requestWillBeSent') {
         const rq = p.request || {};
+        if (rq.method !== 'OPTIONS') {
+          const tipo = polling.test(rq.url || '') ? 'polling' : broker.test(rq.url || '') ? 'broker' : null;
+          if (tipo) guardar(imPedidas, chave(p.requestId), tipo);
+        }
         if (rq.method === 'POST' && broker.test(rq.url || '') && typeof rq.postData === 'string') {
           const e = envioDoBroker(rq.postData);
           if (e) {
@@ -351,12 +372,19 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
         const url = (p.response && p.response.url) || '';
         // XHR/Fetch do IM, qualquer tipo de conteúdo (a 99 nem sempre diz que é JSON): o corpo se lê no fim do carregamento
         if (p.type !== 'XHR' && p.type !== 'Fetch') return;
+        const status = Number(p.response && p.response.status);
+        if (status >= 400 && (polling.test(url) || broker.test(url))) anotarFalhaDoIm(polling.test(url) ? 'polling' : 'broker', { status });
         if (polling.test(url)) corpos.set(chave(p.requestId), { tipo: 'polling', sid });
         else if (broker.test(url)) corpos.set(chave(p.requestId), { tipo: 'broker', sid });
         return;
       }
+      if (metodo === 'Network.loadingFinished') imPedidas.delete(chave(p.requestId));
       if (metodo === 'Network.loadingFailed') {
         corpos.delete(chave(p.requestId));
+        const tipoDoIm = imPedidas.get(chave(p.requestId));
+        imPedidas.delete(chave(p.requestId));
+        // a própria página desistir (troca de tela) não é falha da 99
+        if (tipoDoIm && !p.canceled) anotarFalhaDoIm(tipoDoIm, { erro: String(p.errorText || 'sem resposta').slice(0, 80) });
         if (envios.has(chave(p.requestId))) {
           respostaDoEnvio = { em: Date.now(), ok: false, errno: null };
           anotarSemFalhar({ ev: 'envio_99_falhou', erro: String(p.errorText || '').slice(0, 80), cancelado: !!p.canceled });

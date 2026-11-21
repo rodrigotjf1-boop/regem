@@ -82,6 +82,8 @@ export function FaixaDaPonte({ ponte, agora }: { ponte: SituacaoDaPonte | null; 
   const ultima = haQuanto(ponte.ultimaMensagemEm, agora);
   // pausada pela pessoa no PC (mig 368): o que fazer é retomar lá, não "entrar no iFood"
   const pausadas = ponte.pausadas ?? [];
+  // a 99 fora do ar (ERR-556): as conversas com mensagem esperando o chat voltar
+  const semAbrir = ponte.chat99SemAbrir ?? 0;
 
   if (semPc.length)
     return (
@@ -140,6 +142,16 @@ export function FaixaDaPonte({ ponte, agora }: { ponte: SituacaoDaPonte | null; 
       <p id={idDetalhe} hidden={!aberto} className={`${LINHA_DE_BAIXO} break-words rounded-lg border border-border bg-card px-3 py-2 text-sm text-secondary-foreground`}>
         {detalhe || 'A ponte do chat está ligada.'}
       </p>
+      {semAbrir > 0 && (
+        <p
+          role="alert"
+          data-ponte="chat-99-sem-abrir"
+          className={`${LINHA_DE_BAIXO} break-words rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm`}
+        >
+          <strong>⚠️ O chat da 99 não está abrindo agora</strong> ({semAbrir === 1 ? '1 conversa esperando' : `${semAbrir} conversas esperando`}). O Regem
+          tenta de novo sozinho por até 30 min; se for urgente, fale com o cliente pelo app da 99.
+        </p>
+      )}
     </>
   );
 }

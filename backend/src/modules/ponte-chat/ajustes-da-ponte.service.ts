@@ -7,6 +7,8 @@ import { exigirBooleano } from '../../common/exigir';
 import { CANAIS, CanalDaPonte, quemResponde, type PonteCandidata, VIVA_POR_MS } from './lideranca';
 import { MotivoDoAviso, TEXTO_MAX, TEXTO_PADRAO, temContatoProibido } from './texto-do-chat';
 import { MODOS_DO_ROBO_NO_CHAT, type ModoDoRoboNoChat, modoDaLinha } from './robo-do-chat';
+import { chaveSql } from './casos-do-chat';
+import { ERRO_CHAT_INDISPONIVEL } from './chat-indisponivel';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -293,6 +295,19 @@ export class AjustesDaPonteService {
          and (${unidade}::uuid is null or unidade_id is null or unidade_id = ${unidade}::uuid)
          and criado_em > now() - interval '1 day'`));
     const pausadas = pontes.filter((p) => p.pausadaEm && p.viva === true).map((p) => p.nome as string);
-    return { ligada: true as const, pontes: pontes.length, canais, pausadas, ultimaMensagemEm: ult?.em ?? null };
+    // As conversas da 99 com mensagem esperando o chat voltar (ERR-556): a faixa avisa para usar o app da 99 no urgente.
+    const [semAbrir] = linhas(await this.db.execute(sql`
+      select count(distinct ${chaveSql('m')})::int as conversas from chat_plataforma_msg m
+       where m.tenant_id = ${tenantId}::uuid and m.canal = '99food' and m.direcao = 'saida' and m.estado = 'pendente'
+         and m.erro = ${ERRO_CHAT_INDISPONIVEL} and m.criado_em > now() - interval '30 minutes'
+         and (${unidade}::uuid is null or m.unidade_id is null or m.unidade_id = ${unidade}::uuid)`));
+    return {
+      ligada: true as const,
+      pontes: pontes.length,
+      canais,
+      pausadas,
+      chat99SemAbrir: Number(semAbrir?.conversas ?? 0),
+      ultimaMensagemEm: ult?.em ?? null,
+    };
   }
 }

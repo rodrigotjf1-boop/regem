@@ -7,6 +7,7 @@ import * as schema from '../../db/schema';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { EntregadorService } from '../entregador/entregador.service';
 import { AvisosDoChatService, POR_VOLTA } from './avisos-do-chat.service';
+import { ERRO_CHAT_INDISPONIVEL } from './chat-indisponivel';
 import { AjustesDaPonteService } from './ajustes-da-ponte.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -362,5 +363,22 @@ descrever('ponte do chat — avisos, ajustes e faixa (Postgres)', () => {
     // pausada também não lê
     await q(`update chat_ponte set pausada_em = now() where tenant_id = $1 and maquina = 'PONTE DO DELIVERY'`, [T]);
     expect(((await ajustes.situacao(T, lojaA)) as any).canais['99food'].lendo).toEqual([]);
+    // o chat da 99 que não abre (ERR-556): conta as CONVERSAS da loja que têm mensagem esperando o chat voltar
+    expect(l).toMatchObject({ chat99SemAbrir: 0 });
+    const esperando = (unidade: string, numero: string, o: { canal?: string; erro?: string; minAtras?: number } = {}) =>
+      q(
+        `insert into chat_plataforma_msg (tenant_id, unidade_id, canal, pedido_numero, direcao, autor, texto, estado, erro, criado_em)
+         values ($1,$2,$3,$4,'saida','equipe','Oi','pendente',$5, now() - make_interval(mins => $6::int))`,
+        [T, unidade, o.canal ?? '99food', numero, o.erro ?? ERRO_CHAT_INDISPONIVEL, o.minAtras ?? 0],
+      );
+    await esperando(lojaA, '436011');
+    await esperando(lojaA, '436011'); // a mesma conversa conta uma vez
+    await esperando(lojaA, '436012');
+    await esperando(lojaB, '436013'); // de outra loja
+    await esperando(lojaA, '436014', { minAtras: 31 }); // passou dos 30 min: a fila já desiste
+    await esperando(lojaA, '436015', { canal: 'ifood' }); // outro canal
+    await esperando(lojaA, '436016', { erro: 'esperando a tela da 99' }); // outra causa
+    expect(await ajustes.situacao(T, lojaA)).toMatchObject({ chat99SemAbrir: 2 });
+    expect(await ajustes.situacao(T, null)).toMatchObject({ chat99SemAbrir: 3 });
   });
 });
