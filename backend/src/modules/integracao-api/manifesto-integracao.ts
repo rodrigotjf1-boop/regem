@@ -43,6 +43,8 @@ export const ESCOPOS_DA_PORTA = [
   'atendimento.canais.ler',
   // RegeMBoard (mig 429): acrescenta a disponibilidade ao `GET /integracao/catalogo` (sem rota própria) e o aviso dela.
   'catalogo.disponibilidade.ler',
+  // Liame (mig 483): o tamanho dos públicos do perfil do cliente (`GET /integracao/clientes/audiencias`).
+  'clientes.audiencias.ler',
 ] as const satisfies readonly EscopoIntegracao[];
 
 /**
@@ -329,6 +331,25 @@ export const ROTAS_DA_PORTA: readonly RotaNoManifesto[] = [
       'sem mensagens nem dados de cliente. Listas vazias = nenhuma conta conectada.',
     permissao: 'atendimento.canais.ler',
     exemploResposta: { instagram: [{ ig_user_id: '17841400000000001', usuario: 'hamburgueriaexemplo' }], messenger: [{ pagina_id: '100000000000001' }] },
+  },
+  {
+    metodo: 'GET',
+    caminho: `${I}/clientes/audiencias`,
+    resumo:
+      'O tamanho de cada público do perfil do cliente na loja, lido na hora: quantos clientes e quantos aceitaram ofertas, ' +
+      'sem nenhum cliente. De 1 a 4 sai null; perfil_ligado false = o módulo está desligado (lista vazia).',
+    permissao: 'clientes.audiencias.ler',
+    exemploResposta: {
+      perfil_ligado: true,
+      calculado_em: QUANDO,
+      minimo: 5,
+      clientes_com_perfil: 1840,
+      aceitaram_ofertas: 212,
+      publicos: [
+        { chave: 'campeoes', rotulo: 'Campeões', grupo: 'segmento', clientes: 312, aceitaram_ofertas: 41 },
+        { chave: 'dinheiro', rotulo: 'Pedem no dinheiro no bolso', grupo: 'evento', clientes: 88, aceitaram_ofertas: null },
+      ],
+    },
   },
   {
     metodo: 'GET',
