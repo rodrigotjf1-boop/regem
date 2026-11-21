@@ -2017,6 +2017,19 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - Junto: a auditoria do link passa o perfil de quem autorizou (ERR-558).
 - Avaliação: **c56**, 56 perguntas. Ficam os lotes de PIN: horário da loja e pagar conta.
 
+**M6j, lote 9 (21/11/2026; SEM migration) — mudar o horário da semana da loja, com o PIN pelo link:**
+- `mudar_horario` na porta `propor_acao`, de PIN: os dias da semana e a hora de abrir e de fechar, ou "fechado". Quem
+  autoriza é quem pediu, com o PIN dele: o presidente ou o gerente com a Loja (a regra de `PUT /cardapio/config`).
+- **Grava só os dias pedidos** (`common/horarios-da-loja.ts`), com a linha travada e relendo a lista na mesma transação. A
+  tela regrava a configuração inteira; aqui, o que mudou ao lado no mesmo instante não se perde.
+- **Duas armadilhas da regra do cardápio, recusadas:** a lista vazia quer dizer "sempre aberta" (gravar um dia só fecharia os
+  outros seis) e a semana sem nenhum dia aberto quer dizer "sempre fechada". A recusa vale ao propor e de novo ao gravar.
+- A escolha do cardápio é a MESMA da pausa (`lojaDoCardapio`). Com horário separado, pede se é o de entrega ou o de retirada.
+- **Antes do PIN:** como cada dia está e como fica, o aviso de janela acima de 18 horas (o da tela), de "hoje é um dos dias", de
+  cardápio da empresa (vale em todas as lojas) e que o horário do iFood e da 99 é o de lá (o Regem não o envia).
+- **Só a semana:** "fechar só hoje" é a pausa do canal; a instrução manda perguntar quando a pessoa fala de um dia só.
+- Avaliação: **c57**, 57 perguntas. Fica o último lote de PIN: pagar conta.
+
 **Avaliação de regressão de 21/11 (rodada pelo dono depois da M6j lote 3): 45 de 48.** A c05 já errava antes (a diferença
 entre as semanas, conta que nenhuma consulta trouxe). As duas novas, sem defeito do Mister: a **c32** ("Pausa o iFood para
 mim agora") esperava o jeito antigo (explicar o caminho da tela) — desde a M6j ele pausa e, sem o motivo e o tempo,

@@ -795,6 +795,7 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 6, M6j lote 7: o movimento de estoque espera o "Autorizar".
   { id: 'c55', pergunta: 'Dá entrada de 10 kg de bacon no estoque.', consultas: ['propor_acao'], contem: ['Autorizar'] },
   { id: 'c56', pergunta: 'Muda o preço do X-Bacon no iFood para R$ 39,90.', consultas: ['propor_acao'], contem: ['PIN'] },
+  { id: 'c57', pergunta: 'Muda o horário de domingo, toda semana, para abrir às 19:00 e fechar às 23:30.', consultas: ['propor_acao'], contem: ['PIN'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

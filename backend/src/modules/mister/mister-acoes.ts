@@ -11,6 +11,7 @@ import {
   lerMotivo,
   voltaDaPausa,
 } from '../../common/pausa-do-canal';
+import { NOMES_DOS_DIAS, ehHoraDoDia, horasDaJanela, lerDiaDaSemana, textoDaJanela, type JanelaDoDia } from '../../common/horarios-da-loja';
 
 // AS AÇÕES DO MISTER — a porta `propor_acao` (versão 6, M6j; plano aprovado em 20/11/2026, `docs/plano-mister.md` § "Versão
 // 6", Frente C — "Uma porta só para as ações"; protótipo `mockups/regem-mister-v6.html`, "Fazer pelo WhatsApp, com
@@ -37,6 +38,8 @@ export const ACOES_DO_MISTER = [
   'movimentar_estoque',
   // Lote 8 (de PIN): o preço de um produto, canal por canal.
   'mudar_preco',
+  // Lote 9 (de PIN): o horário da semana da loja.
+  'mudar_horario',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -74,6 +77,8 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   movimentar_estoque: { id: 'movimentar_estoque', nivel: 'botao', permissao: 'estoque', prazoMin: 10, nome: 'lançar um movimento de estoque' },
   // Lote 8: a rota `PUT /produtos/:id/preco-canal` pede a Loja e "Ver valores em R$"; muda o que o cliente paga, então é de PIN.
   mudar_preco: { id: 'mudar_preco', nivel: 'pin', permissao: 'loja', prazoMin: 15, nome: 'mudar o preço de um produto', pedeVerValores: true },
+  // Lote 9: a rota `PUT /cardapio/config` pede presidente ou gerente com a Loja; muda quando a loja recebe pedido, então é de PIN.
+  mudar_horario: { id: 'mudar_horario', nivel: 'pin', permissao: 'loja', prazoMin: 15, nome: 'mudar o horário da loja' },
 };
 
 /** As ações de PIN: o link vai a quem pediu (o presidente ou o gerente com a permissão), e o PIN é o dessa pessoa. */
@@ -246,6 +251,45 @@ export function canaisComOPreco(l: { precoVenda?: unknown; precoIfood?: unknown;
   });
 }
 
+// ───────────────────────────── lote 9: o horário da semana (de PIN) ─────────────────────────────
+
+/** O que muda no horário, já com o de hoje de cada dia (vai na proposta; a página do link mostra daqui). */
+export interface MudancaDeHorario {
+  dias: { dia: number; de: JanelaDoDia | null; para: JanelaDoDia | null }[];
+  /** Qual horário: o único da loja, o de entrega ou o de retirada e consumo no local. */
+  conjunto: 'unico' | 'entrega' | 'retirada';
+  loja: string | null;
+  /** O cardápio é o da empresa, e ela tem mais de uma loja. */
+  todasAsLojas: boolean;
+  incluiHoje: boolean;
+}
+const NOME_DO_CONJUNTO: Record<MudancaDeHorario['conjunto'], string> = { unico: 'Entrega e retirada', entrega: 'Entrega', retirada: 'Retirada e consumo no local' };
+function notasDoHorario(m: MudancaDeHorario): string[] {
+  const notas: string[] = [];
+  if (m.dias.some((d) => d.para && horasDaJanela(d.para) > 18)) notas.push('Atenção: janela de mais de 18 horas, confira se o horário está certo.');
+  if (m.incluiHoje) notas.push('Hoje é um dos dias: o cardápio segue o horário novo assim que você autorizar.');
+  if (m.todasAsLojas) notas.push('O cardápio é da empresa: o horário novo vale em todas as lojas.');
+  notas.push('Vale no cardápio digital. O horário do iFood e da 99 é o de lá.');
+  return notas;
+}
+/** O "o que vou fazer" da conversa. */
+export function resumoDoHorario(m: MudancaDeHorario): string {
+  const dias = m.dias.map((d) => `${NOMES_DOS_DIAS[d.dia]} de ${textoDaJanela(d.de)} para ${textoDaJanela(d.para)}`).join('; ');
+  const qual = m.conjunto === 'unico' ? '' : ` (${NOME_DO_CONJUNTO[m.conjunto].toLowerCase()})`;
+  return [`Mudar o horário da loja${m.loja ? ` ${m.loja}` : ''}${qual}: ${dias}.`, ...notasDoHorario(m)].join(' ');
+}
+/** O que a página do link mostra antes do PIN. */
+export function apresentacaoDoHorario(m: MudancaDeHorario): { titulo: string; itens: string[]; detalhe: string | null; valor: number | null; botao: string } {
+  const porDia = m.dias.map((d) => `${NOMES_DOS_DIAS[d.dia]}: de ${textoDaJanela(d.de)} para ${textoDaJanela(d.para)}.`);
+  return {
+    titulo: 'Mudar o horário da loja?',
+    detalhe: [NOME_DO_CONJUNTO[m.conjunto], m.loja].filter(Boolean).join(' · '),
+    valor: null,
+    itens: [...porDia, ...notasDoHorario(m)],
+    botao: 'Autorizar a mudança',
+  };
+}
+
 /** O que a ação leva, já conferido (vai em `mister_proposta.parametros`, junto com quem pediu). */
 export type ParametrosDaAcao =
   | { acao: 'pausar_canal'; canais: CanalDaPausa[]; motivo: string; motivoTexto: string | null; minutos: number | null; ate: string | null; fimDoDia: boolean }
@@ -256,7 +300,8 @@ export type ParametrosDaAcao =
   | { acao: 'criar_tarefa'; titulo: string; funcao: string; horario: string | null; responsavel: string | null }
   | { acao: 'criar_imagem'; pedido: string; proporcao: ProporcaoDaImagem }
   | { acao: 'movimentar_estoque'; item: string; tipo: TipoDoMovimento; quantidade: number | null; saldoContado: number | null; motivo: string | null }
-  | { acao: 'mudar_preco'; produto: string; canais: CanalDoProduto[]; precoNovo: number };
+  | { acao: 'mudar_preco'; produto: string; canais: CanalDoProduto[]; precoNovo: number }
+  | { acao: 'mudar_horario'; dias: number[]; janela: JanelaDoDia | null; horarioDe: 'entrega' | 'retirada' | null };
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -362,6 +407,25 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
     if (precoNovo === null) return { erro: 'Diga o preço final em reais, maior que zero e com até 2 casas (por exemplo 39,90).' };
     return { parametros: { acao, produto, canais, precoNovo }, resumo: `Mudar o preço de "${produto}" para ${reaisDaAcao(precoNovo)} ${ondeOProduto(canais)}.` };
   }
+  if (acao === 'mudar_horario') {
+    const lidos = (Array.isArray(en.dias) ? en.dias : []).map(lerDiaDaSemana);
+    if (!lidos.length || lidos.some((d) => d === null)) return { erro: 'Diga os dias da semana (domingo, segunda, terça…). Para fechar só hoje, use a pausa dos canais.' };
+    const dias = [...new Set(lidos as number[])].sort((a, b) => a - b);
+    const fechado = en.fechado === true;
+    if (fechado && (en.abre !== undefined || en.fecha !== undefined)) return { erro: 'O dia fica fechado ou com horário: diga um dos dois.' };
+    let janela: JanelaDoDia | null = null;
+    if (!fechado) {
+      if (!ehHoraDoDia(en.abre) || !ehHoraDoDia(en.fecha)) return { erro: 'Diga a hora de abrir e a de fechar em HH:MM (por exemplo 18:00 e 23:00), ou que o dia fica fechado.' };
+      if (en.abre === en.fecha) return { erro: 'A hora de abrir e a de fechar não podem ser iguais.' };
+      janela = { abre: en.abre, fecha: en.fecha };
+    }
+    const bruto = en.horarioDe;
+    if (bruto !== undefined && bruto !== null && bruto !== '' && bruto !== 'entrega' && bruto !== 'retirada') return { erro: 'O horário é o de entrega ou o de retirada.' };
+    const horarioDe = bruto === 'entrega' || bruto === 'retirada' ? bruto : null;
+    const nomes = dias.map((d) => NOMES_DOS_DIAS[d]);
+    const lista = nomes.length <= 1 ? nomes[0] : `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`;
+    return { parametros: { acao, dias, janela, horarioDe }, resumo: `Mudar o horário de ${lista} para ${textoDaJanela(janela)}.` };
+  }
   const numero = String(en.numero ?? '').trim().replace(/^#/, '');
   if (!numero || numero.length > 40) return { erro: 'Diga o número do pedido como aparece no painel do Delivery.' };
   return { parametros: { acao, numero }, resumo: '' };
@@ -446,10 +510,18 @@ export const TEXTOS_DAS_ACOES = {
   precoForaDoCanal: (nome: string, onde: string) => `"${nome}" não está ${onde}: lá não há preço para mudar.`,
   precoCanalDesligado: (onde: string) => `O preço ${onde} não está ligado nesta empresa: ele não muda pelo Regem.`,
   precoIgual: (nome: string, preco: string) => `"${nome}" já custa ${preco} nesse canal. Nada muda.`,
-  linkDoPreco: (resumo: string, hora: string) => `${resumo}\n\nPara valer, autorize no Regem com o seu PIN. O pedido vale até ${hora}.`,
+  linkDaAcao: (resumo: string, hora: string) => `${resumo}\n\nPara valer, autorize no Regem com o seu PIN. O pedido vale até ${hora}.`,
   precoFeito: (nome: string, preco: string, onde: string, temApp: boolean) =>
     `"${nome}" agora custa ${preco} ${onde}.${temApp ? ' O app recebe o preço novo pela fila de envio.' : ''}`,
   precoEmParte: (nome: string, preco: string, feito: string, falta: string, motivo: string | null) =>
     `"${nome}" ficou com ${preco} ${feito}, mas não mudou ${falta}${motivo ? ` (${motivo})` : ''}. Confira em Delivery › Gestão do catálogo.`,
   precoNaoMudou: (nome: string, motivo: string | null) => `o preço de "${nome}" não mudou${motivo ? `: ${motivo}` : ''}. Nada foi feito.`,
+  // Lote 9.
+  semPermissaoHorario: 'O seu perfil no Regem não dá acesso às configurações da loja: o horário não muda por aqui. Quem muda o perfil é o presidente.',
+  horarioPedeLoja: 'A empresa tem mais de um cardápio digital: diga de qual loja é o horário.',
+  horarioSemCardapio: 'Esta loja não tem cardápio digital configurado.',
+  horarioPedeQual: 'Esta loja tem um horário para entrega e outro para retirada: diga qual muda.',
+  horarioIgual: 'O horário já é esse. Nada muda.',
+  horarioFeito: (dias: string) => `O horário ficou assim: ${dias}. Vale no cardápio digital.`,
+  horarioNaoFicou: 'o horário não ficou como pedido. Confira em Delivery › Configurações › Horários.',
 } as const;
