@@ -63,6 +63,27 @@ export function lerPeriodoDoBanner(de: unknown, ate: unknown, n: number): { de: 
   return p;
 }
 
+export const TITULO_DO_BANNER_MAX = 60;
+export const CHAMADA_DO_BANNER_MAX = 90;
+export const DESCRICAO_DO_BANNER_MAX = 200;
+
+/** O texto por cima da imagem e a descrição para leitor de tela (B2, mig 485). Vazio = nulo; longo demais é recusado. */
+export function lerTextoDoBanner(
+  b: { textoTitulo?: unknown; textoChamada?: unknown; descricao?: unknown },
+  n: number,
+): { textoTitulo: string | null; textoChamada: string | null; descricao: string | null } {
+  const campo = (v: unknown, max: number, rotulo: string) => {
+    const s = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
+    if (s.length > max) throw new BadRequestException(`Banner ${n}: ${rotulo} passa de ${max} letras.`);
+    return s || null;
+  };
+  return {
+    textoTitulo: campo(b.textoTitulo, TITULO_DO_BANNER_MAX, 'o título'),
+    textoChamada: campo(b.textoChamada, CHAMADA_DO_BANNER_MAX, 'a chamada'),
+    descricao: campo(b.descricao, DESCRICAO_DO_BANNER_MAX, 'o texto para leitor de tela'),
+  };
+}
+
 /** O banner aparece hoje (AAAA-MM-DD da operação)? Sem período, sempre. */
 export function bannerNoPeriodo(b: { apareceDe?: string | Date | null; apareceAte?: string | Date | null }, hoje: string): boolean {
   // O Drizzle entrega a coluna `date` como texto; a data vinda de fora do Drizzle chega como Date.

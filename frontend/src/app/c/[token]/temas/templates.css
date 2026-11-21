@@ -613,6 +613,15 @@ body.tema-escuro .p-root.tpl-fluxo{--p-bg:#0B1620;--p-surf:#12212E;--p-card:#0F1
 .p-root .p-ban-d button.on{width:18px;background:#fff}
 .p-root .p-ban.na-capa{position:absolute;inset:0}
 .p-root .p-ban.solta{margin:12px 20px 0;height:140px;border-radius:var(--p-r);background:var(--p-art)}
+/* o texto por cima do banner (B2): legível em foto clara; na capa, fora do logo (que sobe sobre a base) e dos botões */
+.p-root .p-ban-t > *{position:relative}
+.p-root .p-ban-txt{position:absolute;inset:auto 0 0 0;display:flex;flex-direction:column;gap:2px;padding:26px 14px 20px;color:#fff;text-align:left;pointer-events:none;background:linear-gradient(to top,rgba(0,0,0,.85),rgba(0,0,0,.62) 65%,rgba(0,0,0,0))}
+.p-root .p-ban-txt b,.p-root .p-ban-txt span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+.p-root .p-ban-txt b{font:800 18px/1.1 var(--p-disp)}
+.p-root .p-ban-txt span{font-size:12.5px;line-height:1.2}
+.p-root .p-ban.na-capa .p-ban-txt{inset:0;justify-content:center;align-items:center;text-align:center;padding:8px 52px 44px;background:rgba(0,0,0,.58)}
+.p-root .p-ban.na-capa .p-ban-txt b{font-size:16px;-webkit-line-clamp:3}
+.p-root .p-ban.na-capa .p-ban-txt span{font-size:12px}
 .p-root .b-cover{background:var(--p-art)}
 .p-root .b-cover.lisa,.p-root .o-band.lisa{background:linear-gradient(135deg,var(--p-acc),var(--p-acc-soft)),var(--p-acc)}
 .p-root .b-cover.lisa{height:84px}

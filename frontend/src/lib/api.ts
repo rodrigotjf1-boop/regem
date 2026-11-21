@@ -730,10 +730,10 @@ export const distApi = {
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
-async function uploadFile(path: string, file: File, campos?: Record<string, string>) {
+async function uploadFile(path: string, file: File | null, campos?: Record<string, string>) {
   const token = getJwt();
   const form = new FormData();
-  form.append('file', file);
+  if (file) form.append('file', file);
   for (const [k, v] of Object.entries(campos ?? {})) form.append(k, v);
   let res: Response;
   try {
@@ -2333,6 +2333,15 @@ export const api = {
   cardapioBanners: () => req('/cardapio/banners'),
   setCardapioBanners: (banners: unknown[]) =>
     req('/cardapio/banners', { method: 'PUT', body: JSON.stringify({ banners }) }),
+  // "Criar com IA" dos banners (B2, mig 485): criar gasta a franquia de imagem; a `chave` repete o pedido sem pagar de novo.
+  bannerIaSituacao: () => req('/cardapio/banners/ia/situacao') as Promise<any>,
+  bannerIaMelhorar: (pedido: string) =>
+    req('/cardapio/banners/ia/melhorar', { method: 'POST', body: JSON.stringify({ pedido }) }) as Promise<{ pedido: string }>,
+  bannerIaCriar: (campos: Record<string, string>, foto: File | null) =>
+    uploadFile('/cardapio/banners/ia/criar', foto, campos) as unknown as Promise<
+      | { ok: true; imagemRef: string; franquia: { usados: number; total: number } | null }
+      | { ok: false; motivo: string; mensagem: string }
+    >,
   cardapioCupons: () => req('/cardapio/cupons'),
   criarCupom: (body: Record<string, unknown>) =>
     req('/cardapio/cupons', { method: 'POST', body: JSON.stringify(body) }),
