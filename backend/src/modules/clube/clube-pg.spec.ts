@@ -16,6 +16,7 @@ import { ClubeSurpresaService } from './clube-surpresa.service';
 import { ClubeDesculpasService } from './clube-desculpas.service';
 import { ClubeAlbumService } from './clube-album.service';
 import { ClubeMetaService } from './clube-meta.service';
+import { ClubeResultadosService } from './clube-resultados.service';
 import { mesAnterior } from './clube.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -761,6 +762,68 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
     expect((await q(`select album_desde from clube_config where tenant_id = $1`, [T]))[0].album_desde).toBeNull();
     expect(await album.doCliente(T, ana)).toEqual({ ativo: false });
     expect(await album.doPedido(tokenDeAgora)).toEqual({ tem: false });
+  });
+
+  // ───────────── A4: os resultados ─────────────
+  it('os resultados: os prêmios dados no período, revelados, usados (pedido não cancelado), o desconto, o vendido e as campanhas', async () => {
+    const { T } = await lojaComClube('teste resultados');
+    const resultados = new ClubeResultadosService(db);
+    // As campanhas são só da nuvem: o mínimo delas, no esquema deste teste.
+    await q(`create table if not exists campanha (id uuid primary key default gen_random_uuid(), tenant_id uuid not null, clube_premio_id uuid,
+               status text not null default 'concluida')`);
+    await q(`create table if not exists campanha_envio (id uuid primary key default gen_random_uuid(), campanha_id uuid not null, tenant_id uuid not null,
+               cliente_id uuid, telefone text not null, status text not null default 'pendente', enviado_em timestamptz)`);
+    expect(await resultados.resultados(T, 'mes')).toEqual({
+      periodo: 'mes', titulo: expect.any(String), ganharam: 0, revelaram: 0, usaram: 0, desconto: 0, vendido: 0, campanhas: null,
+    });
+    const lista = await clube.premios(T);
+    const [frete, cinco] = [lista.find((p) => p.nome === 'Frete grátis')!, lista.find((p) => p.nome === 'R$ 5 off')!];
+    const premio = (p: any) => ({ id: p.id, nome: p.nome, tipo: p.tipo, valor: p.valor, teto: p.teto, minimo: p.minimo, validadeDias: 7 });
+    const dar = async (cli: string, tel: string, p: any) => {
+      const r = await db.transaction((tx: any) =>
+        surpresa.criarDireito(tx, { tenantId: T, clienteId: cli, chave: tel, gatilho: 'reclamacao', ref: randomUUID(), forma: 'raspadinha', premio: premio(p) }),
+      );
+      const [{ cupom_id: cupomId, codigo }] = await q(`select d.cupom_id, c.codigo from clube_direito d join cupom c on c.id = d.cupom_id where d.id = $1`, [r!.id]);
+      return { id: r!.id as string, codigo: codigo as string, cupomId: cupomId as string };
+    };
+    const usar = async (cli: string, d: { cupomId: string }, total: number, status: string, descontos: any[]) => {
+      const [{ id }] = await q(
+        `insert into pedido_externo (tenant_id, canal, tipo, itens, total, status, cliente_nome, cliente_telefone, client_ref, cliente_id, descontos)
+         values ($1, 'cardapio', 'entrega', '[]'::jsonb, $2, $3, 'Cliente', '21987668000', $4, $5, $6::jsonb) returning id`,
+        [T, total, status, randomUUID(), cli, JSON.stringify(descontos)],
+      );
+      await q(`insert into cupom_uso (tenant_id, cupom_id, cliente_id, pedido_id) values ($1, $2, $3, $4)`, [T, d.cupomId, cli, id]);
+    };
+    const [ana, bia, caio, duda] = await Promise.all([
+      cliente(T, 'Ana', '21987668001'), cliente(T, 'Bia', '21987668002'), cliente(T, 'Caio', '21987668003'), cliente(T, 'Duda', '21987668004'),
+    ]);
+    const dAna = await dar(ana, '21987668001', cinco);
+    const dBia = await dar(bia, '21987668002', cinco);
+    const dCaio = await dar(caio, '21987668003', frete);
+    await dar(duda, '21987668004', cinco); // só dado: nem revelado, nem usado
+    const dVelho = await dar(duda, '21987668004', frete);
+    await q(`update clube_direito set criado_em = now() - interval '40 days' where id = $1`, [dVelho.id]); // fora do mês
+    await q(`update clube_direito set revelado_em = now() where id = any($1::uuid[])`, [[dAna.id, dBia.id, dCaio.id]]);
+    await usar(ana, dAna, 60, 'concluido', [{ origem: 'cupom', rotulo: `Cupom ${dAna.codigo}`, campanha: dAna.codigo, valor: 5 }]);
+    await usar(bia, dBia, 70, 'cancelado', [{ origem: 'cupom', rotulo: `Cupom ${dBia.codigo}`, campanha: dBia.codigo, valor: 5 }]); // cancelado: não conta
+    await usar(caio, dCaio, 40, 'entregue', [
+      { origem: 'frete', rotulo: `Cupom ${dCaio.codigo} · frete grátis`, valor: 7 },
+      { origem: 'cashback', rotulo: 'Cashback', valor: 3 }, // outro desconto do mesmo pedido: não é do clube
+    ]);
+    // a campanha com prêmio: Ana e Bia receberam (o envio que falhou não conta); só a Ana voltou (o pedido da Bia foi cancelado)
+    const [{ id: camp }] = await q(`insert into campanha (tenant_id, clube_premio_id) values ($1, $2) returning id`, [T, frete.id]);
+    for (const [cli, tel, status] of [[ana, '21987668001', 'enviado'], [bia, '21987668002', 'enviado'], [caio, '21987668003', 'falha']])
+      await q(`insert into campanha_envio (campanha_id, tenant_id, cliente_id, telefone, status, enviado_em) values ($1, $2, $3, $4, $5, now() - interval '2 hours')`, [
+        camp, T, cli, tel, status,
+      ]);
+    // os pedidos de antes do envio não contam como "voltou": os de cima nasceram agora, depois do envio
+    expect(await resultados.resultados(T, 'mes')).toEqual({
+      periodo: 'mes', titulo: expect.any(String), ganharam: 4, revelaram: 3, usaram: 2, desconto: 12, vendido: 100,
+      campanhas: { receberam: 2, voltaram: 1, dias: 15 },
+    });
+    expect(await resultados.resultados(T, '90d')).toMatchObject({ periodo: '90d', titulo: 'Últimos 90 dias', ganharam: 5 });
+    // o período que não existe vira "este mês"
+    expect((await resultados.resultados(T, 'qualquer')).periodo).toBe('mes');
   });
 
   // ───────────── A3: a meta do mês (a 479 trouxe `meta_desde`) ─────────────
