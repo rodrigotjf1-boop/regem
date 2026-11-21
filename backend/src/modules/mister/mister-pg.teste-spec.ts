@@ -12,7 +12,7 @@ import { esquecerMemoriaDosCortes, sessaoCortada } from '../../auth/sessao-corte
 import { perfilPadrao } from '../../auth/permissoes';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { dataNoFuso, hojeISO, horaNoFuso, somarDias } from '../../common/data';
-import { uuidDeChave } from '../../common/id-deterministico';
+import { idEntitlement, uuidDeChave } from '../../common/id-deterministico';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import { DashboardService } from '../dashboard/dashboard.service';
@@ -9447,7 +9447,8 @@ export function testesDoMisterComPostgres(): void {
             dados: { erro: TEXTOS_DAS_ACOES.tarefaJaMarcada('não feita') },
           });
           // Com a foto exigida na conclusão (a política da empresa), "feita" é recusada já na pergunta.
-          await q(`insert into entitlement (tenant_id, modulo, ativo) values ($1, 'tarefa_foto_conclusao', true)`, [A]);
+          // o id pela chave, como em todo insert do `entitlement` (V42; a `config-linha-unica.spec` varre o código)
+          await q(`insert into entitlement (id, tenant_id, modulo, ativo) values ($1, $2, 'tarefa_foto_conclusao', true)`, [idEntitlement(A, 'tarefa_foto_conclusao'), A]);
           expect(await ferramentas.executar(e, 'propor_acao', { acao: 'concluir_tarefa', tarefa: 'Limpar a coifa' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.tarefaPedeFoto } });
           await q(`delete from entitlement where tenant_id = $1 and modulo = 'tarefa_foto_conclusao'`, [A]);
           expect(await ferramentas.executar(e, 'propor_acao', { acao: 'concluir_tarefa', tarefa: 'tarefa que não existe' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.tarefaNaoAchada } });
