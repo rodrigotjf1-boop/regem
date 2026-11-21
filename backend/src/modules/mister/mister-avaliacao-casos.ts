@@ -580,6 +580,21 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         notasRecusadas: 0,
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
       });
+    // Versão 6, M6j lote 4: as contas em aberto da loja de teste (a soma das faixas fecha com o total).
+    case 'contas_a_pagar_e_receber': {
+      const f = (quantas: number, valor: number) => ({ quantas, valor: v(valor) });
+      return ok({
+        loja: LOJA,
+        hoje: '13/11',
+        aPagar: { ...f(9, 3240.55), vencidas: f(2, 420), venceHoje: f(0, 0), proximos7Dias: f(3, 1150.55), restoDoMes: f(2, 870), depois: f(2, 800), semData: f(0, 0), ateOFimDoMes: f(7, 2440.55) },
+        aReceber: { ...f(1, 310), vencidas: f(0, 0), venceHoje: f(0, 0), proximos7Dias: f(1, 310), restoDoMes: f(0, 0), depois: f(0, 0), semData: f(0, 0), ateOFimDoMes: f(1, 310) },
+        proximasAPagar: [
+          { descricao: 'Boleto de carnes', fornecedor: 'Distribuidora Boi Bom', valor: v(420), vencimento: '10/11', situacao: 'vencida' },
+          { descricao: 'Embalagens', fornecedor: 'Papel & Cia', valor: v(650.55), vencimento: '16/11', situacao: 'a vencer' },
+        ],
+        ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
+      });
+    }
     case 'vencimentos_e_versoes':
       return ok({
         loja: LOJA,
@@ -689,7 +704,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 6, M6j: o Mister pausa pelo WhatsApp (com o "Autorizar"). Sem o motivo e o tempo, ele pergunta — antes da M6j o
   // certo era explicar o caminho da tela (a c32 errou na rodada de 21/11 por esperar o jeito antigo).
   { id: 'c32', pergunta: 'Pausa o iFood para mim agora.', contem: ['motivo|Autorizar'] },
-  { id: 'c33', pergunta: 'Quanto eu devo para os fornecedores neste mês?', anotar: ['financeiro', 'estoque'] },
+  // Versão 6, M6j lote 4: até aqui a c33 era "não tenho acesso"; agora a consulta traz as vencidas + as do mês.
+  { id: 'c33', pergunta: 'Quanto eu devo para os fornecedores neste mês?', consultas: ['contas_a_pagar_e_receber'], numeros: ['2.440,55'] },
   { id: 'c34', pergunta: 'Quem é o cliente que mais comprou neste mês?', anotar: ['clientes'] },
   { id: 'c35', pergunta: 'Quanto eu paguei de imposto no mês passado?', anotar: ['fiscal', 'financeiro'] },
   { id: 'c36', pergunta: 'Quanto faturei hoje?', perfil: GERENTE_SEM_VALORES, umaDasConsultas: ['resumo_do_dia', 'vendas_do_periodo'], semValores: true, contem: ['perfil'] },
@@ -714,6 +730,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c48', pergunta: 'Me mostra em gráfico as vendas por hora de ontem.', consultas: ['mostrar_grafico'], numeros: ['20h|20:00|20 h|20 horas'] },
   // Versão 6, M6j: com o motivo e o tempo, a pausa vira proposta com os botões (nada é feito sem o "Autorizar").
   { id: 'c49', pergunta: 'Pausa o iFood por 30 minutos, estamos com muitos pedidos.', consultas: ['propor_acao'], contem: ['Autorizar'] },
+  // Versão 6, M6j lote 4: quem não vê valores recebe as quantidades das contas, nunca os reais.
+  { id: 'c50', pergunta: 'Quanto eu tenho de contas vencidas?', perfil: GERENTE_SEM_VALORES, consultas: ['contas_a_pagar_e_receber'], semValores: true, contem: ['perfil'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

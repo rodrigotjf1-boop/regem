@@ -1943,6 +1943,15 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
 - Ficam para os próximos lotes: preço por canal e horário da loja (de PIN), pagar conta (de PIN), estoque (movimento e
   contagem), as consultas de escala e ponto e os números dos clientes.
 
+**M6j, lote 4 (21/11/2026; SEM migration) — consultar as contas a pagar e a receber:**
+- `contas_a_pagar_e_receber` (só leitura; a permissão `financeiro` e o filtro de loja das rotas de `financeiro/titulos`):
+  as abertas em faixas que não se cruzam (vencidas, hoje, 7 dias, resto do mês, depois, sem data), mais `ateOFimDoMes`
+  (vencidas + as do mês, para "quanto devo neste mês" sair sem conta da IA), e as 12 próximas a pagar. O dia é o da loja.
+- A conta **a receber vai só em totais**: a descrição dela pode trazer o nome de um cliente, e dado de cliente não vai à
+  IA. Quem não vê valores recebe só as quantidades. A busca filtra só as contas a pagar.
+- Avaliação: a **c33** ("quanto devo aos fornecedores neste mês") deixa de ser "não tenho acesso" e passa a usar a consulta;
+  a **c50** nova cobre quem não vê valores. São 50 perguntas: rodar a avaliação de novo depois do deploy.
+
 **Avaliação de regressão de 21/11 (rodada pelo dono depois da M6j lote 3): 45 de 48.** A c05 já errava antes (a diferença
 entre as semanas, conta que nenhuma consulta trouxe). As duas novas, sem defeito do Mister: a **c32** ("Pausa o iFood para
 mim agora") esperava o jeito antigo (explicar o caminho da tela) — desde a M6j ele pausa e, sem o motivo e o tempo,

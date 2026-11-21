@@ -294,6 +294,7 @@ export type NomeDaFerramenta =
   | 'conferencia_do_catalogo'
   | 'atendimento_agora'
   | 'conciliacao_do_periodo'
+  | 'contas_a_pagar_e_receber'
   | 'vencimentos_e_versoes'
   | 'como_usar_o_regem'
   | 'conversas_anteriores'
@@ -596,6 +597,16 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
     description:
       'A conciliação de um período: o que não fecha entre a venda, o dinheiro e a nota fiscal. Traz, com quantos, o valor e os últimos casos: o Pix pago em pedido cancelado sem o estorno feito; o pedido cancelado com a venda ainda de pé; o pedido concluído sem o pagamento registrado no caixa do Regem (em geral o pago na entrega); a venda desfeita com a nota fiscal ainda autorizada; e a venda com a nota recusada ou sem resposta. Use para "o que não fecha?", "a conciliação", "tem Pix para devolver?" e "tem nota com problema?". Sem período, hoje.',
     input_schema: { type: 'object', properties: { ...PERIODO, loja: LOJA }, additionalProperties: false },
+  },
+  {
+    name: 'contas_a_pagar_e_receber',
+    description:
+      'As contas em aberto da empresa: quanto há a pagar e a receber, separado em vencidas, que vencem hoje, nos próximos 7 dias, no resto do mês, depois e sem data, com "ateOFimDoMes" (as vencidas mais as que vencem até o fim deste mês), e as próximas contas a pagar (descrição, fornecedor, valor, vencimento). Use para "quanto eu devo", "o que vence esta semana", "tem conta atrasada", "quanto devo à Distribuidora X" (busca). As contas a receber vêm só em totais. Esta consulta só lê: para lançar, mudar ou pagar uma conta, explique o caminho da tela.',
+    input_schema: {
+      type: 'object',
+      properties: { busca: { type: 'string', description: 'Parte do nome do fornecedor ou da descrição, para ver só essas contas a pagar.' }, loja: LOJA },
+      additionalProperties: false,
+    },
   },
   {
     name: 'vencimentos_e_versoes',

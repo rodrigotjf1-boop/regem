@@ -541,6 +541,8 @@ export class MisterFerramentasService {
         return this.vencimentosEVersoes(e, loja);
       case 'conciliacao_do_periodo':
         return this.conciliacao(e, en, loja);
+      case 'contas_a_pagar_e_receber':
+        return this.contasAPagarEReceber(e, en, loja);
       case 'como_usar_o_regem':
         return this.comoUsarORegem(e, en);
       case 'conversas_anteriores':
@@ -1307,6 +1309,70 @@ export class MisterFerramentasService {
    *  • o acesso do Instagram (presidente e gerente, como a tela).
    * Nada de segredo: só datas e situação. A parte que não pôde ser lida diz "não li" — nunca vira "em dia".
    */
+  private async contasAPagarEReceber(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    // Versão 6, M6j lote 4: só leitura, com a permissão das rotas de `financeiro/titulos` e o filtro de loja delas. A
+    // conta a receber vai só em totais: a descrição dela pode trazer o nome de um cliente, que não vai à IA.
+    if (!this.pode(e, 'financeiro')) return recusa(SEM_PERMISSAO);
+    const hoje = hojeISO();
+    const em7 = somarDias(hoje, 7);
+    const fim = ultimoDoMes(hoje);
+    const depoisDe = fim > em7 ? fim : em7;
+    const busca = (typeof en.busca === 'string' ? en.busca : '').replace(/[%_\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    const padrao = `%${busca}%`;
+    const filtro = busca ? sql`and t.tipo = 'pagar' and (t.descricao ilike ${padrao} or f.nome ilike ${padrao})` : sql``;
+    const faixas: Array<[string, ReturnType<typeof sql>]> = [
+      ['vencidas', sql`t.vencimento < ${hoje}::date`],
+      ['venceHoje', sql`t.vencimento = ${hoje}::date`],
+      ['proximos7Dias', sql`t.vencimento > ${hoje}::date and t.vencimento <= ${em7}::date`],
+      ['restoDoMes', sql`t.vencimento > ${em7}::date and t.vencimento <= ${fim}::date`],
+      ['depois', sql`t.vencimento > ${depoisDe}::date`],
+      ['semData', sql`t.vencimento is null`],
+      // Não é mais uma faixa: junta as vencidas e as que vencem até o fim do mês ("quanto devo neste mês").
+      ['ateOFimDoMes', sql`t.vencimento <= ${fim}::date`],
+    ];
+    const colunas = sql.join(
+      faixas.map(([k, c]) => sql`count(*) filter (where ${c})::int as ${sql.raw(`"n_${k}"`)}, coalesce(sum(t.valor) filter (where ${c}), 0) as ${sql.raw(`"v_${k}"`)}`),
+      sql`, `,
+    );
+    const de = sql`
+      from titulo_financeiro t
+      left join fornecedor f on f.id = t.fornecedor_id
+      where t.tenant_id = ${e.tenantId} and t.status = 'aberto' ${sqlUnidade('t.unidade_id', loja.atual)} ${filtro}`;
+    const totais = linhas(await this.db.execute(sql`select t.tipo, count(*)::int as n, coalesce(sum(t.valor), 0) as v, ${colunas} ${de} and t.tipo in ('pagar', 'receber') group by t.tipo`));
+    const proximas = linhas(
+      await this.db.execute(sql`
+        select t.descricao, f.nome as fornecedor, t.valor, t.vencimento::text as vencimento
+        ${de} and t.tipo = 'pagar'
+        order by t.vencimento asc nulls last, t.created_at desc, t.id
+        limit 12`),
+    );
+    const dinheiro = (v: unknown) => (e.verValores ? reais(v) : null);
+    const doTipo = (tipo: string) => {
+      const l = totais.find((x) => x.tipo === tipo);
+      const faixa = (k: string) => ({ quantas: inteiro(l?.[`n_${k}`]), valor: dinheiro(l?.[`v_${k}`] ?? 0) });
+      return { quantas: inteiro(l?.n), valor: dinheiro(l?.v ?? 0), ...Object.fromEntries(faixas.map(([k]) => [k, faixa(k)])) };
+    };
+    const situacao = (v: string | null) => (!v ? 'sem data' : v < hoje ? 'vencida' : v === hoje ? 'vence hoje' : 'a vencer');
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        hoje: diaMes(hoje),
+        ...(busca ? { busca } : {}),
+        aPagar: doTipo('pagar'),
+        ...(busca ? {} : { aReceber: doTipo('receber') }),
+        proximasAPagar: proximas.map((p) => ({
+          descricao: String(p.descricao ?? '').replace(/\s+/g, ' ').trim().slice(0, 60),
+          fornecedor: p.fornecedor ? String(p.fornecedor).slice(0, 60) : null,
+          valor: dinheiro(p.valor),
+          vencimento: p.vencimento ? diaMes(String(p.vencimento)) : null,
+          situacao: situacao(p.vencimento ? String(p.vencimento) : null),
+        })),
+        ...(e.verValores ? {} : { aviso: SEM_VALORES }),
+      },
+    };
+  }
+
   private async vencimentosEVersoes(e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
     const verFiscal = this.pode(e, 'fiscal') || this.pode(e, 'fiscal_config');
     const verServidor = e.nivel === 'presidente';
