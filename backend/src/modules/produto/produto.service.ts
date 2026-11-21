@@ -50,6 +50,7 @@ import {
   precoNoGrupoDoPedido,
 } from './produto-canais';
 import { fraseDosAtrasados, servidoresAtrasados } from '../../common/servidores-da-empresa';
+import { codigoLimpo, codigosRecusados, lerTrocasDeCodigo, type RecusaDeCodigo, type TrocaDeCodigo } from './codigos-pdv';
 
 /** Quem fez a mudança (para a auditoria). */
 type Ator = { id: string | null; perfil: string | null };
@@ -926,11 +927,12 @@ export class ProdutoService {
   // que seja a quantidade de produtos, etapas e opções. Antes era um produto por vez e uma linha por
   // vez — salvar a opção "Carne 120 gr" (9 produtos, 19 etapas, 108 linhas) dava ~250 idas ao banco,
   // uns 40 s com o banco em Oregon (ERR-245). O que se grava é o mesmo.
-  async materializarProdutos(tenantId: string, produtoIds: string[]) {
+  // `dentroDe`: a transação de quem chama (a troca de códigos), para o código e a regeração valerem juntos.
+  async materializarProdutos(tenantId: string, produtoIds: string[], dentroDe?: unknown) {
     const ids = [...new Set((produtoIds ?? []).filter(Boolean))];
     if (!ids.length) return;
     const idsSql = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
-    await this.db.transaction(async (tx) => {
+    await ((dentroDe ?? this.db) as DrizzleDB).transaction(async (tx) => {
       // Trava os produtos: duas gravações ao mesmo tempo (a opção e a etapa, dois gestores) não
       // recriam os grupos duas vezes — a segunda espera e regera sobre o que a primeira deixou.
       await tx.execute(sql`select id from produto where tenant_id = ${tenantId} and id in (${idsSql}) order by id for update`);
@@ -1391,6 +1393,145 @@ export class ProdutoService {
       .returning({ id: opcao.id });
     await this.materializarProdutos(tenantId, await this.produtosDasOpcoes(tenantId, alvo));
     return { ok: true, atualizadas: res.length };
+  }
+
+  /**
+   * O código PDV de vários produtos e opções, direto da lista (Cadastros › Cardápio). Uma transação: ou tudo entra, ou nada,
+   * e a recusa diz a linha. Cada troca confere o código que a tela leu. Código que está em OUTRO produto é recusado mesmo que
+   * ele também mude neste pedido: a troca cruzada (A↔B) passa aqui, mas o sync aplica linha a linha, bate no índice único do
+   * outro lado e descarta a linha em silêncio. Quem troca faz em dois passos, e o `updated_at` mantém a ordem.
+   */
+  async trocarCodigosPdv(tenantId: string, corpo: unknown, ator: Ator) {
+    const { trocas, recusas: doPedido } = lerTrocasDeCodigo(corpo);
+    if (doPedido.length) throw codigosRecusados(doPedido);
+    if (!trocas.length) return { ok: true, alterados: 0, produtos: 0, opcoes: 0 };
+
+    const deProduto = trocas.filter((t) => t.tipo === 'produto');
+    const deOpcao = trocas.filter((t) => t.tipo === 'opcao');
+    const usamAsOpcoes = await this.produtosDasOpcoes(tenantId, deOpcao.map((t) => t.id));
+    const linhas = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
+    const idsSql = (ids: string[]) => sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
+    const valores = (l: TrocaDeCodigo[]) => sql.join(l.map((t) => sql`(${t.id}::uuid, ${t.para}::text)`), sql`, `);
+    const nomes = new Map<string, string>();
+
+    try {
+      await this.db.transaction(async (tx) => {
+        // A ordem das travas é a de quem salva uma opção: a opção, depois os produtos (por id).
+        const opcoesAtuais = deOpcao.length
+          ? linhas(await tx.execute(sql`
+              select id, nome, codigo_pdv as codigo from opcao
+               where tenant_id = ${tenantId} and deleted_at is null and id in (${idsSql(deOpcao.map((t) => t.id))})
+               order by id for update`))
+          : [];
+        const paraTravar = [...new Set([...deProduto.map((t) => t.id), ...usamAsOpcoes])];
+        const produtosAtuais = paraTravar.length
+          ? linhas(await tx.execute(sql`
+              select id, nome, codigo from produto
+               where tenant_id = ${tenantId} and deleted_at is null and id in (${idsSql(paraTravar)})
+               order by id for update`))
+          : [];
+
+        const atual = new Map<string, { nome: string; codigo: string | null }>();
+        for (const o of opcoesAtuais) atual.set(`opcao:${o.id}`, o);
+        for (const p of produtosAtuais) atual.set(`produto:${p.id}`, p);
+        const recusas: RecusaDeCodigo[] = [];
+        for (const t of trocas) {
+          const a = atual.get(`${t.tipo}:${t.id}`);
+          if (!a) {
+            recusas.push({ tipo: t.tipo, id: t.id, motivo: 'este item não existe mais' });
+            continue;
+          }
+          nomes.set(`${t.tipo}:${t.id}`, a.nome);
+          if (codigoLimpo(a.codigo) !== t.de)
+            recusas.push({ tipo: t.tipo, id: t.id, motivo: `"${a.nome}" mudou enquanto você editava: o código agora é ${codigoLimpo(a.codigo) ?? 'vazio'}` });
+        }
+
+        const novosDeProduto = deProduto.filter((t) => t.para);
+        if (novosDeProduto.length) {
+          const codigos = sql.join(novosDeProduto.map((t) => sql`${t.para}`), sql`, `);
+          const emUso = linhas(await tx.execute(sql`
+            select id, nome, btrim(codigo) as codigo from produto
+             where tenant_id = ${tenantId} and deleted_at is null and btrim(codigo) in (${codigos})`));
+          const variacoes = linhas(await tx.execute(sql`
+            select v.nome, p.nome as produto, btrim(v.codigo) as codigo
+              from produto_variacao v join produto p on p.id = v.produto_id and p.deleted_at is null
+             where v.tenant_id = ${tenantId} and v.deleted_at is null and btrim(v.codigo) in (${codigos})`));
+          for (const t of novosDeProduto) {
+            const outro = emUso.find((p) => p.codigo === t.para && String(p.id) !== t.id);
+            const variacao = variacoes.find((v) => v.codigo === t.para);
+            if (outro) recusas.push({ tipo: 'produto', id: t.id, motivo: `o código ${t.para} ainda está em "${outro.nome}": troque o de lá e salve primeiro` });
+            else if (variacao) recusas.push({ tipo: 'produto', id: t.id, motivo: `o código ${t.para} já está na variação "${variacao.nome}" de "${variacao.produto}"` });
+          }
+        }
+        if (recusas.length) throw codigosRecusados(recusas);
+
+        const agora = new Date();
+        if (deOpcao.length) {
+          await tx.execute(sql`
+            update opcao o set codigo_pdv = v.para, updated_at = ${agora}
+              from (values ${valores(deOpcao)}) as v(id, para)
+             where o.id = v.id and o.tenant_id = ${tenantId}`);
+          // Depois de gravar, para a troca entre duas opções valer: o canal acha a opção pelo código DENTRO do produto
+          // (`resolverComplementosPorCodigo`), então duas opções do mesmo produto não podem ter o mesmo.
+          const novos = deOpcao.filter((t) => t.para);
+          if (novos.length && usamAsOpcoes.length) {
+            const codigos = sql.join(novos.map((t) => sql`${t.para}`), sql`, `);
+            const repetidos = linhas(await tx.execute(sql`
+              with daqui as (
+                select pc.produto_id, btrim(o.codigo_pdv) as codigo, o.id::text as chave, o.nome
+                  from produto_complemento pc
+                  join complemento c on c.id = pc.complemento_id and c.tenant_id = pc.tenant_id
+                       and c.deleted_at is null and c.ativo is not false
+                  join complemento_item ci on ci.complemento_id = c.id and ci.tenant_id = c.tenant_id and ci.deleted_at is null
+                  join opcao o on o.id = ci.opcao_id and o.deleted_at is null
+                 where pc.tenant_id = ${tenantId} and pc.deleted_at is null
+                   and pc.produto_id in (${idsSql(usamAsOpcoes)}) and btrim(o.codigo_pdv) in (${codigos})
+                union all
+                select g.produto_id, btrim(co.codigo_pdv), co.id::text, co.nome
+                  from complemento_grupo g
+                  join complemento_opcao co on co.grupo_id = g.id and co.deleted_at is null
+                 where g.tenant_id = ${tenantId} and g.deleted_at is null and g.origem_complemento_id is null
+                   and g.produto_id in (${idsSql(usamAsOpcoes)}) and btrim(co.codigo_pdv) in (${codigos})
+              )
+              select d.codigo, p.nome as produto, array_agg(distinct d.nome) as nomes
+                from daqui d join produto p on p.id = d.produto_id
+               group by d.codigo, p.nome
+              having count(distinct d.chave) > 1`));
+            for (const r of repetidos) {
+              for (const t of novos.filter((x) => x.para === r.codigo))
+                recusas.push({ tipo: 'opcao', id: t.id, motivo: `o código ${r.codigo} ficaria em mais de uma opção de "${r.produto}" (${(r.nomes as string[]).join(', ')})` });
+            }
+            if (recusas.length) throw codigosRecusados(recusas);
+          }
+        }
+        if (deProduto.length) {
+          await tx.execute(sql`
+            update produto p set codigo = v.para, updated_at = ${agora}
+              from (values ${valores(deProduto)}) as v(id, para)
+             where p.id = v.id and p.tenant_id = ${tenantId}`);
+        }
+        // Sem código a opção vira observação (não cobra nem baixa): a venda lê a cópia regerada aqui.
+        await this.materializarProdutos(tenantId, usamAsOpcoes, tx);
+      });
+    } catch (e: any) {
+      // Outra pessoa gravou o mesmo código de produto no meio: o índice único segura e a tela diz por quê.
+      if ((e?.code ?? e?.cause?.code) === '23505')
+        throw codigosRecusados(deProduto.map((t) => ({ tipo: t.tipo, id: t.id, motivo: `o código ${t.para ?? ''} acabou de ser usado em outro produto` })));
+      throw e;
+    }
+
+    if (deProduto.length) void this.flash.flashProdutos(deProduto.map((t) => t.id));
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator.id,
+      atorPerfil: ator.perfil ?? '',
+      tipo: 'cadastro',
+      acao: 'trocou_codigo_pdv',
+      entidadeTipo: 'catalogo',
+      entidadeId: null,
+      detalhe: { origem: 'cadastros_cardapio', trocas: trocas.map((t) => ({ ...t, nome: nomes.get(`${t.tipo}:${t.id}`) ?? null })) },
+    });
+    return { ok: true, alterados: trocas.length, produtos: deProduto.length, opcoes: deOpcao.length };
   }
 
   // ----- Produtos -----

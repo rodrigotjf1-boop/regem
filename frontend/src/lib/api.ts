@@ -1001,6 +1001,9 @@ export const api = {
     req('/produtos/opcoes/massa/excluir', { method: 'POST', body: JSON.stringify({ ids }) }),
   precoCustoOpcoesMassa: (ids: string[], precoCusto: number) =>
     req('/produtos/opcoes/massa/preco', { method: 'PATCH', body: JSON.stringify({ ids, precoCusto }) }),
+  // O código PDV de vários produtos e opções, direto da lista (um pedido, tudo ou nada; a recusa vem em `details.recusas`).
+  trocarCodigosPdv: (trocas: { tipo: 'produto' | 'opcao'; id: string; de: string | null; para: string | null }[]) =>
+    req('/produtos/codigos-pdv', { method: 'PATCH', body: JSON.stringify({ trocas }) }),
   // Complementos reutilizáveis do catálogo (Fase 3)
   complementosCatalogo: () => req('/produtos/complementos-catalogo'),
   // Sobe complementos importados (motor) para o catálogo reutilizável, dedup idêntico.
