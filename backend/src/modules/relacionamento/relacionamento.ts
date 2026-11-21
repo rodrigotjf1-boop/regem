@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { exigirBooleano } from '../../common/exigir';
 import { FUSO_OPERACAO } from '../../common/data';
+import { quintoDiaUtil } from '../perfil-cliente/calendario-regra';
 
 // AS AUTOMÁTICAS DE MARKETING (Onda 3 · PR 2, mig 356; protótipo `mockups/regem-relacionamento.html`, vista
 // "Automáticas", aprovado em 03/11/2026). Ajustes, horário do envio e textos — sem banco, testável.
@@ -38,6 +39,25 @@ export const VOLTA_JANELA_DIAS = 30;
 export const PISO_DO_RITMO_DIAS = 7;
 /** Entre uma tentativa e outra. */
 export const VOLTA_ENTRE_TENTATIVAS_DIAS = 60;
+/**
+ * "Início do mês" (F7 parte 4c, mig 486): do dia 1 ao 5º dia útil (a régua do salário do calendário). `mes` é a referência
+ * do envio: uma mensagem por cliente por mês.
+ */
+export function janelaDoInicioDoMes(dia: string): { mes: string; inicio: string; fim: string; valendo: boolean } {
+  const mes = dia.slice(0, 7);
+  const inicio = `${mes}-01`;
+  const fim = quintoDiaUtil(Number(dia.slice(0, 4)), Number(dia.slice(5, 7)));
+  return { mes, inicio, fim, valendo: dia >= inicio && dia <= fim };
+}
+
+/** O dia que a prévia olha: hoje, se está na janela; senão o dia 1 do mês seguinte. */
+export function diaDoProximoInicioDeMes(dia: string): string {
+  if (janelaDoInicioDoMes(dia).valendo) return dia;
+  const ano = Number(dia.slice(0, 4));
+  const mes = Number(dia.slice(5, 7));
+  return mes === 12 ? `${ano + 1}-01-01` : `${ano}-${String(mes + 1).padStart(2, '0')}-01`;
+}
+
 /** Quantos dias antes do aniversário a mensagem sai. */
 export const DIAS_ANTES_DO_ANIVERSARIO: Record<AnivQuando, number> = { no_dia: 0, '3_antes': 3, '7_antes': 7 };
 /** Loja fechada no dia: a mensagem ainda sai até 3 dias depois (nunca duas no ano — a referência é o ano). */
@@ -73,6 +93,8 @@ export type AjustesRelacionamento = {
   grupoControle: boolean;
   /** "Viu e não pediu" na conversa (F7 parte 4d, mig 481): o atendente sugere uma vez o que o cliente abriu e não pediu. */
   viuAtivo: boolean;
+  /** "Início do mês" (F7 parte 4c, mig 486): quem tem o selo "dinheiro no bolso" e o aceite clicado. Nasce desligado. */
+  inicioMesAtivo: boolean;
 };
 /**
  * Nasce DESLIGADO; o resto, como as decisões do dono de 03/11/2026 (aniversário: R$ 10 acima de R$ 40 por 7 dias;
@@ -102,6 +124,7 @@ export const AJUSTES_PADRAO: AjustesRelacionamento = {
   voltaPeloRitmo: false,
   grupoControle: false,
   viuAtivo: false,
+  inicioMesAtivo: false,
 };
 
 /** O cupom de um desconto da lista: tipo e valor como o cadastro de cupons guarda. */
@@ -169,6 +192,7 @@ export function lerAjustes(dto: unknown): Partial<AjustesRelacionamento> {
   if (d.voltaPeloRitmo !== undefined) p.voltaPeloRitmo = exigirBooleano(d.voltaPeloRitmo, 'voltaPeloRitmo');
   if (d.grupoControle !== undefined) p.grupoControle = exigirBooleano(d.grupoControle, 'grupoControle');
   if (d.viuAtivo !== undefined) p.viuAtivo = exigirBooleano(d.viuAtivo, 'viuAtivo');
+  if (d.inicioMesAtivo !== undefined) p.inicioMesAtivo = exigirBooleano(d.inicioMesAtivo, 'inicioMesAtivo');
   return p;
 }
 
@@ -202,6 +226,7 @@ export function ajustesDaLinha(row: any): AjustesRelacionamento {
     voltaPeloRitmo: row.volta_pelo_ritmo === true,
     grupoControle: row.grupo_controle === true,
     viuAtivo: row.viu_ativo === true,
+    inicioMesAtivo: row.inicio_mes_ativo === true,
   };
 }
 
@@ -322,4 +347,18 @@ export function textoVoltaQr(p: { nome?: string | null; loja: string; link: stri
     ? [`${oi} Para matar a saudade: ${p.presente.descricao}, até ${dataCurta(`${p.presente.ate}T15:00:00Z`)}. 😊`, `Cupom: ${p.presente.cupom}`, `Peça agora: ${p.link}`]
     : [`${oi} Que tal matar a saudade hoje? Tem novidade te esperando. 😊`, `Peça agora: ${p.link}`];
   return [...corpo, '', 'Para sair das ofertas, responda SAIR.'].join('\n');
+}
+
+/**
+ * O "Início do mês" pelo QR — o mesmo texto do modelo de marketing `inicio_mes` da API oficial. Não fala em salário nem diz
+ * por que a pessoa recebeu: o selo é do perfil e não aparece para o cliente.
+ */
+export function textoInicioMesQr(p: { nome?: string | null; loja: string; link: string }): string {
+  const nome = primeiroNome(p.nome);
+  return [
+    `Oi${nome ? `, ${nome}` : ''}! Mês novo na ${p.loja}. Que tal começar com aquele pedido que você gosta? 😊`,
+    `Peça agora: ${p.link}`,
+    '',
+    'Para sair das ofertas, responda SAIR.',
+  ].join('\n');
 }

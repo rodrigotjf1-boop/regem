@@ -6,7 +6,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { hojeISO, somarDias } from '../../common/data';
-import { agoraNaOperacao } from './relacionamento';
+import { agoraNaOperacao, janelaDoInicioDoMes } from './relacionamento';
 import { MODELO_VOLTA_CUPOM, MODELO_VOLTA_LEMBRETE, RelacionamentoService } from './relacionamento.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -60,6 +60,9 @@ descrever('sentimos sua falta (Postgres)', () => {
     }
     // A coluna "pelo ritmo" (mig 464, F7 parte 2 do perfil do cliente).
     await pool.query(readFileSync(join(MIGS, '464_relacionamento_volta_pelo_ritmo.sql'), 'utf8'));
+    // O "Início do mês" (F7 parte 4c): o aceite clicado (300), o selo (463) e a coluna + a trava (486).
+    for (const arq of ['300_marketing_consentimento.sql', '463_cliente_evento_sensibilidade.sql', '486_automatica_inicio_mes.sql'])
+      await repetirNaCorridaDeCatalogo(() => pool.query(semFkCompartilhada(readFileSync(join(MIGS, arq), 'utf8'))));
     db = drizzle(pool, { schema });
   });
 
@@ -355,5 +358,123 @@ descrever('sentimos sua falta (Postgres)', () => {
     const desligado: any = await svc.painel(await montar(false), naJanela());
     expect(desligado.perfilLigado).toBe(false);
     expect(desligado.volta.previa.lista.map((x: any) => x.nome)).toEqual(['Carla N.']);
+    expect(desligado.inicioMes).toBeNull();
+    expect(ligado.inicioMes.publico).toEqual({ comSelo: 0, comAceite: 0 });
+  });
+
+  // ─── "Início do mês" (F7 parte 4c, mig 486) ──────────────────────────────────────────────────────────────────────────
+  const comSelo = (t: string, id: string) =>
+    q(`insert into cliente_evento_sensibilidade (cliente_id, tipo, tenant_id, rr, prob, pedidos, esperado, dias_com_pedido, selo)
+       values ($1,'dinheiro',$2,2,0.95,6,3,3,true)`, [id, t]);
+  const aceitou = (t: string, tel: string, origem = 'cardapio_perfil') =>
+    q(`insert into marketing_consentimento (tenant_id, telefone, telefone_chave, acao, origem) values ($1,$2,regem_telefone_chave($2),'aceite',$3)`, [t, tel, origem]);
+  const ligarPerfil = (t: string) => admin.query(`insert into modulo_ativacao (tenant_id, modulo, ativo) values ($1,'perfil_cliente',true)`, [t]);
+  /** Um pedido no meio do mês de operação de `mes`, sem depender da hora em que o teste roda. */
+  const pediuNoMes = (id: string, mes: string) =>
+    admin.query(`update cliente set ultimo_pedido_em = ($2 || '-01 12:00')::timestamp at time zone 'America/Sao_Paulo' where id = $1`, [id, mes]);
+
+  it('a 486 pode rodar de novo e, fora do Regem, para na guarda sem mudar nada', async () => {
+    const texto = readFileSync(join(MIGS, '486_automatica_inicio_mes.sql'), 'utf8');
+    const r: any = await pool.query(texto);
+    expect((Array.isArray(r) ? r[r.length - 1] : r).rows).toEqual([{ ok: true }]);
+    const vazio = `${SCHEMA}_vazio`;
+    await admin.query(`create schema ${vazio}`);
+    const c = await admin.connect();
+    try {
+      await c.query(`set search_path to ${vazio}`);
+      await expect(c.query(texto)).rejects.toThrow(/A 486 é do Regem/);
+    } finally {
+      await c.query('reset search_path').catch(() => {});
+      c.release();
+      await admin.query(`drop schema if exists ${vazio} cascade`);
+    }
+  });
+
+  it('início do mês: só o selo + o aceite clicado + sem pedido no mês, e uma vez por mês', async () => {
+    const { t } = await empresa({ volta_ativo: false, inicio_mes_ativo: true });
+    await ligarPerfil(t);
+    const mes = hojeISO().slice(0, 7);
+    const dia = `${mes}-01`;
+    const ana = await cliente(t, 'Ana Recebe', '21987668001', 40);
+    await comSelo(t, ana);
+    await aceitou(t, '21987668001');
+    await aceitou(t, '21987668002', 'cardapio_perfil'); // sem selo
+    await cliente(t, 'Bia Semselo', '21987668002', 40);
+    await comSelo(t, await cliente(t, 'Caio Marcada', '21987668003', 40));
+    await aceitou(t, '21987668003', 'cardapio_checkout_marcada'); // a caixa que já vinha marcada não é aceite (D15)
+    await comSelo(t, await cliente(t, 'Davi Saiu', '21987668004', 40));
+    await aceitou(t, '21987668004');
+    await q(`insert into marketing_optout (tenant_id, telefone) values ($1,'5521987668004')`, [t]);
+    const eva = await cliente(t, 'Eva Pediu', '21987668005', 40);
+    await comSelo(t, eva);
+    await aceitou(t, '21987668005');
+    await pediuNoMes(eva, mes);
+    await comSelo(t, await cliente(t, 'Fabio Ifood', '21987668006', 40, { canal: 'ifood' }));
+    await aceitou(t, '21987668006');
+    await comSelo(t, await cliente(t, 'Gil Caso', '21987668007', 40));
+    await aceitou(t, '21987668007');
+    await admin.query(`insert into atendimento_chamado (tenant_id, tipo, canal, prioridade, telefone, status) values ($1,'humano','whatsapp','normal','5521987668007','aberto')`, [t]);
+
+    const { svc, saidas } = automaticas('evolution');
+    const a = await svc.ajustes(t);
+    expect(await svc.separarInicioMes(t, dia, a)).toBe(1);
+    expect(await svc.separarInicioMes(t, dia, a)).toBe(0);
+    const pronto = await svc.prontidao(t, 'inicio_mes', a);
+    expect(await svc.mandar(t, dia, a, pronto, 'inicio_mes')).toBe(1);
+    expect(saidas).toHaveLength(1);
+    expect(saidas[0].para).toBe('5521987668001');
+    expect(saidas[0].texto).toContain('Oi, Ana! Mês novo na Burger da Praça.');
+    const [e] = await envios(t);
+    expect({ tipo: e.tipo, status: e.status, referencia: e.referencia, oferta: e.oferta }).toEqual({ tipo: 'inicio_mes', status: 'enviado', referencia: mes, oferta: true });
+    // Outro dia da mesma janela: a referência (o mês) não deixa repetir.
+    expect(await svc.separarInicioMes(t, `${mes}-02`, a)).toBe(0);
+  });
+
+  it('início do mês: confere de novo na hora de mandar (pediu, tirou o aceite, abriu caso)', async () => {
+    const { t } = await empresa({ volta_ativo: false, inicio_mes_ativo: true });
+    await ligarPerfil(t);
+    const mes = hojeISO().slice(0, 7);
+    const dia = `${mes}-01`;
+    const ids: string[] = [];
+    for (const [nome, tel] of [['Hugo Pediu', '21987667001'], ['Iara Tirou', '21987667002'], ['Joao Caso', '21987667003']]) {
+      const id = await cliente(t, nome, tel, 40);
+      ids.push(id);
+      await comSelo(t, id);
+      await aceitou(t, tel);
+    }
+    const { svc, saidas } = automaticas('evolution');
+    const a = await svc.ajustes(t);
+    expect(await svc.separarInicioMes(t, dia, a)).toBe(3);
+    await pediuNoMes(ids[0], mes);
+    await q(`insert into marketing_consentimento (tenant_id, telefone, telefone_chave, acao, origem, em)
+             values ($1,'21987667002',regem_telefone_chave('21987667002'),'recusa','cardapio_perfil', now() + interval '1 second')`, [t]);
+    await admin.query(`insert into atendimento_chamado (tenant_id, tipo, canal, prioridade, telefone, status) values ($1,'humano','whatsapp','normal','5521987667003','aberto')`, [t]);
+    const pronto = await svc.prontidao(t, 'inicio_mes', a);
+    // Pelo QR sai uma por minuto: cada passada trata uma linha.
+    for (let i = 0; i < 3; i += 1) expect(await svc.mandar(t, dia, a, pronto, 'inicio_mes')).toBe(0);
+    expect(saidas).toHaveLength(0);
+    const motivos = (await envios(t)).map((x: any) => `${x.status}: ${x.motivo}`).sort();
+    expect(motivos).toEqual(['fora: caso aberto no Atendimento', 'fora: já pediu neste mês', 'fora: tirou o aceite das ofertas']);
+  });
+
+  it('início do mês: a tela mostra o público real; a rotina usa o modelo da Meta e só sai na janela', async () => {
+    const { t } = await empresa({ volta_ativo: false, inicio_mes_ativo: true });
+    await ligarPerfil(t);
+    await q(`insert into whatsapp_template (tenant_id, nome, status, categoria) values ($1,'inicio_mes','aprovado','MARKETING')`, [t]);
+    const ana = await cliente(t, 'Ana Modelo', '21987666001', 40);
+    await comSelo(t, ana);
+    await aceitou(t, '21987666001');
+    await comSelo(t, await cliente(t, 'Bruno Semaceite', '21987666002', 40));
+    const { svc, saidas } = automaticas('cloud');
+    const p: any = await svc.painel(t, naJanela());
+    expect(p.inicioMes.publico).toEqual({ comSelo: 2, comAceite: 1 });
+    expect(p.inicioMes.previa.total).toBe(1);
+    expect(p.inicioMes.previa.lista.map((x: any) => x.nome)).toEqual(['Ana M.']);
+    expect(p.inicioMes.pronto).toBe(true);
+    const { valendo } = janelaDoInicioDoMes(hojeISO());
+    const r = await svc.rodarEmpresa(t, naJanela());
+    expect(r.separados).toBe(valendo ? 1 : 0);
+    expect(saidas).toHaveLength(valendo ? 1 : 0);
+    if (valendo) expect({ nome: saidas[0].nome, params: saidas[0].params }).toEqual({ nome: 'inicio_mes', params: ['Ana'] });
   });
 });

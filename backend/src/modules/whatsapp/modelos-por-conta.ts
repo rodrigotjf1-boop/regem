@@ -19,6 +19,7 @@ export const PAPEL_DAS_AUTOMATICAS: Readonly<Record<string, PapelDoNumero>> = {
   aniversario_parabens: 'marketing',
   volta_cupom: 'marketing',
   volta_lembrete: 'marketing',
+  inicio_mes: 'marketing',
 };
 
 /** O número que envia o modelo — e, portanto, a conta onde ele tem de estar aprovado. */

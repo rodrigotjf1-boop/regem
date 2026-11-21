@@ -5,6 +5,7 @@ import {
   MODELO_CASHBACK,
   MODELO_VOLTA_CUPOM,
   MODELO_VOLTA_LEMBRETE,
+  MODELO_INICIO_MES,
   PAPEL,
 } from '../relacionamento/relacionamento.service';
 
@@ -30,6 +31,7 @@ describe('modelos — o número que envia cada um', () => {
       [MODELO_ANIV_PARABENS]: PAPEL.aniversario,
       [MODELO_VOLTA_CUPOM]: PAPEL.volta,
       [MODELO_VOLTA_LEMBRETE]: PAPEL.volta,
+      [MODELO_INICIO_MES]: PAPEL.inicio_mes,
     };
     expect(PAPEL_DAS_AUTOMATICAS).toEqual(doRelacionamento);
   });

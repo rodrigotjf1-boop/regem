@@ -247,6 +247,20 @@ export const CATALOGO_RELACIONAMENTO: Array<{
       { tipo: 'optout', texto: 'Sair das ofertas' },
     ],
   },
+  //  • inicio_mes — MARKETING (F7 parte 4c do perfil, mig 486): o lembrete do começo do mês, sem cupom. Não fala em salário
+  //    nem diz por que a pessoa recebeu (o selo é do perfil). {{1}} primeiro nome.
+  {
+    nome: 'inicio_mes',
+    categoria: 'MARKETING',
+    cabecalho: 'Mês novo',
+    corpo: 'Oi, {{1}}! Mês novo na {loja}. Que tal começar com aquele pedido que você gosta? 😊',
+    rodape: '',
+    exemplo: ['Marina'],
+    botoes: [
+      { tipo: 'automatica', texto: 'Peça agora' },
+      { tipo: 'optout', texto: 'Sair das ofertas' },
+    ],
+  },
   //  • vaga_aberta — MARKETING (F4b parte 2 das vagas, mig 438; o texto do protótipo `mockups/regem-vagas-talentos.html`):
   //    o aviso da vaga ao banco de talentos, pelo número de marketing. {{1}} primeiro nome · {{2}} a loja · {{3}} a função ·
   //    {{4}} escala, horário e salário, como na Página de vagas. Os botões voltam como texto: "Tenho interesse" leva a

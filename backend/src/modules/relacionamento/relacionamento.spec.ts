@@ -10,6 +10,9 @@ import {
   podeMandarAgora,
   reais,
   textoCashbackQr,
+  janelaDoInicioDoMes,
+  diaDoProximoInicioDeMes,
+  textoInicioMesQr,
 } from './relacionamento';
 
 // As automáticas (Onda 3 · PR 2): ajustes conferidos, horário do envio e o texto do aviso do cashback.
@@ -75,7 +78,31 @@ describe('automáticas — regras puras', () => {
       grupoControle: false,
       // "viu e não pediu" na conversa (F7 parte 4d, mig 481): sem a coluna, desligado
       viuAtivo: false,
+      // "início do mês" (F7 parte 4c, mig 486): sem a coluna, desligado
+      inicioMesAtivo: false,
     });
+  });
+
+  it('início do mês: do dia 1 ao 5º dia útil (sábado conta, domingo e feriado não), e a prévia anda para o mês seguinte', () => {
+    expect(janelaDoInicioDoMes('2026-12-05')).toEqual({ mes: '2026-12', inicio: '2026-12-01', fim: '2026-12-05', valendo: true });
+    expect(janelaDoInicioDoMes('2026-12-06').valendo).toBe(false);
+    // 01/01/2027 é feriado e 03/01 é domingo: o 5º dia útil cai em 07/01.
+    expect(janelaDoInicioDoMes('2027-01-07')).toEqual({ mes: '2027-01', inicio: '2027-01-01', fim: '2027-01-07', valendo: true });
+    expect(janelaDoInicioDoMes('2027-01-08').valendo).toBe(false);
+    expect(diaDoProximoInicioDeMes('2026-12-03')).toBe('2026-12-03');
+    expect(diaDoProximoInicioDeMes('2026-11-21')).toBe('2026-12-01');
+    expect(diaDoProximoInicioDeMes('2026-12-20')).toBe('2027-01-01');
+  });
+
+  it('início do mês: liga só com booleano, e o texto não fala em salário nem no motivo', () => {
+    expect(lerAjustes({ inicioMesAtivo: true })).toEqual({ inicioMesAtivo: true });
+    expect(() => lerAjustes({ inicioMesAtivo: 'sim' })).toThrow();
+    expect(ajustesDaLinha({ inicio_mes_ativo: true }).inicioMesAtivo).toBe(true);
+    const t = textoInicioMesQr({ nome: 'MARINA LIMA', loja: 'Burger da Praça', link: 'https://x/r/1' });
+    expect(t).toContain('Oi, Marina! Mês novo na Burger da Praça.');
+    expect(t).toContain('Peça agora: https://x/r/1');
+    expect(t).toContain('responda SAIR');
+    expect(t).not.toMatch(/sal[aá]rio|pagamento|dinheiro|perfil/i);
   });
 
   it('a abertura do dia é a mais cedo entre as lojas; dia sem loja aberta não tem envio', () => {
