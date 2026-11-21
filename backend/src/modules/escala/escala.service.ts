@@ -567,13 +567,15 @@ export class EscalaService {
     return row;
   }
 
-  // Relatório de faltas do período: lista + resumo por colaborador.
-  async faltas(tenantId: string, de?: string, ate?: string) {
+  // Relatório de faltas do período: lista + resumo por colaborador. `unidadeId` = a loja em uso (ERR-555: sem ela, o
+  // gerente de uma loja lia os nomes de quem faltou nas outras); null = a empresa inteira (presidente em "todas").
+  async faltas(tenantId: string, de?: string, ate?: string, unidadeId?: string | null) {
     const conds = [
       eq(escalaAlocacao.tenantId, tenantId),
       isNull(escalaAlocacao.deletedAt),
       inArray(escalaAlocacao.presenca, ['falta_justificada', 'falta_injustificada']),
     ];
+    if (unidadeId) conds.push(eq(escalaAlocacao.unidadeId, unidadeId));
     if (de) conds.push(gte(escalaAlocacao.data, de));
     if (ate) conds.push(lte(escalaAlocacao.data, ate));
     const lista = await this.joined().where(and(...conds)).orderBy(asc(escalaAlocacao.data));
