@@ -3588,6 +3588,11 @@ export const banner = pgTable('banner', {
   // O período opcional em que o banner aparece no cardápio (mig 482; dias da operação, vazio = sem limite).
   apareceDe: date('aparece_de'),
   apareceAte: date('aparece_ate'),
+  // O texto que o Regem escreve por cima da imagem, a descrição para leitor de tela e a marca de imagem feita com IA (mig 485).
+  textoTitulo: text('texto_titulo'),
+  textoChamada: text('texto_chamada'),
+  descricao: text('descricao'),
+  feitoComIa: boolean('feito_com_ia').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

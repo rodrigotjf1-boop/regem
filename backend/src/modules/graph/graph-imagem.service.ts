@@ -42,8 +42,13 @@ export type ResultadoDaImagem =
   | { ok: true; bytes: Buffer; mimeType: 'image/jpeg' | 'image/png'; franquia: Franquia | null }
   | { ok: false; motivo: MotivoDaImagem; mensagem: string };
 
+export type SituacaoDaImagem =
+  | { ok: true; podeCriar: boolean; podeEditar: boolean; franquia: { usados: number; total: number } }
+  | { ok: false; motivo: MotivoDaImagem; mensagem: string };
+
 /** O Graph tem 60 s para a imagem; aqui, a ida e a volta a mais. */
 const PRAZO_MS = 70_000;
+const PRAZO_DA_SITUACAO_MS = 8_000;
 const MIMES_DA_RESPOSTA = ['image/jpeg', 'image/png'] as const;
 
 const falha = (motivo: MotivoDaImagem): ResultadoDaImagem => ({ ok: false, motivo, mensagem: fraseDaImagem(motivo) });
@@ -83,6 +88,33 @@ export class GraphImagemService {
       ...(p.tamanho ? { tamanho: p.tamanho } : {}),
       ...(p.formato ? { formato: p.formato } : {}),
     });
+  }
+
+  /**
+   * O que a empresa pode fazer de imagem agora (a ferramenta `capacidades`, que só lê e não gasta franquia): a tela mostra
+   * a franquia e o motivo antes de a pessoa escrever o pedido. Nunca lança.
+   */
+  async situacaoDaImagem(tenantId: string): Promise<SituacaoDaImagem> {
+    const cfg = lerConfigGraph();
+    if (ehServidorLocal() || !cfg.ligado || !graphLigadoParaEmpresa(tenantId)) return falha('desligado') as SituacaoDaImagem;
+    const lig = await this.graph.ligacaoParaFoto(tenantId);
+    if (!lig) return falha('sem-ligacao') as SituacaoDaImagem;
+    try {
+      const r: any = await this.graph.cliente(cfg, lig.segredo, PRAZO_DA_SITUACAO_MS).chamar('capacidades', {}, { leitura: true });
+      const permissoes: any[] = Array.isArray(r?.permissoes) ? r.permissoes : [];
+      const concedida = (id: string) => permissoes.some((p) => p?.id === id && p?.concedida === true);
+      const f = r?.franquias?.imagem;
+      const inteiro = (n: unknown) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
+      if (!inteiro(f?.usados) || !inteiro(f?.total)) return falha('fora-do-formato') as SituacaoDaImagem;
+      return { ok: true, podeCriar: concedida('imagens.criar'), podeEditar: concedida('imagens.editar'), franquia: { usados: f.usados, total: f.total } };
+    } catch (e: any) {
+      const motivo = motivoDaImagem(e);
+      if (motivo === 'ligacao-desfeita') {
+        await this.graph.marcarDesligadaPeloGraph(tenantId, lig.id).catch((falhou: any) => this.log.warn(`não marquei a ligação desfeita: ${String(falhou?.code ?? falhou?.message).slice(0, 80)}`));
+      }
+      this.log.warn(`capacidades não respondeu (${motivo})`);
+      return falha(motivo) as SituacaoDaImagem;
+    }
   }
 
   private async chamar(tenantId: string, ferramenta: string, chave: string, argumentos: Record<string, unknown>): Promise<ResultadoDaImagem> {

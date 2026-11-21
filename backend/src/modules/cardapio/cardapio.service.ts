@@ -136,7 +136,7 @@ import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { CashbackService } from '../cashback/cashback.service';
 
 import { hojeISO } from '../../common/data';
-import { bannerNoPeriodo, lerDestinoDoBanner, lerPeriodoDoBanner } from './banner-destino';
+import { bannerNoPeriodo, lerDestinoDoBanner, lerPeriodoDoBanner, lerTextoDoBanner } from './banner-destino';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
 import { montarMensagemDaPausa, pausaVigenteDoCanal, rotuloDoMotivo, textoDaRecusa, type PausaVigente } from '../../common/pausa-do-canal';
@@ -1199,7 +1199,18 @@ export class CardapioService {
   async setBanners(
     tenantId: string,
     unidadeId: string | null,
-    banners: { imagemRef: string; titulo?: string; link?: string; ativo?: boolean; apareceDe?: string | null; apareceAte?: string | null }[],
+    banners: {
+      imagemRef: string;
+      titulo?: string;
+      link?: string;
+      ativo?: boolean;
+      apareceDe?: string | null;
+      apareceAte?: string | null;
+      textoTitulo?: string | null;
+      textoChamada?: string | null;
+      descricao?: string | null;
+      feitoComIa?: boolean;
+    }[],
   ) {
     // Máximo de 3 banners no carrossel do cardápio. O destino ("Ao tocar, abre") e o período (B3, mig 482) são conferidos
     // ANTES de apagar os de hoje (V86: toda recusa antes da 1ª gravação); trocar a lista é uma transação só.
@@ -1216,6 +1227,8 @@ export class CardapioService {
         ordem: i,
         apareceDe: periodo.de,
         apareceAte: periodo.ate,
+        ...lerTextoDoBanner(b, i + 1),
+        feitoComIa: b.feitoComIa === true,
       };
     });
     await this.db.transaction(async (tx: any) => {
@@ -1249,6 +1262,10 @@ export class CardapioService {
       imagemRef: b.imagemRef,
       titulo: b.titulo ?? null,
       link: b.link === 'vagas' ? (vagas ? `vagas:${vagas}` : null) : (b.link ?? null),
+      // B2 (mig 485): só o que a loja preencheu, para o cardápio não carregar campos vazios.
+      ...(b.textoTitulo ? { textoTitulo: b.textoTitulo } : {}),
+      ...(b.textoChamada ? { textoChamada: b.textoChamada } : {}),
+      ...(b.descricao ? { descricao: b.descricao } : {}),
     }));
   }
 

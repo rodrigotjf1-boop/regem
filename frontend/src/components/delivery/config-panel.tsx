@@ -31,6 +31,7 @@ import { INDICADO_PARA, ROTULO_TEMPLATE, TEMPLATES, templateDe } from '@/compone
 import { FraseDeCautela } from '@/components/delivery/frase-de-cautela';
 import { PedidoAgendadoAjustes } from '@/components/delivery/pedido-agendado-ajustes';
 import { GavetaDestinoDoBanner, resumoDoDestino } from '@/components/delivery/gaveta-destino-do-banner';
+import { GavetaBannerIa } from '@/components/delivery/gaveta-banner-ia';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -2201,6 +2202,7 @@ function Banners({ banners, intervalo, onSalvar, salvando, pode }: { banners: an
   const [prods, setProds] = useState<any[]>([]);
   // "Ao tocar, abre…" de qual banner está aberto em gaveta (B3).
   const [destinoDe, setDestinoDe] = useState<number | null>(null);
+  const [criandoComIa, setCriandoComIa] = useState(false);
   useEffect(() => { setLista(banners); }, [banners]);
   useEffect(() => { setSeg(intervalo); }, [intervalo]);
   useEffect(() => {
@@ -2238,9 +2240,16 @@ function Banners({ banners, intervalo, onSalvar, salvando, pode }: { banners: an
         const resumo = resumoDoDestino(b, opcoesProd, cats);
         return (
           <div key={i} className="flex flex-col gap-3 rounded-lg border border-border p-2.5 sm:flex-row sm:items-start">
-            <ImageUpload value={b.imagemRef} onChange={(url) => up(i, { imagemRef: url })} id={`banner-${i}`} alt="Banner" />
+            {/* Imagem trocada à mão: a descrição e a marca da IA eram da imagem antiga. */}
+            <ImageUpload value={b.imagemRef} onChange={(url) => up(i, { imagemRef: url, feitoComIa: false, descricao: null })} id={`banner-${i}`} alt={b.descricao || 'Banner'} />
             <div className="min-w-0 flex-1 space-y-1.5">
               <Input value={b.titulo ?? ''} onChange={(e) => up(i, { titulo: e.target.value })} placeholder="Título / texto do botão (opcional)" className="h-8" disabled={!pode} aria-label={`Título do banner ${i + 1}`} />
+              {(b.feitoComIa || b.textoTitulo || b.textoChamada) && (
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  <Input value={b.textoTitulo ?? ''} maxLength={60} onChange={(e) => up(i, { textoTitulo: e.target.value })} placeholder="Texto por cima: título" className="h-8" disabled={!pode} aria-label={`Texto por cima do banner ${i + 1}: título`} />
+                  <Input value={b.textoChamada ?? ''} maxLength={90} onChange={(e) => up(i, { textoChamada: e.target.value })} placeholder="Texto por cima: chamada" className="h-8" disabled={!pode} aria-label={`Texto por cima do banner ${i + 1}: chamada`} />
+                </div>
+              )}
               {/* "Ao tocar, abre" (B3): o resumo do destino e do período; mudar em gaveta. */}
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                 <span className="min-w-0 [overflow-wrap:anywhere]">
@@ -2265,14 +2274,30 @@ function Banners({ banners, intervalo, onSalvar, salvando, pode }: { banners: an
       })}
       {lista.length === 0 && <p className="text-sm text-muted-foreground">Nenhum banner ainda.</p>}
       {pode && (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           {lista.length < 3 ? (
-            <Button type="button" size="sm" variant="outline" onClick={() => setLista((l) => [...l, { imagemRef: '', titulo: '', link: '', ativo: true }])}>＋ Banner</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={() => setLista((l) => [...l, { imagemRef: '', titulo: '', link: '', ativo: true }])}>＋ Banner</Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => setCriandoComIa(true)}>✨ Criar com IA</Button>
+            </div>
           ) : (
             <span className="text-xs text-muted-foreground">Máximo de 3 banners.</span>
           )}
           <Button type="button" onClick={() => onSalvar(lista, seg)} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
         </div>
+      )}
+      {criandoComIa && (
+        <GavetaBannerIa
+          salvando={salvando}
+          aoFechar={() => setCriandoComIa(false)}
+          aoUsar={(b) => {
+            // Entra na lista e salva, como o destino: o cardápio só muda aqui, depois de a pessoa escolher a imagem.
+            const nova = [...lista.filter((x) => x.imagemRef), { titulo: '', link: '', ativo: true, ...b }];
+            setLista(nova);
+            setCriandoComIa(false);
+            onSalvar(nova, seg);
+          }}
+        />
       )}
       {destinoDe !== null && lista[destinoDe] && (
         <GavetaDestinoDoBanner
