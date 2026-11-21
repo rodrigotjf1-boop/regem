@@ -37,6 +37,8 @@ import { MisterListaService } from './mister-lista.service';
 import { MisterPadroesService } from './mister-padroes.service';
 import { MisterAcoesService } from './mister-acoes.service';
 import { ComprasModule } from '../compras/compras.module';
+import { TarefaModule } from '../tarefa/tarefa.module';
+import { ProdutoModule } from '../produto/produto.module';
 import { MisterPropostasService } from './mister-propostas.service';
 import { MisterRecadosService } from './mister-recados.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
@@ -92,6 +94,9 @@ import { MisterModule } from './mister.module';
     GraphModule,
     // Versão 6, M6g: a lista de compras cria o pedido pelo MESMO serviço da tela de Pedidos.
     ComprasModule,
+    // Versão 6, M6j (lote 2): a tarefa e a pausa do produto pelos MESMOS serviços das telas.
+    TarefaModule,
+    ProdutoModule,
   ],
   // Os relatórios (mig 420) moram aqui: escrevem pelo mesmo agente das perguntas. As propostas (F4.1, mig 428) também:
   // os avisos as criam e elas executam pelos serviços das telas.

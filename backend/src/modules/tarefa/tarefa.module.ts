@@ -9,5 +9,7 @@ import { ModuloModule } from '../modulo/modulo.module';
   imports: [ModuloModule], // enforcement do módulo "App do Colaborador"
   controllers: [TarefaDefController, TarefaInstanciaController],
   providers: [TarefaDefService, TarefaInstanciaService],
+  // Versão 6, M6j (lote 2): o Mister marca a tarefa pelo MESMO serviço da tela.
+  exports: [TarefaInstanciaService],
 })
 export class TarefaModule {}

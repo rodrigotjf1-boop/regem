@@ -1,14 +1,33 @@
 import { instanteDeSaoPaulo } from '../../common/pedido-agendado';
-import { ACOES, ACOES_DO_MISTER, conferirAcao, ehAcaoDoMister, lerCanal, nomesDosCanais, pedidoAndou, pedidoServe, resumoDoPedido } from './mister-acoes';
+import {
+  ACOES,
+  ACOES_DO_MISTER,
+  canaisDoProduto,
+  conferirAcao,
+  ehAcaoDoMister,
+  lerCanal,
+  lerCanalDoProduto,
+  nomeDoEstadoDaTarefa,
+  nomesDosCanais,
+  ondeOProduto,
+  pedidoAndou,
+  pedidoServe,
+  produtoFicou,
+  resumoDoPedido,
+} from './mister-acoes';
 
-// Versão 6, M6j (lote 1, o Delivery): a porta `propor_acao` — as regras puras.
+// Versão 6, M6j (lote 1, o Delivery; lote 2, a tarefa e o produto): a porta `propor_acao` — as regras puras.
 
 const AGORA = instanteDeSaoPaulo('2026-11-20T20:00')!;
 
 describe('Mister · ações — o catálogo e os canais', () => {
-  it('o lote 1: os canais e os pedidos, de botão, pela permissão do Delivery', () => {
-    expect([...ACOES_DO_MISTER]).toEqual(['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido']);
-    for (const a of ACOES_DO_MISTER) expect(ACOES[a]).toMatchObject({ id: a, nivel: 'botao', permissao: 'delivery' });
+  it('os lotes 1 e 2: de botão, cada uma pela permissão da rota da tela', () => {
+    expect([...ACOES_DO_MISTER]).toEqual(['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto']);
+    for (const a of ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] as const)
+      expect(ACOES[a]).toMatchObject({ id: a, nivel: 'botao', permissao: 'delivery' });
+    expect(ACOES.concluir_tarefa).toMatchObject({ nivel: 'botao', permissao: 'meu_dia' });
+    expect(ACOES.pausar_produto).toMatchObject({ nivel: 'botao', permissao: 'loja' });
+    expect(ACOES.reativar_produto).toMatchObject({ nivel: 'botao', permissao: 'loja' });
     expect(ehAcaoDoMister('cancelar_pedido')).toBe(false);
     expect(ehAcaoDoMister('pausar_canal')).toBe(true);
   });
@@ -72,5 +91,48 @@ describe('Mister · ações — o pedido: a situação que serve e a conferênci
     expect(pedidoAndou('pedido_pronto', 'confirmado')).toBe(false);
     expect(pedidoAndou('despachar_pedido', 'despachado')).toBe(true);
     expect(resumoDoPedido('despachar_pedido', '#4821 (iFood)')).toBe('Despachar o pedido #4821 (iFood) (saiu para a entrega).');
+  });
+});
+
+describe('Mister · ações (lote 2) — a tarefa e o produto', () => {
+  it('a tarefa: feita sem dizer; "não feita" pede o motivo (a mesma regra da tela)', () => {
+    expect(conferirAcao('concluir_tarefa', { tarefa: '  Limpar   a coifa ' }, AGORA)).toEqual({
+      parametros: { acao: 'concluir_tarefa', tarefa: 'Limpar a coifa', estado: 'feita', justificativa: null },
+      resumo: 'Marcar a tarefa "Limpar a coifa" como feita.',
+    });
+    expect(conferirAcao('concluir_tarefa', { tarefa: 'Limpar a coifa', estado: 'nao_feita' }, AGORA)).toEqual({
+      erro: 'Para marcar como não feita, diga o motivo (vai junto na tarefa).',
+    });
+    expect(conferirAcao('concluir_tarefa', { tarefa: 'Limpar a coifa', estado: 'nao_feita', justificativa: 'faltou o produto' }, AGORA)).toMatchObject({
+      resumo: 'Marcar a tarefa "Limpar a coifa" como não feita (motivo: faltou o produto).',
+    });
+    expect(conferirAcao('concluir_tarefa', { tarefa: 'Limpar a coifa', estado: 'parcial', justificativa: 'não vai' }, AGORA)).toMatchObject({
+      parametros: { estado: 'parcial', justificativa: null },
+    });
+    expect(conferirAcao('concluir_tarefa', { tarefa: 'x' }, AGORA)).toEqual({ erro: 'Diga a tarefa de hoje como ela aparece na lista (o título).' });
+    expect(conferirAcao('concluir_tarefa', { tarefa: 'Limpar', estado: 'cancelada' }, AGORA)).toEqual({ erro: 'A tarefa fica feita, parcial ou nao_feita.' });
+    expect(['feita', 'parcial', 'nao_feita', 'pendente', 'em_execucao'].map(nomeDoEstadoDaTarefa)).toEqual(['feita', 'feita em parte', 'não feita', 'pendente', 'em execução']);
+  });
+
+  it('o produto: sem canal, os canais em que ele está; com canal, só ele', () => {
+    expect(conferirAcao('pausar_produto', { produto: 'X-Burger' }, AGORA)).toEqual({
+      parametros: { acao: 'pausar_produto', produto: 'X-Burger', canais: null },
+      resumo: 'Pausar "X-Burger" em todos os canais em que ele está.',
+    });
+    expect(conferirAcao('reativar_produto', { produto: 'X-Burger', canais: ['99', 'cardapio'] }, AGORA)).toEqual({
+      parametros: { acao: 'reativar_produto', produto: 'X-Burger', canais: ['regem', '99food'] },
+      resumo: 'Reativar "X-Burger" no Regem (balcão e cardápio digital) e na 99.',
+    });
+    expect(conferirAcao('pausar_produto', { produto: 'X-Burger', canais: ['keeta'] }, AGORA)).toEqual({ erro: 'Os canais do produto são regem (balcão e cardápio digital), ifood e 99.' });
+    expect(['Balcão', 'iFood', '99', 'regem', 'keeta'].map(lerCanalDoProduto)).toEqual(['regem', 'ifood', '99food', 'regem', null]);
+    expect(canaisDoProduto({ noIfood: true, na99: false })).toEqual(['regem', 'ifood']);
+    expect(ondeOProduto(['regem', 'ifood', '99food'])).toBe('no Regem (balcão e cardápio digital), no iFood e na 99');
+  });
+
+  it('a conferência do produto: o Regem pelo balcão E o cardápio; os apps pela lista de pausados', () => {
+    const p = { disponivelBalcao: false, disponivelCardapio: false, canaisPausados: ['ifood'] };
+    expect(produtoFicou(p, ['regem', 'ifood', '99food'], true)).toEqual(['regem', 'ifood']);
+    expect(produtoFicou({ ...p, disponivelCardapio: true }, ['regem'], true)).toEqual([]);
+    expect(produtoFicou({ disponivelBalcao: true, disponivelCardapio: true, canaisPausados: [] }, ['regem', 'ifood'], false)).toEqual(['regem', 'ifood']);
   });
 });

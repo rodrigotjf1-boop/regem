@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6j lote 2 — a tarefa do dia e a pausa do produto pelo WhatsApp (20/11; SEM migration).** Só na
+  nuvem (o Mister): vai no `.zip` sem efeito na loja.
+
 - **Pedido agendado: a janela das 00:00 e as da madrugada voltam (20/11; SEM migration; ERR-552).** O atendimento que
   atravessa a meia-noite era cortado em dois e a janela cujo preparo começa antes da meia-noite sumia. Vai no `.zip` (a
   conta das janelas também roda no servidor da loja).
