@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: o valor em reais que a consulta escreveu em texto tem origem; a avaliação com 49 perguntas (21/11; SEM
+  migration; ERR-553).** Só na nuvem (o Mister): vai no `.zip` sem efeito na loja.
+
 - **Mister versão 6, M6j lote 3 — criar a tarefa de hoje pelo WhatsApp (20/11; SEM migration).** Só na nuvem (o Mister):
   vai no `.zip` sem efeito na loja.
 
