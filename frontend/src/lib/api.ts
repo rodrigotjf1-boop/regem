@@ -2061,6 +2061,8 @@ export const api = {
   cardapioPontos: (token: string, clienteToken?: string) =>
     pub(`/publico/cardapio/${token}/pontos${clienteToken ? `?ct=${encodeURIComponent(clienteToken)}` : ''}`),
   cardapioPromos: (token: string) => pub(`/publico/cardapio/${token}/promos`),
+  /** As regras do clube para o cliente (o banner "Regras do clube" — B3). */
+  cardapioRegrasDoClube: (token: string) => pub(`/publico/cardapio/${token}/clube/regras`),
   cardapioPecaTambem: (token: string, produtos: string[]) =>
     pub(`/publico/cardapio/${token}/peca-tambem?produtos=${encodeURIComponent(produtos.join(','))}`),
   // Beacon anônimo do funil do cardápio (F4) — best-effort.

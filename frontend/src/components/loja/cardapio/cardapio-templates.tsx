@@ -12,6 +12,7 @@ import { Checkout } from './checkout';
 import { Confirmacao } from './confirmacao';
 import { Conta } from './conta';
 import { Busca, InfoLoja, OndeVoceEsta } from './folhas';
+import { RegrasDoClube } from './regras-do-clube';
 import { ProvedorEvento, useCamadaDoEvento } from '../eventos/contexto';
 
 // CARDÁPIO PÚBLICO NOS TEMPLATES NOVOS (Galeria, Balcão, Oferta, Regem Fluxo). A regra inteira
@@ -117,6 +118,7 @@ export function CardapioTemplates({
             if (camada === 'info') return <InfoLoja key="info" c={c} />;
             if (camada === 'conta') return <Conta key="conta" c={c} />;
             if (camada === 'local') return <OndeVoceEsta key="local" c={c} />;
+            if (camada === 'regras') return <RegrasDoClube key="regras" c={c} />;
             return <Checkout key="checkout" c={c} />;
           })}
           {aviso && <Aviso texto={aviso} />}

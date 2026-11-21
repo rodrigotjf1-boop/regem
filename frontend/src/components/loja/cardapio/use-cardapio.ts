@@ -59,7 +59,7 @@ const CHK_INICIAL = {
 };
 
 /** Camadas abertas sobre a vitrine, em pilha (o "voltar" do aparelho fecha a de cima). */
-export type Camada = 'produto' | 'busca' | 'info' | 'conta' | 'local' | `etapa:${Etapa}`;
+export type Camada = 'produto' | 'busca' | 'info' | 'conta' | 'local' | 'regras' | `etapa:${Etapa}`;
 
 export type SituacaoLoja = 'aberta' | 'so_retirada' | 'so_entrega' | 'fechada';
 
@@ -1207,7 +1207,18 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
       void aplicarCupom(valor);
       if (cart.length) abrirSacola();
       else avisar(`Cupom ${valor.toUpperCase()} guardado para o seu pedido`);
-    } else if (/^https?:\/\//.test(alvo)) {
+    } else if (tipo === 'vagas' && valor) {
+      // A página de vagas da loja (o servidor resolve o código; B3), com a origem "banner" na ficha.
+      window.location.assign(`/v/${encodeURIComponent(valor)}?o=banner`);
+    } else if (alvo === 'clube:premios') {
+      setAbaInicialConta('beneficios');
+      abrir('conta');
+    } else if (alvo === 'regem:avaliar') {
+      setAbaInicialConta('pedidos');
+      abrir('conta');
+    } else if (alvo === 'clube:regras' || alvo === 'regem:regras') {
+      abrir('regras');
+    } else if (/^https:\/\//.test(alvo)) {
       window.open(alvo, '_blank', 'noopener,noreferrer');
     }
   }
