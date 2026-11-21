@@ -819,8 +819,37 @@ descrever('clube — o prêmio surpresa pelo pedido entregue (Postgres)', () => 
     // os pedidos de antes do envio não contam como "voltou": os de cima nasceram agora, depois do envio
     expect(await resultados.resultados(T, 'mes')).toEqual({
       periodo: 'mes', titulo: expect.any(String), ganharam: 4, revelaram: 3, usaram: 2, desconto: 12, vendido: 100,
-      campanhas: { receberam: 2, voltaram: 1, dias: 15 },
+      campanhas: { receberam: 2, voltaram: 1, dias: 15, controle: null },
     });
+    // CONTRA QUEM NÃO RECEBEU: os do grupo de controle da campanha (gravados no disparo, sem envio nem prêmio), contados desde
+    // o PRIMEIRO envio dela (2 h atrás). Eva voltou; o pedido do Fábio é de antes do envio; o da Gil foi cancelado; o Hugo
+    // está no controle de uma campanha SEM prêmio (não conta).
+    const [eva, fabio, gil, hugo] = await Promise.all([
+      cliente(T, 'Eva', '21987668005'), cliente(T, 'Fábio', '21987668006'), cliente(T, 'Gil', '21987668007'), cliente(T, 'Hugo', '21987668008'),
+    ]);
+    const [{ id: semPremio }] = await q(`insert into campanha (tenant_id) values ($1) returning id`, [T]);
+    for (const [c, cli, tel] of [[camp, eva, '21987668005'], [camp, fabio, '21987668006'], [camp, gil, '21987668007'], [semPremio, hugo, '21987668008']])
+      await q(`insert into campanha_envio (campanha_id, tenant_id, cliente_id, telefone, status) values ($1, $2, $3, $4, 'controle')`, [c, T, cli, tel]);
+    const pedido = (cli: string, status: string, ha: string) =>
+      q(
+        `insert into pedido_externo (tenant_id, canal, tipo, itens, total, status, cliente_nome, cliente_telefone, client_ref, cliente_id, criado_em)
+         values ($1, 'cardapio', 'entrega', '[]'::jsonb, 30, $2, 'Cliente', '21987668000', $3, $4, now() - $5::interval)`,
+        [T, status, randomUUID(), cli, ha],
+      );
+    await pedido(eva, 'concluido', '1 hour');
+    await pedido(fabio, 'concluido', '3 hours');
+    await pedido(gil, 'cancelado', '1 hour');
+    await pedido(hugo, 'concluido', '1 hour');
+    expect((await resultados.resultados(T, 'mes')).campanhas).toEqual({
+      receberam: 2, voltaram: 1, dias: 15, controle: { base: 3, voltaram: 1, pouco: true },
+    });
+    // a campanha cujo primeiro envio foi há 40 dias sai do mês, com o controle dela
+    await q(`update campanha_envio set enviado_em = enviado_em - interval '40 days' where campanha_id = $1 and enviado_em is not null`, [camp]);
+    expect((await resultados.resultados(T, 'mes')).campanhas).toBeNull();
+    expect((await resultados.resultados(T, '90d')).campanhas).toEqual({
+      receberam: 2, voltaram: 0, dias: 15, controle: { base: 3, voltaram: 0, pouco: true },
+    });
+    await q(`update campanha_envio set enviado_em = enviado_em + interval '40 days' where campanha_id = $1 and enviado_em is not null`, [camp]);
     expect(await resultados.resultados(T, '90d')).toMatchObject({ periodo: '90d', titulo: 'Últimos 90 dias', ganharam: 5 });
     // o período que não existe vira "este mês"
     expect((await resultados.resultados(T, 'qualquer')).periodo).toBe('mes');

@@ -21,14 +21,26 @@ export type ResultadosDoClube = {
   /** O que foi vendido nos pedidos com o prêmio. */
   vendido: number;
   /** As campanhas com prêmio surpresa do período: quem recebeu e quem voltou em até 15 dias (nulo = nenhuma). */
-  campanhas: { receberam: number; voltaram: number; dias: number } | null;
+  campanhas: {
+    receberam: number;
+    voltaram: number;
+    dias: number;
+    /** O grupo de controle dessas campanhas (quem ficou de fora, sem o prêmio) e quem voltou; nulo = controle desligado. */
+    controle: { base: number; voltaram: number; pouco: boolean } | null;
+  } | null;
 };
+
+/** Abaixo disto no grupo de controle, a diferença ainda varia muito (a mesma régua do resultado da campanha). */
+export const CONTROLE_POUCO = 100;
 
 // CLUBE — OS RESULTADOS (fase A4 do `docs/plano-clube-e-banner.md`; protótipo `mockups/regem-clube-banner.html`, Marketing
 // › Clube › Resultados). Só NUVEM e só leitura. A coorte é a dos prêmios DADOS no período (dia da operação): quantos
 // revelaram, quantos usaram (o cupom num pedido não cancelado), o desconto e o vendido nesses pedidos. O desconto sai dos
 // valores por origem que o pedido grava (`descontos`, mig 241): a parte "cupom" do código e o frete grátis do mesmo cupom.
-// A comparação com o grupo de controle fica para quando a campanha guardar quem ficou de fora (o cartão diz só quem voltou).
+// CONTRA QUEM NÃO RECEBEU: a campanha grava os do grupo de controle no disparo (`campanha_envio.status = 'controle'`, F7
+// parte 3, mig 465) e eles nunca recebem nem ganham o prêmio (o prêmio sai só no envio, `darPelaCampanha`). Quem recebeu
+// conta desde o próprio envio; o controle, desde o primeiro envio da campanha (a mesma régua de `campanha.service`
+// `metricas`), e a campanha entra no período pelo primeiro envio. Um cliente conta uma vez em cada grupo.
 @Injectable()
 export class ClubeResultadosService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
@@ -79,6 +91,30 @@ export class ClubeResultadosService {
           from e`),
     );
     const receberam = Number(c?.receberam ?? 0);
+    const [g] = receberam > 0 ? this.rows(
+      await this.db.execute(sql`
+        with camp as (
+          select ca.id, min(e.enviado_em) as ref
+            from campanha ca join campanha_envio e on e.campanha_id = ca.id
+           where ca.tenant_id = ${tenantId}::uuid and ca.clube_premio_id is not null
+             and e.status = 'enviado' and e.enviado_em is not null
+           group by ca.id
+        ),
+        ctl as (
+          select distinct on (e.cliente_id) e.cliente_id, camp.ref
+            from campanha_envio e join camp on camp.id = e.campanha_id
+           where e.tenant_id = ${tenantId}::uuid and e.status = 'controle' and e.cliente_id is not null
+             and ${noPeriodo('camp.ref', p.de, p.ate)}
+           order by e.cliente_id, camp.ref
+        )
+        select count(*)::int as base,
+               count(*) filter (where exists (
+                 select 1 from pedido_externo pe
+                  where pe.tenant_id = ${tenantId}::uuid and pe.cliente_id = ctl.cliente_id and pe.status <> 'cancelado'
+                    and pe.criado_em > ctl.ref and pe.criado_em <= ctl.ref + make_interval(days => ${DIAS_PARA_VOLTAR})))::int as voltaram
+          from ctl`),
+    ) : [];
+    const base = Number(g?.base ?? 0);
     return {
       periodo: p.periodo,
       titulo: p.titulo,
@@ -87,7 +123,15 @@ export class ClubeResultadosService {
       usaram: Number(x?.usaram ?? 0),
       desconto: Math.round(Number(x?.desconto ?? 0) * 100) / 100,
       vendido: Math.round(Number(x?.vendido ?? 0) * 100) / 100,
-      campanhas: receberam > 0 ? { receberam, voltaram: Number(c?.voltaram ?? 0), dias: DIAS_PARA_VOLTAR } : null,
+      campanhas:
+        receberam > 0
+          ? {
+              receberam,
+              voltaram: Number(c?.voltaram ?? 0),
+              dias: DIAS_PARA_VOLTAR,
+              controle: base > 0 ? { base, voltaram: Number(g?.voltaram ?? 0), pouco: base < CONTROLE_POUCO } : null,
+            }
+          : null,
     };
   }
 }
