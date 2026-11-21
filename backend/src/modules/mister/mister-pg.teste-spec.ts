@@ -4147,6 +4147,7 @@ export function testesDoMisterComPostgres(): void {
         c51: { periodo: 'este_mes' },
         c52: { periodo: 'este_mes', pessoa: 'Bruna' },
         c55: { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'kg' },
+        c56: { acao: 'mudar_preco', produto: 'X-Bacon', canais: ['ifood'], precoNovo: 39.9 },
         c54: { acao: 'criar_imagem', proporcao: '9:16', pedidoDaImagem: "Cartaz vertical da terça do smash. Foto de um smash duplo com batata, fundo escuro, luz quente. Texto exato: \"TERÇA DO SMASH\" e \"Smash duplo + batata · R$ 29,90\"." },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
@@ -4200,18 +4201,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 55 de 55, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 56 de 56, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(55);
+        expect(r.total).toBe(56);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 55, acertos: 55, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 56, acertos: 56, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 55, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 55, acertos: 55, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 56, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 56, acertos: 56, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4231,7 +4232,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 54 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 55 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -9750,6 +9751,109 @@ export function testesDoMisterComPostgres(): void {
           delete (acoes as any).estoque;
           await q(`delete from movimento_estoque where item_id = $1`, [item]);
           await q(`delete from item_estoque where id = $1`, [item]);
+        }
+      });
+
+      it('lote 8: o preço por canal — só com o PIN de quem pediu, pelo link; a troca invalida o link anterior e o efeito é conferido', async () => {
+        const tel = telefone();
+        const telCarlos = telefone();
+        await ligar('ana', tel);
+        await ligar('carlos', telCarlos, A, 'gerente');
+        const pinsAntes = await q(`select id, pin_hash from colaborador where id in ($1, $2)`, [pessoa.ana, pessoa.carlos]);
+        const [{ perfil: perfilAntes }] = await q(`select perfil_acesso_id as perfil from colaborador where id = $1`, [pessoa.carlos]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.carlos, bcrypt.hashSync('1357', 4)]);
+        const [{ id: prod }] = await q(`insert into produto (tenant_id, unidade_id, nome, preco_venda) values ($1, $2, 'Lote8 X-Bacon', 30) returning id::text as id`, [A, lojaDeA]);
+        const [{ id: comVariacao }] = await q(`insert into produto (tenant_id, unidade_id, nome, preco_venda) values ($1, $2, 'Lote8 Pizza', 50) returning id::text as id`, [A, lojaDeA]);
+        await q(`insert into produto_variacao (tenant_id, produto_id, nome, preco_venda) values ($1, $2, 'Grande', 70)`, [A, comVariacao]);
+        const [{ id: perfilDoPreco }] = await q(
+          `insert into perfil_acesso (tenant_id, nome, nivel, permissoes) values ($1, $2, 'gerente', $3::jsonb) returning id::text as id`,
+          [A, `Lote8 ${randomUUID()}`, JSON.stringify({ loja: true, ver_financeiro: true })],
+        );
+        const precoHoje = async () => Number((await q(`select preco_venda from produto where id = $1`, [prod]))[0].preco_venda);
+        const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+        const en = { acao: 'mudar_preco', produto: 'Lote8 X-Bacon', canais: ['regem'], precoNovo: 39.9 };
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          // A pergunta mostra o de → para e vai com o link: sem botão, e nada muda antes do PIN.
+          const r = await ferramentas.executar(e, 'propor_acao', en);
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toBe('Mudar o preço de "Lote8 X-Bacon" para R$ 39,90 no Regem (balcão e cardápio digital) (hoje R$ 30,00).');
+          expect(r.mensagens).toBeUndefined();
+          expect(r.proposta).toMatchObject({ procedimento: 'mudar_preco', nivel: 'pin', botoes: [] });
+          expect(r.proposta!.pergunta).toContain('autorize no Regem com o seu PIN');
+          const id = r.proposta!.id;
+          // O botão montado à mão não autoriza proposta de PIN.
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          expect((await q(`select situacao from mister_proposta where id = $1`, [id]))[0].situacao).toBe('proposta');
+          expect(await precoHoje()).toBe(30);
+          // A página mostra o que vai mudar; o PIN errado não muda nada.
+          const c1 = codigo(await propostasDasAcoes.enviarLink(id, pessoa.ana, tel, r.proposta!.pergunta));
+          expect(await propostasDasAcoes.verPeloLink(c1)).toMatchObject({
+            titulo: 'Mudar o preço de "Lote8 X-Bacon"?',
+            valor: 39.9,
+            botao: 'Autorizar a mudança',
+            itens: ['No Regem (balcão e cardápio digital): de R$ 30,00 para R$ 39,90.'],
+          });
+          expect((await propostasDasAcoes.autorizarPeloLink(c1, '0000')).erro).toBe('O PIN não confere. Restam 4 tentativas.');
+          expect(await precoHoje()).toBe(30);
+          // Pedir de novo com outro preço troca a proposta: o link antigo morre, e o PIN nele não autoriza o valor novo.
+          const r2 = await ferramentas.executar(e, 'propor_acao', { ...en, precoNovo: 41 });
+          expect(r2.proposta!.id).toBe(id);
+          await expect(propostasDasAcoes.autorizarPeloLink(c1, '2580')).rejects.toBeInstanceOf(NotFoundException);
+          expect(await precoHoje()).toBe(30);
+          const c2 = codigo(await propostasDasAcoes.enviarLink(id, pessoa.ana, tel, r2.proposta!.pergunta));
+          await propostasDasAcoes.autorizarPeloLink(c2, '2580');
+          const fim = await esperarFim(id);
+          expect(fim.situacao).toBe('feita');
+          expect(fim.resultado).toBe('"Lote8 X-Bacon" agora custa R$ 41,00 no Regem (balcão e cardápio digital).');
+          expect(await precoHoje()).toBe(41);
+          const aud = auditados.find((x) => x.acao === 'mudou_preco_do_canal' && x.entidadeId === prod);
+          expect(aud).toMatchObject({ tenantId: A, atorId: pessoa.ana, detalhe: { canal: 'regem', de: '30.00', para: '41.00' } });
+          // Já custa isso: não abre proposta.
+          expect((await ferramentas.executar(e, 'propor_acao', { ...en, precoNovo: 41 })).dados.erro).toBe(TEXTOS_DAS_ACOES.precoIgual('Lote8 X-Bacon', 'R$ 41,00'));
+          // Produto com variações, canal desligado e canal sem o produto: recusados na pergunta.
+          expect((await ferramentas.executar(e, 'propor_acao', { ...en, produto: 'Lote8 Pizza' })).dados.erro).toBe(TEXTOS_DAS_ACOES.precoComVariacao('Lote8 Pizza'));
+          expect((await ferramentas.executar(e, 'propor_acao', { ...en, canais: ['ifood'] })).dados.erro).toBe(TEXTOS_DAS_ACOES.precoCanalDesligado('no iFood'));
+          // Sem "Ver valores em R$", o gerente não muda preço; o valor de hoje também não sai.
+          const c = (await ferramentas.escopo(A, pessoa.carlos, telCarlos))!;
+          const semValores = { ...c, verValores: false, permissoes: { ...c.permissoes, loja: true, ver_financeiro: false } } as any;
+          expect(await ferramentas.executar(semValores, 'propor_acao', { ...en, precoNovo: 45 })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoPreco } });
+          // O gerente com a permissão autoriza a DELE, com o PIN dele; com o PIN da sessão vencido, o preço de hoje não aparece.
+          await q(`update colaborador set perfil_acesso_id = $2 where id = $1`, [pessoa.carlos, perfilDoPreco]);
+          const g = (await ferramentas.escopo(A, pessoa.carlos, telCarlos))!;
+          const oculto = await ferramentas.executar({ ...g, verValores: false } as any, 'propor_acao', { ...en, precoNovo: 46 });
+          expect(oculto.dados.oQueVouFazer).toBe('Mudar o preço de "Lote8 X-Bacon" para R$ 46,00 no Regem (balcão e cardápio digital).');
+          const rg = await ferramentas.executar(g, 'propor_acao', { ...en, precoNovo: 45 });
+          const cg = codigo(await propostasDasAcoes.enviarLink(rg.proposta!.id, pessoa.carlos, telCarlos, rg.proposta!.pergunta));
+          expect((await propostasDasAcoes.autorizarPeloLink(cg, '2580')).erro).toBe('O PIN não confere. Restam 4 tentativas.');
+          await propostasDasAcoes.autorizarPeloLink(cg, '1357');
+          expect((await esperarFim(rg.proposta!.id)).situacao).toBe('feita');
+          expect(await precoHoje()).toBe(45);
+          const autorizou = auditados.find((x) => x.acao === 'mister_proposta_autorizada' && x.entidadeId === rg.proposta!.id);
+          expect(autorizou).toMatchObject({ atorPerfil: 'gerente', origem: 'link' });
+          // Perdeu a permissão entre a pergunta e o PIN: nada muda.
+          const rp = await ferramentas.executar(g, 'propor_acao', { ...en, precoNovo: 47 });
+          const cp = codigo(await propostasDasAcoes.enviarLink(rp.proposta!.id, pessoa.carlos, telCarlos, rp.proposta!.pergunta));
+          await q(`update perfil_acesso set permissoes = $2::jsonb where id = $1`, [perfilDoPreco, JSON.stringify({ loja: true, ver_financeiro: false })]);
+          await propostasDasAcoes.autorizarPeloLink(cp, '1357');
+          expect(await esperarFim(rp.proposta!.id)).toMatchObject({ situacao: 'nao_deu', resultado: 'o seu perfil não dá mais acesso à mudança de preço. Nada foi feito.' });
+          expect(await precoHoje()).toBe(45);
+          // Um canal grava e o outro recusa: "não deu", dizendo o que ficou e o que não mudou.
+          const rm = await ferramentas.executar(e, 'propor_acao', { ...en, precoNovo: 48 });
+          await q(`update mister_proposta set parametros = parametros || '{"canais":["regem","ifood"]}'::jsonb where id = $1`, [rm.proposta!.id]);
+          const cm = codigo(await propostasDasAcoes.enviarLink(rm.proposta!.id, pessoa.ana, tel, rm.proposta!.pergunta));
+          await propostasDasAcoes.autorizarPeloLink(cm, '2580');
+          const parte = await esperarFim(rm.proposta!.id);
+          expect(parte.situacao).toBe('nao_deu');
+          expect(parte.resultado).toContain('ficou com R$ 48,00 no Regem (balcão e cardápio digital), mas não mudou no iFood');
+          expect(await precoHoje()).toBe(48);
+        } finally {
+          await q(`update colaborador set perfil_acesso_id = $2 where id = $1`, [pessoa.carlos, perfilAntes]);
+          for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
+          await q(`delete from perfil_acesso where id = $1`, [perfilDoPreco]);
+          await q(`delete from produto_variacao where produto_id = $1`, [comVariacao]);
+          await q(`delete from produto where id = any($1::uuid[])`, [[prod, comVariacao]]);
         }
       });
 

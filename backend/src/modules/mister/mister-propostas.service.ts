@@ -49,7 +49,7 @@ import {
   TEXTOS_DA_SESSAO,
 } from './mister-procedimentos';
 import { estadoDaSessao } from './mister-sessao';
-import { TEXTOS_DAS_ACOES, ehAcaoDoMister } from './mister-acoes';
+import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDoPreco, ehAcaoDoMister } from './mister-acoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -688,7 +688,8 @@ export class MisterPropostasService implements OnModuleInit {
                  mp.situacao, mp.criada_em as "criadaEm", mp.vence_em as "venceEm", mp.respondida_em as "respondidaEm",
                  mp.telefone_final as "telefoneFinal", mp.resultado, mp.concluida_em as "concluidaEm", mp.link_para::text as "linkPara",
                  mp.link_aberto_em as "linkAbertoEm",
-                 mp.pin_erros as "pinErros", mp.bloqueada_em as "bloqueadaEm", c.nome as "paraNome", emp.nome as empresa, v.telefone
+                 mp.pin_erros as "pinErros", mp.bloqueada_em as "bloqueadaEm", c.nome as "paraNome", emp.nome as empresa, v.telefone,
+                 coalesce(p.nivel, f.categoria::text) as "paraNivel"
             from mister_proposta mp
             join empresa emp on emp.id = mp.tenant_id
             join colaborador c on c.id = mp.link_para and c.tenant_id = mp.tenant_id
@@ -697,8 +698,10 @@ export class MisterPropostasService implements OnModuleInit {
             join mister_vinculo v on v.tenant_id = mp.tenant_id and v.colaborador_id = mp.link_para and v.ligado_em is not null and v.telefone is not null
            where mp.link_hash = ${resumoDoCodigo(codigo)} and mp.nivel = 'pin'
              and ${pessoaVale()}
-             -- M6d: a sessão com PIN é da própria pessoa (o gerente também abre a dele); o resto, só o presidente.
-             and (coalesce(p.nivel, f.categoria::text) = 'presidente' or (mp.procedimento = 'abrir_sessao' and coalesce(p.nivel, f.categoria::text) = 'gerente'))`),
+             -- M6d e M6j: a sessão com PIN e as ações de PIN são da própria pessoa (o gerente também); o resto, só o presidente.
+             and (coalesce(p.nivel, f.categoria::text) = 'presidente'
+                  or (coalesce(p.nivel, f.categoria::text) = 'gerente'
+                      and mp.procedimento in (${sql.join(PROCEDIMENTOS_DO_GERENTE.map((x) => sql`${x}`), sql`, `)})))`),
       );
     } catch (e: any) {
       if (semTabela(e) || e?.code === '42703' || e?.cause?.code === '42703') throw new NotFoundException(TEXTOS_DO_LINK.naoVale);
@@ -717,11 +720,12 @@ export class MisterPropostasService implements OnModuleInit {
       const ped = await this.lerPedido(p.tenantId, p.parametros?.pedidoId);
       if (ped) apresentacao = apresentacaoDoCancelamento(ped);
     }
+    if (p.procedimento === 'mudar_preco' && p.parametros?.mudanca) apresentacao = apresentacaoDoPreco(p.parametros.mudanca);
     return {
       estado: estadoDoLink(p),
       empresa: String(p.empresa ?? ''),
       ...apresentacao,
-      pedidoPor: `Pedido pelo Mister às ${horaNoFuso(new Date(p.criadaEm))}, para ${nome}${p.procedimento === 'abrir_sessao' ? '' : ' (presidente)'}.`,
+      pedidoPor: `Pedido pelo Mister às ${horaNoFuso(new Date(p.criadaEm))}, para ${nome}${p.procedimento === 'abrir_sessao' || ehAcaoDoMister(p.procedimento) ? '' : ' (presidente)'}.`,
       valeAte: new Date(p.venceEm).toISOString(),
       valeAteHora: horaNoFuso(new Date(p.venceEm)),
       restam: tentativasQueRestam(p.pinErros),
@@ -739,7 +743,7 @@ export class MisterPropostasService implements OnModuleInit {
       const [primeira] = linhas(
         await this.db.execute(sql`update mister_proposta set link_aberto_em = now() where id = ${p.id}::uuid and link_aberto_em is null returning id`),
       );
-      if (primeira) await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_link_aberto', p.id, { procedimento: p.procedimento }, 'link');
+      if (primeira) await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_link_aberto', p.id, { procedimento: p.procedimento }, 'link', p.paraNivel);
     }
     return this.vistaDoLink(p);
   }
@@ -753,17 +757,20 @@ export class MisterPropostasService implements OnModuleInit {
   async autorizarPeloLink(codigo: unknown, pin: unknown): Promise<VistaDoLink> {
     const p = await this.linhaDoLink(codigo);
     if (!ehPinValido(pin)) throw new BadRequestException(TEXTOS_DO_LINK.pinFormato);
+    // A proposta de preço pode ser trocada por um pedido novo: o resumo do código na gravação garante que este PIN vale só
+    // para o que ESTE link mostrou.
+    const hashDoLink = resumoDoCodigo(String(codigo));
     const [reservada] = linhas(
       await this.db.execute(sql`
         update mister_proposta set pin_erros = pin_erros + 1
-         where id = ${p.id}::uuid and situacao = 'proposta' and vence_em > now() and bloqueada_em is null and pin_erros < ${PIN_TENTATIVAS}
+         where id = ${p.id}::uuid and link_hash = ${hashDoLink} and situacao = 'proposta' and vence_em > now() and bloqueada_em is null and pin_erros < ${PIN_TENTATIVAS}
         returning pin_erros as "pinErros"`),
     );
     // Vencida, já respondida ou bloqueada: a página mostra o estado.
     if (!reservada) return this.vistaDoLink(await this.linhaDoLink(codigo));
     try {
-      // M6d: a sessão com PIN é da própria pessoa — o gerente também confirma a dele.
-      await autorizarPorPinDoUsuario(this.db, p.tenantId, p.linkPara, pin, p.procedimento === 'abrir_sessao' ? ['presidente', 'gerente'] : ['presidente']);
+      // M6d e M6j: a sessão e as ações de PIN são da própria pessoa — o gerente também confirma as dele.
+      await autorizarPorPinDoUsuario(this.db, p.tenantId, p.linkPara, pin, PROCEDIMENTOS_DO_GERENTE.includes(p.procedimento) ? ['presidente', 'gerente'] : ['presidente']);
     } catch (e: any) {
       if (e?.message !== PIN_INVALIDO) {
         // Não foi o PIN (o acesso mudou entre a leitura e a conferência): a tentativa volta e o link não vale.
@@ -771,17 +778,17 @@ export class MisterPropostasService implements OnModuleInit {
         throw new NotFoundException(TEXTOS_DO_LINK.naoVale);
       }
       const restam = tentativasQueRestam(reservada.pinErros);
-      await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_pin_errado', p.id, { restam }, 'link');
+      await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_pin_errado', p.id, { restam }, 'link', p.paraNivel);
       if (restam > 0) return this.vistaDoLink(await this.linhaDoLink(codigo), TEXTOS_DO_LINK.pinErrado(restam));
       const [bloqueou] = linhas(
         await this.db.execute(sql`
           update mister_proposta
              set situacao = 'recusada', bloqueada_em = now(), concluida_em = now(), resultado = ${`link bloqueado: o PIN errado ${PIN_TENTATIVAS} vezes`}
-           where id = ${p.id}::uuid and situacao = 'proposta' and bloqueada_em is null
+           where id = ${p.id}::uuid and link_hash = ${hashDoLink} and situacao = 'proposta' and bloqueada_em is null
           returning id`),
       );
       if (bloqueou) {
-        await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_bloqueada', p.id, { procedimento: p.procedimento }, 'link');
+        await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_bloqueada', p.id, { procedimento: p.procedimento }, 'link', p.paraNivel);
         await this.falar(p.telefone, TEXTOS_DO_LINK.bloqueada);
       }
       return this.vistaDoLink(await this.linhaDoLink(codigo));
@@ -792,11 +799,11 @@ export class MisterPropostasService implements OnModuleInit {
         update mister_proposta
            set situacao = 'autorizada', respondida_em = now(), autorizada_por = link_para, telefone_final = ${final},
                pin_erros = greatest(pin_erros - 1, 0)
-         where id = ${p.id}::uuid and situacao = 'proposta' and vence_em > now() and bloqueada_em is null
+         where id = ${p.id}::uuid and link_hash = ${hashDoLink} and situacao = 'proposta' and vence_em > now() and bloqueada_em is null
         returning id`),
     );
     if (mudou) {
-      await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_autorizada', p.id, { procedimento: p.procedimento, final }, 'link');
+      await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_autorizada', p.id, { procedimento: p.procedimento, final }, 'link', p.paraNivel);
       await this.falar(p.telefone, TEXTOS_DO_LINK.autorizada);
       void this.executar(p.id).catch((e) => this.logger.error(`a proposta ${p.id} não executou — ${e?.message ?? e}`));
     }
@@ -812,11 +819,11 @@ export class MisterPropostasService implements OnModuleInit {
         update mister_proposta
            set situacao = 'recusada', respondida_em = now(), autorizada_por = link_para, telefone_final = ${final},
                concluida_em = now(), resultado = 'não autorizada no Regem'
-         where id = ${p.id}::uuid and situacao = 'proposta' and vence_em > now() and bloqueada_em is null
+         where id = ${p.id}::uuid and link_hash = ${resumoDoCodigo(String(codigo))} and situacao = 'proposta' and vence_em > now() and bloqueada_em is null
         returning id`),
     );
     if (mudou) {
-      await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_recusada', p.id, { procedimento: p.procedimento, final }, 'link');
+      await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_recusada', p.id, { procedimento: p.procedimento, final }, 'link', p.paraNivel);
       await this.falar(p.telefone, TEXTOS_DO_LINK.recusada);
     }
     return this.vistaDoLink(await this.linhaDoLink(codigo));
@@ -848,6 +855,9 @@ export class MisterPropostasService implements OnModuleInit {
       .catch((e: any) => this.logger.warn(`a auditoria da proposta ${propostaId} falhou — ${e?.message ?? e}`));
   }
 }
+
+/** Os procedimentos de PIN que o gerente autoriza, com o PIN dele: a sessão e as ações de PIN que ele mesmo pediu. */
+const PROCEDIMENTOS_DO_GERENTE: readonly string[] = ['abrir_sessao', ...ACOES_DE_PIN];
 
 /** M6j: o perfil gravado com a ação (quem pediu); as outras propostas são do presidente. */
 const perfilDe = (p: { parametros?: any }): string => (p.parametros?.nivel === 'gerente' ? 'gerente' : 'presidente');
