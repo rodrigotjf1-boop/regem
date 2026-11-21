@@ -623,7 +623,11 @@ if (!app.requestSingleInstanceLock()) {
     const antes = await estadoDaTela99();
     gavetaDoPrograma99 = { numero: `#${item.pedidoNumero}`, em: Date.now() };
     try {
-      return await envio99.enviar(ctx, { numero: item.pedidoNumero, pedidoExterno: item.pedidoExterno, texto: item.texto }, { ecoMs: ECO_MS, ...opcoes });
+      const r = await envio99.enviar(ctx, { numero: item.pedidoNumero, pedidoExterno: item.pedidoExterno, texto: item.texto }, { ecoMs: ECO_MS, ...opcoes });
+      // a conversa que não abriu: o que a 99 mostrou, para a próxima falha ter prova de quem foi (ERR-556)
+      if (r && r.ok === false && diagnostico && ['encerrada', 'numero_errado', 'sem_campo', 'gaveta'].includes(r.codigo))
+        diagnostico.anotar({ ev: 'conversa_99_nao_abriu', codigo: r.codigo, carregando: r.carregando === true, aviso: r.avisoDa99 || null });
+      return r;
     } catch (e) {
       registrarErro(`envio pela 99: ${e && e.message}`);
       return { ok: false, codigo: 'erro', etapas: [`✗ falhou: ${e && e.message}`] };

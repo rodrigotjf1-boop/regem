@@ -547,6 +547,10 @@
     passa a responder ao atualizar (os avisos com mais de 30 min são cancelados antes: nada velho sai). Até o `.exe`, na
     loja: menu do ícone da ponte › marcar "Responder pela 99 neste PC". A faixa do Atendimento e Equipamentos já dizem
     onde ligar (vale com o deploy da tela).
+  - **Também na 0.7.8 (21/11, ERR-556; sem migration):** o diagnóstico guarda a frase exata da 99 quando a conversa não
+    abre (`conversa_99_nao_abriu`) e os erros do chat dela (`im_99_falhou`, só o código). **A correção principal é da nuvem
+    e vale com o deploy, para a ponte 0.7.7 da loja:** com o pedido aberto, a mensagem da 99 que não saiu volta para a fila
+    e tenta de novo a cada 2 min por até 30 min; o Atendimento avisa que o chat da 99 não está abrindo.
 
 - **Cardápio Web: o pedido despachado ou finalizado no painel de lá anda no Regem (16/11, ERR-496; sem migration).** Das
   12 situações da API do Cardápio Web, três não eram traduzidas: `released` (liberado para a saída) passa a virar

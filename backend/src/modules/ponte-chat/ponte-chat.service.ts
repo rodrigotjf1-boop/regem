@@ -30,6 +30,7 @@ import {
   quemRespondePeloCanalNoBanco,
   semRespostaDoAtendente,
 } from './atendente-no-chat';
+import { ERRO_A_LOJA_JA_FALOU, ERRO_CHAT_FORA_30_MIN, ERRO_CHAT_INDISPONIVEL, ESPERA_CHAT_INDISPONIVEL_S, pareceChatDa99Fora } from './chat-indisponivel';
 import { type SituacaoDaEquipe, chaveDaLoja, situacoesPorLoja } from '../atendimento/horario-da-equipe';
 import { DeliveryService } from '../delivery/delivery.service';
 import { modoEntrega } from '../entregador/modo-entrega';
@@ -53,6 +54,7 @@ import { avisarEntregador, motivoDaMensagem } from '../../common/aviso-ao-entreg
 // os pedidos despachados e concluídos ~10 s depois saíram da lista "em andamento" do portal, a ponte não os achou e o
 // aviso ficava "falhou" (um alarme falso). O "obrigado" é justamente para depois da entrega: segue como era.
 
+// O CHAT DA 99 QUE NÃO ABRE (ERR-556, `chat-indisponivel.ts`): com o pedido aberto, a mensagem espera e tenta de novo.
 const PRAZO_ENVIO_S = 90;
 const TENTATIVAS = 3;
 /** Os avisos que só fazem sentido com o pedido a caminho. */
@@ -647,7 +649,8 @@ export class PonteChatService {
          and m.estado = 'enviando' and m.vence_em < now() and ${daLoja}`);
     await this.db.execute(sql`
       update chat_plataforma_msg m
-         set estado = 'cancelada', erro = 'passou da hora: não saiu em 30 min'
+         set estado = 'cancelada', vence_em = null,
+             erro = case when m.erro = ${ERRO_CHAT_INDISPONIVEL} then ${ERRO_CHAT_FORA_30_MIN} else 'passou da hora: não saiu em 30 min' end
        where m.tenant_id = ${p.tenantId}::uuid and m.canal = ${canal} and m.direcao = 'saida'
          and m.estado = 'pendente' and m.criado_em < now() - interval '30 minutes' and ${daLoja}`);
     // O aviso do caminho de um pedido já encerrado não vai à ponte (ver o topo do arquivo).
@@ -665,11 +668,27 @@ export class PonteChatService {
        where m.tenant_id = ${p.tenantId}::uuid and m.canal = ${canal} and m.direcao = 'saida'
          and m.estado = 'pendente' and m.autor = 'robo' and ${daLoja}
          and ${lojaFalouSql({ tenantId: p.tenantId, canal: sql`m.canal`, chave: chaveSql('m'), desde: sql`m.criado_em`, equipeDoRegem: true })}`);
+    // A fala da EQUIPE que esperava o chat da 99 voltar (ERR-556): se a loja já falou com o cliente pelo app, ela não sai
+    // depois, fora de hora. Só o que a loja escreveu na plataforma conta (as outras falas da equipe na fila saem em ordem).
+    await this.db.execute(sql`
+      update chat_plataforma_msg m
+         set estado = 'cancelada', erro = ${ERRO_A_LOJA_JA_FALOU}, vence_em = null
+       where m.tenant_id = ${p.tenantId}::uuid and m.canal = ${canal} and m.direcao = 'saida'
+         and m.estado = 'pendente' and m.autor = 'equipe' and m.erro = ${ERRO_CHAT_INDISPONIVEL} and ${daLoja}
+         and ${lojaFalouSql({ tenantId: p.tenantId, canal: sql`m.canal`, chave: chaveSql('m'), desde: sql`m.criado_em` })}`);
     const itens = linhas(await this.db.execute(sql`
       with alvo as (
         select m.id from chat_plataforma_msg m
          where m.tenant_id = ${p.tenantId}::uuid and m.canal = ${canal} and m.direcao = 'saida'
            and m.estado = 'pendente' and ${daLoja}
+           -- esperando o chat voltar (ERR-556): na "pendente", vence_em é a hora de tentar de novo
+           and (m.vence_em is null or m.vence_em <= now())
+           -- a conversa sai em ordem: nada passa na frente da mensagem mais antiga que espera na MESMA conversa
+           and not exists (
+             select 1 from chat_plataforma_msg antes
+              where antes.tenant_id = m.tenant_id and antes.canal = m.canal and antes.direcao = 'saida'
+                and antes.estado = 'pendente' and antes.vence_em > now() and antes.criado_em < m.criado_em
+                and ${chaveSql('antes')} = ${chaveSql('m')})
          order by m.criado_em
          limit ${LOTE_SAIDA}
          for update skip locked
@@ -699,6 +718,12 @@ export class PonteChatService {
     const ext = texto(dto?.id, 120);
     const erro = texto(dto?.erro, 300);
     const definitivo = dto?.definitivo === true;
+    // O chat da 99 que não abriu, com o pedido ainda aberto no NOSSO cadastro (ERR-556): não é fim de conversa — volta para
+    // a fila, sem gastar tentativa, e tenta de novo depois da espera (até os 30 min de sempre).
+    const chatFora = sql`(${pareceChatDa99Fora(erro)}::boolean and m.canal = '99food'
+      and not exists (select 1 from pedido_externo pe
+                       where pe.id = m.pedido_id and pe.tenant_id = m.tenant_id
+                         and pe.status in (${sql.join(PEDIDO_ENCERRADO.map((s) => sql`${s}`), sql`, `)})))`;
     const r = await this.db.transaction(async (tx) => {
       if (enviada && ext)
         await tx.execute(sql`
@@ -720,10 +745,14 @@ export class PonteChatService {
             : sql`
               update chat_plataforma_msg m
                  set estado = case when ${avisoSemSentido('m')} then 'cancelada'
+                                   when ${chatFora} then 'pendente'
                                    when ${definitivo} or m.tentativas >= ${TENTATIVAS} then 'falhou' else 'pendente' end,
                      erro = case when ${avisoSemSentido('m')} then ${ERRO_AVISO_SEM_SENTIDO}
+                                 when ${chatFora} then ${ERRO_CHAT_INDISPONIVEL}
                                  else coalesce(${erro}, 'a ponte não conseguiu enviar') end,
-                     vence_em = null, ponte_id = null
+                     tentativas = case when ${chatFora} then greatest(m.tentativas - 1, 0) else m.tentativas end,
+                     vence_em = case when ${chatFora} then now() + make_interval(secs => ${ESPERA_CHAT_INDISPONIVEL_S}) end,
+                     ponte_id = null
                where m.id = ${id}::uuid and m.tenant_id = ${p.tenantId}::uuid and m.direcao = 'saida'
                  and m.estado = 'enviando' and m.ponte_id = ${p.id}::uuid
               returning m.estado`,

@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { enviar, voltar, avaliarTela, gavetaEhDoPrograma, ROTEIROS: R } = require('../src/envio-99');
+const { enviar, voltar, avaliarTela, gavetaEhDoPrograma, fraseDoAviso, ROTEIROS: R } = require('../src/envio-99');
 
 const NUM = '900003';
 const EXT = '9100000000000003441';
@@ -45,7 +45,8 @@ function noventaDeMentira({ achaPedido = true, numeroDaConversa = `#${NUM}`, cli
           s.voltasNumero--;
           return { aberta: true, numero: '', campo: false, valor: null, enviar: false, enviarLigado: false, carregando: true, encerrada: false };
         }
-        if (encerrada) return { aberta: true, numero: numeroDaConversa, campo: false, valor: null, enviar: false, enviarLigado: false, carregando: false, encerrada: true };
+        if (encerrada)
+          return { aberta: true, numero: numeroDaConversa, campo: false, valor: null, enviar: false, enviarLigado: false, carregando: false, encerrada: true, aviso: 'Não é possível enviar mensagens agora' };
         let campo = true;
         if (s.voltasCampo > 0) {
           s.voltasCampo--;
@@ -250,6 +251,18 @@ test('a conversa ENCERRADA pela 99 (pedido concluído): falha definitiva na hora
   assert.ok(Date.now() - inicio < 2000, `parou em ${Date.now() - inicio} ms (não pode esperar o campo que nunca vem)`);
   assert.ok(!f.rodados.includes('ESCREVER'));
   assert.match(r.etapas.at(-1), /encerrou a conversa/);
+  // o que a 99 escreveu vai junto, para o diagnóstico (ERR-556)
+  assert.equal(r.avisoDa99, 'Não é possível enviar mensagens agora');
+});
+
+test('a frase do aviso da 99 (ERR-556): a linha exata, sem dígitos; sem o aviso, nada; e o roteiro da página é JavaScript válido', () => {
+  const conversa = 'Pedido #436011\nOi, cadê?\nNão é possível enviar mensagens porque este pedido 436011 foi concluído\nVoltar';
+  assert.equal(fraseDoAviso(conversa), 'Não é possível enviar mensagens porque este pedido ###### foi concluído');
+  assert.equal(fraseDoAviso('Pedido #436011\nOi, cadê?'), null);
+  assert.equal(fraseDoAviso(''), null);
+  assert.equal(fraseDoAviso(null), null);
+  assert.ok(fraseDoAviso(`não é possível enviar mensagens ${'x'.repeat(400)}`).length <= 200);
+  assert.doesNotThrow(() => new Function(`return ${R.GAVETA_ABERTA}`)); // eslint-disable-line no-new-func
 });
 
 test('voltar: a gaveta que a 99 lenta abre depois de o envio desistir — espera por ela e fecha', async () => {

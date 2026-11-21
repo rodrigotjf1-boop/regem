@@ -10,6 +10,7 @@ import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corr
 import { PonteChatGuard, type PonteCtx } from './ponte-chat.guard';
 import { ERRO_AVISO_SEM_SENTIDO, PonteChatService } from './ponte-chat.service';
 import { chatsDoIfoodSemResposta } from './chat-sem-resposta';
+import { ERRO_A_LOJA_JA_FALOU, ERRO_CHAT_FORA_30_MIN, ERRO_CHAT_INDISPONIVEL, ESPERA_CHAT_INDISPONIVEL_S } from './chat-indisponivel';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -422,6 +423,113 @@ descrever('ponte do chat (Postgres)', () => {
     expect(await svc.resultado(d, daEquipe, { ok: false, erro: 'o chat deste pedido fechou', definitivo: true })).toEqual({ ok: true, estado: 'falhou' });
     // o "obrigado" que não saiu (não definitivo): volta para a fila, como antes
     expect(await svc.resultado(d, obrigado, { ok: false, erro: 'o campo de texto não apareceu' })).toEqual({ ok: true, estado: 'pendente' });
+  });
+
+  describe('o chat da 99 que não abre (ERR-556)', () => {
+    const ENCERRADA = 'a 99 encerrou a conversa deste pedido ("não é possível enviar mensagens"): o aviso não tem como chegar ao cliente';
+    const SEM_NUMERO = 'a conversa aberta é a do (sem número), não a do #436011 — não escrevi nada';
+    const passouAEspera = (id: string) => q(`update chat_plataforma_msg set vence_em = now() - interval '1 second' where id = $1`, [id]);
+    const pegar99 = async (d: PonteCtx) => (await svc.pegar(d, { canal: '99food' })).itens.map((i: any) => i.id as string);
+    const naPonte = async () => {
+      const d = await entrar(delivery);
+      await svc.estado(d, logada(true, true));
+      return d;
+    };
+
+    it('pedido aberto: volta para a fila sem gastar tentativa, espera, não deixa a conversa sair fora de ordem e sai quando o chat volta', async () => {
+      const d = await naPonte();
+      const p = await pedido(lojaA, { canal: '99food' });
+      const id = await saida(lojaA, { canal: '99food', pedidoId: p });
+      expect(await pegar99(d)).toEqual([id]);
+      // a ponte que está na loja (0.7.7) manda "definitivo"; quem decide é o cadastro do pedido
+      expect(await svc.resultado(d, id, { ok: false, erro: ENCERRADA, definitivo: true })).toEqual({ ok: true, estado: 'pendente' });
+      const esperando = await msg(id);
+      expect(esperando).toMatchObject({ estado: 'pendente', erro: ERRO_CHAT_INDISPONIVEL, tentativas: 0, ponte_id: null });
+      const faltam = new Date(esperando.vence_em).getTime() - Date.now();
+      expect(faltam).toBeGreaterThan((ESPERA_CHAT_INDISPONIVEL_S - 10) * 1000);
+      expect(faltam).toBeLessThanOrEqual((ESPERA_CHAT_INDISPONIVEL_S + 5) * 1000);
+      // na espera ela não sai; a fala seguinte da MESMA conversa não passa na frente; a de OUTRO pedido sai
+      expect(await pegar99(d)).toEqual([]);
+      const depois = await saida(lojaA, { canal: '99food', pedidoId: p });
+      expect(await pegar99(d)).toEqual([]);
+      const outroPedido = await saida(lojaA, { canal: '99food', pedidoId: await pedido(lojaA, { canal: '99food' }) });
+      expect(await pegar99(d)).toEqual([outroPedido]);
+      expect(await svc.resultado(d, outroPedido, { ok: true, id: `99-${randomUUID()}` })).toMatchObject({ estado: 'enviada' });
+      // a onda da 99 dura mais que as 3 tentativas: as duas formas da falha seguem na fila
+      for (const erro of [SEM_NUMERO, SEM_NUMERO, ENCERRADA, SEM_NUMERO, ENCERRADA]) {
+        await passouAEspera(id);
+        expect((await svc.pegar(d, { canal: '99food' })).itens[0].id).toBe(id);
+        expect(await msg(id)).toMatchObject({ estado: 'enviando', tentativas: 1 });
+        await q(`update chat_plataforma_msg set estado = 'pendente', ponte_id = null, vence_em = now() + interval '1 minute' where id = $1`, [depois]);
+        expect(await svc.resultado(d, id, { ok: false, erro, definitivo: erro === ENCERRADA })).toEqual({ ok: true, estado: 'pendente' });
+        expect(await msg(id)).toMatchObject({ erro: ERRO_CHAT_INDISPONIVEL, tentativas: 0 });
+      }
+      // o chat voltou: sai na ordem da conversa
+      await passouAEspera(id);
+      await passouAEspera(depois);
+      expect(await pegar99(d)).toEqual([id, depois]);
+      expect(await svc.resultado(d, id, { ok: true, id: `99-${randomUUID()}` })).toMatchObject({ estado: 'enviada' });
+      expect(await msg(id)).toMatchObject({ estado: 'enviada', erro: null, vence_em: null });
+    });
+
+    it('pedido encerrado segue como antes: a fala falha com o motivo e o aviso do caminho é cancelado', async () => {
+      const d = await naPonte();
+      const fim = await pedido(lojaA, { canal: '99food' });
+      await q(`update pedido_externo set status = 'concluido', concluido_em = now() where id = $1`, [fim]);
+      const fala = await saida(lojaA, { canal: '99food', pedidoId: fim });
+      expect(await pegar99(d)).toEqual([fala]);
+      expect(await svc.resultado(d, fala, { ok: false, erro: ENCERRADA, definitivo: true })).toEqual({ ok: true, estado: 'falhou' });
+      expect(await msg(fala)).toMatchObject({ estado: 'falhou', erro: ENCERRADA, vence_em: null });
+    });
+
+    it('só a 99 e só as falhas de conversa: o iFood e a falha definitiva de outro tipo não mudam', async () => {
+      const d = await entrar(delivery);
+      await svc.estado(d, logada(true, true));
+      const p = await pedido(lojaA);
+      const ifood = await saida(lojaA, { pedidoId: p });
+      expect((await svc.pegar(d, { canal: 'ifood' })).itens.map((i: any) => i.id)).toEqual([ifood]);
+      expect(await svc.resultado(d, ifood, { ok: false, erro: ENCERRADA, definitivo: true })).toEqual({ ok: true, estado: 'falhou' });
+      const n99 = await pedido(lojaA, { canal: '99food' });
+      const naBusca = await saida(lojaA, { canal: '99food', pedidoId: n99 });
+      expect(await pegar99(d)).toEqual([naBusca]);
+      expect(await svc.resultado(d, naBusca, { ok: false, erro: 'a busca da 99 não achou o pedido #436011 entre os em andamento', definitivo: true })).toEqual({ ok: true, estado: 'falhou' });
+      const tela = await saida(lojaA, { canal: '99food', pedidoId: await pedido(lojaA, { canal: '99food' }) });
+      expect(await pegar99(d)).toEqual([tela]);
+      expect(await svc.resultado(d, tela, { ok: false, erro: 'esperando a tela da 99: alguém mexendo' })).toEqual({ ok: true, estado: 'pendente' });
+      expect(await msg(tela)).toMatchObject({ tentativas: 1, vence_em: null, erro: 'esperando a tela da 99: alguém mexendo' });
+    });
+
+    it('30 min sem o chat voltar: não sai mais, com o motivo certo', async () => {
+      const d = await naPonte();
+      const id = await saida(lojaA, { canal: '99food', pedidoId: await pedido(lojaA, { canal: '99food' }) });
+      await pegar99(d);
+      await svc.resultado(d, id, { ok: false, erro: ENCERRADA, definitivo: true });
+      await q(`update chat_plataforma_msg set criado_em = now() - interval '31 minutes' where id = $1`, [id]);
+      expect(await pegar99(d)).toEqual([]);
+      expect(await msg(id)).toMatchObject({ estado: 'cancelada', erro: ERRO_CHAT_FORA_30_MIN, vence_em: null });
+    });
+
+    it('a loja falou pelo app enquanto esperava: a fala da equipe não sai depois; a outra fala da equipe na fila não conta como "a loja falou"', async () => {
+      const d = await naPonte();
+      const p = await pedido(lojaA, { canal: '99food' });
+      const primeira = await saida(lojaA, { canal: '99food', pedidoId: p });
+      await pegar99(d);
+      await svc.resultado(d, primeira, { ok: false, erro: ENCERRADA, definitivo: true });
+      const segunda = await saida(lojaA, { canal: '99food', pedidoId: p });
+      await passouAEspera(primeira);
+      expect(await pegar99(d)).toEqual([primeira, segunda]);
+      await svc.resultado(d, primeira, { ok: false, erro: ENCERRADA, definitivo: true });
+      await svc.resultado(d, segunda, { ok: false, erro: ENCERRADA, definitivo: true });
+      await q(
+        `insert into chat_plataforma_msg (tenant_id, unidade_id, canal, pedido_id, pedido_numero, direcao, autor, texto, estado, externo_msg_id)
+         values ($1,$2,'99food',$3,'4821','entrada','loja','Falei com você pelo app',  'recebida', $4)`,
+        [T, lojaA, p, `99-${randomUUID()}`],
+      );
+      await passouAEspera(primeira);
+      await passouAEspera(segunda);
+      expect(await pegar99(d)).toEqual([]);
+      for (const id of [primeira, segunda]) expect(await msg(id)).toMatchObject({ estado: 'cancelada', erro: ERRO_A_LOJA_JA_FALOU });
+    });
   });
 
   it('resultado: enviada guarda o id e tira o eco; não enviada volta; de outra ponte é recusado; enviada depois do prazo ainda vale', async () => {

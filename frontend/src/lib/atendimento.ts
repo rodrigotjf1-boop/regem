@@ -136,6 +136,8 @@ export type SituacaoDaPonte =
       canais: Partial<Record<'ifood' | '99food', { responde: { nome: string; maquina: string | null } | null; reservas: string[]; lendo?: string[] }>>;
       /** As pontes pausadas no PC (mig 368), com sinal: não respondem nem são reserva. Servidor antigo: não vem. */
       pausadas?: string[];
+      /** Quantas conversas da 99 têm mensagem esperando o chat voltar (ERR-556). Servidor antigo: não vem. */
+      chat99SemAbrir?: number;
       ultimaMensagemEm: string | null;
     };
 /** Os padrões do servidor (`AJUSTE_IFOOD_PADRAO`): a tela usa enquanto não leu. */

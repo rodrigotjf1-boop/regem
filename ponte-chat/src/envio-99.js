@@ -105,6 +105,15 @@ const BALAO = (numero) => `(() => {
   return { ok: true, x: c.x, y: c.y };
 })()`;
 
+/**
+ * A frase EXATA do aviso da 99 na conversa, para o diagnóstico (21/11, ERR-556: "encerrada" apareceu com o pedido em rota e
+ * nada guardava o que a 99 escreveu). Sem dígitos (nunca leva número de ninguém). Roda DENTRO da página.
+ */
+function fraseDoAviso(texto) {
+  const m = String(texto || '').match(/[^\n]*não é possível enviar mensagens[^\n]*/i);
+  return m ? m[0].trim().replace(/\d/g, '#').slice(0, 200) : null;
+}
+
 /** A gaveta do chat: aberta? o número; o campo pronto (com o valor); o "Enviar" (dentro dela, texto exato). */
 const GAVETA_ABERTA = `(() => {
   ${VIS}
@@ -122,6 +131,7 @@ const GAVETA_ABERTA = `(() => {
     // 11/11: a conversa ainda carregando (o esqueleto da 99) e a conversa ENCERRADA pela 99 (o pedido concluído).
     carregando: [...g.querySelectorAll('.im-chat-window-skeleton, .im-chat-window-edit-skeleton')].some(vis),
     encerrada: /não é possível enviar mensagens/i.test(g.innerText || ''),
+    aviso: (${fraseDoAviso})(g.innerText || ''),
   };
 })()`;
 
@@ -270,7 +280,12 @@ async function abrirConversa(ctx, { numero }, { buscaMs = BUSCA_MS, gavetaMs = G
   // o número do pedido aparece quando a conversa termina de carregar: espera enquanto ela carrega
   if (!gaveta.numero) gaveta = await ate(() => pagina.executeJavaScript(GAVETA_ABERTA), (g) => !g || !g.aberta || !!g.numero, campoMs, 500);
   if (!gaveta || !gaveta.aberta) return falhou('gaveta', 'a conversa fechou antes de carregar');
-  if (gaveta.numero !== alvo) return falhou('numero_errado', `a conversa aberta é a do ${gaveta.numero || '(sem número)'}, não a do ${alvo} — não escrevi nada`, { fecharGaveta: true });
+  if (gaveta.numero !== alvo)
+    return falhou('numero_errado', `a conversa aberta é a do ${gaveta.numero || '(sem número)'}, não a do ${alvo} — não escrevi nada`, {
+      fecharGaveta: true,
+      carregando: gaveta.carregando === true,
+      avisoDa99: gaveta.aviso || null,
+    });
   etapas.push(`✓ a conversa aberta é a do ${alvo}`);
   const pronta = await ate(
     () => pagina.executeJavaScript(GAVETA_ABERTA),
@@ -280,15 +295,23 @@ async function abrirConversa(ctx, { numero }, { buscaMs = BUSCA_MS, gavetaMs = G
   );
   if (!pronta || !pronta.aberta) return falhou('gaveta', 'a conversa fechou antes de carregar');
   if (pronta.numero !== alvo) return falhou('numero_errado', `a conversa mudou para a do ${pronta.numero} — não escrevi nada`, { fecharGaveta: true });
-  // 11/11: a 99 fecha o chat do pedido concluído ("Não é possível enviar mensagens porque este pedido foi concluído"):
-  // tentar de novo não adianta — falha definitiva, com o motivo para a equipe
+  // 11/11: a 99 fecha o chat do pedido concluído ("Não é possível enviar mensagens porque este pedido foi concluído").
+  // 21/11 (ERR-556): a mesma tela apareceu com a 99 instável e o pedido em rota. Daqui segue "definitivo", mas quem decide é a
+  // NUVEM, pelo cadastro do pedido: aberto, a mensagem volta para a fila (`chat-indisponivel.ts`). O texto da 99 vai ao diagnóstico.
   if (pronta.encerrada) {
     return falhou('encerrada', 'a 99 encerrou a conversa deste pedido ("não é possível enviar mensagens"): o aviso não tem como chegar ao cliente', {
       definitivo: true,
       fecharGaveta: true,
+      carregando: pronta.carregando === true,
+      avisoDa99: pronta.aviso || null,
     });
   }
-  if (!pronta.campo) return falhou('sem_campo', 'a conversa da 99 não terminou de carregar (o campo não apareceu)', { fecharGaveta: true });
+  if (!pronta.campo)
+    return falhou('sem_campo', 'a conversa da 99 não terminou de carregar (o campo não apareceu)', {
+      fecharGaveta: true,
+      carregando: pronta.carregando === true,
+      avisoDa99: pronta.aviso || null,
+    });
   etapas.push('✓ a conversa carregou (o campo está na tela)');
   return { ok: true, etapas };
 }
@@ -411,6 +434,7 @@ function gavetaEhDoPrograma(e, marca, { ultimaTeclaEm = 0 } = {}) {
 }
 
 module.exports = {
+  fraseDoAviso,
   abrirConversa,
   enviar,
   voltar,

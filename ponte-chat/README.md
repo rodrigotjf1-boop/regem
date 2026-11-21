@@ -185,6 +185,11 @@ chega e a busca do programa funciona no portal de verdade.
 - **Ainda não provado numa janela de verdade:** a regra e o diagnóstico têm teste; o comportamento da janela (aparecer sem
   virar a janela ativa, piscar, o aviso do Windows) precisa da prova de tela antes do `.exe` — as variáveis
   `REGEM_PONTE_LOGIN_CONFIRMAR_MS` e `REGEM_PONTE_LOGIN_REPETIR_MS` encurtam os prazos para ela.
+- **A 99 instável deixa prova (21/11, ERR-556):** quando a conversa não abre, o diagnóstico anota `conversa_99_nao_abriu`
+  (o código, se ainda carregava e a frase exata da 99, sem dígitos); o que o chat da 99 responde de errado vira
+  `im_99_falhou` (o HTTP, o `errno` ou o erro de rede, nunca o corpo; uma linha por falha a cada 30 s). A ponte continua
+  devolvendo "encerrada" como definitivo, mas quem decide é a **nuvem**, pelo cadastro do pedido: aberto, a mensagem volta
+  para a fila e tenta de novo a cada 2 min, por até 30 min (`backend/src/modules/ponte-chat/chat-indisponivel.ts`).
 
 ## O que a versão 0.7.7 muda (12/11 — o "envio incerto" da 99 com explicação)
 
