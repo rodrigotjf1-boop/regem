@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Pedido agendado: a janela das 00:00 e as da madrugada voltam (20/11; SEM migration; ERR-552).** O atendimento que
+  atravessa a meia-noite era cortado em dois e a janela cujo preparo começa antes da meia-noite sumia. Vai no `.zip` (a
+  conta das janelas também roda no servidor da loja).
+
 - **O "hoje" das telas no fuso da loja (20/11; SEM migration; ERR-551).** Tarefas, Auditoria, Estoque, o mínimo da data de
   entrega no PDV e a fabricação da etiqueta usavam o dia em UTC (depois das 21h, o dia seguinte). Vai no `.zip`: a loja
   serve essas telas.
