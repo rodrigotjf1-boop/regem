@@ -1917,6 +1917,32 @@ regressão de novo quando as instruções mudam; a Meta pela doc oficial (V20); 
   pagar conta (de PIN); estoque; as consultas de escala e ponto; os números dos clientes.
 - As instruções mudaram (a frase "você só consulta" e a regra nova "Fazer pelo WhatsApp"): rodar a avaliação.
 
+**M6j, lote 2 (20/11/2026; SEM migration) — a tarefa do dia e a pausa do produto:**
+- `concluir_tarefa` — uma tarefa de HOJE (o dia da loja, V46) pelo título, nas lojas da pessoa: feita, parcial ou não feita
+  (esta pede o motivo, a regra da tela). Pelo MESMO `TarefaInstanciaService.concluir` da tela, com a MESMA auditoria do
+  controller (`concluiu_tarefa`, origem WhatsApp). A permissão é a da rota (Tarefas, `meu_dia`). Se a empresa exige a foto
+  de comprovação para aquela situação, a recusa sai já na pergunta ("marque pelo app ou pela tela, com a foto") — o
+  WhatsApp não leva a foto por este caminho. A mesma situação de novo é recusada.
+- `pausar_produto` e `reativar_produto` — o produto do cardápio pelo nome; sem canal dito, nos canais em que ele está (o
+  Regem — balcão e cardápio digital —, o iFood se ele está no iFood, a 99 se está na 99: o "Pausar em todos" da Gestão do
+  catálogo); com canal, só ele. Pela MESMA `ProdutoService.pausaDoCanal` da tela (que audita), um canal por vez; a
+  conferência olha o balcão E o cardápio no Regem e a lista dos pausados nos apps. A permissão é a da rota (Loja).
+- O "criar tarefa" (duas etapas na tela: a definição e a do dia, com a função por nome) fica para o lote seguinte.
+- Junto, num PR à parte (#1227): o "hoje" das telas no fuso da loja (ERR-551) — o levantamento das tarefas mostrou que a
+  tela Tarefas usava o dia em UTC e, depois das 21h, mostrava as tarefas de amanhã.
+- As instruções mudaram (a regra "Fazer pelo WhatsApp" com as ações novas): rodar a avaliação.
+
+**M6j, lote 3 (20/11/2026; SEM migration) — criar a tarefa de hoje:**
+- `criar_tarefa` — título, a função de quem faz (pelo nome, como no cadastro das funções: a tela exige), e, se a pessoa
+  disser, o horário (HH:MM) e o responsável (pelo nome, entre os colaboradores ativos da loja). As DUAS etapas do "Nova
+  tarefa" da tela: `TarefaDefService.create` (com quem criou — o nível que trava editar e excluir depois) e
+  `TarefaInstanciaService.instanciar` para hoje (o responsável dito; senão o escalado ou em aberto). A permissão é a das
+  rotas (Checklist & registros). A conferência é a tarefa na lista de hoje.
+- A `propor_acao` passou a receber `loja` (como as consultas): a ação de uma loja (criar tarefa, pausar o cardápio) na
+  empresa de várias lojas diz qual.
+- Ficam para os próximos lotes: preço por canal e horário da loja (de PIN), pagar conta (de PIN), estoque (movimento e
+  contagem), as consultas de escala e ponto e os números dos clientes.
+
 **M6k, lote 1 (20/11/2026; SEM migration) — o guia "como faço" em mais 8 itens do menu, com imagem:**
 - Eram 31 itens do menu sem assunto no guia (a conta sai do `shell.tsx` × os caminhos do `mister-guia-de-uso.ts`). O lote 1
   cobre 8: Dashboard (`painel-do-dia`), Tarefas › Tarefas (`criar-tarefa`), Mural & clima (`mural`), Delivery › Clientes

@@ -19,7 +19,19 @@ import {
 // MESMO serviço da tela, e o "feito" só sai com o efeito conferido. Lote 1: o Delivery (os canais e os pedidos).
 
 /** O catálogo das ações. Ação nova entra aqui, com a execução pelo serviço da tela e a conferência do efeito. */
-export const ACOES_DO_MISTER = ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] as const;
+export const ACOES_DO_MISTER = [
+  'pausar_canal',
+  'reabrir_canal',
+  'aceitar_pedido',
+  'pedido_pronto',
+  'despachar_pedido',
+  // Lote 2: as tarefas do dia e a pausa do produto.
+  'concluir_tarefa',
+  'pausar_produto',
+  'reativar_produto',
+  // Lote 3: criar a tarefa de hoje.
+  'criar_tarefa',
+] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
 
@@ -28,7 +40,7 @@ export interface DefinicaoDaAcao {
   /** O tamanho do risco (decisão do plano): o botão de quem pediu. As de PIN (preço, horário, pagar) são os lotes seguintes. */
   nivel: 'botao';
   /** A permissão do perfil — a MESMA da rota da tela. O presidente pode tudo. */
-  permissao: 'delivery';
+  permissao: 'delivery' | 'meu_dia' | 'loja' | 'checklist';
   /** Por quanto tempo a pergunta vale. */
   prazoMin: number;
   /** O nome curto, para a auditoria e o histórico das propostas. */
@@ -41,7 +53,47 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   aceitar_pedido: { id: 'aceitar_pedido', nivel: 'botao', permissao: 'delivery', prazoMin: 10, nome: 'aceitar um pedido' },
   pedido_pronto: { id: 'pedido_pronto', nivel: 'botao', permissao: 'delivery', prazoMin: 10, nome: 'marcar um pedido como pronto' },
   despachar_pedido: { id: 'despachar_pedido', nivel: 'botao', permissao: 'delivery', prazoMin: 10, nome: 'despachar um pedido' },
+  // Lote 2. A tarefa: a permissão da rota `PATCH /tarefas-instancias/:id/estado` (Tarefas). O produto: a de
+  // `PUT /produtos/:id/pausa-canal` (Loja).
+  concluir_tarefa: { id: 'concluir_tarefa', nivel: 'botao', permissao: 'meu_dia', prazoMin: 10, nome: 'marcar uma tarefa do dia' },
+  pausar_produto: { id: 'pausar_produto', nivel: 'botao', permissao: 'loja', prazoMin: 10, nome: 'pausar um produto' },
+  reativar_produto: { id: 'reativar_produto', nivel: 'botao', permissao: 'loja', prazoMin: 10, nome: 'reativar um produto' },
+  // Lote 3: a permissão das rotas `POST /tarefas` e `POST /tarefas-instancias/instanciar` (Checklist & registros).
+  criar_tarefa: { id: 'criar_tarefa', nivel: 'botao', permissao: 'checklist', prazoMin: 10, nome: 'criar uma tarefa para hoje' },
 };
+
+// ───────────────────────────── lote 2: a tarefa e o produto ─────────────────────────────
+
+export const ESTADOS_DA_TAREFA = ['feita', 'parcial', 'nao_feita'] as const;
+export type EstadoDaTarefa = (typeof ESTADOS_DA_TAREFA)[number];
+const NOME_DO_ESTADO: Record<EstadoDaTarefa, string> = { feita: 'feita', parcial: 'feita em parte', nao_feita: 'não feita' };
+export const nomeDoEstadoDaTarefa = (e: string): string =>
+  NOME_DO_ESTADO[e as EstadoDaTarefa] ?? ({ pendente: 'pendente', em_execucao: 'em execução', impossibilitada: 'impossibilitada' } as Record<string, string>)[e] ?? e;
+
+/** Os canais da pausa do produto (os da tela: o Regem — balcão e cardápio digital juntos —, o iFood e a 99). */
+export const CANAIS_DO_PRODUTO = ['regem', 'ifood', '99food'] as const;
+export type CanalDoProduto = (typeof CANAIS_DO_PRODUTO)[number];
+export function lerCanalDoProduto(v: unknown): CanalDoProduto | null {
+  const t = String(v ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (t === 'regem' || t === 'cardapio' || t === 'cardapio digital' || t === 'balcao' || t === 'loja') return 'regem';
+  if (t === 'ifood') return 'ifood';
+  if (t === '99' || t === '99food' || t === 'food99') return '99food';
+  return null;
+}
+/** "no Regem (balcão e cardápio digital)", "no iFood e na 99". */
+export function ondeOProduto(canais: readonly CanalDoProduto[]): string {
+  const um = (c: CanalDoProduto) => (c === 'regem' ? 'no Regem (balcão e cardápio digital)' : c === 'ifood' ? 'no iFood' : 'na 99');
+  const n = canais.map(um);
+  return n.length <= 1 ? (n[0] ?? '') : `${n.slice(0, -1).join(', ')} e ${n[n.length - 1]}`;
+}
+/** Sem canal dito: os canais em que o produto está (o "Pausar em todos" da Gestão do catálogo). */
+export function canaisDoProduto(p: { noIfood: boolean; na99: boolean }): CanalDoProduto[] {
+  return ['regem', ...(p.noIfood ? (['ifood'] as const) : []), ...(p.na99 ? (['99food'] as const) : [])];
+}
+/** O produto ficou como a ação pediu em cada canal? (o Regem: balcão e cardápio; os apps: a lista `canais_pausados`). */
+export function produtoFicou(p: { disponivelBalcao: boolean; disponivelCardapio: boolean; canaisPausados: string[] }, canais: readonly CanalDoProduto[], pausado: boolean): CanalDoProduto[] {
+  return canais.filter((c) => (c === 'regem' ? p.disponivelBalcao === !pausado && p.disponivelCardapio === !pausado : p.canaisPausados.includes(c) === pausado));
+}
 
 /** O canal como a pessoa (ou a IA) diz: "cardapio", "ifood", "99" (ou o nome interno "food99"). */
 export function lerCanal(v: unknown): CanalDaPausa | null {
@@ -63,7 +115,10 @@ export function nomesDosCanais(canais: readonly CanalDaPausa[]): string {
 export type ParametrosDaAcao =
   | { acao: 'pausar_canal'; canais: CanalDaPausa[]; motivo: string; motivoTexto: string | null; minutos: number | null; ate: string | null; fimDoDia: boolean }
   | { acao: 'reabrir_canal'; canais: CanalDaPausa[] }
-  | { acao: 'aceitar_pedido' | 'pedido_pronto' | 'despachar_pedido'; numero: string };
+  | { acao: 'aceitar_pedido' | 'pedido_pronto' | 'despachar_pedido'; numero: string }
+  | { acao: 'concluir_tarefa'; tarefa: string; estado: EstadoDaTarefa; justificativa: string | null }
+  | { acao: 'pausar_produto' | 'reativar_produto'; produto: string; canais: CanalDoProduto[] | null }
+  | { acao: 'criar_tarefa'; titulo: string; funcao: string; horario: string | null; responsavel: string | null };
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -94,6 +149,43 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
     return {
       parametros: { acao, canais: lista, motivo: m.motivo, motivoTexto: m.motivoTexto, minutos, ate, fimDoDia },
       resumo: `Pausar ${nomesDosCanais(lista)} (motivo: ${motivo}). Volta: ${voltas.join('; ')}.`,
+    };
+  }
+  if (acao === 'concluir_tarefa') {
+    const tarefa = String(en.tarefa ?? '').trim().replace(/\s+/g, ' ');
+    if (tarefa.length < 2 || tarefa.length > 80) return { erro: 'Diga a tarefa de hoje como ela aparece na lista (o título).' };
+    const estado = (en.estado === undefined || en.estado === null || en.estado === '' ? 'feita' : String(en.estado)) as EstadoDaTarefa;
+    if (!(ESTADOS_DA_TAREFA as readonly string[]).includes(estado)) return { erro: 'A tarefa fica feita, parcial ou nao_feita.' };
+    // A MESMA regra da tela (`TarefaInstanciaService.concluir`): "não feita" pede o motivo.
+    const justificativa = typeof en.justificativa === 'string' && en.justificativa.trim() ? en.justificativa.trim().slice(0, 200) : null;
+    if (estado === 'nao_feita' && !justificativa) return { erro: 'Para marcar como não feita, diga o motivo (vai junto na tarefa).' };
+    return {
+      parametros: { acao, tarefa, estado, justificativa: estado === 'nao_feita' ? justificativa : null },
+      resumo: `Marcar a tarefa "${tarefa}" como ${nomeDoEstadoDaTarefa(estado)}${estado === 'nao_feita' ? ` (motivo: ${justificativa})` : ''}.`,
+    };
+  }
+  if (acao === 'pausar_produto' || acao === 'reativar_produto') {
+    const produto = String(en.produto ?? '').trim().replace(/\s+/g, ' ');
+    if (produto.length < 2 || produto.length > 80) return { erro: 'Diga o produto como ele aparece no cardápio.' };
+    const brutos = Array.isArray(en.canais) ? en.canais : en.canal !== undefined ? [en.canal] : [];
+    const lidos = [...new Set(brutos.map(lerCanalDoProduto))];
+    if (lidos.some((c) => c === null)) return { erro: 'Os canais do produto são regem (balcão e cardápio digital), ifood e 99.' };
+    const canais = lidos.length ? (CANAIS_DO_PRODUTO as readonly CanalDoProduto[]).filter((c) => lidos.includes(c)) : null;
+    const verbo = acao === 'pausar_produto' ? 'Pausar' : 'Reativar';
+    return { parametros: { acao, produto, canais }, resumo: `${verbo} "${produto}" ${canais ? ondeOProduto(canais) : 'em todos os canais em que ele está'}.` };
+  }
+  if (acao === 'criar_tarefa') {
+    // A MESMA exigência da tela (`TarefaDefService.create`): o título e a função ("Selecione a função da tarefa.").
+    const titulo = String(en.titulo ?? '').trim().replace(/\s+/g, ' ');
+    if (titulo.length < 2 || titulo.length > 120) return { erro: 'Diga o título da tarefa (de 2 a 120 letras).' };
+    const funcao = String(en.funcao ?? '').trim().replace(/\s+/g, ' ');
+    if (funcao.length < 2 || funcao.length > 60) return { erro: 'Diga a função da tarefa (quem faz: a cozinha, o caixa, a limpeza…), como está no cadastro das funções.' };
+    const horario = typeof en.horario === 'string' && en.horario.trim() ? en.horario.trim() : null;
+    if (horario !== null && !/^([01]\d|2[0-3]):[0-5]\d$/.test(horario)) return { erro: 'O horário da tarefa vai em HH:MM (por exemplo 15:30).' };
+    const responsavel = typeof en.responsavel === 'string' && en.responsavel.trim() ? en.responsavel.trim().slice(0, 80) : null;
+    return {
+      parametros: { acao, titulo, funcao, horario, responsavel },
+      resumo: `Criar para hoje a tarefa "${titulo}"${horario ? ` às ${horario}` : ''}, da função ${funcao}${responsavel ? `, para ${responsavel}` : ''}.`,
     };
   }
   const numero = String(en.numero ?? '').trim().replace(/^#/, '');
@@ -143,4 +235,26 @@ export const TEXTOS_DAS_ACOES = {
     acao === 'aceitar_pedido' ? `O pedido ${pedido} foi aceito.` : acao === 'pedido_pronto' ? `O pedido ${pedido} está pronto.` : `O pedido ${pedido} saiu para a entrega.`,
   naoAndou: (pedido: string, situacao: string) => `o pedido ${pedido} continua "${situacao}". Confira no painel do Delivery.`,
   recusado: (motivo: string) => `o Regem recusou: ${motivo.replace(/[.\s]+$/, '')}. Nada foi feito.`,
+  // Lote 2.
+  semPermissaoTarefas: 'O seu perfil no Regem não dá acesso às Tarefas: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
+  semPermissaoLoja: 'O seu perfil no Regem não dá acesso ao cadastro dos produtos: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
+  tarefaNaoAchada: 'Não achei essa tarefa na lista de hoje das suas lojas. Diga o título como aparece na lista de tarefas.',
+  tarefasDemais: (titulos: string) => `Achei mais de uma tarefa de hoje com esse nome: ${titulos}. Diga qual.`,
+  tarefaJaMarcada: (estado: string) => `Essa tarefa já está ${estado}.`,
+  tarefaPedeFoto: 'Essa tarefa pede a foto de comprovação para ser marcada assim: marque pelo app ou pela tela de tarefas, com a foto.',
+  tarefaFeita: (titulo: string, estado: string) => `A tarefa "${titulo}" ficou ${estado}.`,
+  tarefaNaoFicou: (titulo: string, estado: string) => `a tarefa "${titulo}" continua ${estado}. Confira na lista de tarefas.`,
+  produtoNaoAchado: 'Não achei esse produto no cardápio. Diga o nome como aparece no cardápio.',
+  produtosDemais: (nomes: string) => `Achei mais de um produto com esse nome: ${nomes}. Diga qual.`,
+  produtoFeito: (nome: string, pausado: boolean, onde: string) => `"${nome}" ${pausado ? 'pausado' : 'reativado'} ${onde}.`,
+  produtoNaoFicou: (nome: string, onde: string) => `"${nome}" não ficou como pedido ${onde}. Confira no cardápio.`,
+  // Lote 3.
+  semPermissaoChecklist: 'O seu perfil no Regem não dá acesso aos checklists e tarefas: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
+  lojaDaTarefa: 'A empresa tem mais de uma loja: diga de qual loja é a tarefa.',
+  funcaoNaoAchada: 'Não achei essa função no cadastro das funções. Diga o nome como está cadastrado.',
+  funcoesDemais: (nomes: string) => `Achei mais de uma função com esse nome: ${nomes}. Diga qual.`,
+  responsavelNaoAchado: 'Não achei essa pessoa entre os colaboradores ativos da loja. Diga o nome como está no cadastro, ou crie sem responsável.',
+  responsaveisDemais: (nomes: string) => `Achei mais de uma pessoa com esse nome: ${nomes}. Diga qual.`,
+  tarefaCriada: (titulo: string) => `A tarefa "${titulo}" foi criada para hoje.`,
+  tarefaNaoCriada: (titulo: string) => `a tarefa "${titulo}" não apareceu na lista de hoje. Confira na lista de tarefas.`,
 } as const;

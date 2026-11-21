@@ -12,7 +12,7 @@ import { esquecerMemoriaDosCortes, sessaoCortada } from '../../auth/sessao-corte
 import { perfilPadrao } from '../../auth/permissoes';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { dataNoFuso, hojeISO, horaNoFuso, somarDias } from '../../common/data';
-import { uuidDeChave } from '../../common/id-deterministico';
+import { idEntitlement, uuidDeChave } from '../../common/id-deterministico';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import { DashboardService } from '../dashboard/dashboard.service';
@@ -93,6 +93,9 @@ import { TEXTOS_DAS_REGRAS } from './mister-regra';
 import { MisterPadroesService, padroesNaInstalacao } from './mister-padroes.service';
 import { TEXTOS_DOS_PADROES } from './mister-padroes';
 import { MisterAcoesService } from './mister-acoes.service';
+import { TarefaInstanciaService } from '../tarefa/tarefa-instancia.service';
+import { TarefaDefService } from '../tarefa/tarefa-def.service';
+import { ProdutoService } from '../produto/produto.service';
 import { TEXTOS_DAS_ACOES } from './mister-acoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -9271,7 +9274,13 @@ export function testesDoMisterComPostgres(): void {
         },
       };
       const propostasDasAcoes = new MisterPropostasService(db, numero, entrada, fiscalDeMentira as any, auditoria, modulos);
-      const acoes = new MisterAcoesService(db, ferramentas, propostasDasAcoes, numero, deliveryDasAcoes as any, new PausaDoCanalService(db, auditoria), auditoria);
+      // Lote 2: a tarefa e o produto pelos serviços de verdade (o "flash" do servidor da loja é um dublê).
+      const tarefasDeVerdade = new TarefaInstanciaService(db);
+      const produtosDeVerdade = new ProdutoService(db, auditoria, { flashProdutos: async () => undefined } as any, undefined as any);
+      const acoes = new MisterAcoesService(
+        db, ferramentas, propostasDasAcoes, numero, deliveryDasAcoes as any, new PausaDoCanalService(db, auditoria), auditoria, tarefasDeVerdade, produtosDeVerdade,
+        new TarefaDefService(db),
+      );
       beforeAll(() => acoes.onModuleInit());
       const quem = (tel: string, nome: string, nivel: 'presidente' | 'gerente') => ({
         telefone: tel,
@@ -9405,6 +9414,115 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from pausa_canal where tenant_id = $1`, [A]);
           await q(`delete from pedido_externo where tenant_id = $1 and display_id like 'M6J-%'`, [A]);
           if (!antes) await q(`delete from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
+        }
+      });
+
+      it('lote 2: marcar a tarefa de hoje (a foto exigida recusa já na pergunta) e pausar o produto nos canais em que ele está', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        await modulo(A, true);
+        const hoje = dataNoFuso(new Date());
+        const [{ id: def }] = await q(`insert into tarefa_def (tenant_id, unidade_id, titulo) values ($1, $2, 'M6J Limpar a coifa') returning id::text as id`, [A, lojaDeA]);
+        const [{ id: inst }] = await q(
+          `insert into tarefa_instancia (tenant_id, unidade_id, tarefa_def_id, data, estado) values ($1, $2, $3, $4::date, 'pendente') returning id::text as id`,
+          [A, lojaDeA, def, hoje],
+        );
+        const [{ id: prod }] = await q(`insert into produto (tenant_id, nome, no_ifood) values ($1, 'M6J X-Bacon', true) returning id::text as id`, [A]);
+        const quemAna = { telefone: tel, vinculos: [{ tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente' as const, empresa: NOME_A }], wamid: null };
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          // A tarefa: "não feita" com o motivo, pelo `concluir` da tela, com a auditoria do controller.
+          const t = await ferramentas.executar(e, 'propor_acao', { acao: 'concluir_tarefa', tarefa: 'limpar a coifa', estado: 'nao_feita', justificativa: 'faltou o desengordurante' });
+          expect(t.dados.oQueVouFazer).toBe('Marcar a tarefa "M6J Limpar a coifa" como não feita (motivo: faltou o desengordurante).');
+          auditados.length = 0;
+          await propostasDasAcoes.responder(`prop:${idDaProposta(t)}:sim`, quemAna);
+          expect(await esperarFim(idDaProposta(t))).toMatchObject({ situacao: 'feita', resultado: 'A tarefa "M6J Limpar a coifa" ficou não feita.' });
+          expect((await q(`select estado, motivo, concluido_por_id::text as quem from tarefa_instancia where id = $1`, [inst]))[0]).toEqual({
+            estado: 'nao_feita',
+            motivo: 'faltou o desengordurante',
+            quem: pessoa.ana,
+          });
+          expect(auditados).toContainEqual(expect.objectContaining({ acao: 'concluiu_tarefa', entidadeId: inst, detalhe: { estado: 'nao_feita' }, origem: 'whatsapp' }));
+          // A mesma situação de novo: recusa na pergunta.
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'concluir_tarefa', tarefa: 'Limpar a coifa', estado: 'nao_feita', justificativa: 'x' })).toEqual({
+            ok: false,
+            dados: { erro: TEXTOS_DAS_ACOES.tarefaJaMarcada('não feita') },
+          });
+          // Com a foto exigida na conclusão (a política da empresa), "feita" é recusada já na pergunta.
+          // o id pela chave, como em todo insert do `entitlement` (V42; a `config-linha-unica.spec` varre o código)
+          await q(`insert into entitlement (id, tenant_id, modulo, ativo) values ($1, $2, 'tarefa_foto_conclusao', true)`, [idEntitlement(A, 'tarefa_foto_conclusao'), A]);
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'concluir_tarefa', tarefa: 'Limpar a coifa' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.tarefaPedeFoto } });
+          await q(`delete from entitlement where tenant_id = $1 and modulo = 'tarefa_foto_conclusao'`, [A]);
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'concluir_tarefa', tarefa: 'tarefa que não existe' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.tarefaNaoAchada } });
+
+          // O produto: sem canal dito, no Regem e no iFood (ele está no iFood, não na 99), pela pausa por canal da tela.
+          const p = await ferramentas.executar(e, 'propor_acao', { acao: 'pausar_produto', produto: 'x-bacon' });
+          expect(p.dados.oQueVouFazer).toBe('Pausar "M6J X-Bacon" no Regem (balcão e cardápio digital) e no iFood.');
+          await propostasDasAcoes.responder(`prop:${idDaProposta(p)}:sim`, quemAna);
+          expect(await esperarFim(idDaProposta(p))).toMatchObject({
+            situacao: 'feita',
+            resultado: '"M6J X-Bacon" pausado no Regem (balcão e cardápio digital) e no iFood.',
+          });
+          expect((await q(`select disponivel_balcao as b, disponivel_cardapio as c, canais_pausados as l from produto where id = $1`, [prod]))[0]).toEqual({ b: false, c: false, l: ['ifood'] });
+          // Reativar só no iFood.
+          const r = await ferramentas.executar(e, 'propor_acao', { acao: 'reativar_produto', produto: 'M6J X-Bacon', canais: ['ifood'] });
+          await propostasDasAcoes.responder(`prop:${idDaProposta(r)}:sim`, quemAna);
+          expect(await esperarFim(idDaProposta(r))).toMatchObject({ situacao: 'feita', resultado: '"M6J X-Bacon" reativado no iFood.' });
+          expect((await q(`select disponivel_balcao as b, canais_pausados as l from produto where id = $1`, [prod]))[0]).toEqual({ b: false, l: [] });
+          // Quem não tem a permissão do cadastro (Loja) não propõe.
+          const eCarlos = (await ferramentas.escopo(A, pessoa.carlos, telefone()))!;
+          if (eCarlos) {
+            expect(await ferramentas.executar({ ...eCarlos, permissoes: { loja: false } as any }, 'propor_acao', { acao: 'pausar_produto', produto: 'X-Bacon' })).toEqual({
+              ok: false,
+              dados: { erro: TEXTOS_DAS_ACOES.semPermissaoLoja },
+            });
+          }
+        } finally {
+          await q(`delete from mister_proposta where tenant_id = $1 and procedimento in ('concluir_tarefa', 'pausar_produto', 'reativar_produto')`, [A]);
+          await q(`delete from entitlement where tenant_id = $1 and modulo = 'tarefa_foto_conclusao'`, [A]);
+          await q(`delete from tarefa_instancia where id = $1`, [inst]);
+          await q(`delete from tarefa_def where id = $1`, [def]);
+          await q(`delete from produto where id = $1`, [prod]);
+        }
+      });
+
+      it('lote 3: criar a tarefa de hoje — a função pelo nome, o responsável entre os ativos da loja, as duas etapas da tela', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        await modulo(A, true);
+        const hoje = dataNoFuso(new Date());
+        const quemAna = { telefone: tel, vinculos: [{ tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente' as const, empresa: NOME_A }], wamid: null };
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          const r = await ferramentas.executar(e, 'propor_acao', {
+            acao: 'criar_tarefa',
+            titulo: 'M6J Repor os guardanapos',
+            funcao: 'f execucao',
+            horario: '18:30',
+            responsavel: 'edu',
+            loja: 'Loja Centro',
+          });
+          expect(r.dados.oQueVouFazer).toBe('Criar para hoje a tarefa "M6J Repor os guardanapos" às 18:30, da função F execucao, para Edu Balcão.');
+          await propostasDasAcoes.responder(`prop:${idDaProposta(r)}:sim`, quemAna);
+          expect(await esperarFim(idDaProposta(r))).toMatchObject({ situacao: 'feita', resultado: 'A tarefa "M6J Repor os guardanapos" foi criada para hoje.' });
+          const [t] = await q(
+            `select d.titulo, d.horario, d.criado_por_id::text as quem, d.unidade_id::text as loja, i.estado, i.colaborador_resolvido_id::text as resp
+               from tarefa_def d join tarefa_instancia i on i.tarefa_def_id = d.id
+              where d.tenant_id = $1 and d.titulo = 'M6J Repor os guardanapos' and i.data = $2::date`,
+            [A, hoje],
+          );
+          expect(t).toMatchObject({ titulo: 'M6J Repor os guardanapos', quem: pessoa.ana, loja: lojaDeA, estado: 'pendente', resp: pessoa.edu });
+          expect(String(t.horario).slice(0, 5)).toBe('18:30');
+          // Sem a função, a pergunta volta; a função que não existe, também.
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'criar_tarefa', titulo: 'M6J Outra', loja: 'Loja Centro' })).toMatchObject({ ok: false });
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'criar_tarefa', titulo: 'M6J Outra', funcao: 'astronauta', loja: 'Loja Centro' })).toEqual({
+            ok: false,
+            dados: { erro: TEXTOS_DAS_ACOES.funcaoNaoAchada },
+          });
+        } finally {
+          await q(`delete from mister_proposta where tenant_id = $1 and procedimento = 'criar_tarefa'`, [A]);
+          await q(`delete from tarefa_instancia where tenant_id = $1 and tarefa_def_id in (select id from tarefa_def where tenant_id = $1 and titulo like 'M6J %')`, [A]);
+          await q(`delete from tarefa_def where tenant_id = $1 and titulo like 'M6J %'`, [A]);
         }
       });
     });

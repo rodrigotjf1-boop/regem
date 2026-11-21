@@ -112,7 +112,23 @@ export type Janela = {
  *  • fora da pausa: o preparo não começa antes do fim dela;
  *  • a janela cheia vem `esgotada` (aparece riscada, não se escolhe).
  * `ocupacao` = quantos pedidos agendados já há em cada janela (pelo `valor`).
+ *
+ * O atendimento que atravessa a meia-noite é UM trecho (ERR-552): os trechos da véspera e do dia se juntam quando se
+ * encostam ou se cruzam — senão a janela das 00:00 (e as primeiras da madrugada, na loja das 18h às 02h) sumia, porque o
+ * preparo dela começa antes da meia-noite, no trecho do "outro dia".
  */
+export function trechosContinuos(horarios: HorarioDoDia[] | null | undefined, dia: string): Array<{ inicio: Date; fim: Date }> {
+  const todos = [...trechosDoDia(horarios, somarDiasAoDia(dia, -1)), ...trechosDoDia(horarios, dia)].sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
+  const out: Array<{ inicio: Date; fim: Date }> = [];
+  for (const t of todos) {
+    const ult = out[out.length - 1];
+    if (ult && t.inicio.getTime() <= ult.fim.getTime()) {
+      if (t.fim.getTime() > ult.fim.getTime()) ult.fim = t.fim;
+    } else out.push({ inicio: t.inicio, fim: t.fim });
+  }
+  return out;
+}
+
 export function janelasDoDia(p: {
   horarios: HorarioDoDia[] | null | undefined;
   dia: string;
@@ -128,7 +144,7 @@ export function janelasDoDia(p: {
   const minimo = p.agora.getTime() + Math.max(p.antecedenciaMin * MIN, preparo);
   const vistos = new Set<string>();
   const out: Janela[] = [];
-  for (const t of trechosDoDia(p.horarios, p.dia)) {
+  for (const t of trechosContinuos(p.horarios, p.dia)) {
     let ini = Math.max(t.inicio.getTime() + preparo, minimo);
     if (p.pausaAte) ini = Math.max(ini, p.pausaAte.getTime() + preparo);
     ini = Math.ceil(ini / passo) * passo; // na grade de 15 min (São Paulo tem deslocamento de horas inteiras)

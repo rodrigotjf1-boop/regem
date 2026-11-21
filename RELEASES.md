@@ -12,13 +12,33 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 6, M6j lote 3 — criar a tarefa de hoje pelo WhatsApp (20/11; SEM migration).** Só na nuvem (o Mister):
+  vai no `.zip` sem efeito na loja.
+
+- **Mister versão 6, M6j lote 2 — a tarefa do dia e a pausa do produto pelo WhatsApp (20/11; SEM migration).** Só na
+  nuvem (o Mister): vai no `.zip` sem efeito na loja.
+
+- **Pedido agendado: a janela das 00:00 e as da madrugada voltam (20/11; SEM migration; ERR-552).** O atendimento que
+  atravessa a meia-noite era cortado em dois e a janela cujo preparo começa antes da meia-noite sumia. Vai no `.zip` (a
+  conta das janelas também roda no servidor da loja).
+
 - **O "hoje" das telas no fuso da loja (20/11; SEM migration; ERR-551).** Tarefas, Auditoria, Estoque, o mínimo da data de
   entrega no PDV e a fabricação da etiqueta usavam o dia em UTC (depois das 21h, o dia seguinte). Vai no `.zip`: a loja
   serve essas telas.
 
+- **Clube — os resultados (20/11; SEM migration; fase A4 do `docs/plano-clube-e-banner.md`).** Marketing › Clube ›
+  Resultados: o período, os prêmios dados, revelados e usados, o desconto, o vendido e as campanhas com prêmio (quem voltou
+  em 15 dias). Só na nuvem e só leitura: no `.zip` só por acompanhar o código.
+
 - **Mister versão 6, M6k lote 4 — os 7 últimos assuntos do "como faço", com imagem; M6k completa (20/11; SEM
   migration).** O guia é da nuvem; vai no `.zip` a correção da Visão C&O (ERR-550: "carregando" × "não li" × "nenhuma"),
   que a loja também serve.
+
+- **Banners — "Ao tocar, abre" e o período (20/11; mig 482 — `banner.aparece_de` e `aparece_ate`, NUVEM E LOJA; fase B3
+  do `docs/plano-clube-e-banner.md`).** Delivery › Configurações › Banners: o resumo de cada banner e a gaveta "Ao tocar,
+  abre…" com os destinos novos (vagas da loja, o Clube, as páginas do Regem, nada) e o período. O cardápio público só
+  mostra o banner no período. A `banner` desce para a loja: a migration vai no `.zip` (o sync da loja ignora as colunas
+  que ela ainda não tem, então a loja sem a migration segue igual). O GIF fica para quando o DMS Graph animar imagens (B2).
 
 - **Mister versão 6, M6k lote 3 — o guia "como faço" em mais 8 telas, com imagem (20/11; SEM migration).** O guia e as
   imagens são da nuvem: vai no `.zip` sem efeito na loja.

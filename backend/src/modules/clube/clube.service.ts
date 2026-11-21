@@ -138,6 +138,19 @@ export class ClubeService {
   }
 
   /** Delivery › Marketing › Clube: a configuração, o que já pode ligar, os gatilhos, os prêmios, as regras e as opções. */
+  /**
+   * As regras que o CLIENTE lê no cardápio (o banner "Regras do clube" — B3): as mesmas do painel, só com alguma
+   * ferramenta ligada (sem nenhuma, a lista vem vazia e o cardápio diz que o clube não está aberto).
+   */
+  async regrasPublicas(tenantId: string): Promise<string[]> {
+    const config = await this.config(tenantId);
+    if (!config.surpresaAtivo && !config.albumAtivo && !config.metaAtivo) return [];
+    const gatilhos = await this.gatilhos(tenantId);
+    const premios = await this.premios(tenantId, config, gatilhos);
+    const nomes = new Map(premios.map((p) => [p.id, p.nome]));
+    return regrasDoClube(config, (id) => nomes.get(id) ?? null, gatilhos);
+  }
+
   async painel(tenantId: string) {
     const config = await this.config(tenantId);
     const gatilhos = await this.gatilhos(tenantId);

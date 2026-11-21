@@ -2061,6 +2061,8 @@ export const api = {
   cardapioPontos: (token: string, clienteToken?: string) =>
     pub(`/publico/cardapio/${token}/pontos${clienteToken ? `?ct=${encodeURIComponent(clienteToken)}` : ''}`),
   cardapioPromos: (token: string) => pub(`/publico/cardapio/${token}/promos`),
+  /** As regras do clube para o cliente (o banner "Regras do clube" — B3). */
+  cardapioRegrasDoClube: (token: string) => pub(`/publico/cardapio/${token}/clube/regras`),
   cardapioPecaTambem: (token: string, produtos: string[]) =>
     pub(`/publico/cardapio/${token}/peca-tambem?produtos=${encodeURIComponent(produtos.join(','))}`),
   // Beacon anônimo do funil do cardápio (F4) — best-effort.
@@ -2172,6 +2174,8 @@ export const api = {
   // só o presidente muda (o servidor confere). Cada rota que muda devolve o painel inteiro.
   clubePainel: () => req('/marketing/clube'),
   clubeSalvarConfig: (body: Record<string, unknown>) => req('/marketing/clube/config', { method: 'PUT', body: JSON.stringify(body) }),
+  /** Os resultados do clube (A4): `periodo` = mes | mes_passado | 90d. */
+  clubeResultados: (periodo: string) => req(`/marketing/clube/resultados?periodo=${encodeURIComponent(periodo)}`),
   clubeProdutos: () => req('/marketing/clube/produtos'),
   clubeCriarPremio: (body: Record<string, unknown>) => req('/marketing/clube/premios', { method: 'POST', body: JSON.stringify(body) }),
   clubeEditarPremio: (id: string, body: Record<string, unknown>) =>

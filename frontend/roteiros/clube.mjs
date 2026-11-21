@@ -19,6 +19,7 @@
 //    o nível e o prêmio; o mês anterior até o dia 7);
 //  • Prêmios: a lista com a contagem, a situação "Em uso" que filtra, "＋ Novo prêmio" abre a gaveta, "Produto grátis" lê
 //    os produtos, o diálogo de excluir (o prêmio em uso diz onde está);
+//  • os resultados (A4): os cinco números, as campanhas com prêmio, o período sem números e o erro com "Tentar de novo";
 //  • o gerente vê e não muda (sem "＋ Novo prêmio", sem campo do mínimo); a nuvem não respondeu → "Tentar de novo".
 import { responder, tokenFalso, umaLinha } from './comum.mjs';
 import { MENU, TOKEN as TOKEN_CARDAPIO } from './cardapio-para-voce.mjs';
@@ -112,6 +113,20 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
       const u = new URL(route.request().url());
       const p = u.pathname.replace(/^.*\/api\/v1/, '');
       const metodo = route.request().method();
+      if (p === '/marketing/clube/resultados') {
+        // Os resultados (A4): este mês com números; o mês passado vazio; `falhasResultados` responde erro antes.
+        if ((o.falhasResultados ?? 0) > 0) {
+          o.falhasResultados--;
+          return responder(route, { statusCode: 502, message: 'A nuvem não respondeu agora.' }, 502);
+        }
+        const periodo = u.searchParams.get('periodo');
+        if (periodo === 'mes_passado')
+          return responder(route, { periodo, titulo: 'Outubro', ganharam: 0, revelaram: 0, usaram: 0, desconto: 0, vendido: 0, campanhas: null });
+        return responder(route, {
+          periodo: 'mes', titulo: 'Novembro', ganharam: 214, revelaram: 176, usaram: 131, desconto: 1902.4, vendido: 7448.9,
+          campanhas: { receberam: 100, voltaram: 18, dias: 15 },
+        });
+      }
       if (p === '/marketing/clube' && metodo === 'GET') {
         if (falhas > 0) {
           falhas--;
@@ -379,6 +394,23 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
     );
     ok(await page.getByRole('button', { name: '＋ Pôr o nível 3' }).isVisible(), `${w}px · sem o nível 3, volta o "＋ Pôr o nível 3"`);
 
+    // ── Resultados (A4): os cinco números, as campanhas com prêmio e o período sem números ──
+    await page.getByRole('button', { name: 'Resultados', exact: true }).click();
+    await page.waitForSelector('text=ganharam um prêmio', { timeout: 10000 });
+    t = await texto(page);
+    achados = await medir(page);
+    ok(achados.length === 0, `${w}px · Resultados: sem barra para o lado nem texto esmagado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    ok(
+      t.includes('Novembro') && t.includes('214') && t.includes('revelaram (82%)') && t.includes('usaram (61%)') && t.includes('R$ 1.902,40') &&
+        t.includes('R$ 7.448,90') && t.includes('18 de 100 que receberam voltaram a pedir em até 15 dias (18%)'),
+      `${w}px · os resultados: os cinco números e as campanhas com prêmio`,
+    );
+    if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clube-resultados-${w}.png`), fullPage: true });
+    await page.getByLabel('Período').selectOption('mes_passado');
+    await page.waitForSelector('text=Ainda sem números', { timeout: 10000 });
+    achados = await medir(page);
+    ok(achados.length === 0, `${w}px · o mês passado sem prêmios: "Ainda sem números", sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+
     // ── Prêmios ──
     await page.getByRole('button', { name: /^Prêmios/ }).click();
     await page.waitForSelector('text=3 prêmios', { timeout: 10000 });
@@ -444,6 +476,19 @@ export default async function roteiroClube({ nav, base, ok, foto: arquivoFoto, l
       await page.getByRole('button', { name: 'Tentar de novo' }).click();
       await page.waitForSelector('text=Pedido mínimo para contar', { timeout: 10000 });
       ok(true, `${w}px · "Tentar de novo" leu o Clube`);
+      await ctx.close();
+    }
+    {
+      // Os resultados não vieram: a mensagem e "Tentar de novo" lê de novo (A4).
+      const { ctx, page } = await abrir(w, 900, { falhasResultados: 1 });
+      await page.waitForSelector('text=Pedido mínimo para contar', { timeout: 30000 });
+      await page.getByRole('button', { name: 'Resultados', exact: true }).click();
+      await page.waitForSelector('text=Não deu para ler os resultados agora', { timeout: 10000 });
+      const achados = await medir(page);
+      ok(achados.length === 0, `${w}px · resultados não lidos: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      await page.getByRole('button', { name: 'Tentar de novo' }).click();
+      await page.waitForSelector('text=ganharam um prêmio', { timeout: 10000 });
+      ok(true, `${w}px · resultados: "Tentar de novo" leu de novo`);
       await ctx.close();
     }
   }

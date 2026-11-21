@@ -21,6 +21,7 @@ import {
   estadoDaMeta,
   mesAnterior,
   mesesQueEscolhem,
+  periodoDosResultados,
   mesPorExtenso,
   seloDoMes,
 } from './clube.regras';
@@ -336,5 +337,22 @@ describe('a meta do mês (A3)', () => {
     expect(mesesQueEscolhem('2026-12-07')).toEqual(['2026-12', '2026-11']);
     expect(mesesQueEscolhem('2026-12-08')).toEqual(['2026-12']);
     expect(mesesQueEscolhem('2027-01-01')).toEqual(['2027-01', '2026-12']);
+  });
+});
+
+describe('os resultados do clube (A4)', () => {
+  it('o período no relógio da operação: este mês, o mês passado (a virada do ano) e os últimos 90 dias', () => {
+    expect(periodoDosResultados('mes', '2026-11-20')).toEqual({ periodo: 'mes', de: '2026-11-01 00:00:00', ate: '2026-11-20 23:59:59', titulo: 'Novembro' });
+    expect(periodoDosResultados('mes_passado', '2026-11-20')).toEqual({
+      periodo: 'mes_passado',
+      de: '2026-10-01 00:00:00',
+      ate: '2026-10-31 23:59:59',
+      titulo: 'Outubro',
+    });
+    expect(periodoDosResultados('mes_passado', '2027-01-03')).toMatchObject({ de: '2026-12-01 00:00:00', ate: '2026-12-31 23:59:59', titulo: 'Dezembro' });
+    expect(periodoDosResultados('90d', '2026-11-20')).toEqual({ periodo: '90d', de: '2026-08-23 00:00:00', ate: '2026-11-20 23:59:59', titulo: 'Últimos 90 dias' });
+    // o que não existe vira "este mês"
+    expect(periodoDosResultados('ano', '2026-11-20').periodo).toBe('mes');
+    expect(periodoDosResultados(undefined, '2026-11-20').periodo).toBe('mes');
   });
 });

@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { exigirBooleano } from '../../common/exigir';
+import { somarDias } from '../../common/data';
 
 // CLUBE DE RECOMPRA — as regras puras (fase A0 do `docs/plano-clube-e-banner.md`; protótipo `mockups/regem-clube-banner.html`,
 // parte "Marketing › Clube"; mig 471). Três ferramentas que ligam e desligam sozinhas — o prêmio surpresa (raspadinha ou
@@ -476,6 +477,32 @@ export function estadoDaMeta(mes: string, pedidos: number, niveis: NivelDaMeta[]
 export function mesesQueEscolhem(hoje: string): string[] {
   const mes = hoje.slice(0, 7);
   return Number(hoje.slice(8, 10)) <= DIA_LIMITE_DO_MES_ANTERIOR ? [mes, mesAnterior(mes)] : [mes];
+}
+
+// ───────────────────────── Os resultados do clube (fase A4) ─────────────────────────
+
+export const PERIODOS_DOS_RESULTADOS = { mes: 'Este mês', mes_passado: 'Mês passado', '90d': 'Últimos 90 dias' } as const;
+export type PeriodoDosResultados = keyof typeof PERIODOS_DOS_RESULTADOS;
+/** Quantos dias depois da mensagem um pedido conta como "voltou" (o cartão das campanhas com prêmio). */
+export const DIAS_PARA_VOLTAR = 15;
+
+/**
+ * O período dos resultados no relógio da operação (`hoje` = AAAA-MM-DD): o início e o fim (para `noPeriodo`) e o título.
+ * O período que não existe vira "Este mês".
+ */
+export function periodoDosResultados(periodo: unknown, hoje: string): { periodo: PeriodoDosResultados; de: string; ate: string; titulo: string } {
+  const p: PeriodoDosResultados = typeof periodo === 'string' && periodo in PERIODOS_DOS_RESULTADOS ? (periodo as PeriodoDosResultados) : 'mes';
+  const inicioDoMes = `${hoje.slice(0, 7)}-01`;
+  const titulo = (mes: string) => {
+    const nome = mesPorExtenso(mes);
+    return nome.charAt(0).toUpperCase() + nome.slice(1);
+  };
+  if (p === 'mes_passado') {
+    const fim = somarDias(inicioDoMes, -1);
+    return { periodo: p, de: `${fim.slice(0, 7)}-01 00:00:00`, ate: `${fim} 23:59:59`, titulo: titulo(fim.slice(0, 7)) };
+  }
+  if (p === '90d') return { periodo: p, de: `${somarDias(hoje, -89)} 00:00:00`, ate: `${hoje} 23:59:59`, titulo: 'Últimos 90 dias' };
+  return { periodo: p, de: `${inicioDoMes} 00:00:00`, ate: `${hoje} 23:59:59`, titulo: titulo(hoje.slice(0, 7)) };
 }
 
 /**

@@ -2,24 +2,32 @@ import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/comm
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { uuidDeChave } from '../../common/id-deterministico';
-import { horaNoFuso } from '../../common/data';
+import { hojeISO, horaNoFuso } from '../../common/data';
 import { pausaVigenteDoCanal, type CanalDaPausa } from '../../common/pausa-do-canal';
 import { podeAcessar } from '../../auth/permissoes';
 import type { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
+import { ProdutoService } from '../produto/produto.service';
+import { TarefaInstanciaService } from '../tarefa/tarefa-instancia.service';
+import { TarefaDefService } from '../tarefa/tarefa-def.service';
 import { pedidoComoNoQuadro } from './mister-agente.regras';
 import {
   ACOES,
   AcaoDoMister,
+  CanalDoProduto,
   ParametrosDaAcao,
   TEXTOS_DAS_ACOES,
+  canaisDoProduto,
   conferirAcao,
   ehAcaoDoMister,
+  nomeDoEstadoDaTarefa,
   nomesDosCanais,
+  ondeOProduto,
   pedidoAndou,
   pedidoServe,
+  produtoFicou,
   resumoDoPedido,
 } from './mister-acoes';
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
@@ -38,6 +46,26 @@ const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const semTabela = (e: any) => ['42P01', '42703'].includes(e?.code) || ['42P01', '42703'].includes(e?.cause?.code);
 const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
 type AcaoDePedido = 'aceitar_pedido' | 'pedido_pronto' | 'despachar_pedido';
+/** O padrão do `ilike` (o mesmo da busca das regras: o texto sem `%`, `_` e barra). */
+const comoTexto = (texto: string) => `%${texto.replace(/[%_\\]/g, '')}%`;
+const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+/** Da busca, um só: o nome igual (sem acento e maiúscula) vence; senão, o único achado; senão, a pessoa escolhe. */
+function escolherUm<T>(achados: any[], dito: string, nome: (a: any) => string, nenhum: string, varios: (nomes: string) => string, montar: (a: any) => T): T | { erro: string } {
+  if (!achados.length) return { erro: nenhum };
+  const iguais = achados.filter((a) => semAcento(nome(a)) === semAcento(dito));
+  if (iguais.length === 1) return montar(iguais[0]);
+  if (achados.length === 1) return montar(achados[0]);
+  return { erro: varios(achados.map((a) => `"${nome(a)}"`).join(', ')) };
+}
+/** A frase de quem não tem a permissão da ação (a mesma da rota da tela). */
+const semPermissaoDe = (p: 'delivery' | 'meu_dia' | 'loja' | 'checklist') =>
+  p === 'meu_dia'
+    ? TEXTOS_DAS_ACOES.semPermissaoTarefas
+    : p === 'loja'
+      ? TEXTOS_DAS_ACOES.semPermissaoLoja
+      : p === 'checklist'
+        ? TEXTOS_DAS_ACOES.semPermissaoChecklist
+        : TEXTOS_DAS_ACOES.semPermissao;
 const NOME_DA_SITUACAO: Record<string, string> = { novo: 'aguardando aceite', confirmado: 'em preparo', pronto: 'pronto', despachado: 'a caminho', concluido: 'concluído', entregue: 'entregue', cancelado: 'cancelado' };
 
 @Injectable()
@@ -52,6 +80,11 @@ export class MisterAcoesService implements OnModuleInit {
     @Optional() private readonly delivery?: DeliveryService,
     @Optional() private readonly pausa?: PausaDoCanalService,
     @Optional() private readonly auditoria?: AuditoriaService,
+    // Lote 2: a tarefa e o produto pelos MESMOS serviços das telas (Tarefas; a pausa do produto no cadastro).
+    @Optional() private readonly tarefas?: TarefaInstanciaService,
+    @Optional() private readonly produtos?: ProdutoService,
+    // Lote 3: a definição da tarefa (a primeira etapa do "Nova tarefa" da tela).
+    @Optional() private readonly defs?: TarefaDefService,
   ) {}
 
   onModuleInit(): void {
@@ -68,7 +101,7 @@ export class MisterAcoesService implements OnModuleInit {
       const c = conferirAcao(en.acao, en);
       if ('erro' in c) return recusa(c.erro);
       const def = ACOES[c.parametros.acao];
-      if (e.nivel !== 'presidente' && !podeAcessar(e.permissoes, def.permissao)) return recusa(TEXTOS_DAS_ACOES.semPermissao);
+      if (e.nivel !== 'presidente' && !podeAcessar(e.permissoes, def.permissao)) return recusa(semPermissaoDe(def.permissao));
       if (this.numero && (await this.numero.ler()).provedor === 'evolution') return recusa(TEXTOS_DAS_ACOES.semBotao);
       // A loja: a da conversa (o gerente, a dele); a empresa de uma loja só, ela.
       const lojas = loja.atual ? [loja.atual] : e.lojas.map((l) => l.id);
@@ -87,6 +120,51 @@ export class MisterAcoesService implements OnModuleInit {
         parametros.pedido = achado.nome;
         resumo = resumoDoPedido(c.parametros.acao, achado.nome);
         alvo = achado.id;
+      } else if (c.parametros.acao === 'concluir_tarefa') {
+        // Lote 2: a tarefa de HOJE (o dia da loja) pelo título, nas lojas da pessoa; a regra de foto da tela, já na pergunta.
+        const t = await this.acharTarefa(e.tenantId, c.parametros.tarefa, e.lojaUnica && !loja.atual ? null : lojas);
+        if ('erro' in t) return recusa(t.erro);
+        if (t.estado === c.parametros.estado) return recusa(TEXTOS_DAS_ACOES.tarefaJaMarcada(nomeDoEstadoDaTarefa(t.estado)));
+        if (this.tarefas && c.parametros.estado !== 'nao_feita') {
+          const pol = await this.tarefas.politicaFoto(e.tenantId);
+          if ((c.parametros.estado === 'feita' && pol.conclusao) || (c.parametros.estado === 'parcial' && pol.parcial)) return recusa(TEXTOS_DAS_ACOES.tarefaPedeFoto);
+        }
+        unidadeId = t.unidadeId;
+        parametros.instanciaId = t.id;
+        parametros.titulo = t.titulo;
+        resumo = `Marcar a tarefa "${t.titulo}" como ${nomeDoEstadoDaTarefa(c.parametros.estado)}${c.parametros.justificativa ? ` (motivo: ${c.parametros.justificativa})` : ''}.`;
+        alvo = t.id;
+      } else if (c.parametros.acao === 'criar_tarefa') {
+        // Lote 3: a loja da tarefa (a da conversa; a da empresa de uma loja só), a função pelo nome (a tela exige) e o
+        // responsável, se dito, entre os ativos da loja.
+        const u = loja.atual ?? (e.lojaUnica ? (e.lojas[0]?.id ?? null) : null);
+        if (!u) return recusa(TEXTOS_DAS_ACOES.lojaDaTarefa);
+        const f = await this.acharFuncao(e.tenantId, c.parametros.funcao);
+        if ('erro' in f) return recusa(f.erro);
+        let resp: { id: string; nome: string } | null = null;
+        if (c.parametros.responsavel) {
+          const r = await this.acharColaborador(e.tenantId, c.parametros.responsavel, u);
+          if ('erro' in r) return recusa(r.erro);
+          resp = r;
+        }
+        unidadeId = u;
+        parametros.funcaoId = f.id;
+        parametros.funcaoNome = f.nome;
+        // `colaboradorId` é QUEM PEDIU (a régua do "Autorizar"): o responsável vai em outro campo.
+        parametros.responsavelId = resp?.id ?? null;
+        parametros.responsavelNome = resp?.nome ?? null;
+        resumo = `Criar para hoje a tarefa "${c.parametros.titulo}"${c.parametros.horario ? ` às ${c.parametros.horario}` : ''}, da função ${f.nome}${resp ? `, para ${resp.nome}` : ', em aberto (sem responsável)'}.`;
+        alvo = `${c.parametros.titulo}:${f.id}`;
+      } else if (c.parametros.acao === 'pausar_produto' || c.parametros.acao === 'reativar_produto') {
+        // Lote 2: o produto do cardápio pelo nome; sem canal dito, os canais em que ele está ("Pausar em todos" da tela).
+        const pr = await this.acharProduto(e.tenantId, c.parametros.produto, e.lojaUnica && !loja.atual ? null : lojas);
+        if ('erro' in pr) return recusa(pr.erro);
+        const canais = c.parametros.canais ?? canaisDoProduto(pr);
+        parametros.produtoId = pr.id;
+        parametros.nome = pr.nome;
+        parametros.canais = canais;
+        resumo = `${c.parametros.acao === 'pausar_produto' ? 'Pausar' : 'Reativar'} "${pr.nome}" ${ondeOProduto(canais)}.`;
+        alvo = pr.id;
       } else if ((c.parametros.acao === 'pausar_canal' || c.parametros.acao === 'reabrir_canal') && c.parametros.canais.includes('cardapio') && this.pausa) {
         // O cardápio digital é de cada loja: quem diz qual é o serviço da tela (o cadastro do cardápio), já na pergunta.
         try {
@@ -136,6 +214,73 @@ export class MisterAcoesService implements OnModuleInit {
   }
 
   /**
+   * Lote 2: a tarefa de HOJE (o dia da loja, `hojeISO()` — V46) pelo título, nas lojas da pessoa, sem as excluídas. O título
+   * igual (sem acento e maiúscula) vence o que só contém; mais de uma, a pessoa escolhe.
+   */
+  private async acharTarefa(tenantId: string, dito: string, lojas: string[] | null): Promise<{ id: string; unidadeId: string | null; estado: string; titulo: string } | { erro: string }> {
+    const achados = linhas(
+      await this.db.execute(sql`
+        select i.id::text as id, i.unidade_id::text as "unidadeId", i.estado, d.titulo
+          from tarefa_instancia i
+          join tarefa_def d on d.id = i.tarefa_def_id and d.tenant_id = i.tenant_id
+         where i.tenant_id = ${tenantId}::uuid and i.deleted_at is null and i.data = ${hojeISO()}::date
+           ${lojas ? sql`and (i.unidade_id is null or i.unidade_id in (${sql.join(lojas.map((l) => sql`${l}::uuid`), sql`, `)}))` : sql``}
+           and d.titulo ilike ${comoTexto(dito)}
+         order by d.titulo
+         limit 6`),
+    );
+    return escolherUm(achados, dito, (a) => String(a.titulo), TEXTOS_DAS_ACOES.tarefaNaoAchada, TEXTOS_DAS_ACOES.tarefasDemais, (a) => ({
+      id: a.id,
+      unidadeId: a.unidadeId ?? null,
+      estado: String(a.estado),
+      titulo: String(a.titulo),
+    }));
+  }
+
+  /** Lote 3: a função pelo nome (a tela exige a função da tarefa), sem as excluídas. */
+  private async acharFuncao(tenantId: string, dito: string): Promise<{ id: string; nome: string } | { erro: string }> {
+    const achados = linhas(
+      await this.db.execute(sql`
+        select f.id::text as id, f.nome from funcao f
+         where f.tenant_id = ${tenantId}::uuid and f.deleted_at is null and f.nome ilike ${comoTexto(dito)}
+         order by f.nome limit 6`),
+    );
+    return escolherUm(achados, dito, (a) => String(a.nome), TEXTOS_DAS_ACOES.funcaoNaoAchada, TEXTOS_DAS_ACOES.funcoesDemais, (a) => ({ id: a.id, nome: String(a.nome) }));
+  }
+
+  /** Lote 3: o responsável pelo nome, entre os colaboradores ativos da loja (ou sem loja). */
+  private async acharColaborador(tenantId: string, dito: string, unidadeId: string): Promise<{ id: string; nome: string } | { erro: string }> {
+    const achados = linhas(
+      await this.db.execute(sql`
+        select c.id::text as id, c.nome from colaborador c
+         where c.tenant_id = ${tenantId}::uuid and c.deleted_at is null and c.status = 'ativo'
+           and (c.unidade_id is null or c.unidade_id = ${unidadeId}::uuid) and c.nome ilike ${comoTexto(dito)}
+         order by c.nome limit 6`),
+    );
+    return escolherUm(achados, dito, (a) => String(a.nome), TEXTOS_DAS_ACOES.responsavelNaoAchado, TEXTOS_DAS_ACOES.responsaveisDemais, (a) => ({ id: a.id, nome: String(a.nome) }));
+  }
+
+  /** Lote 2: o produto do cardápio pelo nome (ativo, sem os excluídos), da empresa ou das lojas da pessoa. */
+  private async acharProduto(tenantId: string, dito: string, lojas: string[] | null): Promise<{ id: string; nome: string; noIfood: boolean; na99: boolean } | { erro: string }> {
+    const achados = linhas(
+      await this.db.execute(sql`
+        select p.id::text as id, p.nome, coalesce(p.no_ifood, false) as "noIfood", coalesce(p.na_99, false) as "na99"
+          from produto p
+         where p.tenant_id = ${tenantId}::uuid and p.deleted_at is null and coalesce(p.ativo, true)
+           ${lojas ? sql`and (p.unidade_id is null or p.unidade_id in (${sql.join(lojas.map((l) => sql`${l}::uuid`), sql`, `)}))` : sql``}
+           and p.nome ilike ${comoTexto(dito)}
+         order by p.nome
+         limit 6`),
+    );
+    return escolherUm(achados, dito, (a) => String(a.nome), TEXTOS_DAS_ACOES.produtoNaoAchado, TEXTOS_DAS_ACOES.produtosDemais, (a) => ({
+      id: a.id,
+      nome: String(a.nome),
+      noIfood: a.noIfood === true,
+      na99: a.na99 === true,
+    }));
+  }
+
+  /**
    * Grava a proposta de botão: uma por pessoa, ação e alvo (o "aviso" da linha é um id fixo pela chave — o índice único da 428
    * não deixa duas). Renova a que acabou (vencida, não autorizada, não deu ou feita: a mesma ação pode ser pedida de novo
    * depois); a autorizada e a executando não renovam (null).
@@ -173,8 +318,11 @@ export class MisterAcoesService implements OnModuleInit {
     if (!quem || quem !== String(p.parametros?.colaboradorId ?? '')) return { feita: false, texto: 'a ação só vale com o "Autorizar" de quem pediu. Nada foi feito.' };
     const e = await this.ferramentas.escopoDaTela(p.tenantId, quem);
     const def = ACOES[p.procedimento];
-    if (!e || (e.nivel !== 'presidente' && !podeAcessar(e.permissoes, def.permissao))) return { feita: false, texto: 'o seu perfil não dá mais acesso ao Delivery. Nada foi feito.' };
-    const parametros = p.parametros as ParametrosDaAcao & { pedidoId?: string; pedido?: string };
+    if (!e || (e.nivel !== 'presidente' && !podeAcessar(e.permissoes, def.permissao))) {
+      const a = def.permissao === 'meu_dia' ? 'às Tarefas' : def.permissao === 'loja' ? 'ao cadastro dos produtos' : 'ao Delivery';
+      return { feita: false, texto: `o seu perfil não dá mais acesso ${a}. Nada foi feito.` };
+    }
+    const parametros = p.parametros as ParametrosDaAcao & { pedidoId?: string; pedido?: string; instanciaId?: string; titulo?: string; produtoId?: string; nome?: string };
     const user: AuthUser = { tenantId: p.tenantId, colaboradorId: quem, categoria: e.nivel, unidadeId: e.nivel === 'presidente' ? null : (p.unidadeId ?? null), nome: e.nome ?? null } as AuthUser;
     const motivo = (err: any) => String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240);
     try {
@@ -193,6 +341,37 @@ export class MisterAcoesService implements OnModuleInit {
         }
         return await this.conferirCanais(p.tenantId, p.unidadeId, parametros.canais, parametros.acao === 'pausar_canal');
       }
+      if (parametros.acao === 'concluir_tarefa') {
+        // Lote 2: o MESMO `concluir` da tela (a regra do motivo e da foto é dele) e a MESMA auditoria do controller.
+        if (!this.tarefas) return { feita: false, texto: 'as tarefas não estão disponíveis agora. Nada foi feito.' };
+        const id = String(parametros.instanciaId ?? '');
+        await this.tarefas.concluir(p.tenantId, id, { estado: parametros.estado, motivo: parametros.justificativa ?? undefined } as any, quem);
+        await this.auditoria
+          ?.registrar({ tenantId: p.tenantId, atorId: quem, atorPerfil: e.nivel, tipo: 'checklist', acao: 'concluiu_tarefa', entidadeTipo: 'tarefa_instancia', entidadeId: id, detalhe: { estado: parametros.estado }, origem: 'whatsapp' } as any)
+          .catch(() => undefined);
+        return await this.conferirTarefa(p.tenantId, id, parametros.estado, String(parametros.titulo ?? parametros.tarefa));
+      }
+      if (parametros.acao === 'criar_tarefa') {
+        // Lote 3: as DUAS etapas da tela ("Nova tarefa"): a definição (`TarefaDefService.create`, com quem criou) e a tarefa
+        // de hoje (`TarefaInstanciaService.instanciar`, com o responsável, se dito — senão o escalado ou em aberto).
+        if (!this.defs || !this.tarefas) return { feita: false, texto: 'as tarefas não estão disponíveis agora. Nada foi feito.' };
+        const x = parametros as any;
+        const def: any = await this.defs.create(
+          p.tenantId,
+          { unidadeId: p.unidadeId, titulo: x.titulo, funcaoId: x.funcaoId, ...(x.horario ? { horario: x.horario } : {}), origem: 'avulsa' } as any,
+          { id: quem, nivel: e.nivel },
+        );
+        await this.tarefas.instanciar(p.tenantId, { tarefaDefId: def.id, data: hojeISO(), ...(x.responsavelId ? { colaboradorResolvidoId: x.responsavelId } : {}) } as any);
+        return await this.conferirTarefaCriada(p.tenantId, String(def.id), String(x.titulo));
+      }
+      if (parametros.acao === 'pausar_produto' || parametros.acao === 'reativar_produto') {
+        // Lote 2: a MESMA pausa por canal da tela (`ProdutoService.pausaDoCanal`, que audita), um canal por vez.
+        if (!this.produtos) return { feita: false, texto: 'o cadastro dos produtos não está disponível agora. Nada foi feito.' };
+        const pausado = parametros.acao === 'pausar_produto';
+        const canais = (parametros.canais ?? ['regem']) as CanalDoProduto[];
+        for (const canal of canais) await this.produtos.pausaDoCanal(p.tenantId, String(parametros.produtoId ?? ''), canal, pausado, { id: quem, perfil: e.nivel });
+        return await this.conferirProduto(p.tenantId, String(parametros.produtoId ?? ''), canais, pausado, String(parametros.nome ?? parametros.produto));
+      }
       if (!this.delivery) return { feita: false, texto: 'o painel do Delivery não está disponível agora. Nada foi feito.' };
       const pedidoId = String(parametros.pedidoId ?? '');
       const pedido = String(parametros.pedido ?? 'do Mister');
@@ -206,7 +385,13 @@ export class MisterAcoesService implements OnModuleInit {
       const depois =
         parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal'
           ? await this.conferirCanais(p.tenantId, p.unidadeId, parametros.canais, parametros.acao === 'pausar_canal')
-          : await this.conferirPedido(p.tenantId, String(parametros.pedidoId ?? ''), parametros.acao as AcaoDePedido, String(parametros.pedido ?? ''));
+          : parametros.acao === 'criar_tarefa'
+            ? { feita: false, texto: '' } // a recusa da criação vem antes de gravar: o motivo dela é o desfecho
+            : parametros.acao === 'concluir_tarefa'
+            ? await this.conferirTarefa(p.tenantId, String(parametros.instanciaId ?? ''), parametros.estado, String(parametros.titulo ?? parametros.tarefa))
+            : parametros.acao === 'pausar_produto' || parametros.acao === 'reativar_produto'
+              ? await this.conferirProduto(p.tenantId, String(parametros.produtoId ?? ''), (parametros.canais ?? ['regem']) as CanalDoProduto[], parametros.acao === 'pausar_produto', String(parametros.nome ?? parametros.produto))
+              : await this.conferirPedido(p.tenantId, String(parametros.pedidoId ?? ''), parametros.acao as AcaoDePedido, String(parametros.pedido ?? ''));
       if (depois.feita) return depois;
       return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(motivo(err)) };
     } finally {
@@ -231,6 +416,38 @@ export class MisterAcoesService implements OnModuleInit {
     if (!pausados) return { feita: true, texto: TEXTOS_DAS_ACOES.reaberto(nomesDosCanais(canais)) };
     const voltas = estado.map((x) => `${nomesDosCanais([x.canal])} até as ${horaNoFuso(x.ate!)}`).join('; ');
     return { feita: true, texto: `${TEXTOS_DAS_ACOES.pausado(nomesDosCanais(canais))} (${voltas}).` };
+  }
+
+  /** Lote 3: a tarefa nova está na lista de hoje? */
+  private async conferirTarefaCriada(tenantId: string, defId: string, titulo: string): Promise<{ feita: boolean; texto: string }> {
+    const [r] = linhas(
+      await this.db.execute(sql`
+        select 1 as ok from tarefa_instancia
+         where tenant_id = ${tenantId}::uuid and tarefa_def_id = ${defId}::uuid and data = ${hojeISO()}::date and deleted_at is null`),
+    );
+    return r ? { feita: true, texto: TEXTOS_DAS_ACOES.tarefaCriada(titulo) } : { feita: false, texto: TEXTOS_DAS_ACOES.tarefaNaoCriada(titulo) };
+  }
+
+  /** Lote 2: a tarefa ficou na situação pedida? */
+  private async conferirTarefa(tenantId: string, id: string, estado: string, titulo: string): Promise<{ feita: boolean; texto: string }> {
+    const [r] = linhas(await this.db.execute(sql`select estado from tarefa_instancia where id = ${id}::uuid and tenant_id = ${tenantId}::uuid`));
+    if (!r) return { feita: false, texto: 'a tarefa não foi encontrada. Nada foi feito.' };
+    if (String(r.estado) === estado) return { feita: true, texto: TEXTOS_DAS_ACOES.tarefaFeita(titulo, nomeDoEstadoDaTarefa(estado)) };
+    return { feita: false, texto: TEXTOS_DAS_ACOES.tarefaNaoFicou(titulo, nomeDoEstadoDaTarefa(String(r.estado))) };
+  }
+
+  /** Lote 2: o produto ficou pausado (ou no ar) em CADA canal pedido? */
+  private async conferirProduto(tenantId: string, id: string, canais: CanalDoProduto[], pausado: boolean, nome: string): Promise<{ feita: boolean; texto: string }> {
+    const [r] = linhas(
+      await this.db.execute(sql`
+        select coalesce(disponivel_balcao, true) as "disponivelBalcao", coalesce(disponivel_cardapio, true) as "disponivelCardapio",
+               coalesce(canais_pausados, '[]'::jsonb) as "canaisPausados"
+          from produto where id = ${id}::uuid and tenant_id = ${tenantId}::uuid and deleted_at is null`),
+    );
+    if (!r) return { feita: false, texto: 'o produto não foi encontrado. Nada foi feito.' };
+    const certos = produtoFicou({ disponivelBalcao: r.disponivelBalcao === true, disponivelCardapio: r.disponivelCardapio === true, canaisPausados: Array.isArray(r.canaisPausados) ? r.canaisPausados : [] }, canais, pausado);
+    if (certos.length === canais.length) return { feita: true, texto: TEXTOS_DAS_ACOES.produtoFeito(nome, pausado, ondeOProduto(canais)) };
+    return { feita: false, texto: TEXTOS_DAS_ACOES.produtoNaoFicou(nome, ondeOProduto(canais.filter((c) => !certos.includes(c)))) };
   }
 
   /** O pedido andou para a situação de depois da ação? */
