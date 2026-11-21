@@ -48,6 +48,7 @@ body.tema-escuro .p-root.tpl-fluxo{--p-bg:#0B1620;--p-surf:#12212E;--p-card:#0F1
 .p-root{font-family:var(--p-font);color:var(--p-ink);background:var(--p-bg);font-size:14px;line-height:1.4;-webkit-font-smoothing:antialiased}
 .p-root *{box-sizing:border-box}
 .p-root img{display:block;width:100%;height:100%;object-fit:cover}
+.p-root picture{display:contents}
 .p-root .cut img{object-fit:contain;padding:8%}
 .p-root .p-scroll{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:none}
 .p-root .p-scroll::-webkit-scrollbar,.p-root .p-pbody::-webkit-scrollbar,.p-root .hs::-webkit-scrollbar{display:none}

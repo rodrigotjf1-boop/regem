@@ -2240,14 +2240,24 @@ function Banners({ banners, intervalo, onSalvar, salvando, pode }: { banners: an
         const resumo = resumoDoDestino(b, opcoesProd, cats);
         return (
           <div key={i} className="flex flex-col gap-3 rounded-lg border border-border p-2.5 sm:flex-row sm:items-start">
-            {/* Imagem trocada à mão: a descrição e a marca da IA eram da imagem antiga. */}
-            <ImageUpload value={b.imagemRef} onChange={(url) => up(i, { imagemRef: url, feitoComIa: false, descricao: null })} id={`banner-${i}`} alt={b.descricao || 'Banner'} />
+            {/* Imagem trocada à mão: a descrição, a marca da IA e o GIF eram da imagem antiga. */}
+            <ImageUpload value={b.imagemRef} onChange={(url) => up(i, { imagemRef: url, feitoComIa: false, descricao: null, imagemAnimadaRef: null })} id={`banner-${i}`} alt={b.descricao || 'Banner'} />
             <div className="min-w-0 flex-1 space-y-1.5">
               <Input value={b.titulo ?? ''} onChange={(e) => up(i, { titulo: e.target.value })} placeholder="Título / texto do botão (opcional)" className="h-8" disabled={!pode} aria-label={`Título do banner ${i + 1}`} />
               {(b.feitoComIa || b.textoTitulo || b.textoChamada) && (
                 <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                   <Input value={b.textoTitulo ?? ''} maxLength={60} onChange={(e) => up(i, { textoTitulo: e.target.value })} placeholder="Texto por cima: título" className="h-8" disabled={!pode} aria-label={`Texto por cima do banner ${i + 1}: título`} />
                   <Input value={b.textoChamada ?? ''} maxLength={90} onChange={(e) => up(i, { textoChamada: e.target.value })} placeholder="Texto por cima: chamada" className="h-8" disabled={!pode} aria-label={`Texto por cima do banner ${i + 1}: chamada`} />
+                </div>
+              )}
+              {b.imagemAnimadaRef && (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span>Animação: <b>GIF ligado</b></span>
+                  {pode && (
+                    <Button type="button" size="sm" variant="outline" className="h-8" onClick={() => up(i, { imagemAnimadaRef: null })} aria-label={`Tirar a animação do banner ${i + 1}`}>
+                      Tirar a animação
+                    </Button>
+                  )}
                 </div>
               )}
               {/* "Ao tocar, abre" (B3): o resumo do destino e do período; mudar em gaveta. */}

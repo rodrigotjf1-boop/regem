@@ -136,7 +136,7 @@ import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { CashbackService } from '../cashback/cashback.service';
 
 import { hojeISO } from '../../common/data';
-import { bannerNoPeriodo, lerDestinoDoBanner, lerPeriodoDoBanner, lerTextoDoBanner } from './banner-destino';
+import { bannerNoPeriodo, lerDestinoDoBanner, lerPeriodoDoBanner, lerImagemAnimadaDoBanner, lerTextoDoBanner } from './banner-destino';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
 import { montarMensagemDaPausa, pausaVigenteDoCanal, rotuloDoMotivo, textoDaRecusa, type PausaVigente } from '../../common/pausa-do-canal';
@@ -1210,6 +1210,7 @@ export class CardapioService {
       textoChamada?: string | null;
       descricao?: string | null;
       feitoComIa?: boolean;
+      imagemAnimadaRef?: string | null;
     }[],
   ) {
     // Máximo de 3 banners no carrossel do cardápio. O destino ("Ao tocar, abre") e o período (B3, mig 482) são conferidos
@@ -1229,6 +1230,7 @@ export class CardapioService {
         apareceAte: periodo.ate,
         ...lerTextoDoBanner(b, i + 1),
         feitoComIa: b.feitoComIa === true,
+        imagemAnimadaRef: lerImagemAnimadaDoBanner(b.imagemAnimadaRef, i + 1),
       };
     });
     await this.db.transaction(async (tx: any) => {
@@ -1266,6 +1268,7 @@ export class CardapioService {
       ...(b.textoTitulo ? { textoTitulo: b.textoTitulo } : {}),
       ...(b.textoChamada ? { textoChamada: b.textoChamada } : {}),
       ...(b.descricao ? { descricao: b.descricao } : {}),
+      ...(b.imagemAnimadaRef ? { imagemAnimadaRef: b.imagemAnimadaRef } : {}),
     }));
   }
 

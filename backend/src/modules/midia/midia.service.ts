@@ -330,4 +330,35 @@ export class MidiaService {
     const ext = MIME_EXT[tipoReal];
     return this.subirSupabase(tenantId, new Uint8Array(buffer), tipoReal, ext, buffer.length);
   }
+
+  /**
+   * CLOUD: lê uma imagem parada JÁ guardada na mídia DESTA empresa, pelo endereço público que o upload devolveu. O endereço
+   * vem da tela, então só serve o da pasta da própria empresa com o nome que o upload gera; a leitura vai ao Storage pela
+   * configuração, nunca pelo texto recebido. `null`: o endereço não é da empresa (ou o arquivo não é imagem parada).
+   */
+  async lerDaEmpresa(tenantId: string, endereco: unknown, maxBytes: number): Promise<{ buffer: Buffer; mime: string } | null> {
+    const { url, key, bucket } = this.cfg();
+    if (!url || !key || typeof endereco !== 'string' || !TENANT_RE.test(tenantId)) return null;
+    const prefixo = `${url}/storage/v1/object/public/${bucket}/${tenantId}/`;
+    if (!endereco.startsWith(prefixo)) return null;
+    const arquivo = endereco.slice(prefixo.length);
+    if (!ARQUIVO_RE.test(arquivo) || arquivo.endsWith('.gif')) return null;
+    let res: Response;
+    try {
+      res = await fetch(`${url}/storage/v1/object/${bucket}/${tenantId}/${arquivo}`, {
+        headers: { Authorization: `Bearer ${key}`, apikey: key },
+        redirect: 'error',
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      throw new ServiceUnavailableException('Não deu para ler a imagem agora. Tente de novo.');
+    }
+    if (res.status === 400 || res.status === 404) return null;
+    if (!res.ok) throw new ServiceUnavailableException('Não deu para ler a imagem agora. Tente de novo.');
+    if (Number(res.headers.get('content-length') ?? 0) > maxBytes) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (!buffer.length || buffer.length > maxBytes) return null;
+    const mime = detectarImagem(buffer);
+    return mime && mime !== 'image/gif' ? { buffer, mime } : null;
+  }
 }
