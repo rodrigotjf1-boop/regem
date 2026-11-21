@@ -4058,18 +4058,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 49 de 49, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 50 de 50, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(49);
+        expect(r.total).toBe(50);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 49, acertos: 49, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 50, acertos: 50, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 49, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 49, acertos: 49, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 50, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 50, acertos: 50, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4089,7 +4089,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 48 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 49 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -9251,6 +9251,98 @@ export function testesDoMisterComPostgres(): void {
           if (antes) await q(`update cardapio_config set horarios = $2 where id = $1`, [antes.id, antes.horarios === null ? null : JSON.stringify(antes.horarios)]);
           else await q(`delete from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
         }
+      });
+    });
+
+    // ───────────── versão 6, M6j lote 4: as contas a pagar e a receber (só leitura) ─────────────
+    describe('as contas a pagar e a receber (versão 6, M6j lote 4)', () => {
+      const conta = (tipo: string, descricao: string, valor: number, vencimento: string | null, o: { tenant?: string; status?: string; fornecedor?: string } = {}) =>
+        q(`insert into titulo_financeiro (tenant_id, tipo, descricao, valor, vencimento, status, fornecedor_id) values ($1, $2, $3, $4, $5, $6, $7)`, [
+          o.tenant ?? A,
+          tipo,
+          descricao,
+          valor,
+          vencimento,
+          o.status ?? 'aberto',
+          o.fornecedor ?? null,
+        ]);
+      const limpar = async () => {
+        await q(`delete from titulo_financeiro where tenant_id = any($1::uuid[])`, [[A, B]]);
+        await q(`delete from fornecedor where tenant_id = any($1::uuid[]) and nome = 'Distribuidora das Contas'`, [[A, B]]);
+      };
+      beforeEach(async () => {
+        await limparConversas();
+        await limpar();
+        await numeroConectado(true);
+      });
+      afterAll(limpar);
+
+      it('separa pelo dia da loja, soma só as abertas desta empresa, e a conta a receber vai só em totais', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const hoje = hojeISO();
+        const [ano, mes] = hoje.split('-').map(Number);
+        const fim = new Date(Date.UTC(ano, mes, 0)).toISOString().slice(0, 10);
+        const em2 = somarDias(hoje, 2);
+        await conta('pagar', 'Atrasada', 100, somarDias(hoje, -3));
+        await conta('pagar', 'De hoje', 20.5, hoje);
+        await conta('pagar', 'Logo', 30, em2);
+        await conta('pagar', 'Longe', 50, somarDias(hoje, 40));
+        await conta('pagar', 'Sem data', 7, null);
+        await conta('pagar', 'Já paga', 999, hoje, { status: 'pago' });
+        await conta('pagar', 'De outra empresa', 888, hoje, { tenant: B });
+        await conta('receber', 'Fiado do João', 300, somarDias(hoje, 1));
+        const r = await ferramentas.executar((await ferramentas.escopo(A, pessoa.ana, tel))!, 'contas_a_pagar_e_receber', {});
+        expect(r.ok).toBe(true);
+        const d = r.dados as any;
+        expect(d.aPagar).toMatchObject({
+          quantas: 5,
+          valor: 207.5,
+          vencidas: { quantas: 1, valor: 100 },
+          venceHoje: { quantas: 1, valor: 20.5 },
+          proximos7Dias: { quantas: 1, valor: 30 },
+          restoDoMes: { quantas: 0, valor: 0 },
+          depois: { quantas: 1, valor: 50 },
+          semData: { quantas: 1, valor: 7 },
+          ateOFimDoMes: { valor: 120.5 + (em2 <= fim ? 30 : 0) },
+        });
+        expect(d.aReceber).toMatchObject({ quantas: 1, valor: 300 });
+        expect(d.proximasAPagar.map((p: any) => [p.descricao, p.situacao])).toEqual([
+          ['Atrasada', 'vencida'],
+          ['De hoje', 'vence hoje'],
+          ['Logo', 'a vencer'],
+          ['Longe', 'a vencer'],
+          ['Sem data', 'sem data'],
+        ]);
+        // A descrição da conta a receber (pode ter nome de cliente) não vai à IA.
+        expect(JSON.stringify(d)).not.toContain('João');
+      });
+
+      it('a busca filtra as contas a pagar; sem valores vêm só as quantidades; sem a permissão, nada', async () => {
+        const tel = telefone();
+        await ligar('carlos', tel, A, 'gerente');
+        const [{ id: fornecedor }] = await q(`insert into fornecedor (tenant_id, nome) values ($1, 'Distribuidora das Contas') returning id`, [A]);
+        const hoje = hojeISO();
+        await conta('pagar', 'Carne', 40, hoje, { fornecedor });
+        await conta('pagar', 'Luz', 60, hoje);
+        await conta('receber', 'Outra', 10, hoje);
+        const e = (await ferramentas.escopo(A, pessoa.carlos, tel))!;
+        const comAcesso = { ...e, verValores: true, permissoes: { ...e.permissoes, financeiro: true } } as any;
+        const so = (await ferramentas.executar(comAcesso, 'contas_a_pagar_e_receber', { busca: 'distribuidora das' })).dados as any;
+        expect(so.aPagar).toMatchObject({ quantas: 1, valor: 40 });
+        expect(so.aReceber).toBeUndefined();
+        expect(so.proximasAPagar).toEqual([expect.objectContaining({ descricao: 'Carne', fornecedor: 'Distribuidora das Contas' })]);
+        // O coringa do ILIKE não vira "tudo por acaso" na busca: sobra vazio e é a lista inteira, sem filtro.
+        const coringa = (await ferramentas.executar(comAcesso, 'contas_a_pagar_e_receber', { busca: '%_' })).dados as any;
+        expect(coringa.aPagar.quantas).toBe(2);
+        expect(coringa.aReceber.quantas).toBe(1);
+        const semValores = (await ferramentas.executar({ ...comAcesso, verValores: false }, 'contas_a_pagar_e_receber', {})).dados as any;
+        expect(semValores.aPagar).toMatchObject({ quantas: 2, valor: null, venceHoje: { quantas: 2, valor: null } });
+        expect(semValores.proximasAPagar[0].valor).toBeNull();
+        expect(semValores.aviso).toBeTruthy();
+        const barrado = await ferramentas.executar({ ...e, permissoes: { ...e.permissoes, financeiro: false } } as any, 'contas_a_pagar_e_receber', {});
+        expect(barrado.ok).toBe(false);
+        expect(JSON.stringify(barrado.dados)).not.toContain('Carne');
       });
     });
 
