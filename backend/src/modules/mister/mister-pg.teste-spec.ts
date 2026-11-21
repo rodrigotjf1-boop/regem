@@ -4148,6 +4148,7 @@ export function testesDoMisterComPostgres(): void {
         c52: { periodo: 'este_mes', pessoa: 'Bruna' },
         c55: { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'kg' },
         c56: { acao: 'mudar_preco', produto: 'X-Bacon', canais: ['ifood'], precoNovo: 39.9 },
+        c57: { acao: 'mudar_horario', dias: ['domingo'], abre: '19:00', fecha: '23:30' },
         c54: { acao: 'criar_imagem', proporcao: '9:16', pedidoDaImagem: "Cartaz vertical da terça do smash. Foto de um smash duplo com batata, fundo escuro, luz quente. Texto exato: \"TERÇA DO SMASH\" e \"Smash duplo + batata · R$ 29,90\"." },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
@@ -4201,18 +4202,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 56 de 56, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 57 de 57, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(56);
+        expect(r.total).toBe(57);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 56, acertos: 56, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 57, acertos: 57, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 56, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 56, acertos: 56, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 57, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 57, acertos: 57, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4232,7 +4233,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 55 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 56 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -9854,6 +9855,88 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from perfil_acesso where id = $1`, [perfilDoPreco]);
           await q(`delete from produto_variacao where produto_id = $1`, [comVariacao]);
           await q(`delete from produto where id = any($1::uuid[])`, [[prod, comVariacao]]);
+        }
+      });
+
+      it('lote 9: o horário da loja — só com o PIN, muda só os dias pedidos, sem regravar o resto, e recusa o que fecharia a loja', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const pinsAntes = await q(`select id, pin_hash from colaborador where id = $1`, [pessoa.ana]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        const [antes] = await q(`select id, horarios, horarios_retirada, horario_unico, subtitulo from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
+        let criada: string | null = null;
+        if (!antes) criada = (await q(`insert into cardapio_config (tenant_id, token, ativo) values ($1, $2, true) returning id::text as id`, [A, `tok-${randomUUID()}`]))[0].id;
+        const idDaConfig = antes?.id ?? criada;
+        const SEMANA = [
+          { dia: 0, abre: '18:00', fecha: '23:00', ativo: true },
+          { dia: 5, abre: '18:00', fecha: '02:00', ativo: true },
+        ];
+        const pôr = (h: unknown, r: unknown = [], unico = true) =>
+          q(`update cardapio_config set horarios = $2::jsonb, horarios_retirada = $3::jsonb, horario_unico = $4 where id = $1`, [idDaConfig, JSON.stringify(h), JSON.stringify(r), unico]);
+        const ler = async () => (await q(`select horarios, horarios_retirada, subtitulo from cardapio_config where id = $1`, [idDaConfig]))[0];
+        const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+        const en = { acao: 'mudar_horario', dias: ['domingo'], abre: '19:00', fecha: '23:30' };
+        try {
+          await pôr(SEMANA);
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          const r = await ferramentas.executar(e, 'propor_acao', en);
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toContain('Domingo de 18:00 às 23:00 para 19:00 às 23:30');
+          expect(r.mensagens).toBeUndefined();
+          expect(r.proposta).toMatchObject({ procedimento: 'mudar_horario', nivel: 'pin', botoes: [] });
+          expect((await ler()).horarios).toEqual(SEMANA);
+          // A página mostra o de → para.
+          const c = codigo(await propostasDasAcoes.enviarLink(r.proposta!.id, pessoa.ana, tel, r.proposta!.pergunta));
+          const vista = await propostasDasAcoes.verPeloLink(c);
+          expect(vista).toMatchObject({ titulo: 'Mudar o horário da loja?', valor: null, botao: 'Autorizar a mudança' });
+          expect(vista.itens[0]).toBe('Domingo: de 18:00 às 23:00 para 19:00 às 23:30.');
+          // Outra pessoa muda outro campo depois da pergunta: o horário não regrava a linha inteira.
+          await q(`update cardapio_config set subtitulo = 'mudado ao lado' where id = $1`, [idDaConfig]);
+          await propostasDasAcoes.autorizarPeloLink(c, '2580');
+          const fim = await esperarFim(r.proposta!.id);
+          expect(fim).toMatchObject({ situacao: 'feita', resultado: 'O horário ficou assim: Domingo 19:00 às 23:30. Vale no cardápio digital.' });
+          const depois = await ler();
+          expect(depois.horarios).toEqual([{ dia: 0, abre: '19:00', fecha: '23:30', ativo: true }, SEMANA[1]]);
+          expect(depois.subtitulo).toBe('mudado ao lado');
+          expect(auditados.find((x) => x.acao === 'mudou_horario_da_loja' && x.entidadeId === idDaConfig)).toMatchObject({
+            atorId: pessoa.ana,
+            detalhe: { conjunto: 'unico', dias: [{ dia: 'Domingo', de: '18:00 às 23:00', para: '19:00 às 23:30' }] },
+          });
+          // Igual ao de hoje: nem abre proposta.
+          expect((await ferramentas.executar(e, 'propor_acao', en)).dados.erro).toBe(TEXTOS_DAS_ACOES.horarioIgual);
+          // A lista vazia é "sempre aberta": um dia só fecharia os outros seis.
+          await pôr([]);
+          expect(String((await ferramentas.executar(e, 'propor_acao', en)).dados.erro)).toContain('ainda não tem o horário da semana');
+          // Fechar todos os dias abertos deixaria a loja sempre fechada.
+          await pôr(SEMANA);
+          expect(String((await ferramentas.executar(e, 'propor_acao', { acao: 'mudar_horario', dias: ['domingo', 'sexta'], fechado: true })).dados.erro)).toContain('sem nenhum dia aberto');
+          // A semana mudou entre a pergunta e o PIN: a recusa vale na gravação, e nada muda.
+          const r2 = await ferramentas.executar(e, 'propor_acao', { acao: 'mudar_horario', dias: ['domingo'], fechado: true });
+          const c2 = codigo(await propostasDasAcoes.enviarLink(r2.proposta!.id, pessoa.ana, tel, r2.proposta!.pergunta));
+          await pôr([SEMANA[0]]);
+          await propostasDasAcoes.autorizarPeloLink(c2, '2580');
+          expect((await esperarFim(r2.proposta!.id)).situacao).toBe('nao_deu');
+          expect((await ler()).horarios).toEqual([SEMANA[0]]);
+          // Horário separado: pede qual e muda só aquele.
+          await pôr(SEMANA, [{ dia: 0, abre: '11:00', fecha: '15:00', ativo: true }], false);
+          expect((await ferramentas.executar(e, 'propor_acao', en)).dados.erro).toBe(TEXTOS_DAS_ACOES.horarioPedeQual);
+          const r3 = await ferramentas.executar(e, 'propor_acao', { ...en, horarioDe: 'retirada' });
+          const c3 = codigo(await propostasDasAcoes.enviarLink(r3.proposta!.id, pessoa.ana, tel, r3.proposta!.pergunta));
+          await propostasDasAcoes.autorizarPeloLink(c3, '2580');
+          expect((await esperarFim(r3.proposta!.id)).situacao).toBe('feita');
+          const separado = await ler();
+          expect(separado.horarios).toEqual(SEMANA);
+          expect(separado.horarios_retirada).toEqual([{ dia: 0, abre: '19:00', fecha: '23:30', ativo: true }]);
+          // Sem o acesso à Loja, o gerente não muda o horário.
+          const telC = telefone();
+          await ligar('carlos', telC, A, 'gerente');
+          const g = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
+          const semLoja = { ...g, permissoes: { ...g.permissoes, loja: false } } as any;
+          expect(await ferramentas.executar(semLoja, 'propor_acao', en)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoHorario } });
+        } finally {
+          for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
+          if (criada) await q(`delete from cardapio_config where id = $1`, [criada]);
+          else await q(`update cardapio_config set horarios = $2::jsonb, horarios_retirada = $3::jsonb, horario_unico = $4, subtitulo = $5 where id = $1`, [idDaConfig, JSON.stringify(antes.horarios), JSON.stringify(antes.horarios_retirada), antes.horario_unico, antes.subtitulo]);
         }
       });
 

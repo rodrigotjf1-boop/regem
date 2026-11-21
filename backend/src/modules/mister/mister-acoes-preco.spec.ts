@@ -12,8 +12,8 @@ const base: MudancaDePreco = {
 };
 
 describe('Mister · ações (lote 8) — o preço por canal', () => {
-  it('é a única ação de PIN até aqui, pela permissão da rota e com "Ver valores em R$"', () => {
-    expect(ACOES_DE_PIN).toEqual(['mudar_preco']);
+  it('é de PIN, pela permissão da rota e com "Ver valores em R$"', () => {
+    expect(ACOES_DE_PIN).toContain('mudar_preco');
     expect(ACOES.mudar_preco).toMatchObject({ nivel: 'pin', permissao: 'loja', prazoMin: 15, pedeVerValores: true });
     expect(sigaDaAcao('mudar_preco')).toContain('Abrir no Regem');
     expect(sigaDaAcao('mudar_preco')).toContain('nunca peça o PIN na conversa');

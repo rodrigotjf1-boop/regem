@@ -32,6 +32,8 @@ import {
   reaisDaAcao,
   canaisComOPreco,
   type MudancaDePreco,
+  resumoDoHorario,
+  type MudancaDeHorario,
   sigaDaAcao,
   nomeDoEstadoDaTarefa,
   nomesDosCanais,
@@ -49,6 +51,16 @@ import { GraphImagemService } from '../graph/graph-imagem.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { ifoodPeloOrzuniLigado } from '../../common/ifood-pelo-orzuni';
 import { precosNa99Ligado } from '../../common/precos-na-99';
+import {
+  NOMES_DOS_DIAS,
+  gravarHorariosDosDias,
+  mesmaJanela,
+  recusaDoHorario,
+  situacaoDoDia,
+  textoDaJanela,
+  type ColunaDoHorario,
+  type JanelaDoDia,
+} from '../../common/horarios-da-loja';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -128,7 +140,8 @@ export class MisterAcoesService implements OnModuleInit {
       const c = conferirAcao(en.acao, en);
       if ('erro' in c) return recusa(c.erro);
       const def = ACOES[c.parametros.acao];
-      if (!podeFazer(e, def)) return recusa(def.pedeVerValores ? TEXTOS_DAS_ACOES.semPermissaoPreco : semPermissaoDe(def.permissao));
+      if (!podeFazer(e, def))
+        return recusa(def.id === 'mudar_horario' ? TEXTOS_DAS_ACOES.semPermissaoHorario : def.pedeVerValores ? TEXTOS_DAS_ACOES.semPermissaoPreco : semPermissaoDe(def.permissao));
       if (c.parametros.acao === 'criar_imagem' && !imagemLigada()) return recusa(TEXTOS_DAS_ACOES.imagemDesligada);
       // A de PIN vai pelo link, que também sai pela conexão por QR Code (escrito na mensagem).
       if (def.nivel === 'botao' && this.numero && (await this.numero.ler()).provedor === 'evolution') return recusa(TEXTOS_DAS_ACOES.semBotao);
@@ -229,13 +242,24 @@ export class MisterAcoesService implements OnModuleInit {
         resumo = resumoDoPreco(m.mudanca);
         alvo = m.id;
       }
+      if (c.parametros.acao === 'mudar_horario') {
+        // Lote 9: uma proposta por cardápio e horário. Pedir outro troca a anterior, e o link dela para de valer.
+        const h = await this.prepararHorario(e, c.parametros, unidadeId);
+        if ('erro' in h) return recusa(h.erro);
+        unidadeId = h.unidadeDoCardapio ?? unidadeId;
+        parametros.unidadeDoCardapio = h.unidadeDoCardapio;
+        parametros.coluna = h.coluna;
+        parametros.mudancaDeHorario = h.mudanca;
+        resumo = resumoDoHorario(h.mudanca);
+        alvo = `${h.unidadeDoCardapio ?? 'empresa'}:${h.coluna}`;
+      }
       // M6l: cada pedido de imagem é um alvo (o mesmo pedido repetido é a mesma proposta e não paga de novo).
       if (c.parametros.acao === 'criar_imagem') alvo = `${c.parametros.proporcao}:${c.parametros.pedido}`;
       const p = await this.gravar(e, c.parametros.acao, unidadeId, parametros, `${alvo}:${unidadeId ?? 'empresa'}`);
       if (!p) return recusa('Essa mesma ação já foi autorizada e está em andamento; o resultado chega na conversa.');
       if (def.nivel === 'pin') {
         // A de PIN sai com o link "Abrir no Regem", depois da resposta (o agente chama `enviarLinkDaProposta`), nunca com botões.
-        const proposta: PropostaPendente = { id: p.id, procedimento: c.parametros.acao, nivel: 'pin', pergunta: TEXTOS_DAS_ACOES.linkDoPreco(resumo, horaNoFuso(new Date(p.venceEm))), botoes: [] };
+        const proposta: PropostaPendente = { id: p.id, procedimento: c.parametros.acao, nivel: 'pin', pergunta: TEXTOS_DAS_ACOES.linkDaAcao(resumo, horaNoFuso(new Date(p.venceEm))), botoes: [] };
         return { ok: true, dados: { oQueVouFazer: resumo, siga: sigaDaAcao(c.parametros.acao) }, proposta };
       }
       return {
@@ -493,6 +517,94 @@ export class MisterAcoesService implements OnModuleInit {
     return { feita: false, texto: TEXTOS_DAS_ACOES.precoEmParte(nome, preco, ondeOProduto(certos), ondeOProduto(a.canais.filter((c) => !certos.includes(c))), motivo) };
   }
 
+  /**
+   * Lote 9: o cardápio da loja (a MESMA escolha da pausa do cardápio), qual horário muda e como cada dia está hoje. Recusa aqui
+   * o que daria efeito errado: a loja sem a semana cadastrada (lista vazia é "sempre aberta") e a semana sem nenhum dia aberto.
+   */
+  private async prepararHorario(
+    e: EscopoDoMister,
+    a: { dias: number[]; janela: JanelaDoDia | null; horarioDe: 'entrega' | 'retirada' | null },
+    unidadeAtual: string | null,
+  ): Promise<{ unidadeDoCardapio: string | null; coluna: ColunaDoHorario; mudanca: MudancaDeHorario } | { erro: string }> {
+    if (!this.pausa) return { erro: 'O horário da loja não está disponível agora.' };
+    let cardapio: { tem: boolean; unidadeId: string | null };
+    try {
+      cardapio = await this.pausa.lojaDoCardapio(e.tenantId, unidadeAtual);
+    } catch {
+      return { erro: TEXTOS_DAS_ACOES.horarioPedeLoja };
+    }
+    if (!cardapio.tem) return { erro: TEXTOS_DAS_ACOES.horarioSemCardapio };
+    const [c] = linhas(
+      await this.db.execute(sql`
+        select cc.horarios, cc.horarios_retirada as "horariosRetirada", cc.horario_unico as "horarioUnico",
+               (select count(*)::int from unidade u where u.tenant_id = cc.tenant_id and u.deleted_at is null) as "quantasLojas"
+          from cardapio_config cc
+         where cc.tenant_id = ${e.tenantId}::uuid
+           and ${cardapio.unidadeId ? sql`cc.unidade_id = ${cardapio.unidadeId}::uuid` : sql`cc.unidade_id is null`}
+         order by cc.created_at
+         limit 1`),
+    );
+    if (!c) return { erro: TEXTOS_DAS_ACOES.horarioSemCardapio };
+    const unico = c.horarioUnico !== false;
+    if (!unico && !a.horarioDe) return { erro: TEXTOS_DAS_ACOES.horarioPedeQual };
+    const retirada = !unico && a.horarioDe === 'retirada';
+    const lista = retirada ? c.horariosRetirada : c.horarios;
+    const recusou = recusaDoHorario(lista, a.dias.map((dia) => ({ dia, janela: a.janela })));
+    if (recusou) return { erro: recusou };
+    const dias = a.dias.map((dia) => ({ dia, de: situacaoDoDia(lista, dia).janela, para: a.janela }));
+    if (dias.every((d) => mesmaJanela(d.de, d.para))) return { erro: TEXTOS_DAS_ACOES.horarioIgual };
+    const hoje = new Date(`${hojeISO()}T12:00:00Z`).getUTCDay();
+    return {
+      unidadeDoCardapio: cardapio.unidadeId,
+      coluna: retirada ? 'horarios_retirada' : 'horarios',
+      mudanca: {
+        dias,
+        conjunto: unico ? 'unico' : retirada ? 'retirada' : 'entrega',
+        loja: e.lojaUnica ? null : (e.lojas.find((l) => l.id === cardapio.unidadeId)?.nome ?? null),
+        todasAsLojas: !cardapio.unidadeId && Number(c.quantasLojas) > 1,
+        incluiHoje: dias.some((d) => d.dia === hoje),
+      },
+    };
+  }
+
+  /** Lote 9: grava só os dias pedidos (`gravarHorariosDosDias`), audita o "de → para" e confere pelo que ficou no banco. */
+  private async aplicarHorario(
+    p: { id: string; tenantId: string; unidadeId: string | null },
+    a: { unidadeDoCardapio?: string | null; coluna?: ColunaDoHorario; mudancaDeHorario?: MudancaDeHorario },
+    ator: { id: string; perfil: string },
+  ): Promise<{ feita: boolean; texto: string }> {
+    const m = a.mudancaDeHorario;
+    if (!m || !a.coluna) return { feita: false, texto: 'a mudança de horário veio incompleta. Nada foi feito.' };
+    const unidade = a.unidadeDoCardapio ?? null;
+    let gravado: { id: string; lista: any[] } | { erro: string };
+    try {
+      gravado = await gravarHorariosDosDias(this.db, p.tenantId, unidade, a.coluna, m.dias.map((d) => ({ dia: d.dia, janela: d.para })));
+    } catch (err: any) {
+      this.logger.error(`o horário da proposta ${p.id} não foi gravado: ${String(err?.message ?? err).slice(0, 200)}`, err?.stack);
+      return { feita: false, texto: 'não consegui gravar o horário agora. Nada foi feito.' };
+    }
+    if ('erro' in gravado) return { feita: false, texto: `${gravado.erro} Nada foi feito.` };
+    await this.auditoria
+      ?.registrar({
+        tenantId: p.tenantId,
+        unidadeId: unidade,
+        atorId: ator.id,
+        atorPerfil: ator.perfil,
+        tipo: 'delivery',
+        acao: 'mudou_horario_da_loja',
+        entidadeTipo: 'cardapio_config',
+        entidadeId: gravado.id,
+        detalhe: { conjunto: m.conjunto, dias: m.dias.map((d) => ({ dia: NOMES_DOS_DIAS[d.dia], de: textoDaJanela(d.de), para: textoDaJanela(d.para) })) },
+        origem: 'whatsapp',
+      } as any)
+      .catch(() => undefined);
+    const coluna = sql.raw(a.coluna === 'horarios_retirada' ? 'horarios_retirada' : 'horarios');
+    const [l] = linhas(await this.db.execute(sql`select ${coluna} as lista from cardapio_config where id = ${gravado.id}::uuid and tenant_id = ${p.tenantId}::uuid`));
+    const ficou = m.dias.every((d) => mesmaJanela(situacaoDoDia(l?.lista, d.dia).janela, d.para));
+    if (!ficou) return { feita: false, texto: TEXTOS_DAS_ACOES.horarioNaoFicou };
+    return { feita: true, texto: TEXTOS_DAS_ACOES.horarioFeito(m.dias.map((d) => `${NOMES_DOS_DIAS[d.dia]} ${textoDaJanela(d.para)}`).join('; ')) };
+  }
+
   /** Lote 7: o item de estoque pelo nome (o da ficha ou o comercial), da empresa ou das lojas da pessoa. */
   private async acharItem(tenantId: string, dito: string, lojas: string[] | null): Promise<{ id: string; nome: string; unidadeId: string | null; unidade: string } | { erro: string }> {
     const achados = linhas(
@@ -566,7 +678,7 @@ export class MisterAcoesService implements OnModuleInit {
     const e = await this.ferramentas.escopoDaTela(p.tenantId, quem);
     const def = ACOES[p.procedimento];
     if (!e || !podeFazer(e, def)) {
-      const a = def.pedeVerValores ? 'à mudança de preço' : def.permissao === 'meu_dia' ? 'às Tarefas' : def.permissao === 'loja' ? 'ao cadastro dos produtos' : def.permissao === 'estoque' ? 'ao lançamento do estoque' : 'ao Delivery';
+      const a = def.id === 'mudar_horario' ? 'às configurações da loja' : def.pedeVerValores ? 'à mudança de preço' : def.permissao === 'meu_dia' ? 'às Tarefas' : def.permissao === 'loja' ? 'ao cadastro dos produtos' : def.permissao === 'estoque' ? 'ao lançamento do estoque' : 'ao Delivery';
       return { feita: false, texto: `o seu perfil não dá mais acesso ${a}. Nada foi feito.` };
     }
     const parametros = p.parametros as ParametrosDaAcao & { pedidoId?: string; pedido?: string; instanciaId?: string; titulo?: string; produtoId?: string; nome?: string };
@@ -581,6 +693,7 @@ export class MisterAcoesService implements OnModuleInit {
     }
     if (parametros.acao === 'movimentar_estoque') return this.lancarEstoque(p, parametros as any, user);
     if (parametros.acao === 'mudar_preco') return this.aplicarPreco(p, parametros as any, { id: quem, perfil: e.nivel });
+    if (parametros.acao === 'mudar_horario') return this.aplicarHorario(p, parametros as any, { id: quem, perfil: e.nivel });
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };
