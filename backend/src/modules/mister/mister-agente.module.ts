@@ -44,6 +44,7 @@ import { MisterRecadosService } from './mister-recados.service';
 import { MisterRelatoriosService } from './mister-relatorios.service';
 import { MuralModule } from '../mural/mural.module';
 import { GraphModule } from '../graph/graph.module';
+import { PerfilClienteModule } from '../perfil-cliente/perfil-cliente.module';
 import { MisterMidiaService } from './mister-midia.service';
 import { MisterResumoArquivoService } from './mister-resumo-arquivo.service';
 import { MisterRelatorioController } from './mister-relatorio.controller';
@@ -97,6 +98,8 @@ import { MisterModule } from './mister.module';
     // Versão 6, M6j (lote 2): a tarefa e a pausa do produto pelos MESMOS serviços das telas.
     TarefaModule,
     ProdutoModule,
+    // Versão 6, M6j lote 6: os números dos clientes (o resumo de Delivery › Clientes).
+    PerfilClienteModule,
   ],
   // Os relatórios (mig 420) moram aqui: escrevem pelo mesmo agente das perguntas. As propostas (F4.1, mig 428) também:
   // os avisos as criam e elas executam pelos serviços das telas.

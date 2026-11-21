@@ -63,6 +63,7 @@ import { TEXTOS_DO_LINK_PUBLICO, VALIDADE_DO_LINK_DIAS, diaMesDe } from './miste
 import { MisterRecadosService } from './mister-recados.service';
 import { MisterMemoriaService } from './mister-memoria.service';
 import { MisterVigiaService } from './mister-vigia.service';
+import { MODULO_PERFIL, PerfilClienteService } from '../perfil-cliente/perfil-cliente.service';
 import { canalDito, referenciaDaImpressora, referenciaDoCaixa, referenciaDoCanal } from './mister-vigia';
 import { TEXTOS_DO_RECADO, VALIDADE_DO_RECADO_MIN, botaoDoRecado, ondeVai, textoDoRecado } from './mister-recado';
 import { ONDE_VER_O_GASTO, dentroDaJanelaDoWhatsapp, nomeDoMesDoGasto } from './mister-avisos.regras';
@@ -170,6 +171,16 @@ export interface EscopoDoMister {
 }
 
 /** Versão 6, M6d: as consultas que trazem dados de pessoas — esperam o PIN quando a sessão está pendente. */
+/** Versão 6, M6j lote 6: os grupos de clientes, com os nomes de Delivery › Clientes. */
+const GRUPOS_DE_CLIENTES: ReadonlyArray<[string, string]> = [
+  ['campeoes', 'Campeões'],
+  ['leais', 'Leais'],
+  ['recentes', 'Recentes'],
+  ['atencao', 'Precisam de atenção'],
+  ['em_risco', 'Em risco'],
+  ['inativos', 'Inativos'],
+];
+
 export const FERRAMENTAS_DE_PESSOAS: readonly string[] = ['equipe_do_dia', 'faltas_e_horas'];
 export const SESSAO_PEDE_PIN = 'Os dados das pessoas esperam o PIN: o link para confirmar vai logo depois desta resposta. Diga isso em uma frase.';
 
@@ -357,6 +368,8 @@ export class MisterFerramentasService {
     @Optional() private readonly memoria?: MisterMemoriaService,
     // Versão 4, M4d (mig 452): o "fica de olho" e o lembrete.
     @Optional() private readonly vigia?: MisterVigiaService,
+    // Versão 6, M6j lote 6: os números dos clientes. Sem ele, "não li".
+    @Optional() private readonly perfisDeClientes?: PerfilClienteService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -545,6 +558,8 @@ export class MisterFerramentasService {
         return this.contasAPagarEReceber(e, en, loja);
       case 'faltas_e_horas':
         return this.faltasEHoras(e, en, loja);
+      case 'clientes_em_numeros':
+        return this.clientesEmNumeros(e, loja);
       case 'como_usar_o_regem':
         return this.comoUsarORegem(e, en);
       case 'conversas_anteriores':
@@ -1443,6 +1458,30 @@ export class MisterFerramentasService {
       };
     } else dados.horas = { aviso: SEM_PERMISSAO };
     return { ok: true, dados };
+  }
+
+  private async clientesEmNumeros(e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    // Versão 6, M6j lote 6: só os NÚMEROS somados, pelo MESMO resumo de Delivery › Clientes (a permissão e o módulo da
+    // rota). Nome, telefone e endereço de cliente nunca passam por aqui.
+    if (!this.pode(e, 'delivery')) return recusa(SEM_PERMISSAO);
+    if (!this.perfisDeClientes) return recusa('Não consegui ler este dado agora.');
+    if (!(await this.modulos.ativo(e.tenantId, loja.atual, MODULO_PERFIL)))
+      return { ok: true, dados: { ligado: false, mensagem: 'O perfil de clientes não está ligado nesta empresa: ainda não há os grupos de clientes para contar.' } };
+    const r: any = await this.perfisDeClientes.resumo(e.tenantId);
+    const quando = r?.ultimaVolta?.rodou_em ? new Date(r.ultimaVolta.rodou_em) : null;
+    return {
+      ok: true,
+      dados: {
+        ligado: true,
+        abrangencia: 'a empresa inteira',
+        total: inteiro(r?.total),
+        grupos: GRUPOS_DE_CLIENTES.map(([k, grupo]) => ({ grupo, clientes: inteiro(r?.segmentos?.[k]) })),
+        olharamENaoPediram: inteiro(r?.olharam),
+        atualizadoEm: quando && !Number.isNaN(quando.getTime())
+          ? quando.toLocaleString('pt-BR', { timeZone: FUSO_OPERACAO, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+          : null,
+      },
+    };
   }
 
   private async vencimentosEVersoes(e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
