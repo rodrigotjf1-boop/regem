@@ -15,6 +15,9 @@
 - **Mister: as vendas pela conta oficial do Painel e a medida do atraso do Anota Aí (22/11; ERR-564; SEM migration).** Só na nuvem:
   vai no `.zip` sem efeito na loja (o Mister e o leitor do Anota Aí não rodam no servidor da loja).
 
+- **Pagar o entregador sem risco de pagar em dobro (22/11; ERR-565; SEM migration).** Só na nuvem: o módulo do entregador não roda no
+  servidor da loja.
+
 - **Perfil do cliente — só abre depois do aviso (22/11; mig 489 só nuvem; nasce DESLIGADO em `PERFIL_SO_COM_AVISO`).** Só na
   nuvem: vai no `.zip` sem efeito na loja. A tabela = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe` da próxima release leva).
 
