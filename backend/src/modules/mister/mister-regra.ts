@@ -224,6 +224,23 @@ export function nomeDoAvisoSubstituido(t: string): string {
   return etapa ? `${nome} (${NOME_DA_ETAPA[etapa] ?? etapa})` : nome;
 }
 
+/** O que deixa de chegar com a regra ligada: a pessoa precisa ler isto antes do Confirmar. */
+export function fraseDoQueDeixaDeChegar(substitui?: string[]): string | null {
+  if (!substitui?.length) return null;
+  const nomes = substitui.map((t) => `"${nomeDoAvisoSubstituido(t)}"`);
+  return `${nomes.length > 1 ? `Os avisos ${lista(nomes)} deixam` : `O aviso ${nomes[0]} deixa`} de chegar no seu WhatsApp enquanto a regra estiver ligada.`;
+}
+
+/**
+ * A IA pode resumir a proposta e deixar de fora que um aviso vai parar de chegar (a c59 da avaliação, 22/11). O código
+ * garante a frase: se a resposta não fala disso, ela entra no fim.
+ */
+export function comOQueDeixaDeChegar(texto: string, resultados: unknown[]): string {
+  if (/deixam? de chegar/i.test(texto)) return texto;
+  const frases = [...new Set(resultados.map((d: any) => d?.dizerAntesDoConfirmar).filter((f): f is string => typeof f === 'string' && !!f))];
+  return frases.length ? `${texto}\n\n${frases.join(' ')}` : texto;
+}
+
 /**
  * A regra que JUNTA pedidos parados ("só me avise quando acumular 3 em preparo há 20 min") fica no lugar do aviso um a um
  * da mesma etapa: juntar e continuar recebendo cada um não faz sentido. Vale só com a situação e o tempo nos filtros (uma
@@ -512,10 +529,8 @@ export function descreverRegra(r: Regra): string {
   if (r.medida === 'cada_item') partes.push(r.agrupar ? 'Os que aparecerem juntos vão numa mensagem só; cada um é avisado uma vez.' : 'Uma mensagem por item; cada um é avisado uma vez.');
   else partes.push(`Numa mensagem só, com a lista; enquanto continuar, de novo só depois de ${r.intervaloMin ?? LIMITES_DA_REGRA.intervaloPadraoMin} min e se a lista mudar.`);
   if (r.vezes === 'uma_vez') partes.push('Avisa uma vez e a regra se encerra.');
-  if (r.substitui?.length) {
-    const nomes = r.substitui.map((t) => `"${nomeDoAvisoSubstituido(t)}"`);
-    partes.push(`${nomes.length > 1 ? `Os avisos ${lista(nomes)} deixam` : `O aviso ${nomes[0]} deixa`} de chegar no seu WhatsApp enquanto a regra estiver ligada.`);
-  }
+  const deixaDeChegar = fraseDoQueDeixaDeChegar(r.substitui);
+  if (deixaDeChegar) partes.push(deixaDeChegar);
   return partes.join(' ');
 }
 
