@@ -13,7 +13,7 @@ const ENDERECO = 'R. Visconde de Pirajá, 414, sala 718 — Rio de Janeiro/RJ, C
 // simplesmente não renderiza — melhor omitir do que publicar número errado.
 const CNPJ = '67.748.508/0001-43';
 // Data da última revisão do texto. Atualize ao mexer no conteúdo.
-const ATUALIZADO_EM = '7 de novembro de 2026';
+const ATUALIZADO_EM = '21 de novembro de 2026';
 const CONTATO = 'suporte@dmsregem.com';
 
 // Política de Privacidade pública (LGPD). Mesmo padrão visual das outras páginas
@@ -54,7 +54,16 @@ const CSS = `
 .pv .contato p{margin-bottom:8px}
 .pv .contato a{color:#E8A845;font-weight:700}
 .pv footer{border-top:1px solid #1A3050;padding:24px;text-align:center;color:#7C8CA3;font-size:13px}
-@media(max-width:640px){.pv .sumario ol{grid-template-columns:1fr}}
+@media(max-width:640px){
+  .pv .sumario ol{grid-template-columns:1fr}
+  .pv table{min-width:0}
+  .pv table,.pv tbody,.pv tr,.pv td{display:block}
+  .pv thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  .pv tr{padding:10px 0;border-bottom:1px solid #1A3050}
+  .pv tbody tr:last-child{border-bottom:none}
+  .pv td{padding:3px 16px;border-bottom:none}
+  .pv td:first-child{color:#F2F5F9;font-weight:700}
+}
 `;
 
 type Secao = { id: string; t: string; corpo: React.ReactNode };
@@ -176,6 +185,14 @@ const SECOES: Secao[] = [
                   fidelidade
                 </td>
                 <td>Informado pelo próprio cliente ao pedir</td>
+              </tr>
+              <tr>
+                <td>Perfil de consumo</td>
+                <td>
+                  Hábitos calculados a partir dos pedidos diretos, o que o cliente vê e procura no
+                  cardápio e o que ele decide contar à loja
+                </td>
+                <td>Calculado pelo sistema ou informado pelo próprio cliente</td>
               </tr>
               <tr>
                 <td>Origem do pedido</td>
@@ -302,6 +319,27 @@ const SECOES: Secao[] = [
                 </td>
               </tr>
               <tr>
+                <td>
+                  Montar o perfil de consumo de quem pede direto na loja, quando a empresa liga o
+                  recurso, para sugerir produtos, atender melhor e escolher quem recebe cada
+                  promoção e quando
+                </td>
+                <td>
+                  Legítimo interesse da empresa (art. 7º, IX, e art. 10), com direito de oposição a
+                  qualquer momento
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  Guardar o que você decide contar à loja, como o nome pelo qual prefere ser chamado,
+                  seu time e suas preferências e, se você pedir, uma alergia
+                </td>
+                <td>
+                  Consentimento (art. 7º, I); para a alergia, consentimento específico e destacado
+                  (art. 11, I)
+                </td>
+              </tr>
+              <tr>
                 <td>Prestar suporte técnico e investigar incidentes</td>
                 <td>Legítimo interesse (art. 7º, IX)</td>
               </tr>
@@ -322,6 +360,37 @@ const SECOES: Secao[] = [
           campanhas contratada por ela para enviar essas mensagens; nesse caso a ferramenta recebe
           o seu contato e a sua escolha, e trabalha para a empresa.
         </p>
+        <h3>Perfil de consumo</h3>
+        <p>
+          Quando a loja liga este recurso, o sistema monta um perfil de quem pede direto nela, como
+          pelo cardápio online, pelo WhatsApp ou no balcão. Pedidos feitos pelo iFood e pela 99 não
+          entram.
+        </p>
+        <ul>
+          <li>
+            <strong>O que entra:</strong> o que você costuma pedir, os dias e horários habituais, a
+            frequência, quanto gasta, a forma de pagamento, as reclamações agrupadas por motivo, as
+            avaliações dos pedidos e se você costuma pedir em feriados, datas comemorativas, no
+            começo do mês ou em eventos da loja. Com as recomendações ligadas, entra também o que
+            você abre, adiciona e procura no cardápio.
+          </li>
+          <li>
+            <strong>Para que serve:</strong> sugerir produtos, ajudar a equipe e o robô a atender
+            você melhor e escolher quem recebe cada promoção da própria loja e em que momento.
+          </li>
+          <li>
+            <strong>O que o robô recebe:</strong> quando a loja usa o robô de atendimento, ele recebe
+            um resumo com o que você costuma pedir e quando, como prefere ser atendido e cuidados
+            como uma alergia que você pediu para guardar ou uma reclamação repetida.
+          </li>
+          <li>
+            <strong>Como recusar:</strong> no cardápio da loja, abra Sua conta › Perfil › Privacidade
+            e marque &quot;Não quero ser analisado&quot;, ou mande PRIVACIDADE no WhatsApp da loja
+            para receber o link. O perfil calculado é apagado na hora e não é refeito, e o robô e a
+            equipe passam a usar só o pedido em curso. No mesmo lugar você pode desligar apenas as
+            recomendações, e o que você viu no cardápio volta a ser anônimo.
+          </li>
+        </ul>
         <p>
           <strong>Não usamos seus dados para treinar modelos de inteligência artificial</strong> nem
           os disponibilizamos para esse fim por terceiros.
@@ -406,7 +475,8 @@ const SECOES: Secao[] = [
               <tr>
                 <td>Provedor de modelo de linguagem</td>
                 <td>
-                  Gerar as respostas do robô de atendimento, quando a empresa ativa o recurso
+                  Gerar as respostas do robô de atendimento, quando a empresa ativa o recurso,
+                  incluindo o resumo do perfil de consumo descrito acima
                 </td>
               </tr>
             </tbody>
@@ -417,7 +487,9 @@ const SECOES: Secao[] = [
           Quando a empresa assinante autoriza, uma ferramenta contratada por ela, como a de
           marketing, lê pela nossa API de integração os pedidos, os cupons e a origem dos pedidos da
           loja autorizada. Cada autorização vale só para aquela loja e aqueles dados, e a empresa
-          pode cancelá-la quando quiser. Nessa leitura, a ferramenta trabalha para a empresa.
+          pode cancelá-la quando quiser. Nessa leitura, a ferramenta trabalha para a empresa. Se a
+          empresa autorizar, a ferramenta também pode ver o tamanho dos públicos do perfil de
+          consumo, só em números, sem identificar nenhum cliente.
         </p>
         <p>
           Também podemos compartilhar dados para <strong>cumprir ordem judicial</strong> ou
@@ -453,6 +525,23 @@ const SECOES: Secao[] = [
           <li>
             <strong>Origem do pedido no cardápio:</strong> o código do clique é apagado em até 90
             dias; a campanha e o anúncio ficam com o pedido.
+          </li>
+          <li>
+            <strong>Perfil de consumo:</strong> enquanto você continuar pedindo. Depois de 12 meses
+            sem pedido direto na loja, ele é apagado automaticamente. Se você voltar a pedir, o
+            perfil é calculado de novo a partir do histórico de pedidos.
+          </li>
+          <li>
+            <strong>O que você contou à loja, inclusive uma alergia:</strong> é apagado
+            automaticamente quando se passam 12 meses sem pedido direto e sem você atualizar a
+            informação. Se voltar depois disso, avise a loja de novo sobre a alergia.
+          </li>
+          <li>
+            <strong>O que você vê e procura no cardápio:</strong> fica ligado a você por até 90 dias.
+          </li>
+          <li>
+            <strong>Suas escolhas de privacidade:</strong> guardamos o que foi escolhido e quando,
+            enquanto o cadastro existir, como prova de que a sua decisão foi respeitada.
           </li>
           <li>
             <strong>Trilha de auditoria:</strong> mantida de forma imutável pelo tempo necessário à
@@ -498,7 +587,11 @@ const SECOES: Secao[] = [
             implica;
           </li>
           <li>
-            <strong>opor-se</strong> a um tratamento feito com base em legítimo interesse.
+            <strong>opor-se</strong> a um tratamento feito com base em legítimo interesse;
+          </li>
+          <li>
+            pedir a <strong>revisão</strong> de decisões tomadas só por tratamento automatizado,
+            como a formação do perfil de consumo, e saber os critérios usados (art. 20).
           </li>
         </ul>
         <p>

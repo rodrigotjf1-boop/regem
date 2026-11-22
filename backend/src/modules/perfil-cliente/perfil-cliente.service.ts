@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs
 import { CalendarioDaLojaService } from './calendario-da-loja.service';
 import { calcularSensibilidadeDaEmpresa } from './sensibilidade-da-empresa';
 import { expurgarFunil, expurgarInteracoes, oQueOlha } from './interacoes-do-cardapio';
+import { expurgarPerfisVencidos, temPedidoDireto } from './retencao-do-perfil';
 import { sqlOlhouENaoPediu } from '../../common/interesse-do-cliente';
 import { Cron } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
@@ -94,7 +95,8 @@ export class PerfilClienteService {
 
   /**
    * A limpeza do cardápio (F4) — todo dia às 4h40, para todas as empresas: os cliques (mig 466) com mais de 90 dias e o
-   * funil anônimo (`cardapio_evento`, mig 196) com mais de 400 dias (o relatório do funil lê até 365). Cada uma sozinha.
+   * funil anônimo (`cardapio_evento`, mig 196) com mais de 400 dias (o relatório do funil lê até 365) e o perfil de quem
+   * passou de 12 meses sem pedido direto (`retencao-do-perfil.ts`). Cada uma sozinha.
    */
   @Cron('0 40 4 * * *', { timeZone: 'America/Sao_Paulo' })
   async expurgo(): Promise<void> {
@@ -110,6 +112,13 @@ export class PerfilClienteService {
       if (n) this.log.log(`funil do cardápio: ${n} eventos com mais de 400 dias apagados`);
     } catch (e: any) {
       this.log.warn(`funil do cardápio: a limpeza dos 400 dias falhou: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`);
+    }
+    try {
+      const n = await expurgarPerfisVencidos(this.db);
+      if (n.perfis || n.sensibilidades || n.declarados)
+        this.log.log(`perfil do cliente: prazo de 12 meses — ${n.perfis} perfis, ${n.sensibilidades} medidas e ${n.declarados} dados contados apagados`);
+    } catch (e: any) {
+      this.log.error(`perfil do cliente: a limpeza dos 12 meses falhou: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`, e?.stack);
     }
   }
 
@@ -211,9 +220,11 @@ export class PerfilClienteService {
         });
     // Quem pediu só pelo iFood/99 tem pedidos, mas não tem perfil (D1): a ficha diz por quê.
     const soPlataforma = !perfil && !naoAnalisar && Number(c.total_pedidos ?? 0) > 0;
+    // Tem pedido direto e ficou sem perfil: passou de 12 meses sem pedir (a ficha não pode dizer "só iFood/99").
+    const perfilApagado = !perfil && !naoAnalisar && (await temPedidoDireto(this.db, tenantId, clienteId));
     return {
       cliente: { id: c.id, nome: c.nome, telefone: c.telefone, desde: c.criado_em },
-      situacao: naoAnalisar ? 'nao_analisar' : perfil ? 'com_perfil' : soPlataforma ? 'so_plataforma' : 'sem_pedido',
+      situacao: naoAnalisar ? 'nao_analisar' : perfil ? 'com_perfil' : perfilApagado ? 'perfil_apagado' : soPlataforma ? 'so_plataforma' : 'sem_pedido',
       perfil,
       declarado,
       escolhas,

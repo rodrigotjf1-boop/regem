@@ -33,6 +33,8 @@ export const REGRAS_DO_PERFIL = {
   reclamacaoRecenteDias: 30,
   favoritos: 5,
   ultimasReclamacoes: 5,
+  /** O perfil vale enquanto o cliente pede + este prazo (§3.5 do plano). A política de privacidade diz o mesmo número. */
+  retencaoMeses: 12,
 } as const;
 
 /** O "o que pesou" da avaliação (mig 453, `OPCOES_DO_PESO`) → o motivo da reclamação. */
@@ -307,7 +309,7 @@ fim as (
     left join recl_ult ru on ru.cliente_id = r.cliente_id
     left join aval_res ar on ar.cliente_id = r.cliente_id
     left join pesa on pesa.cliente_id = r.cliente_id
-   where true ${soCliente}
+   where r.ultimo >= now() - make_interval(months => ${R.retencaoMeses}::int) ${soCliente}
 ),
 etq as (
   select f.cliente_id,

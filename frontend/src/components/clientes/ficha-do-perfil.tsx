@@ -116,6 +116,15 @@ export function FichaDoPerfil({ clienteId, nome, aoFechar }: { clienteId: string
           <p className="mt-1 text-muted-foreground">O perfil foi apagado e não se recalcula. O robô e a equipe usam só o pedido em curso.</p>
         </div>
       )}
+      {dados?.situacao === 'perfil_apagado' && (
+        <div className="rounded-lg border border-dashed border-border p-5 text-center text-sm">
+          <p className="font-semibold">O perfil foi apagado pelo prazo.</p>
+          <p className="mt-1 text-muted-foreground">
+            Este cliente está há mais de 12 meses sem pedido direto. O cadastro e os pedidos continuam. Se ele pedir de novo, o perfil volta a ser
+            calculado.
+          </p>
+        </div>
+      )}
       {dados?.situacao === 'sem_pedido' && (
         <p className="rounded-lg border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
           Ainda sem pedido direto: o perfil começa no primeiro pedido.

@@ -913,8 +913,9 @@ RegemCast). O perfil sai por **escopos novos, sensíveis, que a loja aceita na t
   planejar campanha e mídia.
 - `clientes.perfil.ler` — perfil **pseudonimizado** (id estável por parceiro, sem nome nem telefone): camadas de gosto,
   ritmo, evento — para os agentes do Liame (Estrategista, CRM, Analista).
-- `clientes.audiencias.exportar` — lista para público de anúncio, só de quem deu aceite de marketing, com o telefone
-  em hash SHA-256 (o formato que Meta e Google pedem para público personalizado) — **decisão jurídica antes**.
+- ~~`clientes.audiencias.exportar`~~ — **DESCARTADA pelo dono em 21/11/2026.** Era a lista para público de anúncio, com o
+  telefone em hash SHA-256. Nenhuma lista de clientes sai para a Meta ou o Google; a loja anuncia por região e interesse,
+  sem dado de cliente, e a promessa da política ("não usamos esses dados para publicidade") continua valendo.
 - Webhook "evento chegando" (amanhã: jogo, pagamento, chuva) com as contagens por segmento.
 
 **O que nunca sai para o Liame (nem agregado):** qualquer dado de iFood (cl. 16.3.3 proíbe passar a terceiros "mesmo de
