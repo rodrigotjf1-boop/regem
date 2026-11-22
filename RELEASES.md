@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Relatórios › Vendas com o mesmo faturado do Painel (22/11; ERR-564; SEM migration).** **Vale na loja:** a tela do servidor da loja só
+  muda com o próximo `.zip`. O "recebido" e a forma de pagamento continuam pelas comandas.
+
 - **Conta recorrente e resultado do pinpad sem duplicar (22/11; ERR-566; SEM migration).** **Vale na loja:** o financeiro e o TEF rodam no
   servidor da loja, então a correção só chega lá com o próximo `.zip`.
 

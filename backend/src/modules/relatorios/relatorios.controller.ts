@@ -30,7 +30,8 @@ export class RelatoriosController {
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.vendas(user.tenantId, inicio, fim, this.verFin(user), atual);
+    // A conta oficial, a mesma do Painel (ERR-564). O "recebido" e a forma de pagamento continuam vindo das comandas.
+    return this.service.vendasOficiais(user.tenantId, inicio, fim, this.verFin(user), atual);
   }
 
   @Get('produtos')

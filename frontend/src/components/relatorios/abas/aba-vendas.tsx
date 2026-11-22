@@ -37,7 +37,7 @@ export function AbaVendas({ inicio, fim, todas, chave, versao, verFin, acompanha
             <div className="space-y-5">
               <Indicadores
                 itens={[
-                  verFin && { rotulo: 'Faturado', valor: rs(r.faturado), apoio: 'sem a taxa de serviço' },
+                  verFin && { rotulo: 'Faturado', valor: rs(r.faturado), apoio: 'a mesma conta do Painel' },
                   { rotulo: 'Vendas', valor: r.vendas },
                   verFin && !semVendas && { rotulo: 'Ticket médio', valor: rs(r.ticketMedio) },
                   temGorjeta ? { rotulo: 'Gorjeta', valor: rs(r.gorjeta), apoio: 'repasse ao funcionário' } : { rotulo: 'Canceladas', valor: r.canceladas },
@@ -46,7 +46,7 @@ export function AbaVendas({ inicio, fim, todas, chave, versao, verFin, acompanha
               {/* A taxa de serviço passa pelo caixa mas não é receita da empresa (Lei 13.419/2017). */}
               {temGorjeta && (
                 <p className={`text-sm ${texto2}`}>
-                  O faturado de <b className="text-foreground">{rs(r.faturado)}</b> não inclui a gorjeta de <b className="text-foreground">{rs(r.gorjeta)}</b> — ela é repasse ao funcionário. Entrou no caixa{' '}
+                  O faturado de <b className="text-foreground">{rs(r.faturado)}</b> não inclui a gorjeta de <b className="text-foreground">{rs(r.gorjeta)}</b> — ela é repasse ao funcionário. Pelas comandas, entrou no caixa{' '}
                   <b className="text-foreground">{rs(r.recebido)}</b>.
                 </p>
               )}
@@ -59,7 +59,10 @@ export function AbaVendas({ inicio, fim, todas, chave, versao, verFin, acompanha
                   <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
                     <Bloco id="forma-titulo" titulo="Por forma de pagamento" acoes={<BotaoCsv nome="vendas-por-forma" linhas={(v.porForma ?? []).map((x: any) => ({ forma: x.forma, vendas: x.qtd, total: x.total }))} />}>
                       {(v.porForma ?? []).length ? (
-                        <Barras legenda="Vendas por forma de pagamento" linhas={v.porForma.map((x: any) => ({ rotulo: x.forma, valor: Number(x.total), texto: `${rs(x.total)} · ${x.qtd}` }))} />
+                        <div className="space-y-2">
+                          <p className={`text-xs ${texto2}`}>Soma das comandas fechadas, sem a taxa de entrega. Pode não bater com o faturado.</p>
+                          <Barras legenda="Vendas por forma de pagamento" linhas={v.porForma.map((x: any) => ({ rotulo: x.forma, valor: Number(x.total), texto: `${rs(x.total)} · ${x.qtd}` }))} />
+                        </div>
                       ) : (
                         <SemDados>Sem vendas neste período.</SemDados>
                       )}
