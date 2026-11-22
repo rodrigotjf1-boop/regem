@@ -63,6 +63,9 @@ export function lerPeriodoDoBanner(de: unknown, ate: unknown, n: number): { de: 
   return p;
 }
 
+/** Quantos banners o carrossel do cardápio aceita por empresa (a tela de Banners tem o mesmo número). */
+export const MAX_BANNERS = 6;
+
 export const TITULO_DO_BANNER_MAX = 60;
 export const CHAMADA_DO_BANNER_MAX = 90;
 export const DESCRICAO_DO_BANNER_MAX = 200;

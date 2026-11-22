@@ -613,6 +613,8 @@ body.tema-escuro .p-root.tpl-fluxo{--p-bg:#0B1620;--p-surf:#12212E;--p-card:#0F1
 .p-root .p-ban-d button{width:6px;height:6px;border-radius:3px;background:rgba(255,255,255,.75);transition:width .3s}
 .p-root .p-ban-d button.on{width:18px;background:#fff}
 .p-root .p-ban.na-capa{position:absolute;inset:0}
+/* Oferta: o logo sobe no centro da base da faixa; os pontos ficam no canto para não passarem por ele */
+.p-root .o-band .p-ban-d{left:14px;right:auto;justify-content:flex-start}
 .p-root .p-ban.solta{margin:12px 20px 0;height:140px;border-radius:var(--p-r);background:var(--p-art)}
 /* o texto por cima do banner (B2): legível em foto clara; na capa, fora do logo (que sobe sobre a base) e dos botões */
 .p-root .p-ban-t > *{position:relative}

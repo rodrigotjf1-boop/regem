@@ -53,11 +53,11 @@ const medir = (page) =>
 const texto = (page, sel = 'body') => page.evaluate((s) => document.querySelector(s)?.innerText.replace(/\s+/g, ' ') ?? '', sel);
 
 export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto, larguras }) {
-  async function abrir(w, situacaoIa = SITUACAO_IA) {
+  async function abrir(w, situacaoIa = SITUACAO_IA, inicial = BANNERS) {
     const enviados = [];
     const criados = [];
     const animados = [];
-    let lista = BANNERS();
+    let lista = inicial();
     const ctx = await nav.newContext({ viewport: { width: w, height: 900 }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), TOKEN);
     const page = await ctx.newPage();
@@ -188,7 +188,7 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
         `${w}px · "Usar este banner" salva a imagem, o GIF, o texto por cima e a descrição (${umaLinha(JSON.stringify(novo))})`,
       );
       ok(await page.getByRole('button', { name: 'Tirar a animação do banner 3' }).isVisible(), `${w}px · a linha do banner diz que o GIF está ligado e deixa tirar`);
-      ok((await page.getByRole('button', { name: '✨ Criar com IA' }).count()) === 0, `${w}px · com 3 banners o "Criar com IA" sai`);
+      ok((await page.getByRole('button', { name: '✨ Criar com IA' }).count()) === 1, `${w}px · com 3 banners o "Criar com IA" continua`);
       achados = await medir(page);
       ok(achados.length === 0, `${w}px · a linha do banner com o texto por cima, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
       ok(erros.length === 0, `${w}px · Banners: nenhum erro de script${erros.length ? ` (${umaLinha(erros.join(' | '))})` : ''}`);
@@ -197,6 +197,43 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
       await page.screenshot({ path: arquivoFoto(`erro-${w}.png`) }).catch(() => {});
     } finally {
       await ctx.close();
+    }
+  }
+
+  // O limite de 6: com 5 ainda entra mais um; com 6 os botões de criar saem, o aviso diz o limite e "Salvar" manda os 6 na ordem.
+  const VARIOS = (n) => () => Array.from({ length: n }, (_, i) => ({ id: `v${i + 1}`, imagemRef: IMG, titulo: `Banner ${i + 1}`, link: '', ativo: true, apareceDe: null, apareceAte: null }));
+  for (const w of larguras) {
+    {
+      const { ctx, page, erros } = await abrir(w, SITUACAO_IA, VARIOS(5));
+      try {
+        const mais = page.getByRole('button', { name: '＋ Banner' });
+        const ia = page.getByRole('button', { name: '✨ Criar com IA' });
+        ok((await mais.count()) === 1 && (await ia.count()) === 1, `${w}px · com 5 banners ainda dá para pôr mais um`);
+        await mais.click();
+        await page.getByLabel('Título do banner 6').waitFor({ timeout: 5000 });
+        const achados = await medir(page);
+        ok((await mais.count()) === 0 && (await ia.count()) === 0 && (await page.getByText('Máximo de 6 banners.').isVisible()) && achados.length === 0 && erros.length === 0, `${w}px · no 6º os botões de criar saem e o limite aparece, sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+      } catch (e) {
+        ok(false, `${w}px · com 5 banners (${umaLinha(String(e?.message ?? e))})`);
+      } finally {
+        await ctx.close();
+      }
+    }
+    {
+      const { ctx, page, erros, enviados } = await abrir(w, SITUACAO_IA, VARIOS(6));
+      try {
+        await page.getByRole('button', { name: 'Subir o banner 6' }).click();
+        await Promise.all([
+          page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/cardapio/banners') && r.request().method() === 'PUT', { timeout: 8000 }),
+          page.getByRole('button', { name: 'Salvar', exact: true }).click(),
+        ]);
+        const titulos = (enviados[0]?.banners ?? []).map((b) => b.titulo);
+        ok(titulos.join() === 'Banner 1,Banner 2,Banner 3,Banner 4,Banner 6,Banner 5' && erros.length === 0, `${w}px · "Salvar" manda os 6 na ordem escolhida (${umaLinha(titulos.join(', '))})`);
+      } catch (e) {
+        ok(false, `${w}px · com 6 banners (${umaLinha(String(e?.message ?? e))})`);
+      } finally {
+        await ctx.close();
+      }
     }
   }
 
@@ -238,7 +275,7 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
       const req = route.request();
       const p = new URL(req.url()).pathname.replace(/^.*\/api\/v1/, '');
       const raiz = `/publico/cardapio/${TOKEN_CARDAPIO}`;
-      if (p === raiz) return responder(route, { ...MENU, banners: [banner] });
+      if (p === raiz) return responder(route, { ...MENU, banners: Array.isArray(banner) ? banner : [banner] });
       if (p === `${raiz}/clube/regras`) return responder(route, { regras });
       if (p === `${raiz}/cliente`)
         return responder(route, { nome: 'Ana Souza', telefone: '21900000000', cliente: { nome: 'Ana Souza', telefone: '21900000000' }, enderecos: [], historico: [] });
@@ -271,6 +308,51 @@ export default async function roteiroBanners({ nav, base, ok, foto: arquivoFoto,
         if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`cardapio-texto-${tema}-${w}.png`) });
       } catch (e) {
         ok(false, `${w}px · ${tema}: o texto por cima (${umaLinha(String(e?.message ?? e))})`);
+      } finally {
+        await ctx.close();
+      }
+    }
+  }
+
+  // Os 6 banners no cardápio, nos 4 modelos: um ponto para cada, fora do logo e dos botões, e o último chega à tela.
+  const SEIS = Array.from({ length: 6 }, (_, i) => ({ imagemRef: IMG, titulo: `Banner ${i + 1}`, link: null }));
+  for (const w of larguras) {
+    for (const tema of ['oferta', 'balcao', 'fluxo', 'galeria']) {
+      const { ctx, page, erros } = await abrirCardapio(w, null, [], SEIS, tema, tema === 'galeria' ? '.g-dots' : '.p-ban-d');
+      try {
+        if (tema !== 'galeria') await page.locator('.p-ban-d button').nth(5).click();
+        const r = await page.evaluate(async (galeria) => {
+          const espera = (ms) => new Promise((f) => setTimeout(f, ms));
+          const bate = (a, c) => a.left < c.right && a.right > c.left && a.top < c.bottom && a.bottom > c.top;
+          const pai = document.querySelector(galeria ? '.g-slide' : '.p-ban');
+          const imagens = [...document.querySelectorAll(galeria ? '.g-slide img' : '.p-ban img')];
+          const pontos = [...document.querySelectorAll(galeria ? '.g-dots i' : '.p-ban-d button')];
+          if (galeria) {
+            const pista = pai.parentElement;
+            pista.scrollTo({ left: pista.scrollWidth, behavior: 'instant' });
+          }
+          await espera(galeria ? 250 : 700);
+          const area = (galeria ? pai.parentElement : pai).getBoundingClientRect();
+          const ultima = imagens[5]?.getBoundingClientRect();
+          const caixas = pontos.map((p) => p.getBoundingClientRect());
+          return {
+            imagens: imagens.length,
+            pontos: pontos.length,
+            ativo: pontos.findIndex((p) => p.classList.contains('on')),
+            naTela: !!ultima && ultima.left >= area.left - 1 && ultima.right <= area.right + 1,
+            pontosFora: caixas.filter((c) => c.left < 0 || c.right > document.documentElement.clientWidth).length,
+            batem: [...document.querySelectorAll('.b-logo, .o-logo, .ac-fab')].filter((o) => caixas.some((c) => bate(c, o.getBoundingClientRect()))).map((o) => o.className),
+          };
+        }, tema === 'galeria');
+        const achados = await medir(page);
+        ok(r.imagens === 6 && r.pontos === 6 && r.ativo === 5 && r.naTela && r.pontosFora === 0 && r.batem.length === 0 && achados.length === 0 && erros.length === 0, `${w}px · ${tema}: 6 banners, 6 pontos e o último na tela (${umaLinha(JSON.stringify({ ...r, achados, erros }))})`);
+        if (w === 390 || w === 1440) {
+          await page.evaluate(() => document.querySelector('.p-scroll')?.scrollTo(0, 0));
+          await page.screenshot({ path: arquivoFoto(`cardapio-seis-${tema}-${w}.png`) });
+        }
+      } catch (e) {
+        ok(false, `${w}px · ${tema}: os 6 banners (${umaLinha(String(e?.message ?? e))})`);
+        await page.screenshot({ path: arquivoFoto(`cardapio-seis-${tema}-${w}-erro.png`) }).catch(() => {});
       } finally {
         await ctx.close();
       }

@@ -157,4 +157,17 @@ descrever('o destino e o período do banner (Postgres)', () => {
     const m: any = await cardapio.menu(l.token);
     expect(m.banners.map((b: any) => b.titulo)).toEqual(['Hoje']);
   });
+
+  it('aceita até 6 banners, na ordem, e o cardápio mostra os 6; o 7º não entra', async () => {
+    const l = await loja();
+    const varios = (n: number) => Array.from({ length: n }, (_, i) => ({ imagemRef: IMG, titulo: `B${i + 1}` }));
+    const seis = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6'];
+    const lista = await cardapio.setBanners(l.t, l.u, varios(6));
+    expect(lista.map((b: any) => [b.titulo, b.ordem])).toEqual(seis.map((t, i) => [t, i]));
+    const m: any = await cardapio.menu(l.token);
+    expect(m.banners.map((b: any) => b.titulo)).toEqual(seis);
+    const comSete = await cardapio.setBanners(l.t, l.u, varios(7));
+    expect(comSete.map((b: any) => b.titulo)).toEqual(seis);
+    expect(await q(`select count(*)::int as n from banner where tenant_id = $1`, [l.t])).toEqual([{ n: 6 }]);
+  });
 });
