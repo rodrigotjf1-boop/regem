@@ -597,7 +597,12 @@ export function situacaoDoPedidoParado(p: PedidoParado, loja: string): Situacao 
   if (p.status === 'novo')
     return { ...base, titulo: `${loja} · ${pedido} sem aceite ${tempo}`, detalhe: `Aceite ou recuse ${noGuia('aceitar-avancar', 'AVANÇAR')}.` };
   if (p.status === 'confirmado')
-    return { ...base, titulo: `${loja} · ${pedido} aceito ${tempo} e ainda não ficou pronto`, detalhe: 'Confira na cozinha se ele está sendo feito.' };
+    // "Consta": o Regem só sabe a situação que o canal ou o painel informou. O pedido pode já ter saído sem ninguém marcar.
+    return {
+      ...base,
+      titulo: `${loja} · ${pedido} aceito ${tempo} e ainda consta em produção`,
+      detalhe: `Se já saiu, atualize ${noGuia('aceitar-avancar', 'AVANÇAR')}. Se não saiu, confira na cozinha.`,
+    };
   return { ...base, titulo: `${loja} · ${pedido} pronto ${tempo} sem sair para a entrega`, detalhe: `Confira o entregador e despache ${noGuia('aceitar-avancar', 'Despachar')}.` };
 }
 

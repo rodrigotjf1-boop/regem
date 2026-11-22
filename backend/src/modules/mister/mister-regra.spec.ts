@@ -5,6 +5,7 @@ import {
   QuemFazARegra,
   Regra,
   avaliarRegra,
+  chaveDaRegra,
   conferirRegra,
   descreverRegra,
   lerBotaoDaRegra,
@@ -145,6 +146,47 @@ describe('a descrição (o código escreve)', () => {
     expect(b).toContain('só no dia 25/11/2026');
     expect(b).toContain('olhando às 16:00');
     expect(b).toContain('Avisa uma vez e a regra se encerra.');
+  });
+});
+
+describe('a regra que junta os pedidos parados fica no lugar do aviso um a um (ERR-561)', () => {
+  const { substitui: _, ...semSubstitui } = TRES_PARADOS;
+  const com = (mudar: Record<string, unknown>) => ok({ ...semSubstitui, ...mudar });
+  const situacao = (valor: unknown, op = '=') => [
+    { campo: 'situacao', op, valor },
+    { campo: 'min_desde_aceite', op: '>=', valor: 20 },
+  ];
+
+  it('sem dizer nada, cala só a etapa da regra e diz isso antes do Confirmar', () => {
+    const r = ok(semSubstitui);
+    expect(r.substitui).toEqual(['pedido_parado:confirmado']);
+    expect(descreverRegra(r)).toContain('O aviso "pedido parado (em preparo)" deixa de chegar no seu WhatsApp');
+    expect(com({ filtros: situacao(['aguardando_aceite', 'em_preparo'], 'em') }).substitui).toEqual(['pedido_parado:novo', 'pedido_parado:confirmado']);
+    expect(com({ filtros: situacao(['aguardando_aceite', 'em_preparo', 'pronto'], 'em') }).substitui).toEqual(['pedido_parado']);
+  });
+
+  it('não cala nada quando a regra não fala de pedido parado ou a pessoa quer os dois', () => {
+    expect(com({ filtros: [{ campo: 'situacao', op: '=', valor: 'em_preparo' }] }).substitui).toBeUndefined(); // volume, sem tempo
+    expect(com({ filtros: situacao('a_caminho') }).substitui).toBeUndefined();
+    expect(com({ medida: 'cada_item', condicao: null }).substitui).toBeUndefined();
+    expect(com({ agrupar: false }).substitui).toBeUndefined();
+    expect(com({ condicao: { op: '<', valor: 3 } }).substitui).toBeUndefined();
+    expect(com({ substitui: [] }).substitui).toBeUndefined();
+  });
+
+  it('a etapa do aviso é conferida', () => {
+    expect(com({ substitui: ['pedido_parado:pronto'] }).substitui).toEqual(['pedido_parado:pronto']);
+    for (const t of ['pedido_parado:inventada', 'impressora:confirmado', 'pedido_parado:novo:x']) {
+      expect(conferir({ ...semSubstitui, substitui: [t] })).toEqual({ erro: expect.stringContaining('não é um aviso da empresa') });
+    }
+    expect(conferir({ ...semSubstitui, substitui: ['servidor_sem_sinal:novo'] })).toEqual({ erro: expect.stringContaining('crítico') });
+  });
+
+  it('duas regras que fazem o mesmo têm a mesma chave, com outro título, outra ordem ou outros avisos substituídos', () => {
+    const a = ok(TRES_PARADOS);
+    const b = ok({ ...TRES_PARADOS, titulo: 'Outro nome', filtros: [...TRES_PARADOS.filtros].reverse(), substitui: [] });
+    expect(chaveDaRegra(a)).toBe(chaveDaRegra(b));
+    expect(chaveDaRegra(a)).not.toBe(chaveDaRegra(ok({ ...TRES_PARADOS, condicao: { op: '>=', valor: 4 } })));
   });
 });
 

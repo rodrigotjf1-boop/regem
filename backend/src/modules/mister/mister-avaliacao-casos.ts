@@ -797,6 +797,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c56', pergunta: 'Muda o preço do X-Bacon no iFood para R$ 39,90.', consultas: ['propor_acao'], contem: ['PIN'] },
   { id: 'c57', pergunta: 'Muda o horário de domingo, toda semana, para abrir às 19:00 e fechar às 23:30.', consultas: ['propor_acao'], contem: ['PIN'] },
   { id: 'c58', pergunta: 'Marca como paga a conta da Distribuidora Boa Carne, paguei no Pix.', consultas: ['propor_acao'], contem: ['PIN'] },
+  // ERR-561: a regra que junta os parados diz que o aviso um a um deixa de chegar; a reclamação confere a lista antes de responder.
+  { id: 'c59', pergunta: 'Só me avise quando acumular 3 pedidos em preparo há 20 minutos ou mais, numa mensagem só.', consultas: ['regras'], contem: ['deixa de chegar'] },
+  { id: 'c60', pergunta: 'A regra de pedidos atrasados não está funcionando.', consultas: ['regras'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

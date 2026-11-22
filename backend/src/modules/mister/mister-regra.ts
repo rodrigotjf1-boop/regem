@@ -210,6 +210,58 @@ export const LIMITES_DA_REGRA = {
 /** Os avisos da empresa que NÃO se calam por regra pessoal (decisão V6-6): agrupar sim, calar não. */
 export const AVISOS_QUE_NAO_SE_CALAM = ['servidor_sem_sinal', 'certificado', 'chave_ia'] as const;
 
+/**
+ * As etapas do aviso "pedido parado": `pedido_parado:confirmado` cala só o aviso daquela etapa e `pedido_parado` cala as
+ * três. A regra de "em preparo" não pode calar o "sem aceite" nem o "pronto sem sair".
+ */
+const ETAPA_DA_SITUACAO: Record<string, string> = { aguardando_aceite: 'novo', em_preparo: 'confirmado', pronto: 'pronto' };
+const NOME_DA_ETAPA: Record<string, string> = { novo: 'sem aceite', confirmado: 'em preparo', pronto: 'pronto sem sair' };
+
+/** O aviso substituído em português: `pedido_parado:confirmado` → "pedido parado (em preparo)". */
+export function nomeDoAvisoSubstituido(t: string): string {
+  const [base, etapa] = String(t).split(':');
+  const nome = base.replace(/_/g, ' ');
+  return etapa ? `${nome} (${NOME_DA_ETAPA[etapa] ?? etapa})` : nome;
+}
+
+/**
+ * A regra que JUNTA pedidos parados ("só me avise quando acumular 3 em preparo há 20 min") fica no lugar do aviso um a um
+ * da mesma etapa: juntar e continuar recebendo cada um não faz sentido. Vale só com a situação e o tempo nos filtros (uma
+ * regra de volume, "mais de 10 em preparo", não fala de pedido parado). `substitui: []` na regra mantém os dois.
+ */
+function substituiPorPadrao(r: Pick<Regra, 'fonte' | 'medida' | 'agrupar' | 'filtros' | 'condicao'>): string[] {
+  if (r.fonte !== 'pedidos' || r.medida !== 'quantidade' || !r.agrupar) return [];
+  if (r.condicao?.op !== '>=' && r.condicao?.op !== '>') return [];
+  const temTempo = r.filtros.some((f) => ['min_desde_aceite', 'min_desde_chegada'].includes(f.campo) && (f.op === '>' || f.op === '>='));
+  const situacao = r.filtros.find((f) => f.campo === 'situacao' && (f.op === '=' || f.op === 'em'));
+  if (!temTempo || !situacao) return [];
+  const etapas = (Array.isArray(situacao.valor) ? situacao.valor : [situacao.valor]).map((v) => ETAPA_DA_SITUACAO[String(v)]);
+  if (!etapas.length || etapas.some((e) => !e)) return [];
+  return new Set(etapas).size === 3 ? ['pedido_parado'] : [...new Set(etapas)].map((e) => `pedido_parado:${e}`);
+}
+
+/** O que a regra FAZ, sem o título e sem os avisos que ela substitui: duas regras com a mesma chave são a mesma regra. */
+export function chaveDaRegra(r: Regra): string {
+  const filtros = (l?: Filtro[]) =>
+    [...(l ?? [])]
+      .map((f) => ({ campo: f.campo, op: f.op, valor: Array.isArray(f.valor) ? [...f.valor].map(String).sort() : f.valor }))
+      .sort((a, b) => `${a.campo}|${a.op}`.localeCompare(`${b.campo}|${b.op}`));
+  const q = r.quando ?? {};
+  return JSON.stringify({
+    fonte: r.fonte,
+    filtros: filtros(r.filtros),
+    algum: filtros(r.algum),
+    alvo: r.alvo?.id ?? null,
+    medida: r.medida,
+    campo: r.campoDaMedida ?? null,
+    condicao: r.condicao ?? null,
+    quando: [q.dias ?? null, q.de ?? null, q.ate ?? null, q.em ?? null, q.data ?? null, q.soNoExpediente === true],
+    vezes: r.vezes,
+    agrupar: r.agrupar,
+    intervaloMin: r.intervaloMin ?? null,
+  });
+}
+
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const DIA = /^\d{4}-\d{2}-\d{2}$/;
 const OPS_DO_TIPO: Record<TipoDoCampo, readonly Operador[]> = {
@@ -320,10 +372,15 @@ export function conferirRegra(bruta: unknown, quem: QuemFazARegra, substituivel:
   if (r.substitui !== undefined && r.substitui !== null) {
     if (!Array.isArray(r.substitui)) return { erro: '"substitui" tem de ser uma lista de avisos.' };
     for (const t of r.substitui) {
-      if ((AVISOS_QUE_NAO_SE_CALAM as readonly string[]).includes(t)) return { erro: 'Esse aviso da empresa é crítico: dá para juntar, mas não para deixar de receber.' };
-      if (!substituivel(String(t))) return { erro: `"${t}" não é um aviso da empresa que a regra possa substituir.` };
+      const [base, etapa, ...resto] = String(t).split(':');
+      if ((AVISOS_QUE_NAO_SE_CALAM as readonly string[]).includes(base)) return { erro: 'Esse aviso da empresa é crítico: dá para juntar, mas não para deixar de receber.' };
+      const etapaVale = etapa === undefined || (base === 'pedido_parado' && etapa in NOME_DA_ETAPA);
+      if (!substituivel(base) || !etapaVale || resto.length) return { erro: `"${t}" não é um aviso da empresa que a regra possa substituir.` };
     }
     substitui = [...new Set<string>(r.substitui.map(String))];
+  } else if (substituivel('pedido_parado')) {
+    const padrao = substituiPorPadrao({ fonte: fonte.nome, medida, agrupar, filtros, condicao });
+    if (padrao.length) substitui = padrao;
   }
   if (!filtros.length && !algum.length && !alvo && medida === 'cada_item' && fonte.nome !== 'vendas') {
     return { erro: 'Uma regra sem filtro avisaria de tudo. Diga o que conta (ex.: mais de 20 minutos).' };
@@ -453,6 +510,10 @@ export function descreverRegra(r: Regra): string {
   if (r.medida === 'cada_item') partes.push(r.agrupar ? 'Os que aparecerem juntos vão numa mensagem só; cada um é avisado uma vez.' : 'Uma mensagem por item; cada um é avisado uma vez.');
   else partes.push(`Numa mensagem só, com a lista; enquanto continuar, de novo só depois de ${r.intervaloMin ?? LIMITES_DA_REGRA.intervaloPadraoMin} min e se a lista mudar.`);
   if (r.vezes === 'uma_vez') partes.push('Avisa uma vez e a regra se encerra.');
+  if (r.substitui?.length) {
+    const nomes = r.substitui.map((t) => `"${nomeDoAvisoSubstituido(t)}"`);
+    partes.push(`${nomes.length > 1 ? `Os avisos ${lista(nomes)} deixam` : `O aviso ${nomes[0]} deixa`} de chegar no seu WhatsApp enquanto a regra estiver ligada.`);
+  }
   return partes.join(' ');
 }
 

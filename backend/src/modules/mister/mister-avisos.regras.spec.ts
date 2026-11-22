@@ -449,8 +449,8 @@ describe('Mister — o pedido parado', () => {
     });
     expect(situacaoDoPedidoParado({ ...pedido, status: 'confirmado' }, 'Loja Centro')).toMatchObject({
       chave: 'pedido:p1:confirmado',
-      titulo: 'Loja Centro · pedido #284 · iFood 4821 aceito há mais de 20 min e ainda não ficou pronto',
-      detalhe: 'Confira na cozinha se ele está sendo feito.',
+      titulo: 'Loja Centro · pedido #284 · iFood 4821 aceito há mais de 20 min e ainda consta em produção',
+      detalhe: expect.stringMatching(/^Se já saiu, atualize em .*"AVANÇAR"\. Se não saiu, confira na cozinha\.$/),
     });
     expect(situacaoDoPedidoParado({ ...pedido, status: 'pronto', parametro: 30 }, 'Loja Centro')).toMatchObject({
       chave: 'pedido:p1:pronto',

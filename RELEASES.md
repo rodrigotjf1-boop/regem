@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: a regra que junta os pedidos parados fica no lugar do aviso um a um, sem regra repetida (22/11; ERR-561; SEM migration).** Só
+  na nuvem: vai no `.zip` sem efeito na loja (o Mister não roda no servidor da loja).
+
 - **Cadastros › Cardápio — "Mostrar código PDV" (21/11; SEM migration).** Rota `PATCH /produtos/codigos-pdv` e a tela: chegam
   ao servidor da loja no próximo `.zip` (não toca `sync` nem `edge`: não pede `.exe`). Pela nuvem, valem no deploy.
 

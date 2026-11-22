@@ -262,7 +262,7 @@ export class MisterPadroesService implements OnModuleInit {
                  case when fonte = 'equipamentos' then 'impressora_antes_do_fechamento' else 'avisos_sem_resposta' end as k
             from mister_regra
            where ${em('tenant_id')} and situacao in ('ativa', 'pausada')
-             and (fonte = 'equipamentos' or 'pedido_parado' = any(substitui))`),
+             and (fonte = 'equipamentos' or exists (select 1 from unnest(substitui) s where s = 'pedido_parado' or s like 'pedido\_parado:%'))`),
       ).map((l) => String(l.k)),
     );
 
