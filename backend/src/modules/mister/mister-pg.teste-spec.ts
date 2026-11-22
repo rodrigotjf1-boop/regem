@@ -4150,6 +4150,23 @@ export function testesDoMisterComPostgres(): void {
         c56: { acao: 'mudar_preco', produto: 'X-Bacon', canais: ['ifood'], precoNovo: 39.9 },
         c57: { acao: 'mudar_horario', dias: ['domingo'], abre: '19:00', fecha: '23:30' },
         c58: { acao: 'pagar_conta', conta: 'Distribuidora Boa Carne', formaDePagamento: 'pix' },
+        c59: {
+          acao: 'propor',
+          regra: {
+            fonte: 'pedidos',
+            titulo: '3 pedidos em preparo há 20 min',
+            filtros: [
+              { campo: 'situacao', op: '=', valor: 'em_preparo' },
+              { campo: 'min_desde_aceite', op: '>=', valor: 20 },
+            ],
+            medida: 'quantidade',
+            condicao: { op: '>=', valor: 3 },
+            quando: {},
+            vezes: 'sempre',
+            agrupar: true,
+          },
+        },
+        c60: { acao: 'listar' },
         c54: { acao: 'criar_imagem', proporcao: '9:16', pedidoDaImagem: "Cartaz vertical da terça do smash. Foto de um smash duplo com batata, fundo escuro, luz quente. Texto exato: \"TERÇA DO SMASH\" e \"Smash duplo + batata · R$ 29,90\"." },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
@@ -4203,18 +4220,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 58 de 58, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 60 de 60, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(58);
+        expect(r.total).toBe(60);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 58, acertos: 58, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 60, acertos: 60, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 58, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 58, acertos: 58, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 60, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 60, acertos: 60, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4234,7 +4251,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 57 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 59 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -5663,7 +5680,7 @@ export function testesDoMisterComPostgres(): void {
         const titulos = (await avisosDe()).map((a: any) => a.titulo).sort();
         expect(titulos).toEqual([
           'Loja Centro · pedido #101 · iFood 9101 sem aceite há mais de 20 min',
-          'Loja Centro · pedido #103 · iFood 9103 aceito há mais de 20 min e ainda não ficou pronto',
+          'Loja Centro · pedido #103 · iFood 9103 aceito há mais de 20 min e ainda consta em produção',
           'Loja Centro · pedido #105 · iFood 9105 pronto há mais de 20 min sem sair para a entrega',
         ]);
         expect(numero.enviadas.map((m) => m.texto)).toEqual(expect.arrayContaining([expect.stringContaining('#101 · iFood 9101 sem aceite')]));
@@ -9065,8 +9082,8 @@ export function testesDoMisterComPostgres(): void {
         const ana = await regras.daTela(await escopo('ana'));
         expect(ana.souPresidente).toBe(true);
         expect(ana.regras.map((r) => [r.titulo, r.voce, r.fonte, r.deixaDeReceber, r.situacao])).toEqual([
-          ['Da Ana', true, 'Pedidos dos canais', ['pedido_parado'], 'ativa'],
-          ['Do Carlos', false, 'Pedidos dos canais', ['pedido_parado'], 'ativa'],
+          ['Da Ana', true, 'Pedidos dos canais', ['pedido parado'], 'ativa'],
+          ['Do Carlos', false, 'Pedidos dos canais', ['pedido parado'], 'ativa'],
         ]);
         expect(JSON.stringify(ana)).not.toContain('"regra"');
         const carlos = await regras.daTela(await escopo('carlos'));
@@ -9123,6 +9140,61 @@ export function testesDoMisterComPostgres(): void {
         numero.pedidos.length = 0;
         await avisos.volta([A]);
         expect(numero.enviadas.filter((m) => m.para === tel && /aceito há mais de 20 min/.test(m.texto)).length).toBeGreaterThan(0);
+      });
+
+      it('a regra de "em preparo" cala só o aviso dessa etapa, e a igual não nasce de novo (ERR-561)', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const e = await escopo('ana');
+        const { substitui: _s, ...semSubstitui } = TRES;
+        const r = await ferramentas.executar(e, 'regras', { acao: 'propor', regra: semSubstitui });
+        expect(r.dados).toMatchObject({ deixaDeReceber: ['pedido_parado:confirmado'] });
+        expect(String(r.dados.oQueVouFazer)).toContain('"pedido parado (em preparo)" deixa de chegar');
+        await regras.ativar(String(r.dados.id), A, pessoa.ana, true);
+        // pedir a mesma regra de novo, com outro nome, não cria outra nem manda botão
+        const denovo = await ferramentas.executar(e, 'regras', { acao: 'propor', regra: { ...semSubstitui, titulo: 'Outro nome' } });
+        expect(denovo).toMatchObject({ ok: true, dados: { jaExiste: true, id: r.dados.id } });
+        expect(denovo.botoes).toBeUndefined();
+        expect(await q(`select count(*)::int as n from mister_regra where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana])).toEqual([{ n: 1 }]);
+        // o pedido em preparo não avisa um a um; o "sem aceite" continua avisando
+        await q(
+          `insert into mister_aviso_regra (tenant_id, tipo, ligado, destinos, parametro) values ($1, 'pedido_parado', true, '{presidente}', 20)
+           on conflict (tenant_id, tipo) do update set ligado = true, destinos = '{presidente}', parametro = 20`,
+          [A],
+        );
+        await pedidoAceito(61, 30);
+        await q(
+          `insert into pedido_externo (tenant_id, unidade_id, canal, status, display_id, numero, criado_em)
+           values ($1, $2, 'ifood', 'novo', 'R6E62', 62, now() - interval '30 minutes')`,
+          [A, lojaDeA],
+        );
+        numero.pedidos.length = 0;
+        await avisos.volta([A]);
+        const recebidas = numero.enviadas.filter((m) => m.para === tel).map((m) => m.texto);
+        expect(recebidas.filter((t) => t.includes('#61'))).toHaveLength(0);
+        expect(recebidas.filter((t) => t.includes('#62') && t.includes('sem aceite'))).toHaveLength(1);
+      });
+
+      it('as cópias gravadas antes: a volta avisa uma vez só, e a regra nova que cala o aviso apaga as duas (ERR-561)', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const { substitui: _s, ...semSubstitui } = TRES;
+        const copia = async (titulo: string) =>
+          q(
+            `insert into mister_regra (tenant_id, colaborador_id, situacao, titulo, resumo, fonte, regra, substitui)
+             values ($1, $2, 'ativa', $3, 'o que faz', 'pedidos', $4::jsonb, '{}')`,
+            [A, pessoa.ana, titulo, JSON.stringify({ ...semSubstitui, titulo })],
+          );
+        await copia('Cópia 1');
+        await copia('Cópia 2');
+        for (const n of [71, 72, 73]) await pedidoAceito(n, 30);
+        numero.pedidos.length = 0;
+        expect(await regras.volta([A])).toMatchObject({ avaliadas: 1, avisos: 1 });
+        expect(numero.enviadas.filter((m) => m.para === tel)).toHaveLength(1);
+        const nova = await ferramentas.executar(await escopo('ana'), 'regras', { acao: 'propor', regra: { ...semSubstitui, intervaloMin: 45 } }); // o mesmo, com outro intervalo: troca, não soma
+        expect(nova.dados).toMatchObject({ deixaDeReceber: ['pedido_parado:confirmado'], ficaNoLugarDe: expect.stringContaining('Cópia') });
+        await regras.ativar(String(nova.dados.id), A, pessoa.ana, true);
+        expect(await q(`select id::text as id from mister_regra where tenant_id = $1 and colaborador_id = $2 and situacao = 'ativa'`, [A, pessoa.ana])).toEqual([{ id: nova.dados.id }]);
       });
 
       it('a conta uma hora antes: busca, alvo, olha uma vez às 16:00, avisa fora da janela pelo modelo e se encerra', async () => {

@@ -76,7 +76,7 @@ COMO VOCÊ TRABALHA
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu.
 - As perguntas anteriores desta conversa aparecem com a hora em que foram feitas e com as consultas feitas naquela hora. Você não vê mais o resultado daquelas consultas, só a sua resposta, e ela estava certa para aquele momento.
-- A loja segue vendendo. É normal o número de agora ser diferente do que você disse antes: diga o número de agora e, se ajudar, que ele mudou desde aquela hora. Não diga que errou, que inventou ou que respondeu sem consultar, e não peça desculpa por resposta antiga. Você só reconhece um erro seu quando a pergunta antiga está marcada "sem consulta" e a resposta dela trazia número.
+- A loja segue vendendo. É normal o número de agora ser diferente do que você disse antes: diga o número de agora e, se ajudar, que ele mudou desde aquela hora. Não diga que errou, que inventou ou que respondeu sem consultar, e não peça desculpa por resposta antiga. Você só reconhece um erro seu quando a pergunta antiga está marcada "sem consulta" e a resposta dela trazia número. O cabeçalho da pergunta antiga também traz as "ações feitas naquela hora" (regras, anotar o que falta, propor): a ação que está ali FOI feita. Nunca diga que não fez sem conferir pela ferramenta.
 - Para o que é "agora" ou "hoje", consulte de novo em vez de repetir o número antigo.
 - Você só consulta. Você não altera pedido, preço, estoque, cadastro nem configuração por conta própria, e não cancela nada. As ações que existem passam pelas ferramentas que PROPÕEM (abaixo) e só acontecem no botão ou no PIN de quem pediu. Se pedirem uma ação que não está nelas, diga que essa ação ainda não sai por aqui e, pelo guia de uso, onde e como ela é feita no Regem.
 - Fazer pelo WhatsApp (versão 6): pausar ou reabrir canais de venda (cardápio digital, iFood, 99); aceitar, marcar como pronto ou despachar um pedido; marcar uma tarefa de hoje como feita, parcial ou não feita (não feita pede o motivo: pergunte se faltar); criar uma tarefa para hoje (pede a função de quem faz: pergunte se faltar); pausar ou reativar um produto do cardápio — chame propor_acao com a ação e o que a pessoa disse. Pausar o canal pede o canal, o motivo e o tempo: se faltar o motivo ou o tempo, pergunte antes (motivos: muitos pedidos, falta de entregador, falta de ingrediente, problema na cozinha, sem energia ou internet, perto de fechar, ou outro com o texto; tempos: cardápio digital e iFood 15, 30 ou 60 min ou até uma hora; 99 10, 20 ou 30 min ou até o fim do dia). Mostre o "oQueVouFazer" como veio e diga que os botões "Autorizar" e "Não agora" chegam logo abaixo: nada é feito sem o "Autorizar". Nunca diga que fez. Se a ferramenta recusar, diga o motivo como veio.
@@ -153,7 +153,9 @@ AS REGRAS DE AVISO DE CADA PESSOA
 - Quando a pessoa disser como quer ser avisada de agora em diante ("só me avise se…", "me avisa quando…", "quero saber do tempo de despacho", "não quero mais ser avisado de…"), monte a regra com a ferramenta regras. Os exemplos que você conhece não são uma lista: qualquer combinação das fontes e dos campos da ferramenta vale. "Fica de olho" num pedido só e "me lembra às 10h de…" continuam sendo ficar_de_olho e lembrete.
 - Antes de propor, tenha todas as partes: o que observar (a fonte), quais itens (filtros), a medida e quando dispara, quando olhar e como avisar. Se faltar algo, pergunte em uma frase (ex.: a conta vence num dia, sem hora: "uma hora antes de que horário?"). Se a instrução pede um dado que nenhuma fonte tem, diga que ainda não dá e chame anotar_o_que_falta.
 - Uma conta ou uma tarefa pelo nome: chame regras com acao buscar e use o id que voltou. Tarefa não tem número: mostre a lista que a busca devolveu, numerada pela hora, e pergunte qual.
-- Quando a regra for ficar no lugar de um aviso da empresa que a pessoa recebe (ex.: os avisos de pedido parado, um por pedido), ponha o tipo do aviso em substitui.
+- A regra que junta pedidos parados numa mensagem ("só me avise quando acumular 3") fica no lugar do aviso um a um daquela etapa: o Regem marca isso sozinho e escreve no "oQueVouFazer". Não pergunte. Só passe substitui vazio se a pessoa pedir para continuar recebendo os dois. Para outro aviso da empresa, ponha o tipo dele em substitui.
+- Se propor voltar com jaExiste, a regra já está ligada: diga isso e mostre o "oQueFaz", sem montar outra. Se vier repetidas, ofereça apagar as cópias pelo id.
+- Quando a pessoa reclamar de uma regra ("não está funcionando", "não criou", "continua chegando"), chame regras com acao listar ANTES de responder e responda pelo que a lista mostra. Se a regra está na lista, ela foi criada: nunca diga o contrário.
 - Depois de propor, mostre o "oQueVouFazer" como a ferramenta devolveu e diga que os botões Confirmar e Mudar vão junto: nada fica ligado sem o Confirmar. Se a pessoa confirmar por escrito ("sim", "pode", "confirma"), chame regras com acao confirmar e o id.
 - "Minhas regras": acao listar. Para mudar uma regra, proponha a nova com substituiRegraId. Para apagar, pausar ou retomar, use o id da lista; apagar vai com o botão Apagar.
 
@@ -962,7 +964,11 @@ export function perguntaDaMemoria(t: TrocaDaMemoria): string {
   // A anotação do que falta não é consulta: a resposta que só anotou continua "sem consulta".
   const consultas = [...new Set(t.consultas.filter(ehConsulta).map(nomeDaConsulta))];
   const como = consultas.length ? `consultas feitas naquela hora: ${consultas.join(', ')}` : 'sem consulta';
-  return `[pergunta feita às ${t.hora} · ${como}]\n${t.pergunta}`;
+  // As ações também: sem elas o modelo via "sem consulta" numa resposta que criou uma regra, concluía que não tinha criado
+  // e criava outra igual (ERR-561).
+  const acoes = [...new Set(t.consultas.filter((n) => ehFerramenta(n) && !ehConsulta(n)).map(nomeDaConsulta))];
+  const feitas = acoes.length ? ` · ações feitas naquela hora: ${acoes.join(', ')}` : '';
+  return `[pergunta feita às ${t.hora} · ${como}${feitas}]\n${t.pergunta}`;
 }
 
 const CAMPOS_DA_ENTRADA = ['periodo', 'de', 'ate', 'dia', 'dias', 'loja', 'quantos', 'ordem', 'busca', 'pagina', 'numero', 'assunto', 'tema'] as const;
