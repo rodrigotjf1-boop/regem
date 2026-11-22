@@ -12,6 +12,7 @@ import {
   FERRAMENTA_FALAR,
   type ConfigGraph,
   type Franquia,
+  MOTIVO_ARGUMENTO_RECUSADO,
   PERMISSOES_DO_GRAPH,
   analiseDoGraph,
   chaveDaFoto,
@@ -20,6 +21,7 @@ import {
   lerConfigGraph,
   mimeDoGraph,
   motivoDaFalha,
+  recusouArgumento,
 } from './graph.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -122,6 +124,8 @@ export class GraphFotoService {
    * prazo, franquia, ligação desfeita e nunca lança. A tradução que devolve null = "fora do formato" (segue pela reserva).
    * M5b: `ferramenta` escolhe a da porta (a `ouvir_audio` para o áudio) e `aoFalhar` recebe o motivo curto de não ter lido
    * (`franquia-esgotada`, `demora`, `tipo-nao-aceito`, `ligacao-desfeita`…) — o áudio não tem reserva e diz por quê.
+   * V7d: `extras` são argumentos opcionais novos (`lerTom`). O Graph antigo os recusa: o motivo é `argumento-recusado`,
+   * sem registrar falha na ligação, e quem chamou repete sem eles.
    */
   async analisar<T>(
     tenantId: string,
@@ -129,7 +133,7 @@ export class GraphFotoService {
     foto: FotoParaOGraph,
     prazoMs: number,
     traduzir: (dados: unknown) => T | null,
-    opcoes: { mimes?: readonly string[]; prefixoDaChave?: string; ferramenta?: string; aoFalhar?: (motivo: string) => void } = {},
+    opcoes: { mimes?: readonly string[]; prefixoDaChave?: string; ferramenta?: string; aoFalhar?: (motivo: string) => void; extras?: Readonly<Record<string, unknown>> } = {},
   ): Promise<T | null> {
     const falhou = (motivo: string): null => {
       opcoes.aoFalhar?.(motivo);
@@ -150,6 +154,7 @@ export class GraphFotoService {
         mimeType: mime,
         arquivoBase64: foto.buffer.toString('base64'),
         chaveIdempotencia: chaveDaFoto(tenantId, foto.mensagemId, foto.buffer, opcoes.prefixoDaChave),
+        ...(opcoes.extras ?? {}),
       });
     } catch (e: any) {
       return falhou(await this.depoisDaFalha(tenantId, lig, e));
@@ -177,6 +182,7 @@ export class GraphFotoService {
       await this.registrarLeitura(lig.id, analise ? 'lida' : 'fora-do-formato', franquiaDe((r as any)?.franquia), !!analise);
       return analise ?? falhou('fora-do-formato');
     } catch (e: any) {
+      if (opcoes.extras && recusouArgumento(e)) return falhou(MOTIVO_ARGUMENTO_RECUSADO);
       return falhou(await this.depoisDaFalha(tenantId, lig, e));
     } finally {
       if (relogio) clearTimeout(relogio);
@@ -188,9 +194,18 @@ export class GraphFotoService {
    * `prazoMs`. Os bytes, ou null (a resposta segue só em texto). As mesmas regras do `analisar`: a chave da instalação e
    * da empresa, o prazo, a franquia do mês (a mesma) e a ligação desfeita; nunca lança. `aoFalhar` recebe o motivo curto
    * (`franquia-esgotada`, `demora`, `voz-desligada`, `fora-do-formato`…). A chave de idempotência é a de quem chama (a mesma
-   * resposta repetida não gasta de novo).
+   * resposta repetida não gasta de novo). V7d: `estilo` (contrato 1.7.0) só vai quando vier; sem ele, a chamada é a de antes.
+   * O Graph antigo recusa o `estilo` com `argumento-recusado`, e quem chamou repete sem ele.
    */
-  async falar(tenantId: string, lig: LigacaoDoGraph, texto: string, chave: string, prazoMs: number, aoFalhar?: (motivo: string) => void): Promise<Buffer | null> {
+  async falar(
+    tenantId: string,
+    lig: LigacaoDoGraph,
+    texto: string,
+    chave: string,
+    prazoMs: number,
+    aoFalhar?: (motivo: string) => void,
+    estilo?: { tom: string; risada: boolean } | null,
+  ): Promise<Buffer | null> {
     const falhou = (motivo: string): null => {
       aoFalhar?.(motivo);
       return null;
@@ -200,7 +215,7 @@ export class GraphFotoService {
     if (prazoMs < PRAZO_MINIMO_MS) return falhou('sem-prazo');
     let chamada: Promise<unknown>;
     try {
-      chamada = this.cliente(cfg, lig.segredo, prazoMs).chamar(FERRAMENTA_FALAR, { texto, chaveIdempotencia: chave });
+      chamada = this.cliente(cfg, lig.segredo, prazoMs).chamar(FERRAMENTA_FALAR, estilo ? { texto, chaveIdempotencia: chave, estilo } : { texto, chaveIdempotencia: chave });
     } catch (e: any) {
       return falhou(await this.depoisDaFalha(tenantId, lig, e));
     }
@@ -228,6 +243,7 @@ export class GraphFotoService {
     } catch (e: any) {
       // A voz ainda não ligada no Graph (o Google recusou): `integracao-parada` — diz qual, e a ligação segue valendo.
       if (e instanceof ErroMcp && e.tipo === 'ferramenta' && (e.dados as any)?.codigo === 'integracao-parada') return falhou('voz-desligada');
+      if (estilo && recusouArgumento(e)) return falhou(MOTIVO_ARGUMENTO_RECUSADO);
       return falhou(await this.depoisDaFalha(tenantId, lig, e));
     } finally {
       if (relogio) clearTimeout(relogio);

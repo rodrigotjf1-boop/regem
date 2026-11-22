@@ -5,11 +5,16 @@ import { GraphFotoService } from '../graph/graph-foto.service';
 import { MidiaDoMister, MisterEntradaService, QuemMandou, ResultadoDaMidia } from './mister-entrada.service';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { hojeISO } from '../../common/data';
-import { FERRAMENTA_OUVIR } from '../graph/graph.regras';
+import { FERRAMENTA_OUVIR, MOTIVO_ARGUMENTO_RECUSADO } from '../graph/graph.regras';
+import { MisterConversaConfigService } from './mister-conversa-config.service';
 import {
   AUDIO_MAX_SEGUNDOS,
+  type EstiloDaVoz,
   PRAZO_DA_VOZ_MS,
+  TonsNaMemoria,
   chaveDaFala,
+  estiloDaVoz,
+  tomDoLote,
   principalParaFalar,
   MIMES_DO_AUDIO,
   PREFIXO_DA_CHAVE_DO_AUDIO,
@@ -71,6 +76,10 @@ export class MisterMidiaService implements OnModuleInit {
   private readonly logger = new Logger('MisterMidia');
   /** Os prazos (os testes encurtam). */
   prazos: { totalMs: number; graphMs: number; minimoDaIaMs: number } = { ...PRAZOS_DA_FOTO_DO_MISTER };
+  /** O prazo TOTAL da voz, somando a tentativa com estilo e a repetição sem ele (V106; os testes encurtam). */
+  prazoDaVozMs = PRAZO_DA_VOZ_MS;
+  /** V7d: o tom de quem falou, só em memória, até a resposta daquele áudio (V7-5). */
+  readonly tons = new TonsNaMemoria();
 
   constructor(
     private readonly numero: MisterNumeroService,
@@ -78,6 +87,8 @@ export class MisterMidiaService implements OnModuleInit {
     @Optional() private readonly entrada?: MisterEntradaService,
     // O DMS Graph (G5a). Opcional: sem ele, nada muda (a entrada segue como antes).
     @Optional() private readonly graph?: GraphFotoService,
+    // V7d: "Voz com emoção". Sem o serviço, o tom não é pedido.
+    @Optional() private readonly conversaConfig?: MisterConversaConfigService,
   ) {}
 
   /** A foto chega pela entrada do WhatsApp, que mora no módulo de baixo. */
@@ -99,8 +110,14 @@ export class MisterMidiaService implements OnModuleInit {
    * e que a empresa ligou "Responder em áudio". O principal da resposta (~40 s) vira a nota de voz pela ferramenta `falar`
    * do DMS Graph e vai DEPOIS do texto. Devolve o desfecho curto (`enviado`, `desligado`, `sem-graph`, `sem-texto` ou o
    * motivo do Graph). Nunca lança: o que não deu fica no log, sem o texto (a pessoa já leu a resposta).
+   *
+   * V7d: `emocao` (só com "Voz com emoção" ligada) traz as mensagens respondidas e a pergunta. O tom sai da memória AQUI, e o
+   * código decide o estilo (`estiloDaVoz`). O Graph antigo recusa o `estilo`: repete sem ele, no que sobrou do prazo TOTAL, e a
+   * resposta sai na voz de hoje. Sem `emocao`, a chamada ao Graph é exatamente a de antes.
    */
-  async responderEmAudio(tenantId: string, telefone: string, resposta: string): Promise<string> {
+  async responderEmAudio(tenantId: string, telefone: string, resposta: string, emocao?: { wamids: readonly (string | null)[]; pergunta: string }): Promise<string> {
+    // O tom serve só para esta resposta: sai da memória mesmo que a fala não aconteça.
+    const tom = emocao ? tomDoLote(this.tons.tirar(tenantId, emocao.wamids)) : null;
     if (!this.ligado() || !this.graph) return 'desligado';
     const texto = principalParaFalar(resposta);
     if (!texto) return 'sem-texto';
@@ -108,7 +125,16 @@ export class MisterMidiaService implements OnModuleInit {
     try {
       const lig = await this.graph.ligacaoParaFoto(tenantId);
       if (!lig) return 'sem-graph';
-      const ogg = await this.graph.falar(tenantId, lig, texto, chaveDaFala(tenantId, texto), PRAZO_DA_VOZ_MS, (m) => (motivo = m));
+      const estilo: EstiloDaVoz | null = emocao ? estiloDaVoz(tom, resposta, emocao.pergunta) : null;
+      const fim = Date.now() + this.prazoDaVozMs;
+      const aoFalhar = (m: string) => (motivo = m);
+      let ogg = estilo
+        ? await this.graph.falar(tenantId, lig, texto, chaveDaFala(tenantId, texto, estilo), this.prazoDaVozMs, aoFalhar, estilo)
+        : await this.graph.falar(tenantId, lig, texto, chaveDaFala(tenantId, texto), this.prazoDaVozMs, aoFalhar);
+      if (!ogg && estilo && motivo === MOTIVO_ARGUMENTO_RECUSADO) {
+        motivo = 'nao-falou';
+        ogg = await this.graph.falar(tenantId, lig, texto, chaveDaFala(tenantId, texto), fim - Date.now(), aoFalhar);
+      }
       if (!ogg) {
         this.logger.warn(`mister: a resposta em áudio não saiu para ${mascarar(telefone)} (empresa ${tenantId}) — ${motivo}`);
         return motivo;
@@ -194,14 +220,17 @@ export class MisterMidiaService implements OnModuleInit {
         return 'tratada';
       }
       let motivo = '';
-      const ouvido = await this.graph!.analisar(
-        quem.tenantId,
-        lig,
-        { buffer: arquivo.buffer, mime, mensagemId: wamid ?? undefined },
-        this.prazoDoAudioMs,
-        oQueOGraphOuviu,
-        { ferramenta: FERRAMENTA_OUVIR, mimes: MIMES_DO_AUDIO, prefixoDaChave: PREFIXO_DA_CHAVE_DO_AUDIO, aoFalhar: (m) => (motivo = m) },
-      );
+      const pedido = { buffer: arquivo.buffer, mime, mensagemId: wamid ?? undefined };
+      const opcoes = { ferramenta: FERRAMENTA_OUVIR, mimes: MIMES_DO_AUDIO, prefixoDaChave: PREFIXO_DA_CHAVE_DO_AUDIO, aoFalhar: (m: string) => (motivo = m) };
+      // V7d: com "Voz com emoção" e "Responder em áudio" ligados, pede também o tom. O Graph antigo recusa o argumento antes
+      // de contar a franquia: repete sem ele, no que sobrou do prazo, e a transcrição segue como sempre.
+      const lerTom = await this.querOTom(quem.tenantId);
+      const fim = Date.now() + this.prazoDoAudioMs;
+      let ouvido = await this.graph!.analisar(quem.tenantId, lig, pedido, this.prazoDoAudioMs, oQueOGraphOuviu, lerTom ? { ...opcoes, extras: { lerTom: true } } : opcoes);
+      if (!ouvido && lerTom && motivo === MOTIVO_ARGUMENTO_RECUSADO) {
+        motivo = '';
+        ouvido = await this.graph!.analisar(quem.tenantId, lig, pedido, fim - Date.now(), oQueOGraphOuviu, opcoes);
+      }
       if (!ouvido) {
         this.logger.warn(`áudio do Mister não ouvido pelo DMS Graph (${motivo || 'sem motivo'})`);
         await this.falar(quem.telefone, motivo === 'franquia-esgotada' ? TEXTOS_DA_MIDIA.audioFranquia(primeiroDoMesQueVem(hojeISO())) : TEXTOS_DA_MIDIA.naoOuviu);
@@ -211,11 +240,24 @@ export class MisterMidiaService implements OnModuleInit {
         await this.falar(quem.telefone, TEXTOS_DA_MIDIA.naoOuviu);
         return 'tratada';
       }
+      // O tom fica só na memória, pela mensagem: a pergunta que vai à fila e à IA é a transcrição, sem ele (V7-5).
+      if (lerTom && ouvido.tom && wamid) this.tons.guardar(quem.tenantId, wamid, ouvido.tom);
       return { pergunta: perguntaComAudio(ouvido.transcricao), documento: false };
     } catch (e: any) {
       this.logger.warn(`áudio do Mister não ouvido (${String(e?.code ?? e?.name ?? e?.message ?? e).slice(0, 120)})`);
       await this.falar(quem.telefone, TEXTOS_DA_MIDIA.naoOuviu);
       return 'tratada';
+    }
+  }
+
+  /** "Voz com emoção" e "Responder em áudio" ligados nesta empresa? A leitura que falha vale como desligado: a transcrição segue. */
+  private async querOTom(tenantId: string): Promise<boolean> {
+    if (!this.conversaConfig) return false;
+    try {
+      const c = await this.conversaConfig.daEmpresa(tenantId);
+      return c.responderAudio === true && c.vozComEmocao === true;
+    } catch {
+      return false;
     }
   }
 

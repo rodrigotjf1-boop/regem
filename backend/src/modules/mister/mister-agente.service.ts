@@ -228,8 +228,14 @@ export class MisterAgenteService implements OnModuleInit {
       for (const a of pdfs) await enviarPdfDoInsumo(this.ferramentas, this.numero, escopo, a.pedido, ultima.telefone, this.logger);
       // Versão 5, M5c: a pergunta que veio por áudio, com "Responder em áudio" ligado na empresa: o principal da resposta
       // vira a nota de voz e vai DEPOIS do texto (decisão 2 — o texto vai sempre). O que não deu fica no log.
-      if (veioDeAudio(pergunta) && this.midia && (await this.conversaConfig?.daEmpresa(escopo.tenantId).catch(() => null))?.responderAudio)
-        await this.midia.responderEmAudio(escopo.tenantId, ultima.telefone, resposta);
+      // V7d: com "Voz com emoção" ligada, vão também as mensagens (o tom de cada uma está só na memória) e a pergunta (o tema).
+      if (veioDeAudio(pergunta) && this.midia) {
+        const ajustes = await this.conversaConfig?.daEmpresa(escopo.tenantId).catch(() => null);
+        if (ajustes?.responderAudio) {
+          if (ajustes.vozComEmocao) await this.midia.responderEmAudio(escopo.tenantId, ultima.telefone, resposta, { wamids: lote.map((p) => p.wamid), pergunta });
+          else await this.midia.responderEmAudio(escopo.tenantId, ultima.telefone, resposta);
+        }
+      }
       // F4.3: a proposta que a pergunta criou sai logo depois da resposta, com os botões da F4.1 (só o presidente chega
       // aqui com proposta: a ferramenta recusa os outros). Falhou o envio: a proposta vence sozinha no prazo.
       for (const p of fim.propostas) {

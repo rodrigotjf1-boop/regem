@@ -2231,7 +2231,7 @@ quem fala, "até risada se a ocasião assim se apresentar". Protótipo: `mockups
 | V7c · Conversa natural | Plano em uma frase, ajuste na conversa, várias tarefas, conferir antes de dizer "pronto" | entregue (ERR-569); falta a avaliação com a IA real (63 casos) |
 | V7e · BI | Semana, pico e itens do pico, fases do mês, perdas e cancelamentos, padrões | no ar (#1266, migs 490 e 491 aplicadas); falta a avaliação com a IA real |
 | V7f · KPIs financeiros | Margem, CMV, inadimplência, prazo; saldo, folha e custo informados na conversa | entregue (mig 492 aplicada, ERR-572); falta a avaliação com a IA real (78 casos) |
-| V7d · Voz | A voz com tom e a risada, pelo DMS Graph, nascendo desligada | a fazer |
+| V7d · Voz | A voz com tom e a risada, pelo DMS Graph, nascendo desligada | entregue, desligada (mig 493 aplicada; Graph #15, 0.12.0, contrato 1.7.0, falta implantar); falta o teste real da voz |
 
 **As dez decisões (todas na recomendada):**
 
@@ -2290,6 +2290,24 @@ receber lançadas, então inadimplência e prazo de pagamento ficam sem número 
   líquida e giro ficam como "falta dado" até o Regem ler os repasses, as taxas e os impostos.
 - Diferenças do protótipo: sem "muçarela +11%" e sem o botão "Comparar" (falta histórico de compra com custo), a folha também passa por
   "Guardar", e o prazo compara com o período anterior de mesmo tamanho.
+
+**Como a V7d ficou (22/11):**
+
+- "Voz com emoção" fica em Mister › Avisos e relatórios › Conversa. Nasce desligada, só o presidente muda (mig 493) e só vale com
+  "Responder em áudio" ligado.
+- O DMS Graph ganhou dois campos opcionais (contrato 1.7.0): `lerTom` em `ouvir_audio` e `estilo` em `falar`, de valores fechados. A
+  voz nova é o Gemini 3.8 Flash-Lite TTS, convertida para OGG/Opus pelo FFmpeg. Se ela falhar, sai a voz de hoje, na mesma unidade da
+  franquia.
+- O tom fica só na memória do processo, pela mensagem, por até 20 minutos, e é apagado quando a resposta sai. Não vai à fila, à
+  memória do Mister, à IA do texto, à auditoria nem ao log. Sem tom (repetição, processo reiniciado), vale neutro.
+- Quem decide o estilo é o código (`estiloDaVoz`), lendo a resposta **e a pergunta**: a pessoa pode rir de um cliente sem que a
+  resposta use a palavra. Perda ou queda deixa a voz séria. Assunto ruim com a pessoa rindo fica neutro. Frase boa que cita cliente ou
+  funcionário fica animada, sem risada.
+- Com o Graph ainda na 0.11.1, a recusa do argumento novo faz repetir sem ele, no que sobrou do prazo: o áudio sai na voz de hoje.
+- Preço conferido em 22/11: US$ 6 por milhão de tokens de áudio, 25 tokens por segundo, cerca de **US$ 0,006 a cada 40 s** (o protótipo
+  dizia US$ 0,01); a partir de 01/01/2027, US$ 12, cerca de US$ 0,012.
+- Diferenças do protótipo: o ajuste fica no grupo Conversa de "Avisos e relatórios"; não gasta a chave de IA da empresa (sai pelo
+  Graph e conta na franquia de fotos e áudios); a gaveta tem só "Fechar", como a das análises.
 
 **Ainda depende de teste real:** a voz nova em português, a risada, a leitura do tom com barulho de cozinha, o custo e o tempo de
 resposta das análises no pico.

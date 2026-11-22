@@ -11,6 +11,7 @@ import { Selo, texto2 } from '@/components/ui/lista';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
 import { GavetaDasAnalises, PRECO_DAS_ANALISES } from './gaveta-das-analises';
+import { GavetaDaVoz, PRECO_DA_VOZ } from './gaveta-da-voz';
 import { GavetaDosValores, textoDoValor } from './gaveta-dos-valores';
 
 // MISTER › AVISOS E RELATÓRIOS — "para onde vai" cada aviso (versão 2 do protótipo `mockups/regem-mister.html`, aprovada
@@ -49,10 +50,11 @@ type RelatorioNaTela = {
 type ModoDoBoleto = 'sozinho' | 'perguntar';
 /** Versão 5, M5e (mig 462): "Como mandar o resumo" — a mesma lista do servidor (`FORMAS_DE_ENTREGA_DO_RESUMO`). */
 type FormaDoResumo = 'botoes' | 'pdf' | 'link' | 'texto';
-type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean; analisesProfundas?: boolean };
+type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean; analisesProfundas?: boolean; vozComEmocao?: boolean };
 const CONV = 'conversa:documentos';
 const CONV_RESUMO = 'conversa:resumo';
 const CONV_VOZ = 'conversa:voz';
+const CONV_EMOCAO = 'conversa:emocao';
 const CONV_ANALISES = 'conversa:analises';
 const FORMAS_DO_RESUMO: { v: FormaDoResumo; rotulo: string }[] = [
   { v: 'botoes', rotulo: 'texto com os botões PDF e link' },
@@ -266,7 +268,9 @@ export function AvisosDoMister() {
   const [resumoLigado, setResumoLigado] = useState<boolean | null>(null);
   // V7e: a gaveta "Ver como funciona" das análises mais profundas.
   const [vendoAnalises, setVendoAnalises] = useState(false);
-  // V7e: ligar o que gasta a chave de IA pede a confirmação, com o preço (o "Ligar e salvar?" do protótipo).
+  // V7d: a gaveta "Ver como funciona" da voz com emoção.
+  const [vendoVoz, setVendoVoz] = useState(false);
+  // V7e: ligar o que gasta a chave de IA pede a confirmação, com o preço (o "Ligar e salvar?" do protótipo). V7d: a voz também.
   const [confirmandoCusto, setConfirmandoCusto] = useState(false);
 
   // Cada parte (avisos e relatórios) troca só os SEUS valores: salvar uma e falhar a outra mantém a pendência da que falhou.
@@ -291,8 +295,9 @@ export function AvisosDoMister() {
     if (disponivel) setResumoLigado(disponivel.resumoEmArquivo === true);
     const voz = c.responderAudio === true ? '1' : '0';
     const analises = c.analisesProfundas === true ? '1' : '0';
-    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_ANALISES]: analises }));
-    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_ANALISES]: analises }));
+    const emocao = c.vozComEmocao === true ? '1' : '0';
+    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises }));
+    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises }));
   }, []);
 
   const ler = useCallback(async () => {
@@ -622,6 +627,36 @@ export function AvisosDoMister() {
                 </span>
               ),
             },
+            // Versão 7, V7d (V7-6, mig 493): "Voz com emoção" — nasce desligada, com o preço ao lado, e só vale com a resposta em
+            // áudio. Sem ela, só dá para DESLIGAR (quem já tinha ligado não fica preso).
+            {
+              id: CONV_EMOCAO,
+              rotulo: 'Voz com emoção',
+              tipo: 'livre' as const,
+              palavras: 'voz emoção áudio tom risada animado clima',
+              ajuda: (
+                <>
+                  <span className="block">A resposta em áudio acompanha o tom de quem fala, com risada quando a ocasião pede. O tom não fica guardado.</span>
+                  <span className="mt-1 block text-xs font-semibold" data-preco-da-voz>
+                    {PRECO_DA_VOZ}
+                  </span>
+                  {valores[CONV_VOZ] !== '1' && (
+                    <span className="mt-1 block text-xs" data-voz-precisa-do-audio>
+                      Precisa de &quot;Responder em áudio&quot; ligado.
+                    </span>
+                  )}
+                  <button type="button" className="inline-flex min-h-11 items-center text-sm font-semibold underline" data-ver-voz onClick={() => setVendoVoz(true)}>
+                    Ver como funciona
+                  </button>
+                </>
+              ),
+              desenhar: (v: Valor, mudar: (x: Valor) => void) => (
+                <span className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                  <span className={`text-sm ${texto2}`}>{v === '1' ? 'Ligada' : 'Desligada'}</span>
+                  <Chave ligada={v === '1'} comTexto={false} ocupada={v !== '1' && valores[CONV_VOZ] !== '1'} rotulo="Voz com emoção" aoMudar={(l) => mudar(l ? '1' : '0')} />
+                </span>
+              ),
+            },
           ],
         };
     // Versão 7, V7e (V7-7, mig 490): "Análises mais profundas" — nasce desligada, com o preço ao lado.
@@ -649,7 +684,7 @@ export function AvisosDoMister() {
               desenhar: (v: Valor, mudar: (x: Valor) => void) => (
                 <span className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
                   <span className={`text-sm ${texto2}`}>{v === '1' ? 'Ligada' : 'Desligada'}</span>
-                  <Chave ligada={v === '1'} rotulo="Análises mais profundas" aoMudar={(l) => mudar(l ? '1' : '0')} />
+                  <Chave ligada={v === '1'} comTexto={false} rotulo="Análises mais profundas" aoMudar={(l) => mudar(l ? '1' : '0')} />
                 </span>
               ),
             },
@@ -672,6 +707,7 @@ export function AvisosDoMister() {
         ...(conversa && valores[CONV] !== salvos[CONV] ? deValorDaConversa(valores[CONV]) : {}),
         ...(conversa && valores[CONV_RESUMO] !== salvos[CONV_RESUMO] ? { resumoEntrega: formaDoResumo(valores[CONV_RESUMO]) } : {}),
         ...(conversa && valores[CONV_VOZ] !== salvos[CONV_VOZ] ? { responderAudio: valores[CONV_VOZ] === '1' } : {}),
+        ...(conversa && valores[CONV_EMOCAO] !== salvos[CONV_EMOCAO] ? { vozComEmocao: valores[CONV_EMOCAO] === '1' } : {}),
         ...(conversa && valores[CONV_ANALISES] !== salvos[CONV_ANALISES] ? { analisesProfundas: valores[CONV_ANALISES] === '1' } : {}),
       };
       const conv = Object.keys(partesDaConversa).length ? partesDaConversa : null;
@@ -690,6 +726,10 @@ export function AvisosDoMister() {
       setSalvando(false);
     }
   };
+
+  // O que está sendo LIGADO agora e tem preço: pede a confirmação antes de salvar.
+  const ligandoAnalises = !!conversa && valores[CONV_ANALISES] === '1' && salvos[CONV_ANALISES] !== '1';
+  const ligandoVoz = !!conversa && valores[CONV_EMOCAO] === '1' && salvos[CONV_EMOCAO] !== '1';
 
   if (erroLeitura)
     return (
@@ -712,7 +752,7 @@ export function AvisosDoMister() {
         salvos={salvos}
         aoMudar={(k: string, v: Valor) => setValores((x) => ({ ...x, [k]: v }))}
         aoSalvar={() => {
-          if (conversa && valores[CONV_ANALISES] === '1' && salvos[CONV_ANALISES] !== '1') setConfirmandoCusto(true);
+          if (ligandoAnalises || ligandoVoz) setConfirmandoCusto(true);
           else void salvar();
         }}
         aoDescartar={() => {
@@ -729,6 +769,7 @@ export function AvisosDoMister() {
         }
       />
       {vendoAnalises && <GavetaDasAnalises aoFechar={() => setVendoAnalises(false)} />}
+      {vendoVoz && <GavetaDaVoz ligada={valores[CONV_EMOCAO] === '1'} aoFechar={() => setVendoVoz(false)} />}
       {confirmandoCusto && (
         <Dialogo
           titulo="Ligar e salvar?"
@@ -750,10 +791,19 @@ export function AvisosDoMister() {
             </>
           }
         >
-          <p className="text-sm">Este ajuste passa a gastar a chave de IA da empresa:</p>
-          <p className="mt-2 text-sm">
-            <b>Análises mais profundas:</b> {PRECO_DAS_ANALISES.charAt(0).toLowerCase() + PRECO_DAS_ANALISES.slice(1)}.
-          </p>
+          {ligandoAnalises && (
+            <>
+              <p className="text-sm">Este ajuste passa a gastar a chave de IA da empresa:</p>
+              <p className="mt-2 text-sm">
+                <b>Análises mais profundas:</b> {PRECO_DAS_ANALISES.charAt(0).toLowerCase() + PRECO_DAS_ANALISES.slice(1)}.
+              </p>
+            </>
+          )}
+          {ligandoVoz && (
+            <p className={`text-sm ${ligandoAnalises ? 'mt-3' : ''}`}>
+              <b>Voz com emoção:</b> {PRECO_DA_VOZ.charAt(0).toLowerCase() + PRECO_DA_VOZ.slice(1)}. Não gasta a chave de IA da empresa: sai pelo DMS Graph e conta na franquia de fotos e áudios.
+            </p>
+          )}
           <p className={`mt-2 text-xs ${texto2}`}>Você pode desligar quando quiser, aqui mesmo. A mudança fica na auditoria.</p>
         </Dialogo>
       )}

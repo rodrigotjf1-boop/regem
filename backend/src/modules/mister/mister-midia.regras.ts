@@ -78,8 +78,12 @@ export function duracaoDoOggOpus(bytes: Buffer): number | null {
   return Math.round((amostras / 48_000) * 10) / 10;
 }
 
-/** O que o áudio disse. */
-export type OQueOuviu = { transcricao: string; inaudivel: boolean };
+/** O tom de quem fala (a mesma lista da `ouvir_audio`, contrato 1.7.0). Fica só em memória, para a resposta daquele áudio (V7-5). */
+export const TONS_DE_QUEM_FALA = ['animado', 'brincando', 'neutro', 'apressado', 'irritado', 'preocupado'] as const;
+export type TomDeQuemFala = (typeof TONS_DE_QUEM_FALA)[number];
+
+/** O que o áudio disse e, quando pedido, o tom (só da lista). */
+export type OQueOuviu = { transcricao: string; inaudivel: boolean; tom?: TomDeQuemFala };
 
 /** O resultado da `ouvir_audio` (`{ tipoArquivo: 'audio', transcricao, inaudivel, … }`) → o que o áudio disse, ou null. */
 export function oQueOGraphOuviu(dados: unknown): OQueOuviu | null {
@@ -87,7 +91,9 @@ export function oQueOGraphOuviu(dados: unknown): OQueOuviu | null {
   const d = dados as Record<string, unknown>;
   if (d.tipoArquivo !== 'audio' || typeof d.transcricao !== 'string' || typeof d.inaudivel !== 'boolean') return null;
   const transcricao = d.transcricao.replace(/\s+/g, ' ').trim();
-  return { transcricao, inaudivel: d.inaudivel || !transcricao };
+  const ouvido: OQueOuviu = { transcricao, inaudivel: d.inaudivel || !transcricao };
+  if ((TONS_DE_QUEM_FALA as readonly unknown[]).includes(d.tom)) ouvido.tom = d.tom as TomDeQuemFala;
+  return ouvido;
 }
 
 /** A marca do começo da pergunta que veio de um áudio. */
@@ -281,8 +287,151 @@ export function principalParaFalar(resposta: unknown): string {
 
 /**
  * A chave de idempotência da fala no Graph: a empresa e o texto falado (a mesma resposta repetida não gasta a franquia de
- * novo; outra empresa ou outro texto, outra chave). Só caracteres visíveis, até 100.
+ * novo; outra empresa ou outro texto, outra chave). Só caracteres visíveis, até 100. V7d: com estilo, ele entra na conta
+ * (o Graph recusa a mesma chave com outro estilo); sem estilo, a chave é a de sempre.
  */
-export function chaveDaFala(tenantId: string, texto: string): string {
-  return `regem-falar-${createHash('sha256').update(`${tenantId}\n${texto}`).digest('hex').slice(0, 48)}`;
+export function chaveDaFala(tenantId: string, texto: string, estilo?: EstiloDaVoz | null): string {
+  const base = estilo ? `${tenantId}\n${texto}\n${estilo.tom}\n${estilo.risada ? 1 : 0}` : `${tenantId}\n${texto}`;
+  return `regem-falar-${createHash('sha256').update(base).digest('hex').slice(0, 48)}`;
+}
+
+// ── Versão 7, V7d: a voz com emoção (decisões V7-4, V7-5 e V7-6) ──
+
+/** O jeito da voz que vai à `falar` (os valores fechados do contrato 1.7.0 do Graph). */
+export type EstiloDaVoz = { tom: 'neutro' | 'animado' | 'calmo' | 'direto' | 'serio'; risada: boolean };
+
+// As listas leem o texto em minúsculas e sem acento (`normal`). Na dúvida, o tema conta: o erro aceitável é não rir.
+/** Perda de dinheiro ou de venda: a voz fica séria, seja qual for o tom de quem fala. */
+const SOBRE_PERDA = new RegExp(
+  [
+    '\\bprejuizos?\\b',
+    '\\bperd(?:a|as|i|eu|emos|eram|endo|er|ido|ida|idos|idas)\\b',
+    '\\bdesperdic\\w*',
+    '\\brombos?\\b',
+    '\\bfurt(?:o|os|aram|ou)\\b',
+    '\\broub(?:o|os|aram|ou)\\b',
+    '\\bdesfalques?\\b',
+    '\\bcalotes?\\b',
+    '\\bdividas?\\b',
+    '\\binadimplen\\w*',
+    '\\bfraudes?\\b',
+    '\\bgolpes?\\b',
+    '\\bquedas?\\b',
+    '\\bno vermelho\\b',
+    '\\bsaldo negativo\\b',
+    '\\babaixo d[ao] meta\\b',
+    '\\b(?:vend|fatur)\\w*\\s+(?:bem\\s+|muito\\s+)?menos\\b',
+    '\\bmenos\\s+(?:vendas?|pedidos?|faturamento|movimento)\\b',
+    '\\b(?:vendas?|faturamento|movimento|receita|pedidos|ticket)\\b[^.!?\\n]{0,40}\\b(?:caiu|cairam|caindo|diminuiu|diminuiram|baixou|baixaram|recuou|recuaram|piorou|pioraram|fracas?|fracos?|ruins?)\\b',
+  ].join('|'),
+);
+/** Assunto ruim: não acompanha a alegria nem ri. */
+const TEMA_NEGATIVO = new RegExp(
+  [
+    '\\breclam\\w*',
+    '\\bcancel\\w*',
+    '\\batras(?:o|os|ou|aram|ando|a|am|ad[oa]s?)\\b',
+    '\\berr(?:o|os|ou|aram|ando|ad[oa]s?)\\b',
+    '\\bfalh(?:a|as|ou|aram|ando)\\b',
+    '\\bproblemas?\\b',
+    '\\bdefeitos?\\b',
+    '\\bestorn\\w*',
+    '\\bdevol(?:u|v)\\w*',
+    '\\bmultas?\\b',
+    '\\bquebr\\w*',
+    '\\bpar(?:ou|aram|ad[oa]s?)\\b',
+    '\\bcai(?:u|ram)\\b',
+    '\\bfora do ar\\b',
+    '\\binsatisf\\w*',
+    '\\bnegativ\\w*',
+    '\\bpessim\\w*',
+    '\\bhorrivel\\b',
+    '\\bfalt(?:ou|aram)\\b',
+    '\\bvencid[oa]s?\\b',
+    '\\bestragad\\w*',
+    '\\bdemissao\\b',
+    '\\bdemitid[oa]s?\\b',
+    '\\badvertenc\\w*',
+    '\\bacidentes?\\b',
+  ].join('|'),
+);
+/** Falar de gente: mesmo em frase boa, ele não ri (V7-4). */
+const SOBRE_PESSOAS =
+  /\b(?:clientes?|clientela|fregues(?:es|a|as)?|funcionari[oa]s?|colaborador(?:a|es|as)?|atendentes?|entregador(?:a|es|as)?|motoboys?|garcom|garcons|garconetes?|cozinheir[oa]s?|chapeir[oa]s?|gerentes?|supervisor(?:a|es|as)?|equipe|pessoal)\b/;
+
+/**
+ * O estilo da resposta em áudio: quem decide é este código, nunca a IA. Lê o tom de quem falou (null = neutro: a repetição
+ * pela mesma chave volta sem tom) e o assunto da resposta e da pergunta, porque a pessoa pode rir de um cliente e a resposta
+ * nem usar a palavra. Perda → sério. Animado ou brincando → animado, ou neutro se o assunto é ruim. Apressado → direto.
+ * Irritado ou preocupado → calmo. A risada só com a pessoa animada ou brincando e SEM nenhum tema proibido.
+ */
+export function estiloDaVoz(tom: TomDeQuemFala | null | undefined, resposta: unknown, pergunta?: unknown): EstiloDaVoz {
+  const texto = `${normal(resposta)}\n${normal(pergunta)}`;
+  if (SOBRE_PERDA.test(texto)) return { tom: 'serio', risada: false };
+  switch (tom) {
+    case 'animado':
+    case 'brincando':
+      if (TEMA_NEGATIVO.test(texto)) return { tom: 'neutro', risada: false };
+      return { tom: 'animado', risada: !SOBRE_PESSOAS.test(texto) };
+    case 'apressado':
+      return { tom: 'direto', risada: false };
+    case 'irritado':
+    case 'preocupado':
+      return { tom: 'calmo', risada: false };
+    default:
+      return { tom: 'neutro', risada: false };
+  }
+}
+
+/** Várias mensagens respondidas juntas: vale a última, mas a alegria só se todas estavam alegres. */
+export function tomDoLote(tons: readonly TomDeQuemFala[]): TomDeQuemFala | null {
+  if (!tons.length) return null;
+  const alegre = (t: TomDeQuemFala) => t === 'animado' || t === 'brincando';
+  const ultimo = tons[tons.length - 1];
+  return alegre(ultimo) && tons.some((t) => !alegre(t)) ? 'neutro' : ultimo;
+}
+
+/**
+ * Onde o tom espera a resposta: SÓ na memória deste processo, pela mensagem, até ser usado ou vencer (V7-5: não vai à fila, ao
+ * banco, à auditoria nem ao log). Com o processo reiniciado, ou a resposta em outro processo, não há tom: vale neutro.
+ */
+export class TonsNaMemoria {
+  private readonly tons = new Map<string, { tom: TomDeQuemFala; vence: number }>();
+
+  constructor(
+    private readonly validadeMs = 20 * 60_000,
+    private readonly teto = 2_000,
+    private readonly agora: () => number = Date.now,
+  ) {}
+
+  private chave(tenantId: string, wamid: string): string {
+    return `${tenantId}|${wamid}`;
+  }
+
+  guardar(tenantId: string, wamid: string, tom: TomDeQuemFala): void {
+    const t = this.agora();
+    for (const [k, v] of this.tons) if (v.vence <= t) this.tons.delete(k);
+    const chave = this.chave(tenantId, wamid);
+    this.tons.delete(chave);
+    while (this.tons.size >= this.teto) this.tons.delete(this.tons.keys().next().value as string);
+    this.tons.set(chave, { tom, vence: t + this.validadeMs });
+  }
+
+  /** Tira da memória os tons destas mensagens e devolve os que valem, na ordem pedida. */
+  tirar(tenantId: string, wamids: readonly (string | null)[]): TomDeQuemFala[] {
+    const t = this.agora();
+    const fora: TomDeQuemFala[] = [];
+    for (const w of wamids) {
+      if (!w) continue;
+      const chave = this.chave(tenantId, w);
+      const achado = this.tons.get(chave);
+      this.tons.delete(chave);
+      if (achado && achado.vence > t) fora.push(achado.tom);
+    }
+    return fora;
+  }
+
+  get tamanho(): number {
+    return this.tons.size;
+  }
 }
