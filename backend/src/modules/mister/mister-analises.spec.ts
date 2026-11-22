@@ -9,7 +9,9 @@ import {
   analiseDasFases,
   analiseDoPico,
   analiseDosCancelamentos,
+  FRASE_DOS_DIAS_COM_VENDA,
   causaDoCancelamento,
+  comAContaDasFases,
   diaDeTrabalho,
   faixaDePico,
   itensDaFaixa,
@@ -122,10 +124,24 @@ describe('a semana', () => {
     expect(r).toMatchObject({ faturamento: 1000, pedidos: 100, ticketMedio: 10, diasComVenda: 4 });
     expect(r.variacaoPct).toEqual({ faturamento: 66.7, pedidos: 66.7, ticketMedio: 0 });
     expect(r.diferencaDeFaturamento).toEqual({ valor: 400, sentido: 'a mais' });
-    expect(r.doisMelhoresDias).toEqual({ dias: ['sexta', 'sábado'], pedidos: 80, faturamento: 800, partePct: 80 });
-    expect(r.diaMaisFraco).toMatchObject({ dia: 'segunda', pedidos: 10 });
+    expect(r.doisMelhoresDias).toEqual({ dias: ['sexta', 'sábado'], pedidos: 80, faturamento: 800, ticketMedio: 10, partePct: 80 });
+    expect(r.diaMaisFraco).toMatchObject({ dia: 'segunda', pedidos: 10, ticketMedio: 10 });
     expect(r.diasSemVenda).toEqual(['terça', 'quarta', 'quinta']);
     expect(r.porDiaDaSemana.map((d) => d.dia)).toEqual(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']);
+    // O ticket de cada dia vem pronto (a IA não precisa fazer a conta); dia sem venda não tem ticket.
+    expect(r.porDiaDaSemana.find((d) => d.dia === 'Seg')?.ticketMedio).toBe(10);
+    expect(r.porDiaDaSemana.find((d) => d.dia === 'Ter')?.ticketMedio).toBeNull();
+  });
+
+  it('as fases do mês sempre dizem que a média é dos dias com venda, antes da sugestão', () => {
+    const fases = { foco: 'fases_do_mes' };
+    const comSugestao = comAContaDasFases('O que os números mostram: caiu 29%.\n\n*Minha sugestão:* um combo.', [fases]);
+    expect(comSugestao).toBe(`O que os números mostram: caiu 29%.\n\n${FRASE_DOS_DIAS_COM_VENDA}\n\n*Minha sugestão:* um combo.`);
+    expect(comAContaDasFases('Caiu 29%.', [fases])).toBe(`Caiu 29%.\n\n${FRASE_DOS_DIAS_COM_VENDA}`);
+    // Já disse, não repete; outra análise ou sem dados, não muda nada.
+    for (const t of ['Só os dias em que a loja vendeu.', 'Contei os dias com venda.']) expect(comAContaDasFases(t, [fases])).toBe(t);
+    expect(comAContaDasFases('Caiu 29%.', [{ foco: 'semana' }])).toBe('Caiu 29%.');
+    expect(comAContaDasFases('Sem venda.', [{ foco: 'fases_do_mes', semDados: true }])).toBe('Sem venda.');
   });
 
   it('sem valores: nada em reais, e as partes são de pedidos', () => {

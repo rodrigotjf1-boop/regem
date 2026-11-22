@@ -171,6 +171,8 @@ export function analiseDaSemana(o: EntradaDaSemana) {
       ...(g.datas.length === 1 ? { data: diaMes(g.datas[0]) } : { diasNoPeriodo: g.datas.length, diasComVenda: g.diasComVenda }),
       pedidos: g.pedidos,
       faturamento: emReais(g.centavos, v),
+      // O ticket de cada dia vem pronto: sem ele, a IA fazia a conta e dizia um valor que a consulta não trouxe.
+      ticketMedio: emReais(ticketEmCentavos(g.centavos, g.pedidos), v),
       partePct: pct(medida(g), todoTotal),
     })),
     doisMelhoresDias:
@@ -179,10 +181,14 @@ export function analiseDaSemana(o: EntradaDaSemana) {
             dias: melhores.map((g) => nomeDoDia(g.d)),
             pedidos: melhores.reduce((s, g) => s + g.pedidos, 0),
             faturamento: emReais(melhores.reduce((s, g) => s + g.centavos, 0), v),
+            ticketMedio: emReais(ticketEmCentavos(melhores.reduce((s, g) => s + g.centavos, 0), melhores.reduce((s, g) => s + g.pedidos, 0)), v),
             partePct: pct(melhores.reduce((s, g) => s + medida(g), 0), todoTotal),
           }
         : null,
-    diaMaisFraco: comVenda.length >= 3 && fraco ? { dia: nomeDoDia(fraco.d), pedidos: fraco.pedidos, faturamento: emReais(fraco.centavos, v), partePct: pct(medida(fraco), todoTotal) } : null,
+    diaMaisFraco:
+      comVenda.length >= 3 && fraco
+        ? { dia: nomeDoDia(fraco.d), pedidos: fraco.pedidos, faturamento: emReais(fraco.centavos, v), ticketMedio: emReais(ticketEmCentavos(fraco.centavos, fraco.pedidos), v), partePct: pct(medida(fraco), todoTotal) }
+        : null,
     ...(semVenda.length && atual.pedidos ? { diasSemVenda: semVenda } : {}),
     ...(avisos.length ? { avisos } : {}),
   };
@@ -397,6 +403,23 @@ export function analiseDasFases(linhas: ReadonlyArray<LinhaOficial>, meses: Read
     totalDosMeses: { pedidos: total.pedidos, faturamento: emReais(total.centavos, v) },
     ...(avisos.length ? { avisos } : {}),
   };
+}
+
+export const FRASE_DOS_DIAS_COM_VENDA = 'A média por dia conta só os dias em que a loja vendeu.';
+
+/**
+ * A ressalva das fases do mês não depende de a IA lembrar: sem ela, "vende X por dia" parece contar os dias fechados. Entra antes da
+ * "Minha sugestão", porque é sobre os números (V7-8). Vale só para a análise que trouxe dados.
+ */
+export function comAContaDasFases(texto: string, resultados: readonly unknown[]): string {
+  const usou = resultados.some((d) => {
+    const r = d as { foco?: unknown; semDados?: unknown } | null | undefined;
+    return r?.foco === 'fases_do_mes' && r?.semDados !== true;
+  });
+  if (!usou || /dias (?:em )?que (?:a loja )?vendeu|dias com venda/i.test(texto)) return texto;
+  const sugestao = texto.search(/\n+[*_]*Minha sugest/i);
+  if (sugestao < 0) return `${texto}\n\n${FRASE_DOS_DIAS_COM_VENDA}`;
+  return `${texto.slice(0, sugestao)}\n\n${FRASE_DOS_DIAS_COM_VENDA}${texto.slice(sugestao)}`;
 }
 
 // ───────────────────────────── os cancelamentos ─────────────────────────────

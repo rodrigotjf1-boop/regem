@@ -10,6 +10,7 @@ export function modeloDasPerguntas(): string {
 
 /** Versão 7, V7e: o modelo maior das análises, só se ele tem preço na tabela (sem preço não há como medir o custo). */
 export const modeloDasAnalises = (): string | null => (PRECOS_POR_MILHAO[MODELO_DAS_ANALISES] ? MODELO_DAS_ANALISES : null);
+import { comAContaDasFases } from './mister-analises';
 import { comOQueDeixaDeChegar } from './mister-regra';
 import type { ResultadoDaFerramenta } from './mister-ferramentas.service';
 import type { Trilha } from './mister-fila.service';
@@ -149,7 +150,7 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
       if (r.parou !== 'tool_use' || !pedidos.length) {
         // Resposta cortada pelo limite de tamanho não vai pela metade.
         if (r.parou === 'max_tokens' || !r.texto) return { texto: null, motivo: 'nao_fechou', trilha };
-        return { texto: comOQueDeixaDeChegar(r.texto, resultados), motivo: null, trilha, resultados };
+        return { texto: comAContaDasFases(comOQueDeixaDeChegar(r.texto, resultados), resultados), motivo: null, trilha, resultados };
       }
 
       // O que o modelo disse volta INTEIRO (com os blocos de raciocínio), e cada pedido de ferramenta recebe a resposta.
