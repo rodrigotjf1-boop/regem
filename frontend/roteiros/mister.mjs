@@ -1054,7 +1054,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/21 ajustes em 9 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os três relatórios e o 'Como mandar o resumo' (M5e) , a conversa (M3a e o 'Responder em áudio', M5c) e as análises (V7e)");
+    ok(/22 ajustes em 9 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os três relatórios e o 'Como mandar o resumo' (M5e) , a conversa (M3a, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d) e as análises (V7e)");
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
     ok(t0.includes('O de fichas novas só conta: não usa a IA.'), 'relatórios: a nota diz que o das fichas novas não usa a IA');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
@@ -1215,11 +1215,26 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const larguraDoPreco = await page.locator('[data-preco-das-analises]').evaluate((el) => Math.round(el.getBoundingClientRect().width));
     ok(larguraDoPreco >= 180, `${w}px: o preço das análises não fica espremido (${larguraDoPreco} px)`);
     if (w === 375) await ajusteDasAnalises.screenshot({ path: foto('375-analises.png') });
-    await page.click('button:text-is("Ver como funciona")');
+    await ajusteDasAnalises.locator('button:text-is("Ver como funciona")').click();
     await page.waitForSelector('[role="dialog"] >> text=O que não muda');
     m = await medir(page);
     ok(m.length === 0, `${w}px: a gaveta "Análises mais profundas" inteira na tela (${m.join(' | ')})`);
     if (w === 375) await page.screenshot({ path: foto('375-analises-gaveta.png') });
+    // Versão 7, V7d: o ajuste "Voz com emoção" e a gaveta dele, inteiros na tela.
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[role="dialog"]', { state: 'detached' });
+    const precoDaVoz = page.locator('[data-preco-da-voz]');
+    await precoDaVoz.scrollIntoViewIfNeeded();
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: o ajuste "Voz com emoção" sem barra lateral (${m.join(' | ')})`);
+    const larguraDoPrecoDaVoz = await precoDaVoz.evaluate((el) => Math.round(el.getBoundingClientRect().width));
+    ok(larguraDoPrecoDaVoz >= 180, `${w}px: o preço da voz não fica espremido (${larguraDoPrecoDaVoz} px)`);
+    if (w === 375) await page.locator('div:has(> div > h3:text-is("Conversa"))').first().screenshot({ path: foto('375-voz-ajuste.png') });
+    await page.click('[data-ver-voz]');
+    await page.waitForSelector('[role="dialog"] >> text=O que ele nunca faz');
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: a gaveta "Voz com emoção" inteira na tela (${m.join(' | ')})`);
+    if (w === 375) await page.screenshot({ path: foto('375-voz-gaveta.png') });
     ok(erros.length === 0, `${w}px: Avisos sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
@@ -1229,7 +1244,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t = await page.locator('main').innerText();
-    ok(/21 ajustes em 9 grupos/.test(t), "conversa: o grupo Conversa entra com dois ajustes (o do boleto e o 'Responder em áudio', M5c), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, Relatórios com o 'Como mandar o resumo' (M5e) e Análises com o ajuste da V7e");
+    ok(/22 ajustes em 9 grupos/.test(t), "conversa: o grupo Conversa entra com três ajustes (o do boleto, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, Relatórios com o 'Como mandar o resumo' (M5e) e Análises com o ajuste da V7e");
     ok(/Documentos e dinheiro[\s\S]*Boleto perto de vencer[\s\S]*Já paguei/.test(t), 'boleto: o aviso novo no grupo "Documentos e dinheiro", com o "Já paguei"');
     ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
     const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');
@@ -1257,10 +1272,56 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(/Responder em áudio[\s\S]*responde em texto e também numa nota de voz/.test(t), 'voz: o ajuste "Responder em áudio" diz que o texto vai junto');
     const voz = page.locator('button[role="switch"][aria-label*="Responder em áudio"]');
     ok((await voz.getAttribute('aria-checked')) === 'false', 'voz: nasce desligado');
+    // Versão 7, V7d: "Voz com emoção" nasce desligada e, sem "Responder em áudio", não dá para ligar.
+    const emocao = page.locator('button[role="switch"][aria-label="Voz com emoção"]');
+    ok((await emocao.getAttribute('aria-checked')) === 'false', 'voz com emoção: nasce desligada');
+    ok(await emocao.isDisabled(), 'voz com emoção: sem "Responder em áudio", a chave fica travada');
+    ok((await page.locator('[data-voz-precisa-do-audio]').count()) === 1, 'voz com emoção: diz que precisa de "Responder em áudio"');
+    ok(/Voz com emoção[\s\S]*US\$ 0,006 a cada 40 s de áudio \(US\$ 0,012 a partir de 01\/01\/2027\)/.test(t), 'voz com emoção: o preço conferido na documentação, ao lado');
     await voz.click();
     await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
     ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ responderAudio: true }), `voz: ligar manda só ele (${JSON.stringify(S.salvamentosConv.at(-1))})`);
     ok((await voz.getAttribute('aria-checked')) === 'true', 'voz: fica ligado depois de salvar');
+    ok(!(await emocao.isDisabled()), 'voz com emoção: com "Responder em áudio", a chave destrava');
+    ok((await page.locator('[data-voz-precisa-do-audio]').count()) === 0, 'voz com emoção: o aviso de "precisa" some');
+    // Ligar pede a confirmação com o preço, sem dizer que gasta a chave da empresa; "Cancelar" não manda nada.
+    await emocao.click();
+    const antesDaVoz = S.salvamentosConv.length;
+    await page.click('button:has-text("Salvar alterações")');
+    await page.waitForSelector('[role="dialog"] >> text=Ligar e salvar?');
+    const dialogoDaVoz = await page.locator('[role="dialog"]').innerText();
+    ok(/Voz com emoção:[\s\S]*US\$ 0,006[\s\S]*franquia de fotos e áudios/.test(dialogoDaVoz), 'voz com emoção: a confirmação diz o preço e a franquia');
+    ok(!/passa a gastar a chave de IA/.test(dialogoDaVoz), 'voz com emoção: a confirmação não diz que gasta a chave de IA da empresa');
+    {
+      const m = await medir(page);
+      ok(m.length === 0, `voz com emoção: a confirmação inteira na tela (${m.join(' | ')})`);
+    }
+    await page.click('[role="dialog"] button:text-is("Cancelar")');
+    await page.waitForSelector('[role="dialog"]', { state: 'detached' });
+    ok(S.salvamentosConv.length === antesDaVoz, 'voz com emoção: "Cancelar" não salva');
+    await page.click('button:has-text("Salvar alterações")');
+    await page.waitForSelector('[role="dialog"] >> text=Ligar e salvar?');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('[role="dialog"] button:text-is("Ligar e salvar")')]);
+    ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ vozComEmocao: true }), `voz com emoção: ligar manda só ela (${JSON.stringify(S.salvamentosConv.at(-1))})`);
+    ok((await emocao.getAttribute('aria-checked')) === 'true', 'voz com emoção: fica ligada depois de salvar');
+    // Desligar "Responder em áudio" não prende a emoção: ela continua podendo ser desligada.
+    await voz.click();
+    ok(!(await emocao.isDisabled()), 'voz com emoção: ligada, sempre dá para desligar');
+    ok((await page.locator('[data-voz-precisa-do-audio]').count()) === 1, 'voz com emoção: avisa que precisa de "Responder em áudio"');
+    await voz.click();
+    // A gaveta: o que nunca faz, a conta e o aviso de que ainda não foi testada.
+    await page.click('[data-ver-voz]');
+    await page.waitForSelector('[role="dialog"] >> text=O que ele nunca faz');
+    const gavetaDaVoz = page.locator('[role="dialog"]');
+    const textoDaGaveta = await gavetaDaVoz.innerText();
+    ok(/Rir de prejuízo, reclamação, cliente ou funcionário/.test(textoDaGaveta) && /Guardar o tom de quem falou/.test(textoDaGaveta) && /Falar um valor diferente do texto/.test(textoDaGaveta), 'voz com emoção: a gaveta diz o que ele nunca faz');
+    ok(/US\$ 2,03[\s\S]*US\$ 4,05/.test(textoDaGaveta), `voz com emoção: a conta de 15 áudios por dia (${textoDaGaveta.match(/Estimativa[^\n]*/)?.[0]})`);
+    ok(/ainda não foram testadas em português/.test(textoDaGaveta), 'voz com emoção: a gaveta avisa que a voz ainda não foi testada');
+    ok(/Não gasta a chave de IA da empresa/.test(textoDaGaveta), 'voz com emoção: a gaveta diz de onde sai o custo');
+    await gavetaDaVoz.locator('select').selectOption('30');
+    ok(/US\$ 4,05[\s\S]*US\$ 8,10/.test(await gavetaDaVoz.innerText()), 'voz com emoção: a conta acompanha os áudios por dia');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[role="dialog"]', { state: 'detached' });
     // Versão 7, V7e: "Análises mais profundas" nasce desligada, com o preço ao lado; ligar manda SÓ ela.
     ok(/Análises mais profundas[\s\S]*De cerca de US\$ 0,001 para cerca de US\$ 0,01 a US\$ 0,08 por análise/.test(t), 'análises: o ajuste traz o preço ao lado');
     const analises = page.locator('button[role="switch"][aria-label*="Análises mais profundas"]');

@@ -756,5 +756,50 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
       expect(await graphFoto.falar(t, lig, 'E outra.', 'regem-falar-jkl12345', 1_500, aoFalhar)).toBeNull();
       expect(motivos.at(-1)).toBe('franquia-esgotada');
     });
+
+    // V7d: os argumentos novos do contrato 1.7.0, pelo cliente MCP de verdade. O Graph 0.11.1 recusa o que não conhece.
+    it('a voz com emoção (V7d): `estilo` só vai quando vier; a recusa do Graph antigo vira `argumento-recusado`, sem falha na ligação', async () => {
+      const { t, ana } = await empresa();
+      await ligar(ana);
+      const lig = (await graphFoto.ligacaoParaFoto(t))!;
+      const OGG = Buffer.concat([Buffer.from('OggS'), randomBytes(60)]);
+      const falado = { tipoArquivo: 'audio', mimeType: 'audio/ogg', audioBase64: OGG.toString('base64'), caracteres: 24, voz: 'gemini', franquia: { mes: MES, usados: 92, total: 500 } };
+      porta = () => ({ content: [{ type: 'text', text: '{}' }], structuredContent: falado });
+      const motivos: string[] = [];
+      const aoFalhar = (m: string) => motivos.push(m);
+      const estilo = { tom: 'animado', risada: true };
+      expect((await graphFoto.falar(t, lig, 'Bateu sim.', 'regem-falar-est12345', 1_500, aoFalhar, estilo))?.equals(OGG)).toBe(true);
+      expect(chamadasMcp.at(-1)!.args).toEqual({ texto: 'Bateu sim.', chaveIdempotencia: 'regem-falar-est12345', estilo });
+      // Sem estilo (ausente ou null), o corpo é o de hoje, byte a byte.
+      await graphFoto.falar(t, lig, 'Bateu sim.', 'regem-falar-sem12345', 1_500, aoFalhar);
+      expect(JSON.stringify(chamadasMcp.at(-1)!.args)).toBe(JSON.stringify({ texto: 'Bateu sim.', chaveIdempotencia: 'regem-falar-sem12345' }));
+      await graphFoto.falar(t, lig, 'Bateu sim.', 'regem-falar-nul12345', 1_500, aoFalhar, null);
+      expect(JSON.stringify(chamadasMcp.at(-1)!.args)).toBe(JSON.stringify({ texto: 'Bateu sim.', chaveIdempotencia: 'regem-falar-nul12345' }));
+      expect(motivos).toEqual([]);
+      // O Graph antigo: "Argumento desconhecido" com `parametro-invalido`. Não marca falha nem desliga a ligação.
+      const antes = await ligacaoDe(t);
+      porta = () => recusa('parametro-invalido', {});
+      expect(await graphFoto.falar(t, lig, 'Bateu sim.', 'regem-falar-ant12345', 1_500, aoFalhar, estilo)).toBeNull();
+      expect(motivos).toEqual(['argumento-recusado']);
+      const depois = await ligacaoDe(t);
+      expect(depois.revogada_em).toBeNull();
+      expect(depois.ultima_leitura_resultado).toBe(antes.ultima_leitura_resultado);
+      // Sem estilo, a mesma recusa é uma falha comum (não há o que repetir).
+      expect(await graphFoto.falar(t, lig, 'Bateu sim.', 'regem-falar-ant22345', 1_500, aoFalhar)).toBeNull();
+      expect(motivos.at(-1)).toBe('recusada:parametro-invalido');
+      // A `ouvir_audio`: `extras` vão nos argumentos; a recusa do Graph antigo vira o mesmo motivo; sem `extras`, o corpo de hoje.
+      const AUDIO = Buffer.concat([Buffer.from('OggS'), randomBytes(60)]);
+      const opcoes = { ferramenta: 'ouvir_audio', mimes: ['audio/ogg'], prefixoDaChave: 'regem-graph-ouvir', aoFalhar };
+      porta = () => ({ content: [{ type: 'text', text: '{}' }], structuredContent: { tipoArquivo: 'audio', transcricao: 'Oi', inaudivel: false, tom: 'animado', franquia: { mes: MES, usados: 93, total: 500 } } });
+      const ouvido = await graphFoto.analisar(t, lig, { buffer: AUDIO, mime: 'audio/ogg', mensagemId: 'wamid.TOM1' }, 1_500, oQueOGraphOuviu, { ...opcoes, extras: { lerTom: true } });
+      expect(ouvido).toEqual({ transcricao: 'Oi', inaudivel: false, tom: 'animado' });
+      expect(chamadasMcp.at(-1)!.args).toMatchObject({ mimeType: 'audio/ogg', lerTom: true });
+      await graphFoto.analisar(t, lig, { buffer: AUDIO, mime: 'audio/ogg', mensagemId: 'wamid.TOM2' }, 1_500, oQueOGraphOuviu, opcoes);
+      expect(Object.keys(chamadasMcp.at(-1)!.args)).toEqual(['mimeType', 'arquivoBase64', 'chaveIdempotencia']);
+      porta = () => recusa('parametro-invalido', {});
+      expect(await graphFoto.analisar(t, lig, { buffer: AUDIO, mime: 'audio/ogg', mensagemId: 'wamid.TOM3' }, 1_500, oQueOGraphOuviu, { ...opcoes, extras: { lerTom: true } })).toBeNull();
+      expect(motivos.at(-1)).toBe('argumento-recusado');
+      expect((await ligacaoDe(t)).revogada_em).toBeNull();
+    });
   });
 });

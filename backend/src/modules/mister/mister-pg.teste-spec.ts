@@ -512,7 +512,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -7404,7 +7404,7 @@ export function testesDoMisterComPostgres(): void {
 
       it('o ajuste da empresa: "pergunta antes" segura o boleto que lançaria sozinho; desligado, a foto segue como antes; o salvar confere', async () => {
         // Versão 4 (mig 447): o jeito vem junto, no padrão (nada muda). M4d (mig 452): o "fica de olho" nasce desligado.
-        const SEM_JEITO = { analisesProfundas: false, perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null };
+        const SEM_JEITO = { analisesProfundas: false, vozComEmocao: false, perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null };
         expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'sozinho', ...SEM_JEITO });
         await expect(conversa.salvar(usuario('ana'), { documentosModo: 'sempre' })).rejects.toBeInstanceOf(BadRequestException);
         await expect(conversa.salvar(usuario('ana'), { documentosLigado: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
@@ -7458,12 +7458,12 @@ export function testesDoMisterComPostgres(): void {
         await expect(conversa.salvar(usuario('ana'), { avisosEscritos: 'loja' })).rejects.toBeInstanceOf(BadRequestException);
         // O jeito vira uma linha só, com os espaços apertados; os grupos saem na ordem da tela, sem repetir.
         const r = await conversa.salvar(usuario('ana'), { perfil: 'descontraido', jeito: '  Fale como sócio,\n sem formalidade.  ', avisosEscritos: ['fiscal', 'loja', 'loja'] });
-        expect(r.conversa).toEqual({ analisesProfundas: false, documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
+        expect(r.conversa).toEqual({ analisesProfundas: false, vozComEmocao: false, documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         expect(auditados.filter((a) => a.acao === 'mister_conversa_alterada').at(-1)).toMatchObject({ detalhe: { antes: { perfil: 'hoje', jeito: null }, depois: { perfil: 'descontraido' } } });
         // Salvar só o perfil não apaga o jeito, os grupos nem o ajuste dos documentos.
         await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' });
         await conversa.salvar(usuario('ana'), { perfil: 'objetivo' });
-        expect(await conversa.daEmpresa(A)).toEqual({ analisesProfundas: false, documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
+        expect(await conversa.daEmpresa(A)).toEqual({ analisesProfundas: false, vozComEmocao: false, documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         // M4d (mig 452): o "fica de olho" liga e desliga só com booleano (V15), sem mexer no resto.
         await expect(conversa.salvar(usuario('ana'), { ficaDeOlho: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
         expect((await conversa.salvar(usuario('ana'), { ficaDeOlho: true })).conversa).toMatchObject({ ficaDeOlho: true, perfil: 'objetivo', avisosEscritos: ['loja', 'fiscal'] });
@@ -8191,15 +8191,21 @@ export function testesDoMisterComPostgres(): void {
         /** M5c: a nota de voz que a `falar` devolve; null = não falou (o motivo vai a `aoFalhar`, como no real). */
         voz: Buffer | null = null;
         motivoDaFala = 'voz-desligada';
-        falas: Array<{ tenantId: string; texto: string; chave: string }> = [];
-        async falar(tenantId: string, _lig: any, texto: string, chave: string, _prazoMs: number, aoFalhar?: (m: string) => void): Promise<Buffer | null> {
-          this.falas.push({ tenantId, texto, chave });
+        falas: Array<{ tenantId: string; texto: string; chave: string; estilo?: unknown }> = [];
+        /** V7d: como o Graph 0.11.1, recusa o argumento `estilo` antes de reservar. */
+        recusaOEstilo = false;
+        async falar(tenantId: string, _lig: any, texto: string, chave: string, _prazoMs: number, aoFalhar?: (m: string) => void, estilo?: unknown): Promise<Buffer | null> {
+          this.falas.push({ tenantId, texto, chave, ...(estilo ? { estilo } : {}) });
+          if (estilo && this.recusaOEstilo) {
+            aoFalhar?.('argumento-recusado');
+            return null;
+          }
           if (!this.voz) aoFalhar?.(this.motivoDaFala);
           return this.voz;
         }
       }
       const graph = new GraphDeMentira(db);
-      const midiaDoMister = new MisterMidiaService(numero, ia, entrada, graph);
+      const midiaDoMister = new MisterMidiaService(numero, ia, entrada, graph, new MisterConversaConfigService(db, auditoria));
       midiaDoMister.prazos = { totalMs: 5_000, graphMs: 2_000, minimoDaIaMs: 500 };
       // Os documentos (M3a) de verdade, apresentados à entrada aqui também: este bloco roda sozinho com `-t`.
       const documentosAqui = new DocumentosDeTeste(db, numero, ia, new FinanceiroService(db, auditoria, {} as any), new MisterConversaConfigService(db, auditoria), entrada, auditoria);
@@ -8451,6 +8457,68 @@ export function testesDoMisterComPostgres(): void {
           await expect(conversaCfg.salvar(usuario('ana'), { responderAudio: 'sim' })).rejects.toThrow('Responder em áudio: diga se fica ligado ou desligado.');
         } finally {
           graph.voz = null;
+          await q(`delete from mister_conversa_config where tenant_id = $1`, [A]);
+        }
+      });
+
+      // ─────────── V7d: a voz com emoção ───────────
+      it('a voz com emoção (V7d): o tom vai do Graph à fala só em memória — nada na pergunta, na IA, na memória ou na auditoria; o Graph antigo não impede o áudio', async () => {
+        const conversaCfg = new MisterConversaConfigService(db, auditoria);
+        const comVoz = new MisterAgenteService(fila, ferramentas, ia, numero, undefined, conversaCfg, undefined, midiaDoMister);
+        const VOZ = Buffer.concat([Buffer.from('OggS'), Buffer.alloc(40, 5)]);
+        const FALADO = 'Ontem, no iFood: 38 pedidos.';
+        const perguntar = async () => {
+          expect(await audio(telAna, novoAudio())).toBe('pergunta');
+          ia.roteiro = [falar('Ontem, no *iFood*: 38 pedidos.')];
+          numero.pedidos.length = 0;
+          expect(await comVoz.esvaziar()).toBe(1);
+        };
+        graph.resposta = { ...OUVIDO, tom: 'animado' };
+        graph.voz = VOZ;
+        graph.falas.length = 0;
+        graph.chamadas.length = 0;
+        try {
+          // "Responder em áudio" ligado, emoção desligada: o pedido e a fala são os de hoje.
+          await conversaCfg.salvar(usuario('ana'), { responderAudio: true });
+          expect((await conversaCfg.daEmpresa(A)).vozComEmocao).toBe(false);
+          await perguntar();
+          expect(graph.chamadas.at(-1)!.opcoes.extras).toBeUndefined();
+          expect(graph.falas).toEqual([{ tenantId: A, texto: FALADO, chave: chaveDaFala(A, FALADO) }]);
+          // A emoção sozinha, sem "Responder em áudio": nem pede o tom.
+          await conversaCfg.salvar(usuario('ana'), { responderAudio: false, vozComEmocao: true });
+          graph.falas.length = 0;
+          await perguntar();
+          expect(graph.chamadas.at(-1)!.opcoes.extras).toBeUndefined();
+          expect(graph.falas).toEqual([]);
+          // As duas ligadas: pede o tom, e a fala vai com o estilo.
+          await conversaCfg.salvar(usuario('ana'), { responderAudio: true });
+          const estilo = { tom: 'animado', risada: true } as const;
+          await perguntar();
+          expect(graph.chamadas.at(-1)!.opcoes.extras).toEqual({ lerTom: true });
+          expect(graph.falas).toEqual([{ tenantId: A, texto: FALADO, chave: chaveDaFala(A, FALADO, estilo), estilo }]);
+          expect(midiaDoMister.tons.tamanho).toBe(0);
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('38 pedidos'), expect.stringMatching(/^audio:\d+\|voz$/)]);
+          // O tom não ficou em lugar nenhum: nem na pergunta, nem no que foi à IA, nem na auditoria.
+          const linhas = await q(`select * from mister_pergunta where tenant_id = $1`, [A]);
+          expect(JSON.stringify(linhas)).not.toMatch(/animado|"tom"/);
+          expect(JSON.stringify(ia.pedidos)).not.toMatch(/animado/);
+          const auditadas = auditados.filter((a) => a.acao === 'mister_conversa_alterada');
+          expect(JSON.stringify(auditadas)).toContain('vozComEmocao');
+          expect(JSON.stringify(auditados)).not.toMatch(/animado/);
+          // O Graph antigo recusa o `estilo`: repete sem ele e o áudio sai.
+          graph.recusaOEstilo = true;
+          graph.falas.length = 0;
+          await perguntar();
+          expect(graph.falas).toEqual([
+            { tenantId: A, texto: FALADO, chave: chaveDaFala(A, FALADO, estilo), estilo },
+            { tenantId: A, texto: FALADO, chave: chaveDaFala(A, FALADO) },
+          ]);
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('38 pedidos'), expect.stringMatching(/^audio:\d+\|voz$/)]);
+          // Só o presidente muda, e só com booleano.
+          await expect(conversaCfg.salvar(usuario('ana'), { vozComEmocao: 'sim' })).rejects.toThrow('Voz com emoção');
+        } finally {
+          graph.voz = null;
+          graph.recusaOEstilo = false;
           await q(`delete from mister_conversa_config where tenant_id = $1`, [A]);
         }
       });

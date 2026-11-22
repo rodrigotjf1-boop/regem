@@ -332,6 +332,19 @@ export function motivoDaFalha(e: unknown): string {
   return e.tipo;
 }
 
+/**
+ * Versão 7, V7d: o motivo de quando o Graph recusou um argumento opcional novo (`estilo`, `lerTom`). O Graph de antes do
+ * contrato 1.7.0 recusa o que não conhece ANTES de reservar a franquia: quem chamou repete sem o argumento.
+ */
+export const MOTIVO_ARGUMENTO_RECUSADO = 'argumento-recusado';
+
+/** A recusa é de argumento (`parametro-invalido`)? Nunca lê a frase: só o código estruturado da porta. */
+export function recusouArgumento(e: unknown): boolean {
+  if (!(e instanceof ErroMcp) || e.tipo !== 'ferramenta') return false;
+  const dados = e.dados && typeof e.dados === 'object' ? (e.dados as Record<string, unknown>) : {};
+  return dados.codigo === 'parametro-invalido';
+}
+
 // ───────────────────────────── a imagem (editar_imagem e criar_imagem, contrato 1.4.0) ─────────────────────────────
 
 export const FERRAMENTA_EDITAR_IMAGEM = 'editar_imagem';

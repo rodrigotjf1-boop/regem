@@ -58,6 +58,11 @@ export interface ConversaDoMister {
    * maior; o resto continua no de sempre. Nasce desligada; só o presidente muda (a rota).
    */
   analisesProfundas: boolean;
+  /**
+   * Versão 7, V7d (mig 493, decisões V7-4 a V7-6): "Voz com emoção" — a resposta em áudio acompanha o tom de quem fala. Nasce
+   * desligada, só o presidente muda e só vale com "Responder em áudio" ligado. O tom em si nunca é gravado.
+   */
+  vozComEmocao: boolean;
 }
 /** As horas que o PIN da sessão vale (a escolha do presidente). */
 export const HORAS_DO_PIN = [6, 12, 24] as const;
@@ -76,6 +81,7 @@ export const CONVERSA_PADRAO: ConversaDoMister = {
   responderAudio: false,
   pinACadaH: null,
   analisesProfundas: false,
+  vozComEmocao: false,
 };
 
 /** O jeito como vai ao banco e às instruções: uma linha, espaços apertados; vazio vira null. */
@@ -135,6 +141,11 @@ export function conferirConversa(dto: unknown): Partial<ConversaDoMister> | { er
     if (typeof d.analisesProfundas !== 'boolean') return { erro: 'Análises mais profundas: diga se fica ligado ou desligado.' };
     fora.analisesProfundas = d.analisesProfundas;
   }
+  if (d.vozComEmocao !== undefined) {
+    // V15: liga/desliga só com booleano de verdade.
+    if (typeof d.vozComEmocao !== 'boolean') return { erro: 'Voz com emoção: diga se fica ligada ou desligada.' };
+    fora.vozComEmocao = d.vozComEmocao;
+  }
   if (!Object.keys(fora).length) return { erro: 'Nada para salvar.' };
   return fora;
 }
@@ -153,6 +164,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
   responderAudio: { coluna: 'responder_audio', valor: (v) => sql`${v}` },
   pinACadaH: { coluna: 'pin_a_cada_h', valor: (v) => sql`${v}::int` },
   analisesProfundas: { coluna: 'analises_profundas', valor: (v) => sql`${v}::boolean` },
+  vozComEmocao: { coluna: 'voz_com_emocao', valor: (v) => sql`${v}::boolean` },
 };
 
 /**
@@ -160,6 +172,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
  * lê as da anterior. Nunca devolver o padrão de um campo que está salvo (o "perguntar" dos documentos, o perfil).
  */
 const LEITURAS = [
+  sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio"`,
@@ -202,6 +215,7 @@ export class MisterConversaConfigService {
         responderAudio: l.responderAudio === true,
         pinACadaH: (HORAS_DO_PIN as readonly unknown[]).includes(Number(l.pinACadaH)) ? (Number(l.pinACadaH) as HorasDoPin) : null,
         analisesProfundas: l.analisesProfundas === true,
+        vozComEmocao: l.vozComEmocao === true,
       };
     } catch (e: any) {
       // Sem a 440 (a migration ainda não entrou, ou o servidor da loja): o padrão, que não muda nada.
