@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { verificarCliente } from '../cliente/cliente-token';
 import { perfilLigado } from '../../common/segmentos-do-perfil';
 import { INTERESSE, sqlNaoPediuDesde, sqlPontosDoClique } from '../../common/interesse-do-cliente';
+import { clienteFoiAvisado } from './aviso-do-perfil';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -88,7 +89,8 @@ export async function registrarInteracoes(db: any, token: string, dto: any): Pro
                (select x.valor from cliente_escolha x
                  where x.cliente_id = ${v.cli}::uuid and x.tenant_id = ${tenantId}::uuid and x.escolha = 'nao_analisar'
                  order by x.em desc limit 1) as nao`));
-      if (e?.rec !== false && e?.nao !== true) clienteId = v.cli;
+      // Sem o aviso (regra `PERFIL_SO_COM_AVISO`), o clique continua anônimo.
+      if (e?.rec !== false && e?.nao !== true && (await clienteFoiAvisado(db, tenantId, v.cli))) clienteId = v.cli;
     }
     const r: any = await db.execute(sql`
       insert into cardapio_interacao (tenant_id, sessao, cliente_id, tipo, produto_id, ms, termo, resultados)

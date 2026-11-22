@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { AVISO_DAS_RECOMENDACOES, ESCOLHAS, PADRAO_DA_ESCOLHA, Pedido, TEXTO_DA_ESCOLHA, VERSAO_DOS_TEXTOS } from './escolhas-do-cliente';
+import { gravarRespostaDoAviso, lerAvisoDoPerfil, perfilSoComAviso } from './aviso-do-perfil';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -17,6 +18,8 @@ export async function gravarPrivacidade(tx: any, c: { tenantId: string; id: stri
        where coalesce((select x.valor from cliente_escolha x where x.cliente_id = ${c.id}::uuid and x.escolha = ${e.escolha}
                         order by x.em desc limit 1), not ${e.valor}::boolean) <> ${e.valor}::boolean`);
   }
+  // A prova do aviso do perfil (só com a regra ligada; quem chama já conferiu a posse do telefone).
+  if (p.avisoPerfil && perfilSoComAviso()) await gravarRespostaDoAviso(tx, c, p.avisoPerfil, p.origem);
   for (const d of p.declarado) {
     if (d.valor === null) {
       await tx.execute(sql`delete from cliente_declarado
@@ -64,5 +67,7 @@ export async function lerPrivacidade(db: any, tenantId: string, clienteId: strin
     textos: TEXTO_DA_ESCOLHA,
     avisoRecomendacoes: AVISO_DAS_RECOMENDACOES,
     versaoDosTextos: VERSAO_DOS_TEXTOS,
+    // O aviso do perfil: `null` com a regra desligada (o cardápio continua como era).
+    avisoPerfil: await lerAvisoDoPerfil(db, tenantId, clienteId),
   };
 }

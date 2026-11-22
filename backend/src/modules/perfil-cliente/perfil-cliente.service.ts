@@ -3,6 +3,7 @@ import { CalendarioDaLojaService } from './calendario-da-loja.service';
 import { calcularSensibilidadeDaEmpresa } from './sensibilidade-da-empresa';
 import { expurgarFunil, expurgarInteracoes, oQueOlha } from './interacoes-do-cardapio';
 import { expurgarPerfisVencidos, temPedidoDireto } from './retencao-do-perfil';
+import { clienteFoiAvisado, perfilSoComAviso, retirarPerfisSemAviso } from './aviso-do-perfil';
 import { sqlOlhouENaoPediu } from '../../common/interesse-do-cliente';
 import { Cron } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
@@ -132,6 +133,16 @@ export class PerfilClienteService {
     if (ehServidorLocal() || this.rodando) return;
     this.rodando = true;
     try {
+      // A regra do aviso ligada: o que era de quem não viu o aviso sai em até 30 minutos, a qualquer hora. Sozinha: se falhar,
+      // o cálculo segue (e o robô, a equipe e a ficha já não leem o perfil de quem não foi avisado).
+      if (perfilSoComAviso()) {
+        await retirarPerfisSemAviso(this.db)
+          .then((n) => {
+            if (n.perfis || n.sensibilidades || n.cliques)
+              this.log.log(`perfil do cliente: sem aviso — ${n.perfis} perfis e ${n.sensibilidades} medidas apagados, ${n.cliques} cliques anônimos`);
+          })
+          .catch((e: any) => this.log.error(`perfil do cliente: tirar de uso quem não viu o aviso falhou: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`, e?.stack));
+      }
       for (let i = 0; i < 20; i++) {
         const tenantId = await this.reservarProxima();
         if (!tenantId) break;
@@ -190,7 +201,9 @@ export class PerfilClienteService {
     const atual = this.rows(await this.db.execute(sql`
       select calculado_em > now() - make_interval(hours => ${FICHA_FRESCA_HORAS}) as fresca
         from cliente_perfil where cliente_id = ${clienteId}::uuid and tenant_id = ${tenantId}::uuid`))[0];
-    if (!atual?.fresca) await this.calcularCliente(tenantId, clienteId);
+    // Com a regra do aviso ligada, o recálculo também tira a linha de quem não viu o aviso.
+    const avisado = await clienteFoiAvisado(this.db, tenantId, clienteId);
+    if (!atual?.fresca || !avisado) await this.calcularCliente(tenantId, clienteId);
     const perfil = this.rows(await this.db.execute(sql`
       select pedidos_diretos, primeiro_pedido_em, ultimo_pedido_em, segmento, rfm, ticket_medio, ticket_ajustado,
              intervalo_dias, proximo_previsto, atraso, faixa_habitual, dia_habitual, confianca, etiquetas, camadas,
@@ -212,7 +225,7 @@ export class PerfilClienteService {
       : [];
     // O que olha no cardápio (F4b, mig 466): só os cliques ligados a ele (depois do "sim" das recomendações); nada com
     // "não analisar". Lido sozinho: se falhar, a ficha abre sem a camada (null, com o motivo no log).
-    const olha = naoAnalisar
+    const olha = naoAnalisar || !avisado
       ? null
       : await oQueOlha(this.db, tenantId, clienteId).catch((e: any) => {
           this.log.warn(`o que olha (ficha) não lido — empresa ${tenantId.slice(0, 8)}: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`);
@@ -222,9 +235,21 @@ export class PerfilClienteService {
     const soPlataforma = !perfil && !naoAnalisar && Number(c.total_pedidos ?? 0) > 0;
     // Tem pedido direto e ficou sem perfil: passou de 12 meses sem pedir (a ficha não pode dizer "só iFood/99").
     const perfilApagado = !perfil && !naoAnalisar && (await temPedidoDireto(this.db, tenantId, clienteId));
+    // Tem pedido direto e ainda não viu o aviso: não é "apagado pelo prazo".
+    const aguardandoAviso = perfilApagado && !avisado;
     return {
       cliente: { id: c.id, nome: c.nome, telefone: c.telefone, desde: c.criado_em },
-      situacao: naoAnalisar ? 'nao_analisar' : perfil ? 'com_perfil' : perfilApagado ? 'perfil_apagado' : soPlataforma ? 'so_plataforma' : 'sem_pedido',
+      situacao: naoAnalisar
+        ? 'nao_analisar'
+        : perfil
+          ? 'com_perfil'
+          : aguardandoAviso
+            ? 'aguardando_aviso'
+            : perfilApagado
+              ? 'perfil_apagado'
+              : soPlataforma
+                ? 'so_plataforma'
+                : 'sem_pedido',
       perfil,
       declarado,
       escolhas,

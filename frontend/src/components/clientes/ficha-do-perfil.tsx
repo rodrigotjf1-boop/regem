@@ -116,6 +116,15 @@ export function FichaDoPerfil({ clienteId, nome, aoFechar }: { clienteId: string
           <p className="mt-1 text-muted-foreground">O perfil foi apagado e não se recalcula. O robô e a equipe usam só o pedido em curso.</p>
         </div>
       )}
+      {dados?.situacao === 'aguardando_aviso' && (
+        <div className="rounded-lg border border-dashed border-border p-5 text-center text-sm">
+          <p className="font-semibold">O perfil abre depois do aviso.</p>
+          <p className="mt-1 text-muted-foreground">
+            Este cliente ainda não viu o aviso de privacidade. O cadastro, os pedidos e o que ele contou continuam. Quando ele entrar no cardápio
+            e continuar, o perfil é refeito pelos pedidos.
+          </p>
+        </div>
+      )}
       {dados?.situacao === 'perfil_apagado' && (
         <div className="rounded-lg border border-dashed border-border p-5 text-center text-sm">
           <p className="font-semibold">O perfil foi apagado pelo prazo.</p>

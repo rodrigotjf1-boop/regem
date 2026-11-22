@@ -17,11 +17,26 @@ import { Caixa } from './partes';
 //    antes de seguir;
 //  • o servidor guarda o texto mostrado, a data e a origem `cardapio_entrada`; "Continuar sem marcar" grava o "não";
 //  • as ofertas usam a MESMA chave do Perfil (`clientePromocoes`) e a caixa mostra a frase que ela grava; só aparece na loja
-//    que manda promoção e para quem ainda não recebe.
+//    que manda promoção e para quem ainda não recebe;
+//  • com a regra `PERFIL_SO_COM_AVISO` ligada, o aviso do perfil (o texto do servidor) vem primeiro, com "Não quero esse resumo"
+//    no mesmo destaque. Quem já tinha respondido às caixas vê só o aviso: reenviar as caixas vazias desfaria um "sim" antigo.
 
 export type Promocoes = { ativo: boolean; frase?: string } | null | undefined;
 
 const MOSTRAR_MARCADAS_MS = 700;
+
+/** O texto do aviso do perfil, com o caminho para a política inteira. */
+export function TextoDoAviso({ texto }: { texto: string }) {
+  return (
+    <p className="c-note">
+      {texto}{' '}
+      {/* O sublinhado aqui direto: no tema do cardápio, o link sem ele parece texto comum. */}
+      <a href="/privacidade" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'underline' }}>
+        Ler a política completa
+      </a>
+    </p>
+  );
+}
 
 export function EscolhasDaEntrada({
   token,
@@ -29,6 +44,8 @@ export function EscolhasDaEntrada({
   textos,
   aviso,
   promocoes,
+  avisoPerfil,
+  soAviso,
   onPronto,
 }: {
   token: string;
@@ -37,6 +54,10 @@ export function EscolhasDaEntrada({
   /** O aviso das recomendações (vem do servidor — o texto que vale). */
   aviso?: string;
   promocoes: Promocoes;
+  /** O aviso do perfil ainda não visto (`null` = nada a avisar). */
+  avisoPerfil?: { texto: string } | null;
+  /** Já respondeu às caixas antes: mostra só o aviso. */
+  soAviso?: boolean;
   onPronto: () => void | Promise<void>;
 }) {
   const [conv, setConv] = useState(false);
@@ -68,11 +89,27 @@ export function EscolhasDaEntrada({
         origem: 'cardapio_entrada',
         // As recomendações não vão: ficam no padrão (ligadas — D16); o "Continuar sem marcar" não as desliga.
         escolhas: { atendimento_personalizado: v.conv, maior_de_18: v.maior },
+        ...(avisoPerfil ? { avisoPerfil: 'continuou' } : {}),
       });
       if (temOfertas && v.ofe) await api.clientePromocoes(token, clienteToken, true);
       await onPronto();
     } catch (e) {
       if (vivo.current) setErro(e instanceof Error ? e.message : 'Não foi possível salvar as suas escolhas. Tente de novo.');
+    } finally {
+      if (vivo.current) setBusy(false);
+    }
+  }
+
+  /** Responde só ao aviso: "Continuar" (quem já tinha respondido às caixas) ou "Não quero esse resumo". */
+  async function responderAviso(resposta: 'continuou' | 'recusou') {
+    if (busy) return;
+    setBusy(true);
+    setErro('');
+    try {
+      await api.clienteDefinirPrivacidade(token, { clienteToken, origem: 'cardapio_entrada', avisoPerfil: resposta });
+      await onPronto();
+    } catch (e) {
+      if (vivo.current) setErro(e instanceof Error ? e.message : 'Não foi possível salvar a sua resposta. Tente de novo.');
     } finally {
       if (vivo.current) setBusy(false);
     }
@@ -92,8 +129,34 @@ export function EscolhasDaEntrada({
 
   const rotuloAceitar = temOfertas ? 'Aceitar as duas e continuar' : 'Aceitar e continuar';
 
+  if (avisoPerfil && soAviso) {
+    return (
+      <div className="c-sec">
+        <h3 className="c-h">Como a loja usa seus dados</h3>
+        <TextoDoAviso texto={avisoPerfil.texto} />
+        {erro && (
+          <p className="c-msg err" role="alert">
+            {erro}
+          </p>
+        )}
+        <button type="button" className="p-btn c" onClick={() => void responderAviso('continuou')} disabled={busy}>
+          {busy ? 'Salvando…' : 'Continuar'}
+        </button>
+        <button type="button" className="p-btn c" onClick={() => void responderAviso('recusou')} disabled={busy}>
+          Não quero esse resumo
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="c-sec">
+      {avisoPerfil && (
+        <>
+          <h3 className="c-h">Como a loja usa seus dados</h3>
+          <TextoDoAviso texto={avisoPerfil.texto} />
+        </>
+      )}
       <h3 className="c-h">Você escolhe · opcional</h3>
       {/* Não é caixa: as recomendações vêm ligadas por legítimo interesse (D16); o aviso é o texto do servidor. */}
       <p className="c-note">
@@ -128,6 +191,11 @@ export function EscolhasDaEntrada({
       <button type="button" className="p-btn c" onClick={() => void salvar({ conv, ofe, maior })} disabled={busy}>
         {busy ? 'Salvando…' : algumMarcado ? 'Continuar com o que marquei' : 'Continuar sem marcar'}
       </button>
+      {avisoPerfil && (
+        <button type="button" className="p-btn c" onClick={() => void responderAviso('recusou')} disabled={busy}>
+          Não quero esse resumo
+        </button>
+      )}
     </div>
   );
 }

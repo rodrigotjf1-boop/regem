@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Perfil do cliente — só abre depois do aviso (22/11; mig 488 só nuvem; nasce DESLIGADO em `PERFIL_SO_COM_AVISO`).** Só na
+  nuvem: vai no `.zip` sem efeito na loja. A tabela = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe` da próxima release leva).
+
 - **Cadastros › Cardápio — "Mostrar código PDV" (21/11; SEM migration).** Rota `PATCH /produtos/codigos-pdv` e a tela: chegam
   ao servidor da loja no próximo `.zip` (não toca `sync` nem `edge`: não pede `.exe`). Pela nuvem, valem no deploy.
 

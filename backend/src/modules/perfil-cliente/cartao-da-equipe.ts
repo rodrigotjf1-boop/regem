@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { CANAIS_FORA_DO_PERFIL } from './calculo-do-perfil';
+import { clienteFoiAvisado } from './aviso-do-perfil';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -52,8 +53,11 @@ export async function cartaoDaEquipe(db: any, tenantId: string, clienteId: strin
   if (e?.valor) return null;
   const [c] = linhas(await db.execute(sql`select nome from cliente where id = ${clienteId}::uuid and tenant_id = ${tenantId}::uuid`));
   if (!c) return null;
-  const [p] = linhas(await db.execute(sql`
-    select confianca, etiquetas, camadas from cliente_perfil where cliente_id = ${clienteId}::uuid and tenant_id = ${tenantId}::uuid`));
+  // Quem ainda não viu o aviso (regra `PERFIL_SO_COM_AVISO`): a equipe vê só o que o cliente contou, como a alergia.
+  const [p] = (await clienteFoiAvisado(db, tenantId, clienteId))
+    ? linhas(await db.execute(sql`
+    select confianca, etiquetas, camadas from cliente_perfil where cliente_id = ${clienteId}::uuid and tenant_id = ${tenantId}::uuid`))
+    : [];
   const d = new Map(linhas(await db.execute(sql`
     select chave, valor from cliente_declarado where cliente_id = ${clienteId}::uuid and tenant_id = ${tenantId}::uuid`)).map((x: any) => [x.chave, x.valor]));
   const cam = p?.camadas ?? {};
