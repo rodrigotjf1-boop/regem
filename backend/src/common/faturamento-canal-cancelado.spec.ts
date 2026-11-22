@@ -137,14 +137,14 @@ descrever('comanda de pedido cancelado pelo canal não conta como balcão', () =
     const painel: any = await dashboard.resumo(tenant, DIA, true, loja);
     const v: any = await relatorios.vendasOficiais(tenant, DIA, DIA, true, loja);
     expect(painel.comercial.faturado).toBe(128);
-    expect(v.resumo).toMatchObject({ vendas: 3, faturado: 128, ticketMedio: painel.comercial.ticketMedio });
+    expect(v.resumo).toMatchObject({ vendas: 3, faturado: 128, ticketMedio: painel.comercial.ticketMedio, recebido: 107 });
     expect(v.porCanal).toEqual([
       { canal: 'delivery/app', qtd: 2, total: 88 },
       { canal: 'balcão', qtd: 1, total: 40 },
     ]);
     expect(v.porDia.map((d: any) => [d.qtd, d.total])).toEqual([[3, 128]]);
     expect(v.porHora.map((h: any) => [h.hora, h.total])).toEqual([[12, 40], [13, 30], [16, 58]]);
-    // A conta só das comandas (a tela de Relatórios) soma os cancelados e não vê a entrega da loja: é o que o Mister não usa mais.
+    // A conta só das comandas soma os cancelados e não vê a entrega da loja: nem o Mister nem a tela de Relatórios a usam mais como faturado.
     expect(((await relatorios.vendas(tenant, DIA, DIA, true, loja)) as any).resumo.faturado).toBe(107);
     // Quem não vê valores recebe as quantidades, sem os reais.
     const sem: any = await relatorios.vendasOficiais(tenant, DIA, DIA, false, loja);
