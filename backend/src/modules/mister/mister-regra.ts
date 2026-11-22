@@ -469,15 +469,16 @@ const NOME_DO_VALOR: Record<string, string> = {
   ifood: 'iFood',
   '99': '99',
 };
+/** A comparação da forma de reserva (e a do valor em reais): "acima de R$ 100,00". */
 const OP_EM_PALAVRAS: Record<Operador, string> = {
-  '=': 'é',
-  '!=': 'não é',
+  '=': 'igual a',
+  '!=': 'diferente de',
   '>': 'acima de',
   '>=': 'a partir de',
   '<': 'abaixo de',
   '<=': 'até',
-  contem: 'contém',
-  em: 'é um de',
+  contem: 'com',
+  em: 'igual a',
 };
 const DIAS_DA_SEMANA = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 
@@ -489,49 +490,262 @@ const valorEmPalavras = (campo: CampoDaFonte | undefined, v: unknown): string =>
   if (campo?.tipo === 'dia' && DIA.test(String(v))) return String(v).split('-').reverse().join('/');
   return NOME_DO_VALOR[String(v)] ?? String(v);
 };
-const filtroEmPalavras = (f: Filtro, fonte: FonteDaRegra): string => {
-  const c = fonte.campos.find((x) => x.nome === f.campo);
-  return `${c?.rotulo ?? f.campo} ${OP_EM_PALAVRAS[f.op]} ${valorEmPalavras(c, f.valor)}`;
-};
 const lista = (partes: string[], e = 'e') => (partes.length <= 1 ? partes.join('') : `${partes.slice(0, -1).join(', ')} ${e} ${partes[partes.length - 1]}`);
+
+// Versão 7, V7c: a proposta em linguagem de gente. O código continua escrevendo (a IA não descreve o que o código vai
+// fazer), agora com a frase de cada campo do catálogo. Campo novo sem frase cai na forma de reserva: "com <rótulo> <op> <valor>".
+
+/** A forma do texto no singular e no plural ("passar de 20 min" / "passarem de 20 min"). */
+interface Flexao {
+  um: string;
+  varios: string;
+}
+const igual = (t: string): Flexao => ({ um: t, varios: t });
+
+const NOME_DA_FONTE: Record<NomeDaFonte, Flexao> = {
+  pedidos: { um: 'pedido', varios: 'pedidos' },
+  contas: { um: 'conta a pagar', varios: 'contas a pagar' },
+  tarefas: { um: 'tarefa', varios: 'tarefas' },
+  equipamentos: { um: 'impressora ou servidor parado', varios: 'impressoras ou servidores parados' },
+  caixas: { um: 'caixa aberto', varios: 'caixas abertos' },
+  canais: { um: 'canal pausado', varios: 'canais pausados' },
+  vendas: { um: 'venda de hoje', varios: 'vendas de hoje' },
+};
+const SITUACAO_NA_FRASE: Record<string, Flexao> = {
+  aguardando_aceite: igual('aguardando aceite'),
+  em_preparo: igual('em preparo'),
+  pronto: { um: 'pronto', varios: 'prontos' },
+  a_caminho: igual('a caminho'),
+  entregue: { um: 'entregue', varios: 'entregues' },
+  cancelado: { um: 'cancelado', varios: 'cancelados' },
+  pendente: { um: 'pendente', varios: 'pendentes' },
+  em_execucao: igual('em execução'),
+  feita: { um: 'feita', varios: 'feitas' },
+  parcial: { um: 'feita em parte', varios: 'feitas em parte' },
+  nao_feita: { um: 'não feita', varios: 'não feitas' },
+  impossibilitada: { um: 'impossibilitada', varios: 'impossibilitadas' },
+};
+const CANAL_NA_FRASE: Record<string, string> = { cardapio: 'do cardápio digital', ifood: 'do iFood', '99': 'da 99', whatsapp: 'do WhatsApp', outro: 'de outros canais' };
+const TIPO_NA_FRASE: Record<string, string> = { entrega: 'de entrega', retirada: 'de retirada', outro: 'de outro tipo' };
+/** Onde o texto procurado aparece: `com "cozinha" no nome`. */
+const ONDE_DO_TEXTO: Record<string, string> = { nome: 'no nome', descricao: 'na descrição', fornecedor: 'no fornecedor', titulo: 'no título', quem: 'em quem faz' };
+
+const valoresDoFiltro = (f: Filtro) => (Array.isArray(f.valor) ? f.valor : [f.valor]).map(String);
+
+/** A impressora e o servidor têm nome próprio na frase, quando a regra escolhe um dos dois. */
+function nomeNaFrase(r: Regra): Flexao {
+  if (r.fonte !== 'equipamentos') return NOME_DA_FONTE[r.fonte];
+  const tipo = r.filtros.find((f) => f.campo === 'tipo' && (f.op === '=' || f.op === 'em'));
+  const valores = tipo ? valoresDoFiltro(tipo) : [];
+  if (valores.length === 1 && valores[0] === 'impressora') return { um: 'impressora parada', varios: 'impressoras paradas' };
+  if (valores.length === 1 && valores[0] === 'servidor') return { um: 'servidor parado', varios: 'servidores parados' };
+  return NOME_DA_FONTE.equipamentos;
+}
+
+/** O prazo em dias para vencer: inclui a conta já vencida quando a comparação pega os negativos. */
+function fraseDoVencimento(op: Operador, n: number): Flexao | null {
+  const vence = (resto: string): Flexao => ({ um: `que vence ${resto}`, varios: `que vencem ${resto}` });
+  const jaVenceu = (antes: string): Flexao => ({ um: `${antes} ou já venceu`, varios: `${antes.replace('que vence', 'que vencem')} ou já venceram` });
+  const dias = (x: number) => `${x.toLocaleString('pt-BR')} ${x === 1 ? 'dia' : 'dias'}`;
+  if (op === '=' && n >= 0) return vence(n === 0 ? 'hoje' : n === 1 ? 'amanhã' : `em ${dias(n)}`);
+  if (op === '<=' && n >= 0) return jaVenceu(n === 0 ? 'que vence hoje' : `que vence em até ${dias(n)}`);
+  if (op === '<' && n === 0) return { um: 'que já venceu', varios: 'que já venceram' };
+  if (op === '<' && n > 0) return jaVenceu(`que vence em menos de ${dias(n)}`);
+  if (op === '>' && n >= 0) return vence(`daqui a mais de ${dias(n)}`);
+  if (op === '>=' && n >= 0) return vence(`daqui a ${dias(n)} ou mais`);
+  return null;
+}
+
+/** O tempo que passa, como verbo: "passarem de 20 min", "levarem mais de 30 min do aceite até ficar pronto". */
+function verboDoTempo(f: Filtro, v: string, r: Regra): Flexao | null {
+  if (f.op !== '>' && f.op !== '>=') return null;
+  const passar = (resto = ''): Flexao => ({ um: `passar de ${v}${resto}`, varios: `passarem de ${v}${resto}` });
+  const quanto = f.op === '>' ? `mais de ${v}` : `${v} ou mais`;
+  const levar = (resto: string): Flexao => ({ um: `levar ${quanto} ${resto}`, varios: `levarem ${quanto} ${resto}` });
+  const situacoes = r.filtros.filter((x) => x.campo === 'situacao' && (x.op === '=' || x.op === 'em')).flatMap(valoresDoFiltro);
+  const soNaEtapa = (etapa: string) => situacoes.length === 1 && situacoes[0] === etapa;
+  switch (f.campo) {
+    case 'min_desde_aceite':
+      return passar(soNaEtapa('em_preparo') ? '' : ' desde o aceite');
+    case 'min_desde_chegada':
+      return passar(soNaEtapa('aguardando_aceite') ? '' : ' desde a chegada');
+    case 'min_aceite_ate_pronto':
+      return levar('do aceite até ficar pronto');
+    case 'min_aceite_ate_saida':
+      return levar('do aceite até sair para a entrega');
+    case 'min_apos_o_fim':
+      return passar(' do horário de fim');
+    case 'parado_ha_min':
+    case 'pausado_ha_min':
+    case 'aberto_ha_horas':
+      return passar(); // o nome já diz: "impressoras paradas", "canais pausados", "caixas abertos"
+    default:
+      return null;
+  }
+}
+
+/** Um filtro na frase: o que vai junto do nome ("em preparo", "do iFood") ou o verbo do tempo. */
+function trechoDoFiltro(f: Filtro, r: Regra, fonte: FonteDaRegra): { junto?: Flexao; verbo?: Flexao } {
+  const c = fonte.campos.find((x) => x.nome === f.campo);
+  const v = valorEmPalavras(c, f.valor);
+  const valores = valoresDoFiltro(f);
+  if (f.op !== 'contem') {
+    if (f.campo === 'situacao') {
+      const nomes = (k: keyof Flexao) => lista(valores.map((x) => SITUACAO_NA_FRASE[x]?.[k] ?? x), 'ou');
+      return { junto: f.op === '!=' ? { um: `que não está ${nomes('um')}`, varios: `que não estão ${nomes('varios')}` } : { um: nomes('um'), varios: nomes('varios') } };
+    }
+    if (f.campo === 'canal') {
+      const nomes = valores.map((x) => CANAL_NA_FRASE[x] ?? `de ${x}`);
+      return { junto: igual(f.op === '!=' ? `fora ${lista(nomes)}` : lista(nomes, 'ou')) };
+    }
+    if (f.campo === 'tipo' && r.fonte === 'pedidos') {
+      const nomes = lista(valores.map((x) => TIPO_NA_FRASE[x] ?? x), 'ou');
+      return { junto: f.op === '!=' ? { um: `que não é ${nomes}`, varios: `que não são ${nomes}` } : igual(nomes) };
+    }
+    if (f.campo === 'tipo' && r.fonte === 'equipamentos') {
+      if (f.op !== '!=') return {}; // o nome da frase já diz qual
+      return { junto: { um: `que não é ${v}`, varios: `que não são ${v}` } };
+    }
+  }
+  if (f.campo === 'agendado' && typeof f.valor === 'boolean') return { junto: f.valor ? { um: 'agendado', varios: 'agendados' } : { um: 'não agendado', varios: 'não agendados' } };
+  if (f.campo === 'no_expediente' && typeof f.valor === 'boolean') return { junto: igual(f.valor ? 'dentro do horário da loja' : 'fora do horário da loja') };
+  if (c?.tipo === 'texto') {
+    const onde = ONDE_DO_TEXTO[f.campo] ?? `em ${c.rotulo}`;
+    if (f.op === 'contem') return { junto: igual(`com "${v}" ${onde}`) };
+    if (f.op === '=') return { junto: igual(f.campo === 'fornecedor' ? `do fornecedor ${v}` : f.campo === 'quem' ? `de ${v}` : `"${v}"`) };
+    if (f.op === 'em') return { junto: igual(`com ${c.rotulo} ${lista(valores.map((x) => `"${NOME_DO_VALOR[x] ?? x}"`), 'ou')}`) };
+    return { junto: igual(`com ${c.rotulo} diferente de "${v}"`) };
+  }
+  if (c?.tipo === 'dia') {
+    const verbo: Partial<Record<Operador, [string, string]>> = {
+      '=': ['que vence em', 'que vencem em'],
+      '!=': ['que não vence em', 'que não vencem em'],
+      '>': ['que vence depois de', 'que vencem depois de'],
+      '>=': ['que vence a partir de', 'que vencem a partir de'],
+      '<': ['que vence antes de', 'que vencem antes de'],
+      '<=': ['que vence até', 'que vencem até'],
+    };
+    const [um, varios] = verbo[f.op] ?? ['com vencimento', 'com vencimento'];
+    return { junto: { um: `${um} ${v}`, varios: `${varios} ${v}` } };
+  }
+  if (f.campo === 'dias_para_vencer' && typeof f.valor === 'number') {
+    const frase = fraseDoVencimento(f.op, f.valor);
+    if (frase) return { junto: frase };
+  }
+  if (f.campo === 'min_para_reabrir' && (f.op === '<' || f.op === '<=')) return { junto: igual(`faltando ${f.op === '<' ? 'menos de' : 'até'} ${v} para reabrir`) };
+  const verbo = verboDoTempo(f, v, r);
+  if (verbo) return { verbo };
+  // A forma de reserva: vale para qualquer campo, com o rótulo do catálogo.
+  return { junto: igual(`com ${c?.rotulo ?? 'o valor'} ${f.op === '=' ? '' : `${OP_EM_PALAVRAS[f.op]} `}${v}`.replace(/\s+/g, ' ').trim()) };
+}
+
+/** "3 ou mais", "mais de 3", "menos de 3", "até 3", "exatamente 3". */
+function quantidadeNaFrase(c: NonNullable<Regra['condicao']>): string {
+  const n = c.valor.toLocaleString('pt-BR');
+  if (c.op === '>=') return `${n} ou mais`;
+  if (c.op === '>') return `mais de ${n}`;
+  if (c.op === '<') return `menos de ${n}`;
+  if (c.op === '<=') return `até ${n}`;
+  return `exatamente ${n}`;
+}
 
 /** O que a regra faz, em português — o Mister repete isto antes do "Confirmar" (o código escreve, nunca a IA). */
 export function descreverRegra(r: Regra): string {
   const fonte = fonteDaRegra(r.fonte)!;
+  const nome = nomeNaFrase(r);
+  const trechos = r.filtros.map((f) => trechoDoFiltro(f, r, fonte));
+  const juntos = (k: keyof Flexao) => trechos.flatMap((t) => (t.junto ? [t.junto[k]] : []));
+  const verbos = (k: keyof Flexao) => trechos.flatMap((t) => (t.verbo ? [t.verbo[k]] : []));
+  const algum = (k: keyof Flexao) => {
+    const partes = (r.algum ?? []).map((f) => {
+      const t = trechoDoFiltro(f, r, fonte);
+      return t.verbo ? `que ${t.verbo[k]}` : (t.junto?.[k] ?? '');
+    });
+    const cheias = partes.filter(Boolean);
+    return cheias.length ? [`(${lista(cheias, 'ou')})`] : [];
+  };
+  const alvo = r.alvo ? `${r.fonte === 'contas' ? 'a conta' : r.fonte === 'tarefas' ? 'a tarefa' : 'o item'} "${r.alvo.rotulo || 'escolhido'}"` : null;
   const partes: string[] = [];
-  const oQue = r.alvo ? `${fonte.rotulo}: ${r.alvo.rotulo || 'o item escolhido'}` : fonte.rotulo;
-  const filtros = r.filtros.map((f) => filtroEmPalavras(f, fonte));
-  const algum = (r.algum ?? []).map((f) => filtroEmPalavras(f, fonte));
-  let quais = filtros.length ? ` com ${lista(filtros)}` : '';
-  if (algum.length) quais += `${quais ? ' e' : ' com'} ${lista(algum, 'ou')}`;
   if (r.medida === 'cada_item') {
-    partes.push(`Vou te avisar de ${oQue}${quais}.`);
+    if (r.fonte === 'vendas') {
+      const condicoes = r.filtros.map((f) => {
+        const c = fonte.campos.find((x) => x.nome === f.campo);
+        return `o ${c?.rotulo ?? f.campo} estiver ${OP_EM_PALAVRAS[f.op]} ${valorEmPalavras(c, f.valor)}`;
+      });
+      partes.push(condicoes.length ? `Te aviso quando ${lista(condicoes)}.` : 'Te aviso das vendas de hoje.');
+    } else {
+      const quem = alvo ? `sobre ${alvo}` : `de cada ${nome.um}`;
+      const que = verbos('um').length ? [`que ${lista(verbos('um'))}`] : [];
+      partes.push(`Te aviso ${[quem, ...juntos('um'), ...algum('um'), ...que].join(' ')}.`);
+    }
   } else {
     const c = r.condicao!;
-    const comparar = `${OP_EM_PALAVRAS[c.op === '=' ? '=' : c.op]} ${c.valor.toLocaleString('pt-BR')}`;
     const campo = fonte.campos.find((x) => x.nome === r.campoDaMedida);
-    const medida =
-      r.medida === 'quantidade'
-        ? `a quantidade de ${oQue}${quais} for ${comparar.replace(/^é /, '')}`
-        : `${r.medida === 'soma' ? 'a soma' : r.medida === 'maior' ? 'o maior valor' : 'o menor valor'} de ${campo?.rotulo ?? r.campoDaMedida} em ${oQue}${quais} for ${
-            campo?.dinheiro ? `${OP_EM_PALAVRAS[c.op]} ${dinheiro(c.valor)}` : comparar
-          }`;
-    partes.push(`Vou te avisar quando ${medida}.`);
+    if (r.medida === 'quantidade') {
+      const k: keyof Flexao = c.op === '=' && c.valor === 1 ? 'um' : 'varios';
+      const sujeito = [quantidadeNaFrase(c), alvo ? `${nome[k]}: ${alvo}` : nome[k], ...juntos(k), ...algum(k)].join(' ');
+      partes.push(verbos(k).length ? `Quando ${sujeito} ${lista(verbos(k))}, te mando uma mensagem só, com a lista.` : `Quando houver ${sujeito}, te mando uma mensagem só, com a lista.`);
+      const minimo = c.op === '>=' ? c.valor : c.op === '>' ? c.valor + 1 : null;
+      if (minimo !== null && Number.isInteger(minimo) && minimo >= 2 && minimo <= 5) partes.push(`Com menos de ${minimo}, eu fico quieto.`);
+    } else {
+      const qual = r.medida === 'soma' ? 'a soma' : r.medida === 'maior' ? 'o maior valor' : 'o menor valor';
+      const valor = campo?.dinheiro ? dinheiro(c.valor) : `${c.valor.toLocaleString('pt-BR')}${campo?.unidade ? ` ${campo.unidade}` : ''}`;
+      const em = [alvo ?? nome.varios, ...juntos('varios'), ...algum('varios'), ...(verbos('varios').length ? [`que ${lista(verbos('varios'))}`] : [])].join(' ');
+      partes.push(`Quando ${qual} de ${campo?.rotulo ?? 'valor'} em ${em} estiver ${OP_EM_PALAVRAS[c.op]} ${valor}, te mando uma mensagem só, com a lista.`);
+    }
+    partes.push(`Se continuar assim, repito depois de ${r.intervaloMin ?? LIMITES_DA_REGRA.intervaloPadraoMin} min, só se a lista mudar.`);
   }
   const q = r.quando;
-  const quando: string[] = [];
-  if (q.data) quando.push(`só no dia ${q.data.split('-').reverse().join('/')}`);
-  if (q.dias?.length && q.dias.length < 7) quando.push(`${lista(q.dias.map((d) => DIAS_DA_SEMANA[d]))}`);
-  if (q.em) quando.push(`olhando às ${q.em}`);
-  if (q.de && q.ate) quando.push(`das ${q.de} às ${q.ate}`);
-  if (q.soNoExpediente) quando.push('só no horário da loja');
-  if (quando.length) partes.push(`Quando: ${quando.join(', ')}.`);
+  const vale: string[] = [];
+  if (q.data) vale.push(`só no dia ${q.data.split('-').reverse().join('/')}`);
+  if (q.dias?.length && q.dias.length < 7) vale.push(lista(q.dias.map((d) => `${d === 0 || d === 6 ? 'no' : 'na'} ${DIAS_DA_SEMANA[d]}`)));
+  if (q.em) vale.push(`olhando às ${q.em}`);
+  if (q.de && q.ate) vale.push(`das ${q.de} às ${q.ate}`);
+  if (q.soNoExpediente) vale.push('só no horário da loja');
+  if (vale.length) partes.push(`Vale ${vale.join(', ')}.`);
   if (r.medida === 'cada_item') partes.push(r.agrupar ? 'Os que aparecerem juntos vão numa mensagem só; cada um é avisado uma vez.' : 'Uma mensagem por item; cada um é avisado uma vez.');
-  else partes.push(`Numa mensagem só, com a lista; enquanto continuar, de novo só depois de ${r.intervaloMin ?? LIMITES_DA_REGRA.intervaloPadraoMin} min e se a lista mudar.`);
   if (r.vezes === 'uma_vez') partes.push('Avisa uma vez e a regra se encerra.');
   const deixaDeChegar = fraseDoQueDeixaDeChegar(r.substitui);
   if (deixaDeChegar) partes.push(deixaDeChegar);
   return partes.join(' ');
+}
+
+/** Os avisos críticos como a pessoa os conhece (a lista é a de `AVISOS_QUE_NAO_SE_CALAM`). */
+const NOME_DO_AVISO_CRITICO: Record<(typeof AVISOS_QUE_NAO_SE_CALAM)[number], string> = {
+  servidor_sem_sinal: 'servidor sem sinal com pedido esperando',
+  certificado: 'certificado',
+  chave_ia: 'chave de IA parada',
+};
+
+/** O efeito ao ligar (V7c): o que parou de chegar e o que continua chegando. Sai só depois de a gravação confirmar. */
+export function textoDaRegraLigada(titulo: string, substitui?: readonly string[] | null): string {
+  const parou = (substitui ?? []).map((t) => (String(t).startsWith('pedido_parado') ? `o aviso "${nomeDoAvisoSubstituido(t)}", um por um` : `o aviso "${nomeDoAvisoSubstituido(t)}"`));
+  const criticos = AVISOS_QUE_NAO_SE_CALAM.map((t) => NOME_DO_AVISO_CRITICO[t]);
+  return [
+    `Pronto, conferi e a regra "${titulo}" está ligada.`,
+    '',
+    parou.length ? `*Parou de chegar:* ${lista(parou)}.` : '*Parou de chegar:* nenhum aviso; os da empresa seguem como estavam.',
+    `*Continua chegando:* ${lista(criticos)}. Esses eu posso juntar, mas não calo.`,
+    '',
+    'Para ver, pausar ou apagar, é só me pedir ("minhas regras").',
+  ].join('\n');
+}
+
+/**
+ * A regra nova é um ajuste da outra? (a mesma fonte, a mesma medida, o mesmo item, algum campo em comum e os campos de lista
+ * fechada — a situação, o canal — com o mesmo valor). "Faz 25 min" é; "e me avisa dos cancelados" não é.
+ */
+export function mesmoAssunto(a: Regra, b: Regra): boolean {
+  if (a?.fonte !== b?.fonte || a.medida !== b.medida || (a.alvo?.id ?? null) !== (b.alvo?.id ?? null)) return false;
+  const fonte = fonteDaRegra(a.fonte);
+  const porCampo = (r: Regra) => new Map([...(r.filtros ?? []), ...(r.algum ?? [])].map((f) => [f.campo, f]));
+  const da = porCampo(a);
+  const db = porCampo(b);
+  if (!da.size && !db.size) return true;
+  const comuns = [...da.keys()].filter((k) => db.has(k));
+  if (!comuns.length) return false;
+  const chave = (f: Filtro) => JSON.stringify([f.op === 'em' ? '=' : f.op, [...valoresDoFiltro(f)].sort()]);
+  return comuns.every((k) => !fonte?.campos.find((c) => c.nome === k)?.valores || chave(da.get(k)!) === chave(db.get(k)!));
 }
 
 // ───────────────────────────── a avaliação ─────────────────────────────
@@ -667,7 +881,7 @@ export function avaliarRegra(r: Regra, linhas: LinhaDaFonte[], estado: EstadoDaR
 
   const valor = medir(r, pegas);
   const c = r.condicao!;
-  const vale = comparar(valor, c.valor) === 0 ? ['=', '>=', '<='].includes(c.op) : c.op === '>' ? valor > c.valor : c.op === '>=' ? valor >= c.valor : c.op === '<' ? valor < c.valor : c.op === '<=' ? valor <= c.valor : false;
+  const vale = condicaoVale(c, valor);
   if (!vale) return { disparos: [], estado: { ...e, valendo: false, ultimos: [] } };
   const ids = pegas.map((l) => l.id).sort();
   const intervalo = (r.intervaloMin ?? LIMITES_DA_REGRA.intervaloPadraoMin) * 60_000;
@@ -681,7 +895,12 @@ export function avaliarRegra(r: Regra, linhas: LinhaDaFonte[], estado: EstadoDaR
   };
 }
 
-function medir(r: Regra, pegas: LinhaDaFonte[]): number {
+/** A condição da regra vale para esta medida? A MESMA conta do motor e da conferência do dia. */
+export function condicaoVale(c: NonNullable<Regra['condicao']>, valor: number): boolean {
+  return comparar(valor, c.valor) === 0 ? ['=', '>=', '<='].includes(c.op) : c.op === '>' ? valor > c.valor : c.op === '>=' ? valor >= c.valor : c.op === '<' ? valor < c.valor : c.op === '<=' ? valor <= c.valor : false;
+}
+
+export function medir(r: Regra, pegas: LinhaDaFonte[]): number {
   if (r.medida === 'quantidade') return pegas.length;
   const valores = pegas.map((l) => Number(l.campos[r.campoDaMedida!])).filter((n) => Number.isFinite(n));
   if (r.medida === 'soma') return Math.round(valores.reduce((a, b) => a + b, 0) * 100) / 100;
@@ -742,11 +961,13 @@ export function lerBotaoDaRegra(id: unknown): { acao: AcaoDoBotaoDaRegra; regraI
 }
 
 export const TEXTOS_DAS_REGRAS = {
-  ligada: (titulo: string) => `Pronto, regra ligada: "${titulo}". Para ver, pausar ou apagar, é só me pedir ("minhas regras").`,
+  ligada: textoDaRegraLigada,
   mudar: 'Certo, não liguei. Diga o que mudar e eu monto de novo.',
   apagada: (titulo: string) => `Apagada: "${titulo}".`,
   deixada: (titulo: string) => `Certo, a regra "${titulo}" continua.`,
   venceu: 'Essa proposta de regra venceu (30 minutos). Me peça de novo.',
+  trocada: 'Essa proposta foi trocada pela mais nova, que está logo abaixo na conversa. Use os botões dela.',
+  jaLigada: 'Essa regra já está ligada. Se quiser mudar, me diga o que trocar.',
   naoAchada: 'Não achei essa regra. Se precisar, me peça a lista das suas regras.',
   teto: (n: number) => `Você já tem ${n} regras, o máximo. Apague uma antes de criar outra.`,
 } as const;

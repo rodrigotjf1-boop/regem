@@ -17,9 +17,10 @@ import type { FimDaPergunta } from './mister-laco';
 import { GUIA_DE_USO, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { conferirMemoria } from './mister-memoria';
 import { canalDito, conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
-import { AVISOS_QUE_NAO_SE_CALAM, conferirRegra, descreverRegra, fraseDoQueDeixaDeChegar } from './mister-regra';
+import { AVISOS_QUE_NAO_SE_CALAM, Regra, conferirRegra, descreverRegra, fraseDoQueDeixaDeChegar } from './mister-regra';
 import { lerPedidos } from './mister-lista';
-import { conferirAcao, resumoDoPedido, sigaDaAcao } from './mister-acoes';
+import { ACOES, conferirAcao, resumoDoPedido, sigaDaAcao } from './mister-acoes';
+import { botoesDoPlano, lerPassos, textoDoPlano } from './mister-plano';
 import { ehTipoDeAviso } from './mister-avisos.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -73,6 +74,37 @@ export function versaoDasInstrucoes(): { versao: string; consultas: number } {
 }
 
 // ───────────────────────────── os dados inventados ─────────────────────────────
+
+// Versão 7, V7c: a regra que está ligada na loja de teste (a reclamação confere o dia dela) e a proposta ainda aberta (o ajuste
+// "faz 40 min" parte dela).
+const ID_DA_REGRA_DA_AVALIACAO = '00000000-0000-4000-8000-000000000002';
+const REGRA_DA_AVALIACAO: Regra = {
+  fonte: 'pedidos',
+  titulo: '3 pedidos em preparo há 25 min',
+  filtros: [
+    { campo: 'situacao', op: '=', valor: 'em_preparo' },
+    { campo: 'min_desde_aceite', op: '>=', valor: 25 },
+  ],
+  medida: 'quantidade',
+  condicao: { op: '>=', valor: 3 },
+  quando: {},
+  vezes: 'sempre',
+  agrupar: true,
+  substitui: ['pedido_parado:confirmado'],
+};
+const PROPOSTA_DA_AVALIACAO: Regra = {
+  fonte: 'pedidos',
+  titulo: '2 pedidos a caminho há 30 min',
+  filtros: [
+    { campo: 'situacao', op: '=', valor: 'a_caminho' },
+    { campo: 'min_desde_aceite', op: '>=', valor: 30 },
+  ],
+  medida: 'quantidade',
+  condicao: { op: '>=', valor: 2 },
+  quando: {},
+  vezes: 'sempre',
+  agrupar: true,
+};
 
 type Periodo = 'hoje' | 'ontem' | 'esta_semana' | 'semana_passada' | 'este_mes' | 'mes_passado';
 const ROTULO: Record<Periodo, string> = {
@@ -279,7 +311,43 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
     }
     case 'regras': {
       // Versão 6, M6e: a mesma conferência e a mesma descrição da de verdade; na avaliação nada é guardado.
-      if (en.acao === 'listar') return ok({ regras: [], aviso: 'Nenhuma regra ainda.' });
+      if (en.acao === 'listar')
+        return ok({
+          regras: [{ id: ID_DA_REGRA_DA_AVALIACAO, titulo: REGRA_DA_AVALIACAO.titulo, situacao: 'ativa', oQueFaz: descreverRegra(REGRA_DA_AVALIACAO), ultimoAviso: 'ainda não avisou' }],
+          propostaAberta: {
+            id: '00000000-0000-4000-8000-000000000003',
+            titulo: PROPOSTA_DA_AVALIACAO.titulo,
+            oQueVouFazer: descreverRegra(PROPOSTA_DA_AVALIACAO),
+            regra: PROPOSTA_DA_AVALIACAO,
+            valeAte: '20:40',
+            siga: 'Ainda não está ligada. Para ajustar, chame propor com esta regra mudando SÓ o que a pessoa pediu: a nova fica no lugar desta.',
+          },
+        });
+      if (en.acao === 'conferir') {
+        // V7c: o dia da regra na loja de teste. O máximo foi 2: ela não teve o que avisar; com 5 minutos a menos, teria avisado.
+        if (en.regraId && en.regraId !== ID_DA_REGRA_DA_AVALIACAO) return recusa('Não achei essa regra. Se precisar, me peça a lista das suas regras.');
+        return ok({
+          id: ID_DA_REGRA_DA_AVALIACAO,
+          titulo: REGRA_DA_AVALIACAO.titulo,
+          situacao: 'ativa',
+          oQueFaz: descreverRegra(REGRA_DA_AVALIACAO),
+          ligadaDesde: '12/11 21:06',
+          ultimoAviso: 'ainda não avisou',
+          avisosNoDia: 0,
+          hoje: {
+            desde: '06:00',
+            ate: '20:15',
+            tempoDaRegraEmMinutos: 25,
+            maximoAoMesmoTempo: 2,
+            as: '19:48',
+            teriaAvisado: false,
+            vezes: 0,
+            primeiraVez: null,
+            comMenosTempo: { minutos: 20, maximoAoMesmoTempo: 3, as: '19:52', teriaAvisado: true, vezes: 1, primeiraVez: '19:52' },
+          },
+          siga: 'Responda pelo que veio, em frases de gente: se ela está ligada e desde quando, o último aviso e o que o dia mostrou. A regra existe: nunca diga o contrário. Se vier "comMenosTempo", ofereça a mudança como sugestão, separada dos números, e só mude se a pessoa pedir.',
+        });
+      }
       if (en.acao === 'buscar') return ok({ itens: [], aviso: 'Nenhum item com esse nome na loja de teste.' });
       if (en.acao !== 'propor') return recusa('Não achei essa regra.');
       const r = conferirRegra(
@@ -306,6 +374,23 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       const p = c.parametros;
       const resumo = p.acao === 'aceitar_pedido' || p.acao === 'pedido_pronto' || p.acao === 'despachar_pedido' ? resumoDoPedido(p.acao, `#${p.numero}`) : c.resumo;
       return ok({ oQueVouFazer: resumo, siga: sigaDaAcao(p.acao) });
+    }
+    case 'propor_plano': {
+      // Versão 7, V7c: a mesma leitura dos passos e a mesma conferência de cada ação; na avaliação nada é proposto nem feito.
+      const l = lerPassos(en.passos);
+      if ('erro' in l) return recusa(l.erro);
+      const passos: { nivel: 'botao' | 'pin'; resumo: string }[] = [];
+      for (const [i, passo] of l.passos.entries()) {
+        const c = conferirAcao(passo.acao, passo);
+        if ('erro' in c) return recusa(`Passo ${i + 1}: ${c.erro}`);
+        const p = c.parametros;
+        passos.push({ nivel: ACOES[p.acao].nivel, resumo: p.acao === 'aceitar_pedido' || p.acao === 'pedido_pronto' || p.acao === 'despachar_pedido' ? resumoDoPedido(p.acao, `#${p.numero}`) : c.resumo });
+      }
+      return ok({
+        oQueVouFazer: textoDoPlano(passos),
+        botao: botoesDoPlano('00000000-0000-4000-8000-000000000004', passos.length)[0].titulo,
+        siga: 'Diga em uma frase o que vai fazer. O plano numerado e o botão chegam logo abaixo: não repita a lista. Nada é feito antes do toque, e o passo de PIN pede o PIN pelo link. Não diga que fez.',
+      });
     }
     case 'lista_de_compras': {
       // Versão 6, M6g: a mesma leitura das linhas da de verdade; na avaliação nenhuma lista é guardada nem pedida.
@@ -801,6 +886,11 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // ERR-561: a regra que junta os parados diz que o aviso um a um deixa de chegar; a reclamação confere a lista antes de responder.
   { id: 'c59', pergunta: 'Só me avise quando acumular 3 pedidos em preparo há 20 minutos ou mais, numa mensagem só.', consultas: ['regras'], contem: ['deixa de chegar'] },
   { id: 'c60', pergunta: 'A regra de pedidos atrasados não está funcionando.', consultas: ['regras'] },
+  // Versão 7, V7c: duas ações num pedido viram um plano com um botão; a reclamação sai do dia conferido (o 19:48 só vem da
+  // conferência); o ajuste parte da proposta aberta.
+  { id: 'c61', pergunta: 'Pausa o iFood por 30 minutos porque faltou entregador e dá entrada de 10 kg de bacon no estoque.', consultas: ['propor_plano'], contem: ['Fazer os dois|botão'] },
+  { id: 'c62', pergunta: 'O aviso dos 3 pedidos não está funcionando, hoje não chegou nada.', consultas: ['regras'], numeros: ['19:48'] },
+  { id: 'c63', pergunta: 'Faz 40 min em vez de 30 naquela regra que você acabou de me propor.', consultas: ['regras'], contem: ['40'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

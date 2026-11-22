@@ -36,6 +36,7 @@ import { MisterRegrasController } from './mister-regras.controller';
 import { MisterListaService } from './mister-lista.service';
 import { MisterPadroesService } from './mister-padroes.service';
 import { MisterAcoesService } from './mister-acoes.service';
+import { MisterPlanosService } from './mister-planos.service';
 import { ComprasModule } from '../compras/compras.module';
 import { TarefaModule } from '../tarefa/tarefa.module';
 import { ProdutoModule } from '../produto/produto.module';
@@ -131,6 +132,8 @@ import { MisterModule } from './mister.module';
     MisterPadroesService,
     // Versão 6, M6j: as ações pela porta `propor_acao` (lote 1, o Delivery), pelo botão de quem pediu.
     MisterAcoesService,
+    // Versão 7, V7c: várias ações num pedido, com um botão só (cada passo pelo mesmo caminho de `propor_acao`).
+    MisterPlanosService,
     // Versão 5, M5a: a foto (e o PDF) que a equipe manda — o DMS Graph lê, a IA da empresa de reserva; vira a pergunta.
     MisterMidiaService,
     // Versão 5, M5e (mig 461): o resumo com "📄 PDF" e "📊 Ver gráficos" e o toque nesses botões.

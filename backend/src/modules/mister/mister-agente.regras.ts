@@ -155,9 +155,17 @@ AS REGRAS DE AVISO DE CADA PESSOA
 - Uma conta ou uma tarefa pelo nome: chame regras com acao buscar e use o id que voltou. Tarefa não tem número: mostre a lista que a busca devolveu, numerada pela hora, e pergunte qual.
 - A regra que junta pedidos parados numa mensagem ("só me avise quando acumular 3") fica no lugar do aviso um a um daquela etapa: o Regem marca isso sozinho e escreve no "oQueVouFazer". Não pergunte. Só passe substitui vazio se a pessoa pedir para continuar recebendo os dois. Para outro aviso da empresa, ponha o tipo dele em substitui.
 - Se propor voltar com jaExiste, a regra já está ligada: diga isso e mostre o "oQueFaz", sem montar outra. Se vier repetidas, ofereça apagar as cópias pelo id.
-- Quando a pessoa reclamar de uma regra ("não está funcionando", "não criou", "continua chegando"), chame regras com acao listar ANTES de responder e responda pelo que a lista mostra. Se a regra está na lista, ela foi criada: nunca diga o contrário.
+- Quando a pessoa reclamar de uma regra ("não está funcionando", "não criou", "continua chegando"), chame regras com acao listar ANTES de responder e, com o id dela, acao conferir; responda pelo que veio: se está ligada, o último aviso, o máximo de pedidos ao mesmo tempo no dia e a que horas, e se ela teria avisado. Se a regra está na lista, ela foi criada: nunca diga o contrário. Se a conferência trouxer o que aconteceria com menos tempo, ofereça como sugestão, sem mudar nada.
+- Ajuste de uma regra que você acabou de propor ("faz 25 min", "só no iFood", "tira o domingo"): chame regras com acao listar, pegue a regra de "propostaAberta", mude SÓ o que a pessoa pediu e chame propor de novo. Não pergunte de novo o que ela já disse. A proposta anterior sai sozinha.
 - Depois de propor, mostre o "oQueVouFazer" como a ferramenta devolveu e diga que os botões Confirmar e Mudar vão junto: nada fica ligado sem o Confirmar. Se a pessoa confirmar por escrito ("sim", "pode", "confirma"), chame regras com acao confirmar e o id.
 - "Minhas regras": acao listar. Para mudar uma regra, proponha a nova com substituiRegraId. Para apagar, pausar ou retomar, use o id da lista; apagar vai com o botão Apagar.
+
+CONVERSA NATURAL
+- Em tudo o que muda algo, diga antes o plano em UMA frase, do jeito que se fala ("Vou pausar o iFood por 30 minutos e marcar a limpeza como feita"), e deixe o botão ou o link decidir. Você nunca aplica sozinho.
+- Duas ou mais ações no mesmo pedido: chame propor_plano com os passos na ordem (até 5), cada um com os mesmos campos de propor_acao. Se faltar um dado de algum passo, pergunte antes, tudo numa pergunta só. Diga em uma frase o que vai fazer; o plano numerado e o botão chegam logo abaixo. O passo de preço, horário ou conta continua pedindo o PIN pelo link. Se a ferramenta recusar um passo, diga qual e por quê. Recado no mural e imagem têm botão próprio: ficam fora do plano, em um pedido à parte.
+- "Pronto", "feito", "ligado", "pausado" só depois que a ferramenta confirmou que aconteceu. Antes do toque, fale no futuro ("vou", "fica assim?").
+- Fale do que vai acontecer na loja, nunca de como o sistema guarda: nada de nome de campo, fonte, filtro, medida, condição, parâmetro, id, "proposta" ou "regra criada". Não copie palavra com sublinhado.
+- Sugestão vem separada dos números e é só sugestão: o número é o que a consulta trouxe, a sugestão é a sua leitura, e você não a aplica sem a pessoa pedir.
 
 REFAZER O GRÁFICO
 - "Não entendi", "não gostei", "faz de outro jeito", "em barras deitadas", "em tabela", "destaca o sábado", "só os principais": chame refazer_grafico com o que muda (a forma, o título com a mensagem principal, o destaque, a ordem, sem os valores). Nunca chame mostrar_grafico de novo para isso: os números são os mesmos.
@@ -322,7 +330,8 @@ export type NomeDaFerramenta =
   | 'regras'
   | 'lista_de_compras'
   | 'refazer_grafico'
-  | 'propor_acao';
+  | 'propor_acao'
+  | 'propor_plano';
 
 // ───────────────────────────── as conversas anteriores (versão 4) ─────────────────────────────
 // O padrão do Hermes de procurar nas conversas antigas, sobre o texto que `mister_pergunta` já guarda por 30 dias.
@@ -407,6 +416,8 @@ export const FERRAMENTA_DA_LISTA = 'lista_de_compras' as const;
 export const FERRAMENTA_DE_REFAZER = 'refazer_grafico' as const;
 /** Versão 6, M6j: a porta das ações (pausar e reabrir canais, aceitar, pronto e despachar um pedido), pelo botão de quem pediu. */
 export const FERRAMENTA_DAS_ACOES = 'propor_acao' as const;
+/** Versão 7, V7c: várias ações num pedido, com um botão só (cada passo pelo mesmo caminho de `propor_acao`). */
+export const FERRAMENTA_DO_PLANO = 'propor_plano' as const;
 /** As ferramentas que NÃO são consulta: anotam, propõem, mandam, corrigem ou criam — não trazem dado da loja para a resposta. */
 export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DO_QUE_FALTA,
@@ -423,6 +434,7 @@ export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DA_LISTA,
   FERRAMENTA_DE_REFAZER,
   FERRAMENTA_DAS_ACOES,
+  FERRAMENTA_DO_PLANO,
 ];
 // F4.2b: cancelar_pedido (de PIN) nasce da pergunta, preso ao pedido que a pessoa disse — não a um aviso.
 export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota', 'cancelar_pedido'] as const;
@@ -447,6 +459,47 @@ export function temaDoQueFalta(v: unknown): TemaDoQueFalta {
   const t = String(v ?? '').trim().toLowerCase();
   return (TEMAS_DO_QUE_FALTA as readonly string[]).includes(t) ? (t as TemaDoQueFalta) : 'outro';
 }
+
+/** Os campos de uma ação: os de `propor_acao` e, sem a loja (que é uma só para o plano), os de cada passo de `propor_plano`. */
+const CAMPOS_DA_ACAO = {
+      acao: { type: 'string', enum: ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa', 'criar_imagem', 'movimentar_estoque', 'mudar_preco', 'mudar_horario', 'pagar_conta'] },
+      item: { type: 'string', description: 'Para movimentar_estoque: o produto, como a pessoa disse.' },
+      tipo: { type: 'string', enum: ['entrada', 'saida', 'ajuste'], description: 'Para movimentar_estoque: entrada, saida ou ajuste (o saldo que foi contado).' },
+      quantidade: { type: 'number', description: 'Para movimentar_estoque com entrada ou saida: quanto, na unidade do produto.' },
+      saldoContado: { type: 'number', description: 'Para movimentar_estoque com ajuste: quanto foi contado, na unidade do produto.' },
+      medidaDita: { type: 'string', description: 'Para movimentar_estoque: a unidade que a pessoa falou (kg, litro, unidade, caixa).' },
+      motivoDoMovimento: { type: 'string', description: 'Para movimentar_estoque: o motivo, se a pessoa disser.' },
+      pedidoDaImagem: { type: 'string', description: 'Para criar_imagem: o pedido completo (o objetivo, o que aparece, o texto exato entre aspas, o estilo e as cores), até 800 letras.' },
+      proporcao: { type: 'string', enum: ['1:1', '9:16', '16:9'], description: 'Para criar_imagem: 9:16 (story, cartaz vertical), 1:1 (feed) ou 16:9 (horizontal).' },
+      loja: { type: 'string', description: 'O nome da loja, quando a empresa tem mais de uma e a ação é de uma loja (criar tarefa, pausar o cardápio); vazio = a loja da conversa.' },
+      titulo: { type: 'string', description: 'Para criar_tarefa: o título da tarefa.' },
+      funcao: { type: 'string', description: 'Para criar_tarefa: a função de quem faz, como está no cadastro.' },
+      horario: { type: 'string', description: 'Para criar_tarefa: o horário, "HH:MM", se a pessoa disser.' },
+      responsavel: { type: 'string', description: 'Para criar_tarefa: o nome de quem faz, se a pessoa disser.' },
+      canais: { type: 'array', items: { type: 'string', enum: ['cardapio', 'ifood', '99', 'regem'] }, description: 'Para pausar ou reabrir um canal (cardapio, ifood, 99), pausar o produto ou mudar_preco (regem, ifood, 99): um ou mais.' },
+      tarefa: { type: 'string', description: 'Para concluir_tarefa: o título da tarefa de hoje, como a pessoa disse.' },
+      estado: { type: 'string', enum: ['feita', 'parcial', 'nao_feita'], description: 'Para concluir_tarefa (sem dizer, feita).' },
+      justificativa: { type: 'string', description: 'Para concluir_tarefa com nao_feita: o motivo, em poucas palavras.' },
+      produto: { type: 'string', description: 'Para pausar_produto, reativar_produto ou mudar_preco: o nome do produto no cardápio.' },
+      precoNovo: { type: 'number', description: 'Para mudar_preco: o preço FINAL em reais, como a pessoa disse (39.9).' },
+      dias: { type: 'array', items: { type: 'string', enum: ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'] }, description: 'Para mudar_horario: os dias da semana.' },
+      abre: { type: 'string', description: 'Para mudar_horario: a hora de abrir, "HH:MM".' },
+      fecha: { type: 'string', description: 'Para mudar_horario: a hora de fechar, "HH:MM" (antes da de abrir = no dia seguinte).' },
+      fechado: { type: 'boolean', description: 'Para mudar_horario: true quando o dia fica fechado (sem abre e fecha).' },
+      horarioDe: { type: 'string', enum: ['entrega', 'retirada'], description: 'Para mudar_horario, só quando a loja tem horário separado.' },
+      conta: { type: 'string', description: 'Para pagar_conta: a descrição da conta ou o fornecedor, como a pessoa disse.' },
+      formaDePagamento: { type: 'string', enum: ['dinheiro', 'pix', 'cartao', 'transferencia'], description: 'Para pagar_conta: como foi pago.' },
+      pagoEm: { type: 'string', description: 'Para pagar_conta: o dia do pagamento, AAAA-MM-DD, se não foi hoje.' },
+      valorPago: { type: 'number', description: 'Para pagar_conta: o valor que a pessoa disse, em reais.' },
+      venceEm: { type: 'string', description: 'Para pagar_conta: o vencimento em DD/MM, quando há mais de uma conta com o mesmo nome.' },
+      motivo: { type: 'string', enum: ['pedidos', 'entregador', 'ingrediente', 'cozinha', 'energia', 'fechando', 'outro'], description: 'Para pausar.' },
+      motivoTexto: { type: 'string', description: 'Para pausar com motivo "outro": o motivo em poucas palavras (até 80 letras).' },
+      minutos: { type: 'integer', description: 'Para pausar: por quantos minutos.' },
+      ate: { type: 'string', description: 'Para pausar o cardápio ou o iFood até uma hora: "HH:MM".' },
+      fimDoDia: { type: 'boolean', description: 'Para pausar a 99 até o fim do dia.' },
+      numero: { type: 'string', description: 'Para as ações de pedido: o número como aparece no painel ("4821", "#A12").' },
+};
+const { loja: _lojaDoPlano, ...CAMPOS_DO_PASSO } = CAMPOS_DA_ACAO;
 
 /** As ferramentas, como o modelo as vê. A ordem e o texto são fixos (entram no trecho em cache). */
 export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; input_schema: any }> = [
@@ -818,16 +871,16 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'regras',
     description:
-      'Não é consulta: as REGRAS DE AVISO da pessoa (versão 6) — como ela quer ser avisada de agora em diante. "propor" monta a regra com a linguagem abaixo; o Regem confere, escreve o que vai fazer ("oQueVouFazer") e manda os botões Confirmar e Mudar — nada liga sem o Confirmar. "confirmar" com o id (quando a pessoa confirma por escrito). "buscar" acha uma conta ou uma tarefa pelo nome (fonte contas ou tarefas, texto) e devolve os ids para o alvo. "listar" as regras. "apagar" (manda o botão Apagar), "pausar" e "retomar" com o id. Até 30 regras por pessoa.\n' +
+      'Não é consulta: as REGRAS DE AVISO da pessoa (versão 6) — como ela quer ser avisada de agora em diante. "propor" monta a regra com a linguagem abaixo; o Regem confere, escreve o que vai fazer ("oQueVouFazer") e manda os botões Confirmar e Mudar — nada liga sem o Confirmar. "confirmar" com o id (quando a pessoa confirma por escrito). "buscar" acha uma conta ou uma tarefa pelo nome (fonte contas ou tarefas, texto) e devolve os ids para o alvo. "listar" as regras e a proposta aberta da pessoa ("propostaAberta", com a regra para ajustar: propor de novo fica no lugar dela). "conferir" com o id olha o dia ANTES de responder a uma reclamação: se está ligada, o último aviso e, nos pedidos, o máximo ao mesmo tempo, a que horas e se ela teria avisado. "apagar" (manda o botão Apagar), "pausar" e "retomar" com o id. Até 30 regras por pessoa.\n' +
       'A regra: fonte; titulo (nome curto); filtros (todos casam: {campo, op, valor}; op = != > >= < <= contem em); algum (pelo menos um casa); alvo ({id, rotulo} da busca); medida (cada_item = avisa cada item novo uma vez; quantidade, soma, maior, menor com condicao {op, valor}; soma/maior/menor com campoDaMedida); quando ({dias: 0=domingo…6, de e ate HH:MM, em HH:MM = olha uma vez por dia nessa hora, data AAAA-MM-DD, soNoExpediente}); vezes (sempre ou uma_vez, que pede "em"); agrupar (true = uma mensagem com a lista); intervaloMin (entre avisos enquanto a condição continua, 5 a 1440, padrão 30); substitui (os avisos da empresa que a pessoa deixa de receber pelo WhatsApp, ex.: pedido_parado).\n' +
       `As fontes e os campos:\n${fontesParaAIa()}`,
     input_schema: {
       type: 'object',
       properties: {
-        acao: { type: 'string', enum: ['propor', 'confirmar', 'buscar', 'listar', 'apagar', 'pausar', 'retomar'] },
+        acao: { type: 'string', enum: ['propor', 'confirmar', 'buscar', 'listar', 'conferir', 'apagar', 'pausar', 'retomar'] },
         regra: { type: 'object', description: 'Para propor: a regra, na linguagem acima.' },
         substituiRegraId: { type: 'string', description: 'Para propor uma regra que fica no lugar de outra (mudar): o id da antiga.' },
-        regraId: { type: 'string', description: 'Para confirmar, apagar, pausar ou retomar: o id da regra.' },
+        regraId: { type: 'string', description: 'Para confirmar, conferir, apagar, pausar ou retomar: o id da regra.' },
         fonte: { type: 'string', enum: ['contas', 'tarefas'], description: 'Para buscar: onde.' },
         texto: { type: 'string', description: 'Para buscar: o nome como a pessoa disse ("Distribuidora Sul", "chapa").' },
       },
@@ -884,45 +937,26 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
       'Não é consulta: PROPÕE uma ação no Regem (versão 6) que só acontece quando a pessoa toca em "Autorizar", pelo mesmo caminho da tela. mudar_preco (vai com o link que pede o PIN, sem botões): produto, canais e precoNovo, o preço final em reais. mudar_horario (também pelo link com PIN): dias da semana e abre e fecha "HH:MM", ou fechado: true; horarioDe só se a loja tiver horário separado. pagar_conta (também pelo link com PIN; só registra a baixa, não paga no banco): conta, formaDePagamento e, se dito, pagoEm, valorPago e venceEm. movimentar_estoque: item, tipo (entrada ou saida com quantidade; ajuste com saldoContado) e medidaDita. criar_imagem (botões "Gerar" e "Mudar"): pedidoDaImagem completo e proporcao; nunca número de relatório nem dado de cliente. pausar_canal: canais (cardapio, ifood, 99), motivo e o tempo — minutos (cardápio e iFood: 15, 30 ou 60; 99: 10, 20 ou 30) ou ate "HH:MM" (cardápio e iFood) ou fimDoDia (99). reabrir_canal: canais. aceitar_pedido, pedido_pronto e despachar_pedido: numero do pedido como a pessoa disse. concluir_tarefa: tarefa (o título de uma tarefa de HOJE) e estado (feita, parcial ou nao_feita — esta pede a justificativa). pausar_produto e reativar_produto: produto (o nome no cardápio) e, se a pessoa disser, canais (regem = balcão e cardápio digital, ifood, 99); sem canal, todos em que o produto está. criar_tarefa: titulo, funcao (quem faz, como no cadastro das funções — obrigatória), e, se a pessoa disser, horario "HH:MM" e responsavel (o nome). Devolve o "oQueVouFazer"; os botões vão junto da sua resposta.',
     input_schema: {
       type: 'object',
-      properties: {
-        acao: { type: 'string', enum: ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa', 'criar_imagem', 'movimentar_estoque', 'mudar_preco', 'mudar_horario', 'pagar_conta'] },
-        item: { type: 'string', description: 'Para movimentar_estoque: o produto, como a pessoa disse.' },
-        tipo: { type: 'string', enum: ['entrada', 'saida', 'ajuste'], description: 'Para movimentar_estoque: entrada, saida ou ajuste (o saldo que foi contado).' },
-        quantidade: { type: 'number', description: 'Para movimentar_estoque com entrada ou saida: quanto, na unidade do produto.' },
-        saldoContado: { type: 'number', description: 'Para movimentar_estoque com ajuste: quanto foi contado, na unidade do produto.' },
-        medidaDita: { type: 'string', description: 'Para movimentar_estoque: a unidade que a pessoa falou (kg, litro, unidade, caixa).' },
-        motivoDoMovimento: { type: 'string', description: 'Para movimentar_estoque: o motivo, se a pessoa disser.' },
-        pedidoDaImagem: { type: 'string', description: 'Para criar_imagem: o pedido completo (o objetivo, o que aparece, o texto exato entre aspas, o estilo e as cores), até 800 letras.' },
-        proporcao: { type: 'string', enum: ['1:1', '9:16', '16:9'], description: 'Para criar_imagem: 9:16 (story, cartaz vertical), 1:1 (feed) ou 16:9 (horizontal).' },
-        loja: { type: 'string', description: 'O nome da loja, quando a empresa tem mais de uma e a ação é de uma loja (criar tarefa, pausar o cardápio); vazio = a loja da conversa.' },
-        titulo: { type: 'string', description: 'Para criar_tarefa: o título da tarefa.' },
-        funcao: { type: 'string', description: 'Para criar_tarefa: a função de quem faz, como está no cadastro.' },
-        horario: { type: 'string', description: 'Para criar_tarefa: o horário, "HH:MM", se a pessoa disser.' },
-        responsavel: { type: 'string', description: 'Para criar_tarefa: o nome de quem faz, se a pessoa disser.' },
-        canais: { type: 'array', items: { type: 'string', enum: ['cardapio', 'ifood', '99', 'regem'] }, description: 'Para pausar ou reabrir um canal (cardapio, ifood, 99), pausar o produto ou mudar_preco (regem, ifood, 99): um ou mais.' },
-        tarefa: { type: 'string', description: 'Para concluir_tarefa: o título da tarefa de hoje, como a pessoa disse.' },
-        estado: { type: 'string', enum: ['feita', 'parcial', 'nao_feita'], description: 'Para concluir_tarefa (sem dizer, feita).' },
-        justificativa: { type: 'string', description: 'Para concluir_tarefa com nao_feita: o motivo, em poucas palavras.' },
-        produto: { type: 'string', description: 'Para pausar_produto, reativar_produto ou mudar_preco: o nome do produto no cardápio.' },
-        precoNovo: { type: 'number', description: 'Para mudar_preco: o preço FINAL em reais, como a pessoa disse (39.9).' },
-        dias: { type: 'array', items: { type: 'string', enum: ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'] }, description: 'Para mudar_horario: os dias da semana.' },
-        abre: { type: 'string', description: 'Para mudar_horario: a hora de abrir, "HH:MM".' },
-        fecha: { type: 'string', description: 'Para mudar_horario: a hora de fechar, "HH:MM" (antes da de abrir = no dia seguinte).' },
-        fechado: { type: 'boolean', description: 'Para mudar_horario: true quando o dia fica fechado (sem abre e fecha).' },
-        horarioDe: { type: 'string', enum: ['entrega', 'retirada'], description: 'Para mudar_horario, só quando a loja tem horário separado.' },
-        conta: { type: 'string', description: 'Para pagar_conta: a descrição da conta ou o fornecedor, como a pessoa disse.' },
-        formaDePagamento: { type: 'string', enum: ['dinheiro', 'pix', 'cartao', 'transferencia'], description: 'Para pagar_conta: como foi pago.' },
-        pagoEm: { type: 'string', description: 'Para pagar_conta: o dia do pagamento, AAAA-MM-DD, se não foi hoje.' },
-        valorPago: { type: 'number', description: 'Para pagar_conta: o valor que a pessoa disse, em reais.' },
-        venceEm: { type: 'string', description: 'Para pagar_conta: o vencimento em DD/MM, quando há mais de uma conta com o mesmo nome.' },
-        motivo: { type: 'string', enum: ['pedidos', 'entregador', 'ingrediente', 'cozinha', 'energia', 'fechando', 'outro'], description: 'Para pausar.' },
-        motivoTexto: { type: 'string', description: 'Para pausar com motivo "outro": o motivo em poucas palavras (até 80 letras).' },
-        minutos: { type: 'integer', description: 'Para pausar: por quantos minutos.' },
-        ate: { type: 'string', description: 'Para pausar o cardápio ou o iFood até uma hora: "HH:MM".' },
-        fimDoDia: { type: 'boolean', description: 'Para pausar a 99 até o fim do dia.' },
-        numero: { type: 'string', description: 'Para as ações de pedido: o número como aparece no painel ("4821", "#A12").' },
-      },
+      properties: CAMPOS_DA_ACAO,
       required: ['acao'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'propor_plano',
+    description:
+      'Não é consulta: PROPÕE várias ações de um pedido só (versão 7), de 2 a 5 passos, na ordem. Cada passo tem os MESMOS campos de propor_acao e passa pela mesma conferência; se um passo for recusado, nada é proposto e a resposta diz qual. A pessoa recebe o plano numerado com UM botão; ao tocar, os passos rodam em ordem, cada um pelo mesmo caminho da ação sozinha. O passo de preço, de horário ou de conta continua pedindo o PIN pelo link. No fim ela vê o que entrou e o que não entrou, e pode tentar de novo só o que faltou. Imagem não entra no plano. Para uma ação só, use propor_acao.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        passos: {
+          type: 'array',
+          description: 'De 2 a 5 ações, na ordem em que devem acontecer.',
+          items: { type: 'object', properties: CAMPOS_DO_PASSO, required: ['acao'], additionalProperties: false },
+        },
+        loja: { type: 'string', description: 'O nome da loja do plano, quando a empresa tem mais de uma; vazio = a loja da conversa.' },
+      },
+      required: ['passos'],
       additionalProperties: false,
     },
   },

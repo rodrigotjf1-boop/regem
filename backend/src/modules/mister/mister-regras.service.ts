@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, NotFoundException, OnModuleInit, Optional }
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { FUSO_OPERACAO, hojeISO, somarDias } from '../../common/data';
+import { FUSO_OPERACAO, hojeISO, horaNoFuso, somarDias } from '../../common/data';
 import { FUSO_SQL } from '../../common/fuso-sql';
 import { ehServidorLocal } from '../../common/modo';
 import { podeAcessar } from '../../auth/permissoes';
@@ -30,15 +30,20 @@ import {
   botoesDaProposta,
   botoesDoApagar,
   chaveDaRegra,
+  condicaoVale,
   conferirRegra,
   descreverRegra,
   fonteDaRegra,
   fraseDoQueDeixaDeChegar,
   lerBotaoDaRegra,
+  linhasDaRegra as linhasQueARegraPega,
+  medir,
+  mesmoAssunto,
   nomeDoAvisoSubstituido,
   olhaAgora,
   textoDoDisparo,
 } from './mister-regra';
+import { FOLGA_DA_SUGESTAO_MIN, canalDoPedido, comOutroLimite, inicioDoDiaDeTrabalho, limiteDeTempo, pedidoDoDia, simularRegraNoDia, tipoDoPedido } from './mister-regra-dia';
 import { nomeDaImpressora } from './mister-padroes';
 import { pessoaVale } from './mister-vinculo.service';
 
@@ -68,28 +73,27 @@ const SITUACAO_DO_PEDIDO: Record<string, string> = {
   concluido: 'entregue',
   cancelado: 'cancelado',
 };
-const CANAL_DO_PEDIDO = (c: unknown) => {
-  const v = String(c ?? '').toLowerCase();
-  if (v === '99food' || v === 'food99' || v === '99') return '99';
-  return ['cardapio', 'ifood', 'whatsapp'].includes(v) ? v : 'outro';
-};
-const TIPO_DO_PEDIDO = (t: unknown) => (['entrega', 'retirada'].includes(String(t ?? '')) ? String(t) : 'outro');
+const CANAL_DO_PEDIDO = canalDoPedido;
+const TIPO_DO_PEDIDO = tipoDoPedido;
 const NOME_DO_CANAL: Record<string, string> = { cardapio: 'Cardápio digital', ifood: 'iFood', '99': '99' };
 const num = (v: unknown) => (v === null || v === undefined || v === '' ? null : Math.round(Number(v) * 100) / 100);
 const minutosInteiros = (v: unknown) => (v === null || v === undefined ? null : Math.max(0, Math.floor(Number(v))));
 
+// Um formatador só: a conferência do dia lê o relógio da loja uma vez por minuto do dia.
+const RELOGIO_DA_LOJA = new Intl.DateTimeFormat('en-CA', {
+  timeZone: FUSO_OPERACAO,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  weekday: 'short',
+  hourCycle: 'h23',
+});
+
 /** Agora, no relógio da loja. */
 export function agoraNaLoja(instante: Date = new Date()): Agora {
-  const p = new Intl.DateTimeFormat('en-CA', {
-    timeZone: FUSO_OPERACAO,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    weekday: 'short',
-    hourCycle: 'h23',
-  }).formatToParts(instante);
+  const p = RELOGIO_DA_LOJA.formatToParts(instante);
   const v = (t: string) => p.find((x) => x.type === t)?.value ?? '';
   const dias = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   return { instante, dia: `${v('year')}-${v('month')}-${v('day')}`, diaDaSemana: Math.max(0, dias.indexOf(v('weekday'))), hora: `${v('hour')}:${v('minute')}` };
@@ -151,18 +155,22 @@ export class MisterRegrasService implements OnModuleInit {
           return await this.propor(e, en);
         case 'confirmar': {
           const r = await this.ativar(String(en.regraId ?? ''), e.tenantId, e.colaboradorId, e.nivel === 'presidente');
-          return 'erro' in r ? recusa(r.erro) : { ok: true, dados: { ligada: true, titulo: r.titulo } };
+          return 'erro' in r
+            ? recusa(r.erro)
+            : { ok: true, dados: { ligada: true, titulo: r.titulo, efeito: TEXTOS_DAS_REGRAS.ligada(r.titulo, r.substitui), siga: 'Mostre o "efeito" como veio: o que parou de chegar e o que continua chegando.' } };
         }
         case 'buscar':
           return await this.buscar(e, en);
         case 'listar':
           return await this.listar(e);
+        case 'conferir':
+          return await this.conferirODia(e, String(en.regraId ?? ''));
         case 'apagar':
         case 'pausar':
         case 'retomar':
           return await this.mexer(e, String(en.acao), String(en.regraId ?? ''));
         default:
-          return recusa('Use acao propor, confirmar, buscar, listar, apagar, pausar ou retomar.');
+          return recusa('Use acao propor, confirmar, buscar, listar, conferir, apagar, pausar ou retomar.');
       }
     } catch (err: any) {
       if (semTabela(err)) return recusa('As regras de aviso ainda não estão disponíveis neste servidor.');
@@ -194,6 +202,14 @@ export class MisterRegrasService implements OnModuleInit {
       if (!dona) return recusa('Não achei a regra antiga para trocar. Peça a lista.');
       antiga = dona.id;
     }
+    // Versão 7, V7c: a proposta que ainda espera o Confirmar (uma por pessoa). "Faz 25 min" é um ajuste dela.
+    const [aberta] = linhas(
+      await this.db.execute(sql`
+        select id::text as id, regra, substitui_regra_id::text as antiga from mister_regra
+         where tenant_id = ${e.tenantId}::uuid and colaborador_id = ${e.colaboradorId}::uuid
+           and situacao = 'proposta' and vence_em > clock_timestamp()
+         order by criada_em desc, id desc limit 1`),
+    );
     // A mesma regra não nasce duas vezes. Igual e com os mesmos avisos substituídos: já existe. Igual mas mudando os avisos
     // (a de antes não calava o aviso um a um): a nova fica no lugar dela.
     const chave = chaveDaRegra(regra);
@@ -207,6 +223,12 @@ export class MisterRegrasService implements OnModuleInit {
     const igual = gemeas.find((v) => avisosDe(v.substitui) === avisosDe(regra.substitui) && (v.regra as Regra)?.intervaloMin === regra.intervaloMin);
     if (igual && !antiga) {
       const repetidas = gemeas.filter((v) => v.id !== igual.id).map((v) => v.id);
+      // A pessoa voltou ao que já está ligado: o ajuste que estava aberto não vale mais.
+      if (aberta && mesmoAssunto(aberta.regra as Regra, regra)) {
+        await this.db.execute(sql`
+          update mister_regra set situacao = 'descartada', atualizada_em = clock_timestamp(), estado = estado || jsonb_build_object('trocadaPor', ${igual.id}::text)
+           where id = ${aberta.id}::uuid and situacao = 'proposta'`);
+      }
       return {
         ok: true,
         dados: {
@@ -220,6 +242,12 @@ export class MisterRegrasService implements OnModuleInit {
         },
       };
     }
+    // O ajuste de uma proposta que trocava uma regra continua trocando a mesma regra: quem garante é o código, não a IA
+    // lembrar de repetir o id (a regra do ERR-561).
+    if (!antiga && aberta?.antiga && mesmoAssunto(aberta.regra as Regra, regra)) {
+      const trocada = await this.regraDaPessoa(e, String(aberta.antiga));
+      if (trocada) antiga = trocada.id;
+    }
     const noLugarDe = !antiga && gemeas.length ? gemeas[0] : null;
     if (noLugarDe) antiga = noLugarDe.id;
     const resumo = descreverRegra(regra);
@@ -232,6 +260,7 @@ export class MisterRegrasService implements OnModuleInit {
                 ${antiga}::uuid, clock_timestamp() + make_interval(mins => ${LIMITES_DA_REGRA.propostaValeMin}::int))
         returning id::text as id`),
     );
+    await this.ficarSoComAMaisNova(e);
     return {
       ok: true,
       dados: {
@@ -245,6 +274,20 @@ export class MisterRegrasService implements OnModuleInit {
       },
       botoes: botoesDaProposta(p.id),
     };
+  }
+
+  /**
+   * Uma proposta aberta por pessoa (V7c): fica a mais nova, e as outras guardam quem as trocou (o botão antigo diz isso). Uma
+   * instrução só, sempre DEPOIS do insert: com dois pedidos juntos, o último a rodar enxerga os dois e sobra exatamente uma.
+   */
+  private async ficarSoComAMaisNova(e: EscopoDoMister): Promise<void> {
+    await this.db.execute(sql`
+      update mister_regra x
+         set situacao = 'descartada', atualizada_em = clock_timestamp(), estado = x.estado || jsonb_build_object('trocadaPor', n.id::text)
+        from (select id from mister_regra
+               where tenant_id = ${e.tenantId}::uuid and colaborador_id = ${e.colaboradorId}::uuid and situacao = 'proposta'
+               order by criada_em desc, id desc limit 1) n
+       where x.tenant_id = ${e.tenantId}::uuid and x.colaborador_id = ${e.colaboradorId}::uuid and x.situacao = 'proposta' and x.id <> n.id`);
   }
 
   /**
@@ -343,9 +386,30 @@ export class MisterRegrasService implements OnModuleInit {
          order by (r.colaborador_id = ${e.colaboradorId}::uuid) desc, r.situacao, r.criada_em
          limit 60`),
     );
+    // V7c: a proposta aberta DESTA pessoa, com a regra, para a IA ajustar só o que ela pediu sem perder o resto.
+    const [aberta] = linhas(
+      await this.db.execute(sql`
+        select id::text as id, titulo, resumo, regra, to_char(vence_em at time zone ${FUSO_SQL}, 'HH24:MI') as "valeAte"
+          from mister_regra
+         where tenant_id = ${e.tenantId}::uuid and colaborador_id = ${e.colaboradorId}::uuid
+           and situacao = 'proposta' and vence_em > clock_timestamp()
+         order by criada_em desc, id desc limit 1`),
+    );
     return {
       ok: true,
       dados: {
+        ...(aberta
+          ? {
+              propostaAberta: {
+                id: aberta.id,
+                titulo: aberta.titulo,
+                oQueVouFazer: aberta.resumo,
+                regra: aberta.regra,
+                valeAte: aberta.valeAte,
+                siga: 'Ainda não está ligada. Para ajustar, chame propor com esta regra mudando SÓ o que a pessoa pediu: a nova fica no lugar desta.',
+              },
+            }
+          : {}),
         regras: lidas.map((l) => ({
           id: l.id,
           titulo: l.titulo,
@@ -354,9 +418,122 @@ export class MisterRegrasService implements OnModuleInit {
           ...(l.colaboradorId !== e.colaboradorId ? { de: l.dono } : {}),
           ultimoAviso: l.ultimoAviso ?? 'ainda não avisou',
         })),
-        ...(lidas.length ? {} : { aviso: 'Nenhuma regra ainda.' }),
+        ...(lidas.length || aberta ? {} : { aviso: 'Nenhuma regra ainda.' }),
       },
     };
+  }
+
+  // ───────────────────────────── a reclamação conferida (V7c) ─────────────────────────────
+
+  /**
+   * "Não está funcionando": olha a regra e o dia ANTES de responder. Nos pedidos, refaz o dia pela mesma avaliação do motor
+   * (`mister-regra-dia.ts`): o máximo ao mesmo tempo, a que horas e se ela teria avisado. Nas outras fontes, o estado e o
+   * último aviso. A régua de quem vê é a do `listar`; o dia é lido no escopo do DONO da regra, que é o que o motor usa.
+   */
+  async conferirODia(e: EscopoDoMister, id: string, instante: Date = new Date()): Promise<ResultadoDaFerramenta> {
+    if (!UUID.test(id)) return { ok: false, dados: { erro: TEXTOS_DAS_REGRAS.naoAchada } };
+    const agora = agoraNaLoja(instante);
+    const inicio = inicioDoDiaDeTrabalho(agora);
+    const desde = new Date(inicio).toISOString();
+    const dela = e.nivel === 'presidente' ? sql`` : sql`and r.colaborador_id = ${e.colaboradorId}::uuid`;
+    const [l] = linhas(
+      await this.db.execute(sql`
+        select r.id::text as id, r.titulo, r.situacao, r.resumo, r.regra, r.colaborador_id::text as "colaboradorId", r.ativada_em as "ativadaEm",
+               to_char(r.ativada_em at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as "ligadaDesde",
+               to_char(r.ultimo_envio_em at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as "ultimoAviso",
+               (select count(*)::int from mister_regra_envio v
+                 where v.regra_id = r.id and v.criado_em >= ${desde}::timestamptz and v.resultado in ('enviado', 'modelo')) as "avisosHoje",
+               (select v.resultado from mister_regra_envio v where v.regra_id = r.id order by v.criado_em desc limit 1) as "ultimoResultado"
+          from mister_regra r
+         where r.id = ${id}::uuid and r.tenant_id = ${e.tenantId}::uuid and r.situacao in ('ativa', 'pausada') ${dela}`),
+    );
+    if (!l) return { ok: false, dados: { erro: TEXTOS_DAS_REGRAS.naoAchada } };
+    const regra = l.regra as Regra;
+    const fonte = fonteDaRegra(regra?.fonte);
+    if (!fonte) return { ok: false, dados: { erro: TEXTOS_DAS_REGRAS.naoAchada } };
+    if (fonte.permissao && e.nivel !== 'presidente' && !podeAcessar(e.permissoes, fonte.permissao as any)) {
+      return { ok: false, dados: { erro: `O perfil desta pessoa no Regem não dá acesso a ${fonte.rotulo}. Quem muda o perfil é o presidente.` } };
+    }
+    const ultimoFalhou = typeof l.ultimoResultado === 'string' && !['enviado', 'modelo'].includes(l.ultimoResultado);
+    const base = {
+      id: l.id,
+      titulo: l.titulo,
+      situacao: l.situacao,
+      oQueFaz: l.resumo,
+      ligadaDesde: l.ligadaDesde ?? null,
+      ultimoAviso: l.ultimoAviso ?? 'ainda não avisou',
+      avisosNoDia: Number(l.avisosHoje ?? 0),
+      ...(ultimoFalhou ? { ultimoEnvioNaoSaiu: true } : {}),
+    };
+    const SIGA =
+      'Responda pelo que veio, em frases de gente: se ela está ligada e desde quando, o último aviso e o que o dia mostrou. A regra existe: nunca diga o contrário. Se "ultimoEnvioNaoSaiu", diga que o último aviso não chegou a sair. Se ela teria avisado e "avisosNoDia" é zero, diga que achou um problema, sem inventar a causa. Se vier "comMenosTempo", ofereça a mudança como sugestão, separada dos números, e só mude se a pessoa pedir.';
+    const dono = l.colaboradorId === e.colaboradorId ? e : await this.ferramentas.escopoDaTela(e.tenantId, l.colaboradorId).catch(() => null);
+    if (!dono || dono.semLoja || (fonte.permissao && dono.nivel !== 'presidente' && !podeAcessar(dono.permissoes, fonte.permissao as any))) {
+      return { ok: true, dados: { ...base, naoOlha: 'Quem criou esta regra não tem mais acesso a esses dados: enquanto for assim, ela não avisa.', siga: SIGA } };
+    }
+    try {
+      const ligadaEm = l.ativadaEm ? new Date(l.ativadaEm).getTime() : null;
+      const detalhe = regra.fonte === 'pedidos' ? { hoje: await this.oDiaDosPedidos(dono, regra, agora, inicio, ligadaEm) } : { agora: await this.aFonteAgora(e, dono, regra, agora) };
+      return { ok: true, dados: { ...base, ...detalhe, siga: SIGA } };
+    } catch (err: any) {
+      if (!semTabela(err)) this.logger.warn(`a conferência da regra ${l.id} não leu a fonte — ${String(err?.message ?? err).slice(0, 200)}`);
+      return { ok: true, dados: { ...base, leituraFalhou: true, siga: 'Diga o que veio da regra e que não conseguiu ler os dados do dia agora. Não diga que não houve nada.' } };
+    }
+  }
+
+  /** O dia da regra de pedidos, refeito minuto a minuto; sem aviso, testa também com alguns minutos a menos. */
+  private async oDiaDosPedidos(dono: EscopoDoMister, regra: Regra, agora: Agora, inicio: number, ligadaEm: number | null): Promise<Record<string, unknown>> {
+    // A leitura do motor olha 12 horas para trás: quem entrou antes do começo do dia ainda conta nas primeiras horas.
+    const aPartirDe = new Date(inicio - 12 * 3_600_000).toISOString();
+    const loja = dono.presa ? sql`and (pe.unidade_id = ${dono.presa}::uuid or pe.unidade_id is null)` : sql``;
+    const lidos = linhas(
+      await this.db.execute(sql`
+        select pe.id::text as id, pe.unidade_id::text as "unidadeId", pe.numero, pe.canal, pe.display_id as "displayId", pe.status, pe.tipo,
+               pe.agendamento is not null as agendado, pe.total::float8 as valor, pe.criado_em as "criadoEm", pe.confirmado_em as "confirmadoEm",
+               pe.pronto_em as "prontoEm", pe.despachado_em as "despachadoEm", pe.entregue_em as "entregueEm", pe.concluido_em as "concluidoEm",
+               pe.cancelado_em as "canceladoEm"
+          from pedido_externo pe
+         where pe.tenant_id = ${dono.tenantId}::uuid and pe.deleted_at is null and pe.criado_em > ${aPartirDe}::timestamptz ${loja}
+         order by pe.criado_em desc
+         limit ${LINHAS_POR_FONTE}`),
+    );
+    const pedidos = lidos.map((p) => pedidoDoDia({ ...p, rotulo: pedidoComoNoQuadro(p) }));
+    const ate = agora.instante.getTime();
+    const opcoes = { de: inicio, ate, ligadaEm, agoraDe: (t: number) => agoraNaLoja(new Date(t)) };
+    const dia = simularRegraNoDia(regra, pedidos, opcoes);
+    const hora = (t: number | null) => (t === null ? null : horaNoFuso(new Date(t)));
+    const limite = limiteDeTempo(regra);
+    let comMenosTempo: Record<string, unknown> | null = null;
+    if (!dia.avisos && limite && limite.minutos - FOLGA_DA_SUGESTAO_MIN >= FOLGA_DA_SUGESTAO_MIN) {
+      const minutos = limite.minutos - FOLGA_DA_SUGESTAO_MIN;
+      const outra = simularRegraNoDia(comOutroLimite(regra, minutos), pedidos, { ...opcoes, ligadaEm: null });
+      comMenosTempo = { minutos, maximoAoMesmoTempo: outra.maximo, as: hora(outra.maximoEm), teriaAvisado: outra.avisos > 0, vezes: outra.avisos, primeiraVez: hora(outra.primeiroAvisoEm) };
+    }
+    return {
+      desde: hora(inicio),
+      ate: agora.hora,
+      ...(limite ? { tempoDaRegraEmMinutos: limite.minutos } : {}),
+      maximoAoMesmoTempo: dia.maximo,
+      as: hora(dia.maximoEm),
+      teriaAvisado: dia.avisos > 0,
+      vezes: dia.avisos,
+      primeiraVez: hora(dia.primeiroAvisoEm),
+      ...(comMenosTempo ? { comMenosTempo } : {}),
+      ...(lidos.length >= LINHAS_POR_FONTE ? { aviso: `Li só os ${LINHAS_POR_FONTE} pedidos mais recentes.` } : {}),
+    };
+  }
+
+  /** As outras fontes não guardam a história do dia: o que a regra pega AGORA, sem valor em reais para quem não os vê. */
+  private async aFonteAgora(quemPergunta: EscopoDoMister, dono: EscopoDoMister, regra: Regra, agora: Agora): Promise<Record<string, unknown>> {
+    const daLoja = (l: { unidadeId: string | null }) => !dono.presa || !l.unidadeId || l.unidadeId === dono.presa;
+    const lidas = regra.fonte === 'vendas' ? await this.vendas(dono.tenantId, dono, agora) : (await this.leitura(regra.fonte)([dono.tenantId], agora)).filter(daLoja);
+    const pegas = linhasQueARegraPega(regra, lidas);
+    const olhaAgoraMesmo = olhaAgora(regra, {}, agora);
+    if (regra.medida === 'cada_item') return { itensQueElaPegaAgora: pegas.length, valeAgora: pegas.length > 0, olhaNesteHorario: olhaAgoraMesmo };
+    const valor = medir(regra, pegas);
+    const campo = fonteDaRegra(regra.fonte)?.campos.find((c) => c.nome === regra.campoDaMedida);
+    const mostra = Number.isFinite(valor) && (!campo?.dinheiro || quemPergunta.verValores);
+    return { itensQueElaPegaAgora: pegas.length, valeAgora: condicaoVale(regra.condicao!, valor), olhaNesteHorario: olhaAgoraMesmo, ...(mostra ? { medidaAgora: valor } : {}) };
   }
 
   // ───────────────────────────── a tela (M6f) ─────────────────────────────
@@ -445,17 +622,18 @@ export class MisterRegrasService implements OnModuleInit {
   }
 
   /** Confirmar: a proposta que ainda vale vira ativa (e a antiga que ela troca, apagada). Gravação condicional. */
-  async ativar(id: string, tenantId: string, quemConfirma: string, presidente: boolean): Promise<{ titulo: string } | { erro: string }> {
+  async ativar(id: string, tenantId: string, quemConfirma: string, presidente: boolean): Promise<{ titulo: string; substitui: string[] } | { erro: string }> {
     if (!UUID.test(id)) return { erro: TEXTOS_DAS_REGRAS.naoAchada };
     const dela = presidente ? sql`` : sql`and colaborador_id = ${quemConfirma}::uuid`;
     const [r] = linhas(
       await this.db.execute(sql`
         update mister_regra set situacao = 'ativa', ativada_em = clock_timestamp(), atualizada_em = clock_timestamp(), vence_em = null
          where id = ${id}::uuid and tenant_id = ${tenantId}::uuid and situacao = 'proposta' and vence_em > clock_timestamp() ${dela}
-        returning id::text as id, titulo, fonte, regra, colaborador_id::text as "colaboradorId", substitui_regra_id::text as antiga`),
+        returning id::text as id, titulo, fonte, regra, substitui, colaborador_id::text as "colaboradorId", substitui_regra_id::text as antiga`),
     );
     if (!r) {
-      const [v] = linhas(await this.db.execute(sql`select situacao from mister_regra where id = ${id}::uuid and tenant_id = ${tenantId}::uuid`));
+      const [v] = linhas(await this.db.execute(sql`select situacao, estado from mister_regra where id = ${id}::uuid and tenant_id = ${tenantId}::uuid`));
+      if (v?.situacao === 'descartada' && v.estado?.trocadaPor) return { erro: TEXTOS_DAS_REGRAS.trocada };
       return { erro: v?.situacao === 'proposta' || v?.situacao === 'descartada' ? TEXTOS_DAS_REGRAS.venceu : v?.situacao === 'ativa' ? `A regra já está ligada.` : TEXTOS_DAS_REGRAS.naoAchada };
     }
     // Saem a regra trocada e as cópias iguais da mesma pessoa (a nova faz o mesmo que elas).
@@ -479,7 +657,7 @@ export class MisterRegrasService implements OnModuleInit {
       ...(r.antiga ? { trocou: r.antiga } : {}),
       ...(copias.length ? { copiasApagadas: copias } : {}),
     });
-    return { titulo: String(r.titulo) };
+    return { titulo: String(r.titulo), substitui: Array.isArray(r.substitui) ? r.substitui.map(String) : [] };
   }
 
   // ───────────────────────────── os botões ─────────────────────────────
@@ -490,7 +668,7 @@ export class MisterRegrasService implements OnModuleInit {
     if (!b || !quem.vinculos.length) return false;
     const [r] = linhas(
       await this.db.execute(sql`
-        select id::text as id, tenant_id::text as "tenantId", colaborador_id::text as "colaboradorId", titulo, situacao
+        select id::text as id, tenant_id::text as "tenantId", colaborador_id::text as "colaboradorId", titulo, situacao, estado
           from mister_regra
          where id = ${b.regraId}::uuid and tenant_id in (${sql.join(quem.vinculos.map((v) => sql`${v.tenantId}::uuid`), sql`, `)})`),
     );
@@ -502,12 +680,19 @@ export class MisterRegrasService implements OnModuleInit {
       await this.dizer(quem.telefone, TEXTOS_DAS_REGRAS.naoAchada);
       return true;
     }
+    // V7c: o botão de uma proposta que um ajuste trocou diz isso, em vez de "venceu" ou "não liguei".
+    if ((b.acao === 'sim' || b.acao === 'mudar') && r.situacao === 'descartada' && r.estado?.trocadaPor) {
+      await this.dizer(quem.telefone, TEXTOS_DAS_REGRAS.trocada);
+      return true;
+    }
     if (b.acao === 'sim') {
       const a = await this.ativar(r.id, r.tenantId, v.colaboradorId, presidente);
-      await this.dizer(quem.telefone, 'erro' in a ? a.erro : TEXTOS_DAS_REGRAS.ligada(a.titulo));
+      await this.dizer(quem.telefone, 'erro' in a ? a.erro : TEXTOS_DAS_REGRAS.ligada(a.titulo, a.substitui));
     } else if (b.acao === 'mudar') {
-      await this.db.execute(sql`update mister_regra set situacao = 'descartada', atualizada_em = clock_timestamp() where id = ${r.id}::uuid and situacao = 'proposta'`);
-      await this.dizer(quem.telefone, TEXTOS_DAS_REGRAS.mudar);
+      const [mudou] = linhas(
+        await this.db.execute(sql`update mister_regra set situacao = 'descartada', atualizada_em = clock_timestamp() where id = ${r.id}::uuid and situacao = 'proposta' returning id`),
+      );
+      await this.dizer(quem.telefone, !mudou && r.situacao === 'ativa' ? TEXTOS_DAS_REGRAS.jaLigada : TEXTOS_DAS_REGRAS.mudar);
     } else if (b.acao === 'apagar') {
       const [a] = linhas(
         await this.db.execute(sql`

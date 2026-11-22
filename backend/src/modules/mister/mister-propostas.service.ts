@@ -50,6 +50,7 @@ import {
 } from './mister-procedimentos';
 import { estadoDaSessao } from './mister-sessao';
 import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDaBaixa, apresentacaoDoHorario, apresentacaoDoPreco, ehAcaoDoMister } from './mister-acoes';
+import { PROCEDIMENTO_DO_PLANO, RESULTADO_DO_PLANO_TROCADO, TEXTOS_DO_PLANO } from './mister-plano';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -135,6 +136,18 @@ export class MisterPropostasService implements OnModuleInit {
   private acao: ((p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>) | null = null;
   registrarAcao(f: (p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>): void {
     this.acao = f;
+  }
+
+  // Versão 7, V7c: o plano (várias ações num botão) mora no `MisterPlanosService`, que se apresenta como as ações. Aqui passam
+  // o toque no plano e o fim de cada passo; a execução de cada passo continua sendo o `executar` daqui.
+  private plano: ((id: string) => Promise<void>) | null = null;
+  registrarPlano(f: (id: string) => Promise<void>): void {
+    this.plano = f;
+  }
+  /** Um passo do plano terminou (feito, não deu, recusado ou vencido): o plano segue. Não segura quem chamou. */
+  private planoAndou(planoId: unknown): void {
+    if (typeof planoId !== 'string' || !this.plano) return;
+    void this.plano(planoId).catch((e) => this.logger.error(`o plano ${planoId} não andou — ${e?.message ?? e}`));
   }
 
   /** O toque num botão de proposta chega pela entrada do WhatsApp, que mora no módulo de baixo. */
@@ -317,7 +330,7 @@ export class MisterPropostasService implements OnModuleInit {
     if (!b || !empresas.length) return false;
     const [p] = linhas(
       await this.db.execute(sql`
-        select id::text as id, tenant_id::text as "tenantId", procedimento, situacao, vence_em as "venceEm", nivel, parametros
+        select id::text as id, tenant_id::text as "tenantId", procedimento, situacao, vence_em as "venceEm", nivel, parametros, resultado
           from mister_proposta
          where id = ${b.propostaId}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})`),
     );
@@ -331,7 +344,9 @@ export class MisterPropostasService implements OnModuleInit {
     }
     // Versão 6, M6j: a ação da porta `propor_acao` é de QUEM pediu — só essa pessoa autoriza (o presidente ou o gerente com
     // a permissão do perfil, conferida ao propor e de novo ao executar). As outras propostas seguem só do presidente.
-    const acao = ehAcaoDoMister(p.procedimento);
+    // V7c: o plano é, como a ação, de quem pediu.
+    const plano = p.procedimento === PROCEDIMENTO_DO_PLANO;
+    const acao = ehAcaoDoMister(p.procedimento) || plano;
     if (acao && v.colaboradorId !== String(p.parametros?.colaboradorId ?? '')) {
       await this.falar(quem.telefone, TEXTOS_DAS_ACOES.naoDisponivel);
       return true;
@@ -342,15 +357,7 @@ export class MisterPropostasService implements OnModuleInit {
     }
     // Versão 6, M6d: com a sessão com PIN ligada e o PIN desta pessoa vencido, a ação de botão espera o PIN — a proposta
     // continua pendente (no prazo dela) e o link da sessão vai agora.
-    if (b.autorizar) {
-      const s = await estadoDaSessao(this.db, p.tenantId, v.colaboradorId);
-      if (s.exigida && !s.valida) {
-        const sessao = await this.proporSessao(p.tenantId, v.colaboradorId, s.horas!);
-        await this.falar(quem.telefone, TEXTOS_DA_SESSAO.botaoPedePin);
-        if (sessao) await this.enviarLink(sessao.p.id, v.colaboradorId, quem.telefone, sessao.p.pergunta);
-        return true;
-      }
-    }
+    if (b.autorizar && (await this.sessaoPendente(p.tenantId, v.colaboradorId, quem.telefone))) return true;
     const final = quem.telefone.slice(-4);
     // A gravação condicional: só a proposta ainda pendente e no prazo muda (o segundo toque e o de outro aparelho não).
     const [mudou] = linhas(
@@ -363,14 +370,42 @@ export class MisterPropostasService implements OnModuleInit {
         returning id`),
     );
     if (!mudou) {
+      if (plano && p.situacao === 'recusada' && p.resultado === RESULTADO_DO_PLANO_TROCADO) {
+        await this.falar(quem.telefone, TEXTOS_DO_PLANO.trocado);
+        return true;
+      }
       const vencida = p.situacao === 'vencida' || (p.situacao === 'proposta' && new Date(p.venceEm).getTime() <= Date.now());
       await this.falar(quem.telefone, vencida ? TEXTOS_DA_PROPOSTA.vencida(horaNoFuso(new Date(p.venceEm))) : TEXTOS_DA_PROPOSTA.jaRespondida);
       return true;
     }
     await this.auditar(p.tenantId, v.colaboradorId, b.autorizar ? 'mister_proposta_autorizada' : 'mister_proposta_recusada', p.id, { procedimento: p.procedimento, final }, 'whatsapp', v.nivel);
-    await this.falar(quem.telefone, b.autorizar ? TEXTOS_DA_PROPOSTA.autorizada(p.procedimento) : p.procedimento === 'criar_imagem' ? TEXTOS_DAS_ACOES.imagemMudar : acao ? TEXTOS_DA_PROPOSTA.recusadaAcao : TEXTOS_DA_PROPOSTA.recusada);
+    const resposta = plano
+      ? b.autorizar
+        ? TEXTOS_DO_PLANO.autorizado
+        : TEXTOS_DO_PLANO.mudar
+      : b.autorizar
+        ? TEXTOS_DA_PROPOSTA.autorizada(p.procedimento)
+        : p.procedimento === 'criar_imagem'
+          ? TEXTOS_DAS_ACOES.imagemMudar
+          : acao
+            ? TEXTOS_DA_PROPOSTA.recusadaAcao
+            : TEXTOS_DA_PROPOSTA.recusada;
+    await this.falar(quem.telefone, resposta);
     // A execução não segura a resposta ao WhatsApp: segue sozinha (e a rotina pega a que ficar para trás).
     if (b.autorizar) void this.executar(p.id).catch((e) => this.logger.error(`a proposta ${p.id} não executou — ${e?.message ?? e}`));
+    return true;
+  }
+
+  /**
+   * A sessão com PIN desta pessoa está vencida? Então o toque espera: o link da sessão vai agora e a proposta continua
+   * pendente. A mesma régua para o "Autorizar" e para o "Tentar de novo" do plano.
+   */
+  async sessaoPendente(tenantId: string, colaboradorId: string, telefone: string): Promise<boolean> {
+    const s = await estadoDaSessao(this.db, tenantId, colaboradorId);
+    if (!s.exigida || s.valida) return false;
+    const sessao = await this.proporSessao(tenantId, colaboradorId, s.horas!);
+    await this.falar(telefone, TEXTOS_DA_SESSAO.botaoPedePin);
+    if (sessao) await this.enviarLink(sessao.p.id, colaboradorId, telefone, sessao.p.pergunta);
     return true;
   }
 
@@ -398,6 +433,12 @@ export class MisterPropostasService implements OnModuleInit {
     );
     if (!p) return null;
     await this.auditar(p.tenantId, p.autorizadaPor, 'mister_proposta_executada', p.id, { procedimento: p.procedimento }, 'whatsapp', perfilDe(p));
+    // V7c: o plano anda passo a passo no serviço dele; cada passo volta a este `executar`, como uma proposta qualquer.
+    if (p.procedimento === PROCEDIMENTO_DO_PLANO) {
+      if (!this.plano) return this.concluir(p, false, 'os planos não estão disponíveis agora. Nada foi feito.');
+      await this.plano(p.id);
+      return 'executando';
+    }
     if (ehAcaoDoMister(p.procedimento)) {
       // M6j: pelo serviço da tela, com a permissão conferida de novo; a frase diz o que foi FEITO (o efeito conferido).
       if (!this.acao) return this.concluir(p, false, 'as ações do Mister não estão disponíveis agora. Nada foi feito.');
@@ -585,6 +626,11 @@ export class MisterPropostasService implements OnModuleInit {
     );
     if (!fechou) return null;
     await this.auditar(p.tenantId, p.autorizadaPor, feita ? 'mister_proposta_feita' : 'mister_proposta_nao_deu', p.id, { resultado: resultado.slice(0, 200) }, 'whatsapp', perfilDe(p));
+    // V7c: o passo de um plano não fala sozinho: o plano diz tudo numa mensagem só, no fim.
+    if (p.parametros?.planoId) {
+      this.planoAndou(p.parametros.planoId);
+      return situacao;
+    }
     const [quem] = p.autorizadaPor
       ? linhas(
           await this.db.execute(sql`
@@ -608,6 +654,8 @@ export class MisterPropostasService implements OnModuleInit {
         returning id::text as id, tenant_id::text as "tenantId", nivel, procedimento, parametros, link_para::text as "linkPara", vence_em as "venceEm"`),
     );
     for (const v of vencidas) {
+      // V7c: o PIN de um passo venceu: o plano fecha dizendo o que entrou.
+      this.planoAndou(v.parametros?.planoId);
       if (v.nivel !== 'pin' || !v.linkPara) continue;
       const [quem] = linhas(
         await this.db.execute(sql`
@@ -792,6 +840,7 @@ export class MisterPropostasService implements OnModuleInit {
       if (bloqueou) {
         await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_bloqueada', p.id, { procedimento: p.procedimento }, 'link', p.paraNivel);
         await this.falar(p.telefone, TEXTOS_DO_LINK.bloqueada);
+        this.planoAndou(p.parametros?.planoId);
       }
       return this.vistaDoLink(await this.linhaDoLink(codigo));
     }
@@ -827,6 +876,7 @@ export class MisterPropostasService implements OnModuleInit {
     if (mudou) {
       await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_recusada', p.id, { procedimento: p.procedimento, final }, 'link', p.paraNivel);
       await this.falar(p.telefone, TEXTOS_DO_LINK.recusada);
+      this.planoAndou(p.parametros?.planoId);
     }
     return this.vistaDoLink(await this.linhaDoLink(codigo));
   }
