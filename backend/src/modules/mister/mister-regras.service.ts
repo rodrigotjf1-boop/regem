@@ -29,10 +29,12 @@ import {
   avaliarRegra,
   botoesDaProposta,
   botoesDoApagar,
+  chaveDaRegra,
   conferirRegra,
   descreverRegra,
   fonteDaRegra,
   lerBotaoDaRegra,
+  nomeDoAvisoSubstituido,
   olhaAgora,
   textoDoDisparo,
 } from './mister-regra';
@@ -191,6 +193,34 @@ export class MisterRegrasService implements OnModuleInit {
       if (!dona) return recusa('Não achei a regra antiga para trocar. Peça a lista.');
       antiga = dona.id;
     }
+    // A mesma regra não nasce duas vezes. Igual e com os mesmos avisos substituídos: já existe. Igual mas mudando os avisos
+    // (a de antes não calava o aviso um a um): a nova fica no lugar dela.
+    const chave = chaveDaRegra(regra);
+    const gemeas = linhas(
+      await this.db.execute(sql`
+        select id::text as id, titulo, resumo, situacao, regra, substitui from mister_regra
+         where tenant_id = ${e.tenantId}::uuid and colaborador_id = ${e.colaboradorId}::uuid and situacao in ('ativa', 'pausada')
+         order by criada_em`),
+    ).filter((v) => v.id !== antiga && chaveDaRegra(v.regra as Regra) === chave);
+    const avisosDe = (l: unknown) => [...(Array.isArray(l) ? l : [])].map(String).sort().join(',');
+    const igual = gemeas.find((v) => avisosDe(v.substitui) === avisosDe(regra.substitui) && (v.regra as Regra)?.intervaloMin === regra.intervaloMin);
+    if (igual && !antiga) {
+      const repetidas = gemeas.filter((v) => v.id !== igual.id).map((v) => v.id);
+      return {
+        ok: true,
+        dados: {
+          jaExiste: true,
+          id: igual.id,
+          titulo: igual.titulo,
+          situacao: igual.situacao,
+          oQueFaz: igual.resumo,
+          ...(repetidas.length ? { repetidas } : {}),
+          siga: 'Essa regra já existe: diga isso e mostre o "oQueFaz". Não monte outra igual.',
+        },
+      };
+    }
+    const noLugarDe = !antiga && gemeas.length ? gemeas[0] : null;
+    if (noLugarDe) antiga = noLugarDe.id;
     const resumo = descreverRegra(regra);
     const [p] = linhas(
       await this.db.execute(sql`
@@ -209,6 +239,7 @@ export class MisterRegrasService implements OnModuleInit {
         oQueVouFazer: resumo,
         ...(regra.substitui?.length ? { deixaDeReceber: regra.substitui } : {}),
         ...(antiga ? { trocaARegra: antiga } : {}),
+        ...(noLugarDe ? { ficaNoLugarDe: noLugarDe.titulo } : {}),
         siga: 'Mostre o "oQueVouFazer" como veio e diga que os botões Confirmar e Mudar vão junto. Nada liga sem o Confirmar.',
       },
       botoes: botoesDaProposta(p.id),
@@ -358,7 +389,7 @@ export class MisterRegrasService implements OnModuleInit {
         voce: l.colaboradorId === e.colaboradorId,
         ultimoAviso: l.ultimoAviso ?? null,
         criadaEm: l.criadaEm,
-        deixaDeReceber: Array.isArray(l.substitui) ? l.substitui : [],
+        deixaDeReceber: Array.isArray(l.substitui) ? l.substitui.map((t: string) => nomeDoAvisoSubstituido(t)) : [],
       })),
     };
   }
@@ -420,18 +451,33 @@ export class MisterRegrasService implements OnModuleInit {
       await this.db.execute(sql`
         update mister_regra set situacao = 'ativa', ativada_em = clock_timestamp(), atualizada_em = clock_timestamp(), vence_em = null
          where id = ${id}::uuid and tenant_id = ${tenantId}::uuid and situacao = 'proposta' and vence_em > clock_timestamp() ${dela}
-        returning id::text as id, titulo, fonte, colaborador_id::text as "colaboradorId", substitui_regra_id::text as antiga`),
+        returning id::text as id, titulo, fonte, regra, colaborador_id::text as "colaboradorId", substitui_regra_id::text as antiga`),
     );
     if (!r) {
       const [v] = linhas(await this.db.execute(sql`select situacao from mister_regra where id = ${id}::uuid and tenant_id = ${tenantId}::uuid`));
       return { erro: v?.situacao === 'proposta' || v?.situacao === 'descartada' ? TEXTOS_DAS_REGRAS.venceu : v?.situacao === 'ativa' ? `A regra já está ligada.` : TEXTOS_DAS_REGRAS.naoAchada };
     }
-    if (r.antiga) {
+    // Saem a regra trocada e as cópias iguais da mesma pessoa (a nova faz o mesmo que elas).
+    const chave = chaveDaRegra(r.regra as Regra);
+    const copias = linhas(
+      await this.db.execute(sql`
+        select id::text as id, regra from mister_regra
+         where tenant_id = ${tenantId}::uuid and colaborador_id = ${r.colaboradorId}::uuid and situacao in ('ativa', 'pausada') and id <> ${r.id}::uuid`),
+    )
+      .filter((v) => v.id !== r.antiga && chaveDaRegra(v.regra as Regra) === chave)
+      .map((v) => String(v.id));
+    const saem = [...(r.antiga ? [String(r.antiga)] : []), ...copias];
+    if (saem.length) {
       await this.db.execute(sql`
         update mister_regra set situacao = 'apagada', apagada_em = clock_timestamp(), atualizada_em = clock_timestamp()
-         where id = ${r.antiga}::uuid and tenant_id = ${tenantId}::uuid and situacao in ('ativa', 'pausada')`);
+         where id in (${sql.join(saem.map((s) => sql`${s}::uuid`), sql`, `)}) and tenant_id = ${tenantId}::uuid and situacao in ('ativa', 'pausada')`);
     }
-    await this.auditar(tenantId, quemConfirma, 'mister_regra_ligada', r.id, { titulo: r.titulo, fonte: r.fonte, ...(r.antiga ? { trocou: r.antiga } : {}) });
+    await this.auditar(tenantId, quemConfirma, 'mister_regra_ligada', r.id, {
+      titulo: r.titulo,
+      fonte: r.fonte,
+      ...(r.antiga ? { trocou: r.antiga } : {}),
+      ...(copias.length ? { copiasApagadas: copias } : {}),
+    });
     return { titulo: String(r.titulo) };
   }
 
@@ -529,11 +575,16 @@ export class MisterRegrasService implements OnModuleInit {
     };
     const aOlhar: Array<{ id: string; tenantId: string; colaboradorId: string; regra: Regra; estado: EstadoDaRegra; escopo: EscopoDoMister }> = [];
     let concluidas = 0;
+    // Duas regras iguais da mesma pessoa não mandam o mesmo aviso duas vezes.
+    const jaOlhadas = new Set<string>();
     for (const a of ativas) {
       const regra = a.regra as Regra;
       const estado = (a.estado ?? {}) as EstadoDaRegra;
       const fonte = fonteDaRegra(regra?.fonte);
       if (!fonte) continue;
+      const igual = `${a.tenantId}|${a.colaboradorId}|${regra.intervaloMin ?? ''}|${chaveDaRegra(regra)}`;
+      if (jaOlhadas.has(igual)) continue;
+      jaOlhadas.add(igual);
       // A de um dia só que já passou se encerra (sem avisar: o dia dela acabou).
       if (regra.quando?.data && regra.quando.data < agora.dia) {
         concluidas += await this.concluir(a.id);

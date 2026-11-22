@@ -765,10 +765,13 @@ export class MisterAvisosService implements OnModuleInit {
   /**
    * Versão 6, M6e (mig 472): quem tem uma regra ATIVA que fica no lugar deste tipo de aviso não o recebe pelo WhatsApp (o
    * KDS, a tela e os outros seguem a regra da empresa). Os críticos nunca entram em `substitui` (a conferência da regra).
+   * O pedido parado pode ser substituído só numa etapa (`pedido_parado:confirmado`): a regra de "em preparo" não cala o
+   * "sem aceite" nem o "pronto sem sair".
    */
-  protected semRegraQueSubstitui(tipo: string) {
+  protected semRegraQueSubstitui(tipo: string, etapa?: unknown) {
+    const daEtapa = typeof etapa === 'string' && etapa ? `${tipo}:${etapa}` : tipo;
     return sql`and not exists (select 1 from mister_regra r where r.tenant_id = g.tenant_id and r.colaborador_id = g.colaborador_id
-                                  and r.situacao = 'ativa' and ${tipo} = any(r.substitui))`;
+                                  and r.situacao = 'ativa' and (${tipo} = any(r.substitui) or ${daEtapa} = any(r.substitui)))`;
   }
 
   /**
@@ -1118,7 +1121,7 @@ export class MisterAvisosService implements OnModuleInit {
           left join perfil_acesso p on p.id = c.perfil_acesso_id
           join empresa emp on emp.id = g.tenant_id
          where g.tenant_id = ${a.tenantId}::uuid and g.ligado_em is not null and g.telefone is not null and g.pausado_em is null and ${pessoaVale()}
-           ${this.semRegraQueSubstitui(a.tipo)}`),
+           ${this.semRegraQueSubstitui(a.tipo, a.tipo === 'pedido_parado' ? a.dados?.etapa : undefined)}`),
     );
     // O gerente da loja do aviso (sem loja no aviso: os gerentes da empresa; gerente sem loja vale para todas).
     const daLoja = (l: any) => !a.unidadeId || !l.unidadeId || l.unidadeId === a.unidadeId;
