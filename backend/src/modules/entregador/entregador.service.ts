@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -11,7 +12,7 @@ import {
 import { OnEvent } from '@nestjs/event-emitter';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { localInformado, longeDoEndereco, textoDeLonge } from './local-da-entrega';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { createHash } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { pedidoExterno } from '../../db/schema';
@@ -1429,73 +1430,82 @@ export class EntregadorService implements OnModuleInit {
   // fechamento (append-only), gera a SANGRIA no caixa de entregas aberto e marca os
   // pedidos como acertados (não pagam de novo). Cancelados nunca entram (não são
   // 'concluido'), então o cancelamento na conferência já abate naturalmente.
+  //
+  // Tudo numa transação, com a trava DESTE entregador antes de ler os pedidos: dois cliques juntos (ou dois gestores) liam
+  // os mesmos pedidos e pagavam em dobro, e uma falha no meio deixava o fechamento sem a sangria. Outro entregador não espera.
   async pagarEntregador(tenantId: string, atorId: string | null, colaboradorId: string) {
     const cfg = await this.perfilDeEntregador(tenantId, colaboradorId);
     const { inicio, fim } = this.periodoDe(cfg.periodicidade ?? 'dia');
-    // Pedidos a acertar (guarda os ids p/ marcar exatamente estes).
-    const sel: any = await this.db.execute(sql`
-      select id, coalesce(taxa_entrega, 0) as taxa
-      from pedido_externo
-      where tenant_id = ${tenantId} and entregador_id = ${colaboradorId}
-        and status = 'concluido' and entregador_fechamento_id is null
-        and (concluido_em at time zone 'America/Sao_Paulo')::date between ${inicio}::date and ${fim}::date`);
-    const pedidos = sel.rows ?? sel;
-    const entregas = pedidos.length;
-    const taxasReaisCentavos = Math.round(
-      pedidos.reduce((s: number, p: any) => s + Number(p.taxa || 0), 0) * 100,
-    );
-    const v = this.calcular(cfg, entregas, taxasReaisCentavos);
-    if (v.total <= 0) throw new BadRequestException('Nada a pagar para este entregador no período.');
+    return this.db.transaction(async (tx: any) => {
+      // `for no key update`: segura o pagamento concorrente sem travar quem só referencia a pessoa (ponto, escala, pedidos).
+      const nomeRow: any = await tx.execute(
+        sql`select nome from colaborador where id = ${colaboradorId} and tenant_id = ${tenantId} for no key update`,
+      );
+      const nomeEnt = (nomeRow.rows ?? nomeRow)[0]?.nome ?? 'Entregador';
+      // Pedidos a acertar (guarda os ids p/ marcar exatamente estes).
+      const sel: any = await tx.execute(sql`
+        select id, coalesce(taxa_entrega, 0) as taxa
+        from pedido_externo
+        where tenant_id = ${tenantId} and entregador_id = ${colaboradorId}
+          and status = 'concluido' and entregador_fechamento_id is null
+          and (concluido_em at time zone 'America/Sao_Paulo')::date between ${inicio}::date and ${fim}::date`);
+      const pedidos = sel.rows ?? sel;
+      const entregas = pedidos.length;
+      const taxasReaisCentavos = Math.round(
+        pedidos.reduce((s: number, p: any) => s + Number(p.taxa || 0), 0) * 100,
+      );
+      const v = this.calcular(cfg, entregas, taxasReaisCentavos);
+      if (v.total <= 0) throw new BadRequestException('Nada a pagar para este entregador no período.');
 
-    // Caixa de entregas aberto (a sangria sai daqui).
-    const cx: any = await this.db.execute(sql`
-      select id from caixa_sessao
-      where tenant_id = ${tenantId} and status = 'aberta' and origem = 'delivery' limit 1`);
-    const sessaoId = (cx.rows ?? cx)[0]?.id ?? null;
-    if (!sessaoId)
-      throw new BadRequestException('Abra o caixa de entregas para registrar o pagamento (sangria).');
+      // Caixa de entregas aberto (a sangria sai daqui). `for share`: ele não fecha no meio do pagamento.
+      const cx: any = await tx.execute(sql`
+        select id from caixa_sessao
+        where tenant_id = ${tenantId} and status = 'aberta' and origem = 'delivery' limit 1 for share`);
+      const sessaoId = (cx.rows ?? cx)[0]?.id ?? null;
+      if (!sessaoId)
+        throw new BadRequestException('Abra o caixa de entregas para registrar o pagamento (sangria).');
 
-    const nomeRow: any = await this.db.execute(sql`select nome from colaborador where id = ${colaboradorId}`);
-    const nomeEnt = (nomeRow.rows ?? nomeRow)[0]?.nome ?? 'Entregador';
-    const rotulos: Record<string, string> = {
-      diaria_taxas: 'diária + taxas',
-      so_diaria: 'só diária',
-      so_taxas: 'só taxas',
-      so_taxa_fixa: 'só taxa fixa',
-      diaria_taxas_fixas: 'diária + taxa fixa/entrega',
-    };
-    const descr = `Pagamento ao entregador ${nomeEnt} — ${rotulos[cfg.modelo] ?? cfg.modelo} · ${entregas} entrega(s) · ${inicio}..${fim}`;
+      const rotulos: Record<string, string> = {
+        diaria_taxas: 'diária + taxas',
+        so_diaria: 'só diária',
+        so_taxas: 'só taxas',
+        so_taxa_fixa: 'só taxa fixa',
+        diaria_taxas_fixas: 'diária + taxa fixa/entrega',
+      };
+      const descr = `Pagamento ao entregador ${nomeEnt} — ${rotulos[cfg.modelo] ?? cfg.modelo} · ${entregas} entrega(s) · ${inicio}..${fim}`;
 
-    // 1) Fechamento (append-only).
-    const fech: any = await this.db.execute(sql`
-      insert into entregador_fechamento
-        (tenant_id, colaborador_id, data_ref, modelo, entregas, diaria_centavos, taxas_centavos,
-         total_centavos, periodo_inicio, periodo_fim, base_taxa, criado_por)
-      values (${tenantId}, ${colaboradorId}, ${fim}, ${cfg.modelo}, ${entregas}, ${v.diaria}, ${v.taxas},
-         ${v.total}, ${inicio}::date, ${fim}::date, ${cfg.baseTaxa ?? 'real'}, ${atorId})
-      returning id`);
-    const fechamentoId = (fech.rows ?? fech)[0].id;
+      // 1) Fechamento (append-only).
+      const fech: any = await tx.execute(sql`
+        insert into entregador_fechamento
+          (tenant_id, colaborador_id, data_ref, modelo, entregas, diaria_centavos, taxas_centavos,
+           total_centavos, periodo_inicio, periodo_fim, base_taxa, criado_por)
+        values (${tenantId}, ${colaboradorId}, ${fim}, ${cfg.modelo}, ${entregas}, ${v.diaria}, ${v.taxas},
+           ${v.total}, ${inicio}::date, ${fim}::date, ${cfg.baseTaxa ?? 'real'}, ${atorId})
+        returning id`);
+      const fechamentoId = (fech.rows ?? fech)[0].id;
 
-    // 2) Sangria no caixa de entregas (saída em dinheiro).
-    const lc: any = await this.db.execute(sql`
-      insert into lancamento_caixa (tenant_id, tipo, valor, categoria, forma, descricao, sessao_id, criado_por_id, data)
-      values (${tenantId}, 'saida', ${(v.total / 100).toFixed(2)}, 'pagamento_entregador', 'dinheiro',
-              ${descr}, ${sessaoId}, ${atorId}, ${hojeISO()})
-      returning id`);
-    const lancamentoId = (lc.rows ?? lc)[0].id;
-    await this.db.execute(sql`update entregador_fechamento set lancamento_caixa_id = ${lancamentoId} where id = ${fechamentoId}`);
+      // 2) Sangria no caixa de entregas (saída em dinheiro).
+      const lc: any = await tx.execute(sql`
+        insert into lancamento_caixa (tenant_id, tipo, valor, categoria, forma, descricao, sessao_id, criado_por_id, data)
+        values (${tenantId}, 'saida', ${(v.total / 100).toFixed(2)}, 'pagamento_entregador', 'dinheiro',
+                ${descr}, ${sessaoId}, ${atorId}, ${hojeISO()})
+        returning id`);
+      const lancamentoId = (lc.rows ?? lc)[0].id;
+      await tx.execute(sql`update entregador_fechamento set lancamento_caixa_id = ${lancamentoId} where id = ${fechamentoId}`);
 
-    // 3) Marca os pedidos como acertados (não pagam de novo). Usa inArray do Drizzle — o
-    // `id = any(${ids}::uuid[])` no template sql serializava o array errado (o ::uuid[] recebia
-    // o UUID cru, sem chaves) → "malformed array literal". Set-based, 1 query.
-    if (entregas > 0) {
+      // 3) Marca os pedidos como acertados (não pagam de novo). Usa inArray do Drizzle — o
+      // `id = any(${ids}::uuid[])` no template sql serializava o array errado (o ::uuid[] recebia
+      // o UUID cru, sem chaves) → "malformed array literal". Set-based, 1 query. Só os ainda sem acerto: se algum
+      // mudou no meio, nada do pagamento fica.
       const ids = pedidos.map((p: any) => p.id as string);
-      await this.db
+      const marcados = await tx
         .update(pedidoExterno)
         .set({ entregadorFechamentoId: fechamentoId })
-        .where(and(eq(pedidoExterno.tenantId, tenantId), inArray(pedidoExterno.id, ids)));
-    }
-    return { ok: true, fechamentoId, entregas, ...v, descricao: descr };
+        .where(and(eq(pedidoExterno.tenantId, tenantId), inArray(pedidoExterno.id, ids), isNull(pedidoExterno.entregadorFechamentoId)))
+        .returning({ id: pedidoExterno.id });
+      if (marcados.length !== entregas) throw new ConflictException('Os pedidos deste entregador mudaram durante o pagamento. Tente de novo.');
+      return { ok: true, fechamentoId, entregas, ...v, descricao: descr };
+    });
   }
 
   // ===== E6 — MULTI-PARADA (saída/roteiro) + rastreio =====
