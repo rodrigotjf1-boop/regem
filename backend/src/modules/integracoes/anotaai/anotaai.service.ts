@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { BadRequestException, forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, eq, sql } from 'drizzle-orm';
@@ -7,6 +8,7 @@ import { DeliveryService } from '../../delivery/delivery.service';
 import { agendamentoAnotaAi } from '../../delivery/adapters';
 import { fetchExterno } from '../../../common/fetch-externo';
 import { mesclarNoConfigDaIntegracao } from '../config-da-integracao';
+import { atrasoDoStatus } from './anotaai-atraso';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da API de Pedidos da Anota Aí (api-parceiros.anota.ai). Auth = token da
@@ -210,7 +212,10 @@ export class AnotaAiService {
         // MATERIALIZADO localmente (vira 'confirmado' = coluna Produção). Sem isso o
         // pedido fica preso em "Em análise" e parece que "não atualiza".
         if (check >= 1 && check <= 3) await this.materializarSeNovo(tenantId, orderId).catch(() => {});
-        if (alvo) await this.delivery.refletirStatusExterno(tenantId, CANAL, orderId, alvo);
+        if (alvo) {
+          const feito = await this.delivery.refletirStatusExterno(tenantId, CANAL, orderId, alvo);
+          if (feito === 'aplicado') await this.medirAtrasoDoStatus(ig, unidadeId, orderId, alvo, d);
+        }
       } catch (e: any) {
         this.logger.warn(`pedido ${orderId}: ${e?.message ?? e}`);
       }
@@ -221,6 +226,30 @@ export class AnotaAiService {
     await this.gravarNoConfig(ig.id, { seen: novoSeen, lastPollAt: new Date().toISOString() });
     if (n) this.logger.log(`tenant ${tenantId}: ${n} pedido(s) novo(s)`);
     return n;
+  }
+
+  /**
+   * Quanto o Regem demorou para ver a mudança de status, pela hora do próprio Anota Aí (`updatedAt`). SÓ MEDE: nenhum horário
+   * do pedido muda, porque a API não documenta o que esse campo significa. Vai à telemetria da distribuição, uma linha por
+   * status e faixa de atraso, sem dado do pedido. Nunca derruba a rotina.
+   */
+  async medirAtrasoDoStatus(ig: IntegAnota, unidadeId: string | null, orderId: string, alvo: string, doc: any): Promise<void> {
+    try {
+      const vistoEm = new Date();
+      const noCanal = doc?.updatedAt ?? (await this.pedido(ig, orderId))?.updatedAt;
+      const medida = atrasoDoStatus(noCanal, vistoEm);
+      if (!medida) return;
+      const hash = createHash('sha256').update(`anotaai|status|${alvo}|${medida.faixa}`).digest('hex');
+      const contexto = { alvo, faixa: medida.faixa, ultimoAtrasoSegundos: medida.segundos };
+      await this.db.execute(sql`
+        insert into telemetria_evento (tenant_id, unidade_id, origem, nivel, tipo, mensagem, hash, contexto, resolvido)
+        values (${ig.tenantId}, ${unidadeId}, 'anotaai', 'info', 'status_atraso',
+                ${`Status "${alvo}" do Anota Aí visto em ${medida.faixa}`}, ${hash}, ${JSON.stringify(contexto)}::jsonb, true)
+        on conflict (coalesce(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), hash) do update
+          set ocorrencias = telemetria_evento.ocorrencias + 1, ultimo_em = now(), contexto = excluded.contexto`);
+    } catch (e: any) {
+      this.logger.warn(`medida do atraso do status não gravada: ${e?.message ?? e}`);
+    }
   }
 
   // Materializa (aceita) o pedido localmente se ainda estiver 'novo' — o Anota Aí já
