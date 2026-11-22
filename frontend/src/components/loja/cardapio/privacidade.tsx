@@ -39,6 +39,7 @@ export function PrivacidadeNaConta({ token, clienteToken, setErro }: { token: st
   const [ocupado, setOcupado] = useState(false);
   const [time, setTime] = useState('');
   const idTime = useId();
+  const idAviso = useId();
 
   useEffect(() => {
     if (!clienteToken) return;
@@ -83,14 +84,20 @@ export function PrivacidadeNaConta({ token, clienteToken, setErro }: { token: st
 
       {/* Quem já estava com a conta aberta quando a regra do aviso foi ligada responde aqui. */}
       {estado.avisoPerfil && !estado.avisoPerfil.visto && (
-        <div>
+        <div className="ac-aviso" role="group" aria-labelledby={idAviso}>
+          <h3 id={idAviso} className="c-h">
+            Como a loja usa seus dados
+          </h3>
           <TextoDoAviso texto={estado.avisoPerfil.texto} />
-          <button type="button" className="p-btn c" disabled={ocupado} onClick={() => salvar({ avisoPerfil: 'continuou' })}>
-            Continuar
-          </button>
-          <button type="button" className="p-btn c" disabled={ocupado} onClick={() => salvar({ avisoPerfil: 'recusou' })}>
-            Não quero esse resumo
-          </button>
+          {/* Os dois com o mesmo desenho: recusar não pode parecer menor que aceitar. */}
+          <div className="ac-aviso-acoes">
+            <button type="button" className="p-btn2" disabled={ocupado} onClick={() => salvar({ avisoPerfil: 'continuou' })}>
+              Continuar
+            </button>
+            <button type="button" className="p-btn2" disabled={ocupado} onClick={() => salvar({ avisoPerfil: 'recusou' })}>
+              Não quero esse resumo
+            </button>
+          </div>
         </div>
       )}
 

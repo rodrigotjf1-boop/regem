@@ -141,7 +141,23 @@ export default async function roteiroAvisoDoPerfil({ nav, base, ok, foto, largur
         await continuar.waitFor({ timeout: 15000 });
         await continuar.scrollIntoViewIfNeeded();
         await conferir(page, erros, `conta aberta ${w}px`);
-        if (w === 390) await page.screenshot({ path: foto(`aviso-perfil-conta-${w}.png`) });
+        // O defeito visto no celular em 22/11: os botões colados um no outro e no texto.
+        const medida = await page.locator('.ac-aviso').evaluate((bloco) => {
+          const botoes = [...bloco.querySelectorAll('button')];
+          const [a, b] = botoes.map((x) => x.getBoundingClientRect());
+          const [ea, eb] = botoes.map((x) => getComputedStyle(x));
+          const texto = bloco.querySelector('.c-note').getBoundingClientRect();
+          return {
+            qtd: botoes.length,
+            entreBotoes: Math.round(Math.max(b.top - a.bottom, b.left - a.right)),
+            doTexto: Math.round(a.top - texto.bottom),
+            mesmoTamanho: Math.round(a.width) === Math.round(b.width) && Math.round(a.height) === Math.round(b.height),
+            mesmoDesenho: ea.backgroundColor === eb.backgroundColor && ea.color === eb.color && ea.boxShadow === eb.boxShadow && ea.fontWeight === eb.fontWeight,
+          };
+        });
+        ok(medida.qtd === 2 && medida.entreBotoes >= 8 && medida.doTexto >= 8, `conta aberta ${w}px · botões separados (entre eles ${medida.entreBotoes}px, do texto ${medida.doTexto}px)`);
+        ok(medida.mesmoTamanho && medida.mesmoDesenho, `conta aberta ${w}px · os dois botões com o mesmo destaque`);
+        if (w === 390) await page.locator('.ac-aviso').screenshot({ path: foto(`aviso-perfil-conta-${w}.png`) });
         await continuar.click();
         await page.waitForFunction(() => !document.body.innerText.includes('Não quero esse resumo'), null, { timeout: 15000 });
         ok(posts.length === 1 && posts[0].avisoPerfil === 'continuou' && posts[0].origem === 'cardapio_perfil', `conta aberta ${w}px · a resposta sai pelo Perfil`);
