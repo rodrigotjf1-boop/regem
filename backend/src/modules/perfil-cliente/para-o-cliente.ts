@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { verificarCliente } from '../cliente/cliente-token';
 import { perfilLigado } from '../../common/segmentos-do-perfil';
+import { clienteFoiAvisado } from './aviso-do-perfil';
 import { INTERESSE, sqlNaoPediuDesde, sqlPontosDoClique } from '../../common/interesse-do-cliente';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -43,6 +44,7 @@ export async function paraOCliente(db: any, token: string, clienteToken: unknown
                where x.cliente_id = ${clienteId}::uuid and x.tenant_id = ${tenantId}::uuid and x.escolha = 'nao_analisar'
                order by x.em desc limit 1) as nao`));
     if (e?.nao === true) return VAZIO;
+    if (!(await clienteFoiAvisado(db, tenantId, clienteId))) return VAZIO;
 
     // "Seu de sempre": a chave gravada pelo cálculo do perfil → o produto do cadastro (id, código PDV ou nome igual), nunca
     // um produto excluído (o pedido antigo pode apontar para um cadastro que saiu — achado na 1ª volta, 20/11).

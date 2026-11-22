@@ -160,15 +160,31 @@ function Entrar({ token, onEntrou }: { token: string; onEntrou: () => void | Pro
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState('');
   // As escolhas da entrada (perfil do cliente, F1c): o token novo, os textos que o servidor grava e as promoções do Perfil.
-  const [escolhas, setEscolhas] = useState<{ clienteToken: string; textos?: Record<string, string>; aviso?: string; promocoes: Promocoes } | null>(null);
+  const [escolhas, setEscolhas] = useState<{
+    clienteToken: string;
+    textos?: Record<string, string>;
+    aviso?: string;
+    promocoes: Promocoes;
+    avisoPerfil?: { texto: string } | null;
+    soAviso?: boolean;
+  } | null>(null);
 
   /** Pergunta as escolhas uma vez só: módulo "Perfil do cliente" ligado e o cliente nunca respondeu. Falhou, entra direto. */
   async function precisaDasEscolhas(ct: string) {
     try {
       const p: any = await api.clientePrivacidade(token, ct);
-      if (!p?.ativo || p?.jaRespondeu) return null;
+      // O aviso do perfil (regra `PERFIL_SO_COM_AVISO`) aparece também para quem já tinha respondido às caixas.
+      const avisoPendente = !!p?.avisoPerfil && !p.avisoPerfil.visto;
+      if (!p?.ativo || (p?.jaRespondeu && !avisoPendente)) return null;
       const perfil: any = await api.clientePerfil(token, ct).catch(() => null);
-      return { clienteToken: ct, textos: p.textos, aviso: p.avisoRecomendacoes, promocoes: perfil?.promocoes ?? null };
+      return {
+        clienteToken: ct,
+        textos: p.textos,
+        aviso: p.avisoRecomendacoes,
+        promocoes: perfil?.promocoes ?? null,
+        avisoPerfil: avisoPendente ? p.avisoPerfil : null,
+        soAviso: !!p?.jaRespondeu,
+      };
     } catch {
       return null;
     }
@@ -219,6 +235,8 @@ function Entrar({ token, onEntrou }: { token: string; onEntrou: () => void | Pro
         textos={escolhas.textos}
         aviso={escolhas.aviso}
         promocoes={escolhas.promocoes}
+        avisoPerfil={escolhas.avisoPerfil}
+        soAviso={escolhas.soAviso}
         onPronto={onEntrou}
       />
     );

@@ -4,6 +4,7 @@ import { ehServidorLocal } from '../../common/modo';
 import { INTERESSE, sqlNaoPediuDesde } from '../../common/interesse-do-cliente';
 import { sqlChaveTelefone } from '../../common/telefone-chave';
 import { AJUSTES_PADRAO } from '../relacionamento/relacionamento';
+import { clienteFoiAvisado } from './aviso-do-perfil';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -98,20 +99,26 @@ export async function cartaoDoCliente(db: any, tenantId: string, clienteId: stri
        order by e.em desc limit 1`),
   );
   if (escolha?.valor) return null;
-  const [perfil] = linhas(
-    await db.execute(sql`
+  // Quem ainda não viu o aviso (regra `PERFIL_SO_COM_AVISO`): o robô recebe só o que o cliente contou, como a alergia.
+  const avisado = await clienteFoiAvisado(db, tenantId, clienteId);
+  const [perfil] = avisado
+    ? linhas(
+        await db.execute(sql`
       select faixa_habitual, dia_habitual, camadas from cliente_perfil
        where cliente_id = ${clienteId}::uuid and tenant_id = ${tenantId}::uuid`),
-  );
+      )
+    : [];
   const declarado = linhas(
     await db.execute(sql`
       select chave, valor from cliente_declarado where cliente_id = ${clienteId}::uuid and tenant_id = ${tenantId}::uuid`),
   );
   // O "viu e não pediu" falhou: o cartão segue sem ele (o motivo no log).
-  const viu = await lembreteViu(db, tenantId, clienteId).catch((e: any) => {
-    new Logger('CartaoDoCliente').warn(`"viu e não pediu" não lido: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`);
-    return null;
-  });
+  const viu = !avisado
+    ? null
+    : await lembreteViu(db, tenantId, clienteId).catch((e: any) => {
+        new Logger('CartaoDoCliente').warn(`"viu e não pediu" não lido: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`);
+        return null;
+      });
   return montarCartao(perfil ?? null, declarado, viu);
 }
 

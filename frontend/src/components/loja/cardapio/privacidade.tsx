@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState } from 'react';
 import { api } from '@/lib/api';
+import { TextoDoAviso } from './escolhas-da-entrada';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -16,6 +17,8 @@ type Estado = {
   escolhas: Record<string, boolean>;
   declarado: Record<string, any>;
   textos: Record<string, string>;
+  /** O aviso do perfil (`null` com a regra `PERFIL_SO_COM_AVISO` desligada). */
+  avisoPerfil?: { texto: string; visto: boolean } | null;
 };
 
 function Chave({ rotulo, ligado, ocupado, aoMudar, descricao }: { rotulo: string; ligado: boolean; ocupado: boolean; aoMudar: () => void; descricao?: string }) {
@@ -77,6 +80,19 @@ export function PrivacidadeNaConta({ token, clienteToken, setErro }: { token: st
     <div className="c-sec">
       <b>Privacidade</b>
       <p className="c-note">O que a loja sabe de você e como ela pode usar. Mude quando quiser.</p>
+
+      {/* Quem já estava com a conta aberta quando a regra do aviso foi ligada responde aqui. */}
+      {estado.avisoPerfil && !estado.avisoPerfil.visto && (
+        <div>
+          <TextoDoAviso texto={estado.avisoPerfil.texto} />
+          <button type="button" className="p-btn c" disabled={ocupado} onClick={() => salvar({ avisoPerfil: 'continuou' })}>
+            Continuar
+          </button>
+          <button type="button" className="p-btn c" disabled={ocupado} onClick={() => salvar({ avisoPerfil: 'recusou' })}>
+            Não quero esse resumo
+          </button>
+        </div>
+      )}
 
       <Chave
         rotulo="Recomendações do meu jeito"

@@ -1,5 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm';
 import { FUSO_SQL } from '../../common/fuso-sql';
+import { perfilSoComAviso, sqlFoiAvisado } from './aviso-do-perfil';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -112,6 +113,8 @@ export function sqlCalcularPerfis(
   modo: 'gravar' | 'conferir' = 'gravar',
 ): SQL {
   const soCliente = clienteId ? sql`and r.cliente_id = ${clienteId}::uuid` : sql``;
+  // Com a regra do aviso ligada, só grava quem viu o aviso; o corte fica no fim para os números da loja virem de todos.
+  const soAvisados = perfilSoComAviso() ? sql`and ${sqlFoiAvisado(sql`${tenantId}::uuid`, sql`r.cliente_id`)}` : sql``;
   const local = sql`(p.criado_em at time zone ${FUSO_SQL})`;
   const avaliacoes = temAvaliacao
     ? sql`select pe.cliente_id, a.criado_em as em, a.nota, a.pesou
@@ -309,7 +312,7 @@ fim as (
     left join recl_ult ru on ru.cliente_id = r.cliente_id
     left join aval_res ar on ar.cliente_id = r.cliente_id
     left join pesa on pesa.cliente_id = r.cliente_id
-   where r.ultimo >= now() - make_interval(months => ${R.retencaoMeses}::int) ${soCliente}
+   where r.ultimo >= now() - make_interval(months => ${R.retencaoMeses}::int) ${soCliente} ${soAvisados}
 ),
 etq as (
   select f.cliente_id,

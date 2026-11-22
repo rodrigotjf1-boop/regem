@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { RESPOSTAS_DO_AVISO, type RespostaDoAviso } from './aviso-do-perfil';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -53,6 +54,8 @@ export type Pedido = {
   escolhas: { escolha: string; valor: boolean }[];
   /** chave → valor (jsonb) a gravar; `null` = apagar a chave. */
   declarado: { chave: string; valor: any }[];
+  /** A resposta ao aviso do perfil (`aviso-do-perfil.ts`). */
+  avisoPerfil?: RespostaDoAviso;
 };
 
 /** Lê e confere o corpo da chamada. Só entra o que veio; nada vira "sim" por omissão (D15). */
@@ -64,6 +67,15 @@ export function lerPedidoDePrivacidade(dto: any): Pedido {
     if (!ESCOLHAS.includes(k)) throw new BadRequestException(`Escolha desconhecida: ${k}.`);
     if (typeof v !== 'boolean') throw new BadRequestException(`A escolha ${k} precisa ser verdadeiro ou falso.`);
     escolhas.push({ escolha: k, valor: v });
+  }
+  const avisoPerfil = dto?.avisoPerfil;
+  if (avisoPerfil !== undefined && !(RESPOSTAS_DO_AVISO as readonly unknown[]).includes(avisoPerfil))
+    throw new BadRequestException('Resposta do aviso inválida.');
+  // "Não quero esse resumo" é o "não quero ser analisado": apaga o perfil na hora, e a escolha fica no histórico.
+  if (avisoPerfil === 'recusou') {
+    const i = escolhas.findIndex((e) => e.escolha === 'nao_analisar');
+    if (i >= 0) escolhas.splice(i, 1);
+    escolhas.push({ escolha: 'nao_analisar', valor: true });
   }
   const d = dto?.declarado ?? {};
   const declarado: Pedido['declarado'] = [];
@@ -91,6 +103,6 @@ export function lerPedidoDePrivacidade(dto: any): Pedido {
       throw new BadRequestException('Para guardar a alergia, o cliente precisa pedir (guardarAlergia).');
     por('alergia', a);
   }
-  if (!escolhas.length && !declarado.length) throw new BadRequestException('Nada para salvar.');
-  return { origem, escolhas, declarado };
+  if (!escolhas.length && !declarado.length && !avisoPerfil) throw new BadRequestException('Nada para salvar.');
+  return { origem, escolhas, declarado, ...(avisoPerfil ? { avisoPerfil } : {}) };
 }
