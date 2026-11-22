@@ -102,6 +102,11 @@ export default async function roteiroAvisoDoPerfil({ nav, base, ok, foto, largur
           els.map((e) => Math.round(e.getBoundingClientRect().width)),
         );
         ok(caixas.length === 3 && new Set(caixas).size === 1, `novo ${w}px · os três botões com o mesmo destaque (${caixas.join(', ')})`);
+        const desenhos = await page.getByRole('button', { name: /Continuar sem marcar|Aceitar e continuar|Não quero esse resumo/ }).evaluateAll((els) =>
+          els.map((e) => { const s = getComputedStyle(e); return [s.backgroundColor, s.color, s.boxShadow, s.fontWeight].join('|'); }),
+        );
+        ok(desenhos.length === 3 && new Set(desenhos).size === 1, `novo ${w}px · os três botões com o mesmo desenho`);
+        ok((await page.locator('.ac-aviso').count()) === 1, `novo ${w}px · o aviso no cartão`);
         await conferir(page, erros, `novo ${w}px`);
         if (w === 390) await page.screenshot({ path: foto(`aviso-perfil-novo-${w}.png`), fullPage: true });
         await recusar.click();
@@ -122,6 +127,7 @@ export default async function roteiroAvisoDoPerfil({ nav, base, ok, foto, largur
         const continuar = page.getByRole('button', { name: 'Continuar', exact: true });
         await continuar.waitFor({ timeout: 15000 });
         ok((await page.getByRole('button', { name: /Aceitar|sem marcar/ }).count()) === 0, `já respondeu ${w}px · sem as caixas`);
+        ok((await page.locator('.ac-aviso .ac-aviso-acoes button').count()) === 2, `já respondeu ${w}px · o aviso no cartão, com as duas respostas`);
         await conferir(page, erros, `já respondeu ${w}px`);
         await continuar.click();
         await page.waitForFunction(() => !document.body.innerText.includes('Não quero esse resumo'), null, { timeout: 15000 });

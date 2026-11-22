@@ -23,7 +23,7 @@ const FICHA = {
     pedidos_diretos: 14, primeiro_pedido_em: ha(120), ultimo_pedido_em: ha(3), segmento: 'campeoes', rfm: '333',
     ticket_medio: 50.18, ticket_ajustado: 49.9, intervalo_dias: 8.2, proximo_previsto: ha(-5).slice(0, 10), atraso: 0.4,
     faixa_habitual: 'noite', dia_habitual: 5, confianca: 'alta', etiquetas: ['campeao'], calculado_em: ha(0),
-    camadas: { gosto: { favoritos: [{ nome: 'Smash duplo', pedidos: 9 }], pagamento: 'Pix', retirada_pct: 10 }, ritmo: { grade: {}, hora_habitual: '21:10' }, reclamacoes: {}, avaliacoes: {}, porque: {} },
+    camadas: { gosto: { favoritos: [{ nome: 'Smash duplo', pedidos: 9 }], pagamento: 'Pix', retirada_pct: 10 }, ritmo: { grade: { 5: { noite: 9, tarde: 2 }, 2: { inicio_noite: 3 } }, hora_habitual: '21:10' }, reclamacoes: {}, avaliacoes: {}, porque: {} },
   },
   declarado: [],
   escolhas: [{ escolha: 'recomendacoes', valor: true, origem: 'cardapio_perfil', em: ha(20) }],
@@ -106,6 +106,24 @@ export default async function roteiroClientesPerfil({ nav, base, ok, foto: arqui
       consultas.some((c) => c.startsWith('/clientes/crm?') && c.includes('segmento=perfil_olhou')) && t.includes('Abriram o mesmo produto 2 vezes ou mais nos últimos 30 dias'),
       `${w}px · a aba "Olharam e não pediram" pede segmento=perfil_olhou e diz a regra`,
     );
+    // O botão de perfil na própria lista: abre a ficha direto, sem passar pelo detalhe do cliente.
+    const botaoPerfil = page.getByRole('button', { name: 'Ver perfil de Ana Souza' });
+    await botaoPerfil.scrollIntoViewIfNeeded();
+    const caixaBotao = await botaoPerfil.boundingBox();
+    ok(!!caixaBotao && caixaBotao.width >= 32 && caixaBotao.height >= 32, `${w}px · o botão de perfil aparece na lista e dá para tocar (${Math.round(caixaBotao?.width ?? 0)}px)`);
+    achados = await medir(page);
+    ok(achados.length === 0, `${w}px · lista com o botão de perfil: sem barra para o lado${achados.length ? ` (${umaLinha(achados.join(' | '))})` : ''}`);
+    if (w === 390 || w === 1440) await page.screenshot({ path: arquivoFoto(`clientes-perfil-lista-${w}.png`) });
+    await botaoPerfil.click();
+    await page.waitForSelector('text=O que move o cliente', { timeout: 10000 });
+    const comDetalhe = await page.locator('[role="dialog"][aria-label^="Cliente "]').count();
+    ok(comDetalhe === 0, `${w}px · o botão abre a ficha direto, sem o detalhe do cliente`);
+    const faixas = await page.locator('[role="dialog"] table tbody th[scope="row"]').allInnerTexts();
+    ok(faixas.join('|') === 'Almoço|Tarde|Início da noite|Noite|Madrugada', `${w}px · a grade mostra a tarde (tem pedido) e não a manhã (${faixas.join(', ')})`);
+    const somaGrade = (await page.locator('[role="dialog"] table tbody td').allInnerTexts()).reduce((s, v) => s + Number(v), 0);
+    ok(somaGrade === 14, `${w}px · a grade soma todos os pedidos (${somaGrade} de 14)`);
+    await page.locator('[role="dialog"]').last().getByRole('button', { name: 'Fechar' }).last().click();
+    await page.waitForSelector('text=O que move o cliente', { state: 'hidden', timeout: 10000 });
     // A ficha ABERTA: o detalhe do cliente e "Ver perfil do cliente".
     await page.getByText('Ana Souza').first().click();
     await page.getByRole('button', { name: 'Ver perfil do cliente' }).click();
@@ -133,6 +151,7 @@ export default async function roteiroClientesPerfil({ nav, base, ok, foto: arqui
     await page.waitForTimeout(500);
     const t = await texto(page);
     ok(!t.includes('Pelo perfil') && !consultas.some((c) => c.startsWith('/perfil-cliente')), 'supervisão: sem as abas pelo perfil e sem ler o resumo do perfil');
+    ok((await page.getByRole('button', { name: /^Ver perfil de / }).count()) === 0, 'supervisão: sem o botão de perfil na lista');
     await ctx.close();
   }
 }
