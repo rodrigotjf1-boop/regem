@@ -532,12 +532,12 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
           variacaoPct: { faturamento: perfil.verValores ? 12 : null, pedidos: 9, ticketMedio: perfil.verValores ? 2.8 : null },
           diferencaDeFaturamento: perfil.verValores ? { valor: 4116.5, sentido: 'a mais' } : null,
           porDiaDaSemana: [
-            { dia: 'Seg', data: '02/11', pedidos: 61, faturamento: v(2890.15), partePct: 8 },
-            { dia: 'Sex', data: '06/11', pedidos: 168, faturamento: v(7980.45), partePct: 21 },
-            { dia: 'Sáb', data: '07/11', pedidos: 182, faturamento: v(8640.25), partePct: 22 },
+            { dia: 'Seg', data: '02/11', pedidos: 61, faturamento: v(2890.15), ticketMedio: v(47.38), partePct: 8 },
+            { dia: 'Sex', data: '06/11', pedidos: 168, faturamento: v(7980.45), ticketMedio: v(47.5), partePct: 21 },
+            { dia: 'Sáb', data: '07/11', pedidos: 182, faturamento: v(8640.25), ticketMedio: v(47.47), partePct: 22 },
           ],
-          doisMelhoresDias: { dias: ['sexta', 'sábado'], pedidos: 350, faturamento: v(16620.7), partePct: 43 },
-          diaMaisFraco: { dia: 'segunda', pedidos: 61, faturamento: v(2890.15), partePct: 8 },
+          doisMelhoresDias: { dias: ['sexta', 'sábado'], pedidos: 350, faturamento: v(16620.7), ticketMedio: v(47.49), partePct: 43 },
+          diaMaisFraco: { dia: 'segunda', pedidos: 61, faturamento: v(2890.15), ticketMedio: v(47.38), partePct: 8 },
           ...semV,
         });
       if (foco === 'pico')
