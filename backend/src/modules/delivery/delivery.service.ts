@@ -11,6 +11,7 @@ import {
   ServiceUnavailableException,
   forwardRef,
 } from '@nestjs/common';
+import { repetirNoImpasse } from '../../common/repetir-no-impasse';
 import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { CANAL_REDE, PV_VALIDO, abrirChaveRede, cifrarChaveRede } from '../../common/credencial-rede';
 import { validarCredencialRede } from '../../common/erede';
@@ -1992,7 +1993,8 @@ export class DeliveryService {
     // A-receber: precisa da forma recebida (conferência). Split → rótulo combinado.
     let formaFinal = String(opts.forma ?? '').trim().toLowerCase();
     if (opts.pagamentos?.length) {
-      const { formaLabel } = await this.registrarSplit(tenantId, id, opts.pagamentos);
+      // Só lê: a divisão é gravada junto com o recebimento (`gravarRecebimento`), nunca antes de saber que há caixa aberto.
+      const { formaLabel } = this.linhasDoSplit(opts.pagamentos);
       if (formaLabel) formaFinal = formaLabel;
     }
     if (!formaFinal) return { precisaConferencia: true };
@@ -2011,32 +2013,26 @@ export class DeliveryService {
       throw new BadRequestException(
         'Abra o caixa de entregas para registrar o recebimento do entregador.',
       );
-    await this.db
-      .update(pedidoExterno)
-      .set({
-        pago: true,
-        statusPagamento: 'aprovado',
-        formaPagamento: formaFinal,
-        caixaSessaoId: sessao.id,
-      })
-      .where(eq(pedidoExterno.id, id));
-    // Re-aponta o lançamento da venda para o caixa de entregas com a forma recebida.
-    if (ped.comandaId) {
-      await this.db
-        .update(lancamentoCaixa)
-        .set({ sessaoId: sessao.id, forma: formaFinal })
-        .where(
-          and(
-            eq(lancamentoCaixa.tenantId, tenantId),
-            eq(lancamentoCaixa.comandaId, ped.comandaId),
-            eq(lancamentoCaixa.tipo, 'entrada'),
-            eq(lancamentoCaixa.categoria, 'venda'),
-          ),
-        );
+    // A divisão, o pedido pago e o lançamento no caixa de entregas entram juntos, ou nenhum (ERR-579).
+    const recebido = await this.gravarRecebimento(tenantId, id, { sessaoId: sessao.id, forma: formaFinal, pagamentos: opts.pagamentos });
+    if (!recebido) {
+      // Outro toque recebeu primeiro: não grava de novo, e o pedido segue de onde está.
+      const agora = await this.carregar(tenantId, id);
+      if (agora.status === 'concluido') return agora;
+      if (agora.status === 'cancelado') throw new ConflictException('O pedido foi cancelado enquanto você finalizava. A tela vai atualizar.');
     }
     // Conclui (baixa estoque + webhooks/status-back). Como pago=true, o
     // reconciliarDinheiro interno vira no-op (já registramos acima).
-    return this.avancar(tenantId, id);
+    try {
+      return await this.avancar(tenantId, id);
+    } catch (e) {
+      // Dois toques juntos: o outro concluiu entre a leitura e a gravação. É a mesma intenção, já cumprida.
+      if (e instanceof ConflictException) {
+        const agora = await this.carregar(tenantId, id);
+        if (agora.status === 'concluido') return agora;
+      }
+      throw e;
+    }
   }
 
   // ===== Hub "Retirada / Encomendas" (Fase 1, mig 132) =====
@@ -2322,34 +2318,13 @@ export class DeliveryService {
     if (!sessao) throw new BadRequestException('Abra o caixa do PDV para receber o pagamento.');
     let f = forma && String(forma).trim() ? String(forma).trim() : 'dinheiro';
     if (pagamentos?.length) {
-      const { formaLabel } = await this.registrarSplit(tenantId, id, pagamentos);
+      const { formaLabel } = this.linhasDoSplit(pagamentos);
       if (formaLabel) f = formaLabel;
     }
-    const [row] = await this.db
-      .update(pedidoExterno)
-      .set({
-        pago: true,
-        statusPagamento: 'aprovado',
-        caixaSessaoId: sessao.id,
-        atendenteId: atorId ?? null,
-        formaPagamento: f, // forma escolhida no balcão → card mostra "Pagamento em [forma]"
-      })
-      .where(eq(pedidoExterno.id, id))
-      .returning();
-    // Aponta o lançamento da venda para o caixa do atendente, com a forma recebida.
-    if (row.comandaId) {
-      await this.db
-        .update(lancamentoCaixa)
-        .set({ sessaoId: sessao.id, forma: f })
-        .where(
-          and(
-            eq(lancamentoCaixa.tenantId, tenantId),
-            eq(lancamentoCaixa.comandaId, row.comandaId),
-            eq(lancamentoCaixa.tipo, 'entrada'),
-            eq(lancamentoCaixa.categoria, 'venda'),
-          ),
-        );
-    }
+    // A forma escolhida no balcão → card mostra "Pagamento em [forma]". O pedido pago e o lançamento no caixa do atendente
+    // entram juntos, uma vez só: o segundo toque não acha mais o pedido a pagar (ERR-579).
+    const row = await this.gravarRecebimento(tenantId, id, { sessaoId: sessao.id, forma: f, pagamentos, patch: { atendenteId: atorId ?? null } });
+    if (!row) throw new ConflictException('O pedido já foi pago ou mudou agora. A tela vai atualizar.');
     // A via do caixa SÓ AGORA, depois do pagamento (pedido do dono, 16/11/2026): a mesma senha, com "PAGO NO CAIXA" e a
     // forma cobrada no alto. Só no servidor da loja (a nuvem não alcança a térmica). Nunca derruba o pagamento.
     if (ehServidorLocal() && row.comandaId) void this.imprimirViaPagaNoCaixa(tenantId, row, f);
@@ -2471,24 +2446,20 @@ export class DeliveryService {
       if (!sessao)
         throw new BadRequestException('Abra o caixa do PDV para cobrar a retirada.');
       sessaoId = sessao.id;
-      patch.caixaSessaoId = sessaoId;
-      patch.pago = true;
-      patch.statusPagamento = 'aprovado';
       // Forma cobrada no balcão → card mostra "Pagamento em [forma]" (não "Pago online").
       formaCobrada = dados?.forma && String(dados.forma).trim() ? String(dados.forma).trim() : '';
       if (dados?.pagamentos?.length) {
-        const { formaLabel } = await this.registrarSplit(tenantId, id, dados.pagamentos);
+        const { formaLabel } = this.linhasDoSplit(dados.pagamentos);
         if (formaLabel) formaCobrada = formaLabel;
       }
-      if (formaCobrada) patch.formaPagamento = formaCobrada;
     } else {
       patch.pagoOnline = true;
     }
-    const [row] = await this.db
-      .update(pedidoExterno)
-      .set(patch)
-      .where(eq(pedidoExterno.id, id))
-      .returning();
+    // A cobrar: a divisão, a conclusão e o lançamento no caixa entram juntos, uma vez só (ERR-579).
+    const row = sessaoId
+      ? await this.gravarRecebimento(tenantId, id, { sessaoId, forma: formaCobrada, pagamentos: dados?.pagamentos, patch })
+      : (await this.db.update(pedidoExterno).set(patch).where(eq(pedidoExterno.id, id)).returning())[0];
+    if (!row) throw new ConflictException('O pedido já foi pago ou mudou agora. A tela vai atualizar.');
     // Baixa o estoque na conclusão (idempotente por ref do movimento).
     if (row.comandaId)
       await this.vendas
@@ -2501,21 +2472,6 @@ export class DeliveryService {
             `baixa de estoque FALHOU no pedido ${row.id} (comanda ${row.comandaId}): ${e?.message ?? e}`,
           ),
         );
-    // Aponta o lançamento da venda para o caixa do atendente, com a forma cobrada.
-    if (sessaoId && row.comandaId) {
-      const forma = formaCobrada || 'dinheiro';
-      await this.db
-        .update(lancamentoCaixa)
-        .set({ sessaoId, forma })
-        .where(
-          and(
-            eq(lancamentoCaixa.tenantId, tenantId),
-            eq(lancamentoCaixa.comandaId, row.comandaId),
-            eq(lancamentoCaixa.tipo, 'entrada'),
-            eq(lancamentoCaixa.categoria, 'venda'),
-          ),
-        );
-    }
     // Totem em DINHEIRO cobrado aqui ("Cobrar e entregar"): a via do caixa sai agora, com "PAGO NO CAIXA" (pedido do dono,
     // 16/11/2026). O pago antes (no totem ou no "Receber pagamento") não imprime de novo.
     if (sessaoId && row.comandaId && ehServidorLocal() && DeliveryService.grupoCanal(row.canal ?? '') === 'totem')
@@ -2937,20 +2893,14 @@ export class DeliveryService {
   // qualquer split anterior do pedido) e devolve o rótulo combinado ("dinheiro + pix").
   // O caixa continua com 1 lançamento no TOTAL (rótulo combinado) — a repartição real
   // fica registrada aqui, fonte de verdade para "como o pedido foi pago".
-  private async registrarSplit(tenantId: string, pedidoId: string, pagamentos: any[]) {
-    const linhas = (pagamentos ?? [])
-      .map((p) => ({
-        forma: String(p?.forma ?? '').trim(),
-        formaPagamentoId: p?.formaPagamentoId ?? null,
-        valor: Number(String(p?.valor ?? '').replace(',', '.')) || 0,
-      }))
-      .filter((p) => p.forma && p.valor > 0);
-    await this.db
+  private async registrarSplit(tenantId: string, pedidoId: string, pagamentos: any[], db: any = this.db) {
+    const lido = this.linhasDoSplit(pagamentos);
+    await db
       .delete(pedidoExternoPagamento)
       .where(and(eq(pedidoExternoPagamento.tenantId, tenantId), eq(pedidoExternoPagamento.pedidoExternoId, pedidoId)));
-    if (linhas.length) {
-      await this.db.insert(pedidoExternoPagamento).values(
-        linhas.map((l) => ({
+    if (lido.linhas.length) {
+      await db.insert(pedidoExternoPagamento).values(
+        lido.linhas.map((l) => ({
           tenantId,
           pedidoExternoId: pedidoId,
           forma: l.forma,
@@ -2959,8 +2909,64 @@ export class DeliveryService {
         })),
       );
     }
+    return lido;
+  }
+
+  /** As formas do pagamento dividido e o rótulo combinado, sem gravar nada. */
+  private linhasDoSplit(pagamentos: any[] | null | undefined) {
+    const linhas = (pagamentos ?? [])
+      .map((p) => ({
+        forma: String(p?.forma ?? '').trim(),
+        formaPagamentoId: p?.formaPagamentoId ?? null,
+        valor: Number(String(p?.valor ?? '').replace(',', '.')) || 0,
+      }))
+      .filter((p) => p.forma && p.valor > 0);
     const formaLabel = linhas.length ? Array.from(new Set(linhas.map((l) => l.forma))).join(' + ') : '';
     return { formaLabel, total: linhas.reduce((s, l) => s + l.valor, 0), linhas };
+  }
+
+  /**
+   * Recebe um pedido a pagar numa transação só: a divisão, o pedido pago e o lançamento da venda no caixa entram juntos, ou nenhum
+   * (ERR-579). Antes eram gravações soltas: uma falha no meio deixava o pedido pago com o dinheiro fora da gaveta, e a nova tentativa,
+   * vendo `pago`, não refazia o resto. Trava o caixa (ele não fecha no meio) e depois o pedido (dois toques não recebem duas vezes).
+   * `null` = o pedido não está mais a pagar: outro toque recebeu, ou ele foi concluído ou cancelado.
+   */
+  private gravarRecebimento(
+    tenantId: string,
+    id: string,
+    o: { sessaoId: string; forma: string; pagamentos?: any[] | null; patch?: Record<string, unknown> },
+  ): Promise<any | null> {
+    return repetirNoImpasse(() =>
+      this.db.transaction(async (tx: any) => {
+        const caixa: any = await tx.execute(sql`
+          select 1 from caixa_sessao where id = ${o.sessaoId}::uuid and tenant_id = ${tenantId}::uuid and status = 'aberta' for share`);
+        if (!(caixa.rows ?? caixa).length) throw new ConflictException('O caixa fechou enquanto o pagamento era registrado. Abra o caixa e tente de novo.');
+        const lido: any = await tx.execute(sql`
+          select pago, status from pedido_externo where id = ${id}::uuid and tenant_id = ${tenantId}::uuid for update`);
+        const atual = (lido.rows ?? lido)[0];
+        if (!atual || atual.pago || atual.status === 'cancelado' || atual.status === 'concluido') return null;
+        if (o.pagamentos?.length) await this.registrarSplit(tenantId, id, o.pagamentos, tx);
+        const [row] = await tx
+          .update(pedidoExterno)
+          .set({ ...(o.patch ?? {}), pago: true, statusPagamento: 'aprovado', caixaSessaoId: o.sessaoId, ...(o.forma ? { formaPagamento: o.forma } : {}) })
+          .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.tenantId, tenantId)))
+          .returning();
+        if (row.comandaId) {
+          await tx
+            .update(lancamentoCaixa)
+            .set({ sessaoId: o.sessaoId, forma: o.forma || 'dinheiro' })
+            .where(
+              and(
+                eq(lancamentoCaixa.tenantId, tenantId),
+                eq(lancamentoCaixa.comandaId, row.comandaId),
+                eq(lancamentoCaixa.tipo, 'entrada'),
+                eq(lancamentoCaixa.categoria, 'venda'),
+              ),
+            );
+        }
+        return row;
+      }),
+    );
   }
 
   // ===== Alterar / reimprimir / entregadores =====

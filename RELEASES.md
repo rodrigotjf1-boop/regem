@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Recebimento do pedido numa transação só (22/11; ERR-579; SEM migration).** **Vale na loja:** finalizar a entrega, "Receber pagamento"
+  e "Cobrar e entregar" rodam no servidor da loja, então a correção só chega lá com o próximo `.zip`.
+
 - **Custo da ficha pelo custo médio de hoje, custo não lançado sem valor e pagamento de entregador com loja (22/11; ERR-575 a ERR-578;
   SEM migration).** **Vale na loja:** a tela de fichas, a Curva ABC e o pagamento do entregador do servidor da loja só mudam com o próximo `.zip`.
 
