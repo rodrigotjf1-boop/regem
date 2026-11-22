@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Conta recorrente e resultado do pinpad sem duplicar (22/11; ERR-566; SEM migration).** **Vale na loja:** o financeiro e o TEF rodam no
+  servidor da loja, então a correção só chega lá com o próximo `.zip`.
+
 - **Mister: as vendas pela conta oficial do Painel e a medida do atraso do Anota Aí (22/11; ERR-564; SEM migration).** Só na nuvem:
   vai no `.zip` sem efeito na loja (o Mister e o leitor do Anota Aí não rodam no servidor da loja).
 

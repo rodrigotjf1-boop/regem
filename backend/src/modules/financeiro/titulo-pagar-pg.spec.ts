@@ -25,8 +25,8 @@ descrever('pagar e estornar a conta uma vez só (Postgres)', () => {
   const auditados: any[] = [];
   const financeiro = new FinanceiroService(db, { registrar: async (e: any) => void auditados.push(e) } as any, {} as any);
   let ator: string;
-  const novaConta = async (o: { recorrencia?: string } = {}) => {
-    const t: any = await financeiro.criar(T, ator, 'presidente', { tipo: 'pagar', descricao: 'Boleto · teste', valor: 480, vencimento: '2026-11-30', recorrencia: o.recorrencia } as any);
+  const novaConta = async (o: { recorrencia?: string; descricao?: string } = {}) => {
+    const t: any = await financeiro.criar(T, ator, 'presidente', { tipo: 'pagar', descricao: o.descricao ?? 'Boleto · teste', valor: 480, vencimento: '2026-11-30', recorrencia: o.recorrencia } as any);
     return t.id as string;
   };
   const lancamentos = (titulo: string) => q(`select tipo, valor::text as valor from lancamento_caixa where titulo_id = $1 order by created_at, tipo`, [titulo]);
@@ -78,5 +78,16 @@ descrever('pagar e estornar a conta uma vez só (Postgres)', () => {
     expect(await q(`select vencimento::text as v, status from titulo_financeiro where tenant_id = $1 and descricao = 'Boleto · teste' and id <> $2 and recorrencia = 'mensal'`, [T, id])).toEqual([
       { v: '2026-12-30', status: 'aberto' },
     ]);
+  });
+
+  it('pagar, estornar e pagar de novo a conta recorrente não cria a próxima duas vezes (ERR-566)', async () => {
+    const id = await novaConta({ recorrencia: 'mensal', descricao: 'Aluguel · teste' });
+    await financeiro.pagar(T, ator, 'presidente', id, {} as any);
+    await financeiro.estornar(T, ator, 'presidente', id);
+    await financeiro.pagar(T, ator, 'presidente', id, {} as any);
+    expect(await q(`select vencimento::text as v, status from titulo_financeiro where tenant_id = $1 and descricao = 'Aluguel · teste' and id <> $2`, [T, id])).toEqual([
+      { v: '2026-12-30', status: 'aberto' },
+    ]);
+    expect((await lancamentos(id)).map((l) => l.tipo).sort()).toEqual(['entrada', 'saida', 'saida']);
   });
 });

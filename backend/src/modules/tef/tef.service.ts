@@ -156,8 +156,11 @@ export class TefService {
         mensagem: dto.mensagem,
         processadoEm: new Date(),
       })
-      .where(and(eq(pagamentoTef.id, id), eq(pagamentoTef.tenantId, tenantId)))
+      // Só o pendente: duas respostas juntas do pinpad (aprovado e negado, ou a mesma reenviada) não sobrescrevem uma à
+      // outra. A segunda espera a trava da linha, relê a situação e não acha mais "pendente" (ERR-566).
+      .where(and(eq(pagamentoTef.id, id), eq(pagamentoTef.tenantId, tenantId), eq(pagamentoTef.status, 'pendente')))
       .returning();
+    if (!row) throw new BadRequestException('Pagamento não está pendente.');
     return row;
   }
 
