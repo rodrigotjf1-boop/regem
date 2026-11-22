@@ -499,6 +499,8 @@ body.tema-escuro .p-root.tpl-fluxo{--p-bg:#0B1620;--p-surf:#12212E;--p-card:#0F1
 .p-root .ac-tabs button[aria-pressed="true"]{color:var(--p-ink);border-bottom-color:var(--p-acc)}
 .p-root .ac-row{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .p-root .ac-row b{font-size:14px}
+.p-root .ac-aviso{display:grid;gap:12px;padding:14px;border-radius:var(--p-rs);background:var(--p-card);box-shadow:inset 0 0 0 1px var(--p-line)}
+.p-root .ac-aviso-acoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:8px}
 .p-root .ac-sw{position:relative;width:44px;height:26px;border-radius:13px;background:var(--p-line);flex:none;transition:background .15s}
 .p-root .ac-sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .15s}
 .p-root .ac-sw[aria-checked="true"]{background:var(--p-ok-forte)}
