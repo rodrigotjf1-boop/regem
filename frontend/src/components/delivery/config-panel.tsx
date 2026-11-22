@@ -2196,6 +2196,9 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
   );
 }
 
+// O mesmo número de `MAX_BANNERS` do servidor (`cardapio/banner-destino.ts`).
+const MAX_BANNERS = 6;
+
 function Banners({ banners, intervalo, onSalvar, salvando, pode }: { banners: any[]; intervalo: number; onSalvar: (l: any[], intervalo: number) => void; salvando: boolean; pode: boolean }) {
   const [lista, setLista] = useState<any[]>(banners);
   const [seg, setSeg] = useState<number>(intervalo);
@@ -2226,7 +2229,7 @@ function Banners({ banners, intervalo, onSalvar, salvando, pode }: { banners: an
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">Imagens que passam no topo do cardápio digital (máximo 3). Defina para onde cada banner leva ao tocar.</p>
+      <p className="text-xs text-muted-foreground">Imagens que passam no topo do cardápio digital (máximo {MAX_BANNERS}). Defina para onde cada banner leva ao tocar.</p>
       <p className="rounded-md bg-secondary/60 px-2.5 py-1.5 text-[11px] text-muted-foreground">
         📐 Tamanho ideal: <strong>1200 × 480 px</strong> (proporção 5:2, otimizado para celular). Fotos de
         outros tamanhos são <strong>centralizadas e enquadradas</strong> automaticamente no espaço do banner.
@@ -2285,13 +2288,13 @@ function Banners({ banners, intervalo, onSalvar, salvando, pode }: { banners: an
       {lista.length === 0 && <p className="text-sm text-muted-foreground">Nenhum banner ainda.</p>}
       {pode && (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          {lista.length < 3 ? (
+          {lista.length < MAX_BANNERS ? (
             <div className="flex flex-wrap gap-2">
               <Button type="button" size="sm" variant="outline" onClick={() => setLista((l) => [...l, { imagemRef: '', titulo: '', link: '', ativo: true }])}>＋ Banner</Button>
               <Button type="button" size="sm" variant="outline" onClick={() => setCriandoComIa(true)}>✨ Criar com IA</Button>
             </div>
           ) : (
-            <span className="text-xs text-muted-foreground">Máximo de 3 banners.</span>
+            <span className="text-xs text-muted-foreground">Máximo de {MAX_BANNERS} banners.</span>
           )}
           <Button type="button" onClick={() => onSalvar(lista, seg)} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
         </div>

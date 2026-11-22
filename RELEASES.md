@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Cardápio digital: até 6 banners (22/11; SEM migration).** Pela nuvem, vale no deploy. O servidor da loja continua com o limite
+  de 3 até o próximo `.zip` (não toca `sync` nem `edge`: não pede `.exe`): até lá, editar os banners só pelo app na nuvem.
+
 - **Mister: a regra que junta os pedidos parados fica no lugar do aviso um a um, sem regra repetida (22/11; ERR-561; SEM migration).** Só
   na nuvem: vai no `.zip` sem efeito na loja (o Mister não roda no servidor da loja).
 

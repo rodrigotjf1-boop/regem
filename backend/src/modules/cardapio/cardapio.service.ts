@@ -136,7 +136,7 @@ import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { CashbackService } from '../cashback/cashback.service';
 
 import { hojeISO } from '../../common/data';
-import { bannerNoPeriodo, lerDestinoDoBanner, lerPeriodoDoBanner, lerImagemAnimadaDoBanner, lerTextoDoBanner } from './banner-destino';
+import { MAX_BANNERS, bannerNoPeriodo, lerDestinoDoBanner, lerPeriodoDoBanner, lerImagemAnimadaDoBanner, lerTextoDoBanner } from './banner-destino';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
 import { montarMensagemDaPausa, pausaVigenteDoCanal, rotuloDoMotivo, textoDaRecusa, type PausaVigente } from '../../common/pausa-do-canal';
@@ -1213,9 +1213,9 @@ export class CardapioService {
       imagemAnimadaRef?: string | null;
     }[],
   ) {
-    // Máximo de 3 banners no carrossel do cardápio. O destino ("Ao tocar, abre") e o período (B3, mig 482) são conferidos
+    // Máximo de MAX_BANNERS no carrossel do cardápio. O destino ("Ao tocar, abre") e o período (B3, mig 482) são conferidos
     // ANTES de apagar os de hoje (V86: toda recusa antes da 1ª gravação); trocar a lista é uma transação só.
-    const validos = (Array.isArray(banners) ? banners : []).filter((b) => typeof b?.imagemRef === 'string' && b.imagemRef.trim()).slice(0, 3);
+    const validos = (Array.isArray(banners) ? banners : []).filter((b) => typeof b?.imagemRef === 'string' && b.imagemRef.trim()).slice(0, MAX_BANNERS);
     const linhas = validos.map((b, i) => {
       const periodo = lerPeriodoDoBanner(b.apareceDe, b.apareceAte, i + 1);
       return {
