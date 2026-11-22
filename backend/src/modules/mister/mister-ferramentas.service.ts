@@ -1943,12 +1943,12 @@ export class MisterFerramentasService {
     };
   }
 
-  /** Relatórios de vendas (`GET /relatorios/vendas`): as comandas fechadas do período. */
+  /** As vendas do período pela conta oficial, a mesma do Painel (`RelatoriosService.vendasOficiais`). */
   private async vendasDoPeriodo(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
     if (!this.pode(e, 'relatorios_vendas')) return recusa(SEM_PERMISSAO);
     const p = periodoDaFerramenta(en, hojeISO());
     if ('erro' in p) return recusa(p.erro);
-    const r: any = await this.relatorios.vendas(e.tenantId, p.de, p.ate, e.verValores, loja.atual);
+    const r: any = await this.relatorios.vendasOficiais(e.tenantId, p.de, p.ate, e.verValores, loja.atual);
     const porDia = (r?.porDia ?? []) as any[];
     // O relatório de Delivery (`GET /relatorios/faturamento-delivery`): só para quem vê valores em reais, como a rota.
     const dl: any = e.verValores ? await this.relatorios.faturamentoDelivery(e.tenantId, p.de, p.ate, loja.atual) : null;
@@ -1958,7 +1958,7 @@ export class MisterFerramentasService {
     let comparacao: Record<string, unknown> | undefined;
     if (en.comparar === true) {
       const ant = periodoAnterior(p);
-      const ra: any = await this.relatorios.vendas(e.tenantId, ant.de, ant.ate, e.verValores, loja.atual);
+      const ra: any = await this.relatorios.vendasOficiais(e.tenantId, ant.de, ant.ate, e.verValores, loja.atual);
       const da: any = e.verValores ? await this.relatorios.faturamentoDelivery(e.tenantId, ant.de, ant.ate, loja.atual) : null;
       const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
       comparacao = {
@@ -1989,8 +1989,9 @@ export class MisterFerramentasService {
         gorjeta: reais(r?.resumo?.gorjeta),
         vendasCanceladas: inteiro(r?.resumo?.canceladas),
         ...(e.verValores ? { observacao: 'A gorjeta não entra no faturamento.' } : { aviso: SEM_VALORES }),
-        // Como este relatório separa os canais (a consulta do `RelatoriosService.vendas`): pela mesa e pelo pagamento online.
-        comoORelatorioSeparaOsCanais: 'Mesa = venda de mesa. Delivery/app = venda com pagamento online (pelo aplicativo ou pelo cardápio online). Balcão = todas as outras, o que inclui a retirada e o pedido de entrega pago na hora.',
+        // Como `RelatoriosService.vendasOficiais` separa: pelo pedido ter chegado por um canal, como o Painel.
+        comoORelatorioSeparaOsCanais: 'O faturamento é a mesma conta do Painel. Mesa = venda de mesa. Balcão = as outras vendas lançadas na própria loja. Delivery/app = os pedidos que chegaram pelos canais (cardápio online, iFood, 99 e outros), inclusive os de retirada.',
+        comoAFormaDePagamentoConta: 'Soma das comandas fechadas, sem a taxa de entrega: mostra como a venda foi paga e pode não bater com o faturamento. Não some uma com a outra.',
         porFormaDePagamento: ((r?.porForma ?? []) as any[]).map((f) => ({ forma: String(f.forma ?? ''), vendas: inteiro(f.qtd), total: reais(f.total) })),
         porCanal: ((r?.porCanal ?? []) as any[]).map((c) => ({ canal: String(c.canal ?? ''), vendas: inteiro(c.qtd), total: reais(c.total) })),
         // Por dia só em período curto: num ano inteiro seriam centenas de linhas para o modelo ler.
@@ -2031,8 +2032,8 @@ export class MisterFerramentasService {
       if (dias.length > 31) return recusa('Para o gráfico por dia, escolha até 31 dias.');
       const ant = periodoAnterior(p);
       const [r, ra]: any[] = await Promise.all([
-        this.relatorios.vendas(e.tenantId, p.de, p.ate, e.verValores, loja.atual),
-        this.relatorios.vendas(e.tenantId, ant.de, ant.ate, e.verValores, loja.atual),
+        this.relatorios.vendasOficiais(e.tenantId, p.de, p.ate, e.verValores, loja.atual),
+        this.relatorios.vendasOficiais(e.tenantId, ant.de, ant.ate, e.verValores, loja.atual),
       ]);
       const conv = (rows: any[]) => (rows ?? []).map((d) => ({ dia: isoDoDia(d.dia), total: reais(d.total), vendas: inteiro(d.qtd) }));
       plano = planoVendasPorDia({
@@ -2048,7 +2049,7 @@ export class MisterFerramentasService {
       });
       pontos = (plano.barras ?? []).map((b, i) => ({ dia: `${b.rotulo} ${b.rotulo2 ?? ''}`.trim(), [e.verValores ? 'faturamento' : 'vendas']: b.valor, [e.verValores ? 'faturamentoNoPeriodoAnterior' : 'vendasNoPeriodoAnterior']: b.anterior ?? 0, posicao: i + 1 }));
     } else if (tipo === 'vendas_por_hora') {
-      const r: any = await this.relatorios.vendas(e.tenantId, p.de, p.ate, e.verValores, loja.atual);
+      const r: any = await this.relatorios.vendasOficiais(e.tenantId, p.de, p.ate, e.verValores, loja.atual);
       const porHora = ((r?.porHora ?? []) as any[]).map((h) => ({ hora: `${String(inteiro(h.hora)).padStart(2, '0')}h`, total: reais(h.total), vendas: inteiro(h.qtd) }));
       plano = planoVendasPorHora({ loja: loja.nome, rotuloDoPeriodo: p.rotulo, porHora, verValores: e.verValores, lidoEm });
       pontos = (plano.barras ?? []).map((b) => ({ hora: b.rotulo, [e.verValores ? 'faturamento' : 'vendas']: b.valor }));
@@ -2126,8 +2127,8 @@ export class MisterFerramentasService {
       }
     };
     const conv = (rows: any[]) => (rows ?? []).map((d) => ({ dia: isoDoDia(d.dia), total: reais(d.total), vendas: inteiro(d.qtd) }));
-    const r: any = await this.relatorios.vendas(e.tenantId, deAte.de, deAte.ate, e.verValores, loja.atual);
-    const ra: any = await parte('a comparação', () => this.relatorios.vendas(e.tenantId, somarDias(deAte.de, -7), somarDias(deAte.ate, -7), e.verValores, loja.atual));
+    const r: any = await this.relatorios.vendasOficiais(e.tenantId, deAte.de, deAte.ate, e.verValores, loja.atual);
+    const ra: any = await parte('a comparação', () => this.relatorios.vendasOficiais(e.tenantId, somarDias(deAte.de, -7), somarDias(deAte.ate, -7), e.verValores, loja.atual));
     const porHora = ((r?.porHora ?? []) as any[]).map((h) => ({ hora: `${String(inteiro(h.hora)).padStart(2, '0')}h`, total: reais(h.total), vendas: inteiro(h.qtd) }));
     const pico = tipo === 'resumo_dia' ? porHora.reduce<(typeof porHora)[number] | null>((m, h) => (!m || h.vendas > m.vendas ? h : m), null) : null;
 
@@ -2136,8 +2137,8 @@ export class MisterFerramentasService {
     // Por dia: o resumo do dia mostra os 7 dias até ele; o da semana, a própria semana. Os dois contra os 7 anteriores.
     const sete = tipo === 'resumo_dia' ? { de: somarDias(referencia, -6), ate: referencia } : deAte;
     const [rs, rsa]: any[] = await Promise.all([
-      tipo === 'resumo_dia' ? parte('os 7 dias', () => this.relatorios.vendas(e.tenantId, sete.de, sete.ate, e.verValores, loja.atual)) : Promise.resolve(r),
-      tipo === 'resumo_dia' ? parte('os 7 dias anteriores', () => this.relatorios.vendas(e.tenantId, somarDias(sete.de, -7), somarDias(sete.ate, -7), e.verValores, loja.atual)) : Promise.resolve(ra),
+      tipo === 'resumo_dia' ? parte('os 7 dias', () => this.relatorios.vendasOficiais(e.tenantId, sete.de, sete.ate, e.verValores, loja.atual)) : Promise.resolve(r),
+      tipo === 'resumo_dia' ? parte('os 7 dias anteriores', () => this.relatorios.vendasOficiais(e.tenantId, somarDias(sete.de, -7), somarDias(sete.ate, -7), e.verValores, loja.atual)) : Promise.resolve(ra),
     ]);
     if (rs)
       graficos.dias = planoVendasPorDia({

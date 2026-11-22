@@ -127,6 +127,31 @@ descrever('comanda de pedido cancelado pelo canal não conta como balcão', () =
     expect(delivery.porPlataforma).toEqual([{ plataforma: 'ifood', qtd: 1, total: 30 }]);
   }, 60000);
 
+  it('As vendas pela conta oficial (a do Mister) batem com o Painel: taxa de entrega da loja dentro, cancelado fora', async () => {
+    const { tenant, loja } = await montar(BASE);
+    await pool.query(
+      `insert into pedido_externo (tenant_id, unidade_id, canal, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono, criado_em, confirmado_em)
+       values ($1, $2, 'anotaai', 'confirmado', 58, 50, 8, 'loja', $3::timestamptz + interval '4 hours', $3::timestamptz + interval '4 hours')`,
+      [tenant, loja, BASE],
+    );
+    const painel: any = await dashboard.resumo(tenant, DIA, true, loja);
+    const v: any = await relatorios.vendasOficiais(tenant, DIA, DIA, true, loja);
+    expect(painel.comercial.faturado).toBe(128);
+    expect(v.resumo).toMatchObject({ vendas: 3, faturado: 128, ticketMedio: painel.comercial.ticketMedio });
+    expect(v.porCanal).toEqual([
+      { canal: 'delivery/app', qtd: 2, total: 88 },
+      { canal: 'balcão', qtd: 1, total: 40 },
+    ]);
+    expect(v.porDia.map((d: any) => [d.qtd, d.total])).toEqual([[3, 128]]);
+    expect(v.porHora.map((h: any) => [h.hora, h.total])).toEqual([[12, 40], [13, 30], [16, 58]]);
+    // A conta só das comandas (a tela de Relatórios) soma os cancelados e não vê a entrega da loja: é o que o Mister não usa mais.
+    expect(((await relatorios.vendas(tenant, DIA, DIA, true, loja)) as any).resumo.faturado).toBe(107);
+    // Quem não vê valores recebe as quantidades, sem os reais.
+    const sem: any = await relatorios.vendasOficiais(tenant, DIA, DIA, false, loja);
+    expect(sem.resumo).toMatchObject({ vendas: 3, faturado: null, gorjeta: null, ticketMedio: null });
+    expect(sem.porDia[0]).toMatchObject({ qtd: 3, total: null });
+  }, 60000);
+
   it('Ranking de produtos: item de comanda que veio de pedido nunca cai na coluna de balcão', async () => {
     const { tenant } = await montar(BASE);
     const r: any = await relatorios.rankingProdutos(tenant, DIA, DIA, true);

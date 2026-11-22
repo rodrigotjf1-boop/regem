@@ -141,6 +141,71 @@ export class RelatoriosService {
     };
   }
 
+  /**
+   * As vendas pela conta OFICIAL, a mesma do Painel e da Visão C&O (`common/faturamento.ts`): as comandas da loja, sem as que
+   * vieram de um canal, pela hora em que fecharam, mais os pedidos dos canais que valem, pela hora em que chegaram. A `vendas`
+   * acima soma só as comandas: fica sem a taxa de entrega da loja e conta a comanda do pedido que o canal cancelou (no Mister,
+   * R$ 38.677 contra R$ 40.528 do Painel nos 7 dias até 21/11). A forma de pagamento continua vindo da comanda.
+   */
+  async vendasOficiais(tenantId: string, inicio?: string, fim?: string, verFin = false, atual: string | null = null) {
+    const r = await this.vendas(tenantId, inicio, fim, verFin, atual);
+    const { inicio: ini, fim: f } = r.periodo;
+    const linhas = await this.rows(sql`
+      with v as (
+        select case when c.mesa_id is not null then 'mesa' else 'balcão' end as canal,
+               ${noFuso('c.fechada_em')} as quando,
+               ${faturamentoComanda('c')} as fat,
+               ${gorjetaComanda('c')} as gorj
+          from comanda c
+         where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status = 'fechada'
+           and ${noPeriodo('c.fechada_em', ini, f)} and not ${comandaEhDeCanal('c')}
+        union all
+        select 'delivery/app', ${noFuso('pe.criado_em')}, ${faturamentoPedido('pe')}, ${gorjetaPedido('pe')}
+          from pedido_externo pe
+         where pe.tenant_id = ${tenantId} ${sqlUnidade('pe.unidade_id', atual)} and ${pedidoVale('pe')}
+           and ${noPeriodo('pe.criado_em', ini, f)}
+      )
+      select canal, to_char(quando, 'YYYY-MM-DD') as chave, quando::date as dia, extract(hour from quando)::int as hora,
+             count(*)::int as qtd, coalesce(sum(fat), 0) as fat, coalesce(sum(gorj), 0) as gorj
+        from v group by 1, 2, 3, 4`);
+    // Em centavos: somar reais em ponto flutuante deixaria o total diferente do Painel por um centavo.
+    const centavos = (v: unknown) => Math.round(Number(v) * 100);
+    const juntar = <K>(chave: (l: any) => K) => {
+      const grupos = new Map<K, { primeira: any; qtd: number; total: number }>();
+      for (const l of linhas) {
+        const k = chave(l);
+        const g = grupos.get(k) ?? { primeira: l, qtd: 0, total: 0 };
+        g.qtd += Number(l.qtd);
+        g.total += centavos(l.fat);
+        grupos.set(k, g);
+      }
+      return [...grupos.entries()].map(([k, g]) => ({ k, primeira: g.primeira, qtd: g.qtd, total: g.total }));
+    };
+    const m = (emCentavos: number) => this.oc((emCentavos / 100).toFixed(2), verFin);
+    const vendas = linhas.reduce((s, l) => s + Number(l.qtd), 0);
+    const faturado = linhas.reduce((s, l) => s + centavos(l.fat), 0);
+    const gorjeta = linhas.reduce((s, l) => s + centavos(l.gorj), 0);
+    return {
+      ...r,
+      resumo: {
+        vendas,
+        faturado: m(faturado),
+        gorjeta: m(gorjeta),
+        ticketMedio: m(vendas ? Math.round(faturado / vendas) : 0),
+        canceladas: r.resumo.canceladas,
+      },
+      porCanal: juntar((l) => String(l.canal))
+        .sort((a, b) => b.total - a.total)
+        .map((g) => ({ canal: g.k, qtd: g.qtd, total: m(g.total) })),
+      porDia: juntar((l) => String(l.chave))
+        .sort((a, b) => a.k.localeCompare(b.k))
+        .map((g) => ({ dia: g.primeira.dia, qtd: g.qtd, total: m(g.total) })),
+      porHora: juntar((l) => Number(l.hora))
+        .sort((a, b) => a.k - b.k)
+        .map((g) => ({ hora: g.k, qtd: g.qtd, total: m(g.total) })),
+    };
+  }
+
   // Curva ABC dos produtos por faturamento: A = os que formam os primeiros 80%, B = os 15%
   // seguintes, C = o resto. O produto que CRUZA o limite pertence à classe de cima.
   //

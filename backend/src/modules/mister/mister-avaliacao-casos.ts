@@ -183,7 +183,7 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         gorjeta: v(d.gorjeta),
         vendasCanceladas: d.canceladas,
         ...valores,
-        comoORelatorioSeparaOsCanais: 'Mesa = venda de mesa. Delivery/app = venda com pagamento online (pelo aplicativo ou pelo cardápio online). Balcão = todas as outras, o que inclui a retirada e o pedido de entrega pago na hora.',
+        comoORelatorioSeparaOsCanais: 'O faturamento é a mesma conta do Painel. Mesa = venda de mesa. Balcão = as outras vendas lançadas na própria loja. Delivery/app = os pedidos que chegaram pelos canais (cardápio online, iFood, 99 e outros), inclusive os de retirada.',
         porCanal:
           p === 'ontem'
             ? [
