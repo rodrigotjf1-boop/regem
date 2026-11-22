@@ -139,8 +139,10 @@ describe('a conferência da regra que a IA escreve', () => {
 describe('a descrição (o código escreve)', () => {
   it('diz o que vai observar, quando dispara, como avisa e o que deixa de chegar', () => {
     const d = descreverRegra(ok(TRES_PARADOS));
-    expect(d).toContain('Vou te avisar quando a quantidade de pedidos dos canais com situação é em preparo e minutos desde o aceite acima de 20 min for a partir de 3.');
-    expect(d).toContain('Numa mensagem só, com a lista');
+    expect(d).toContain('Quando 3 ou mais pedidos em preparo passarem de 20 min, te mando uma mensagem só, com a lista.');
+    expect(d).toContain('Com menos de 3, eu fico quieto.');
+    expect(d).toContain('repito depois de 30 min, só se a lista mudar');
+    expect(d).toContain('deixa de chegar');
     const b = descreverRegra(
       ok({ fonte: 'contas', titulo: 'Boleto', filtros: [], alvo: { id: '3f2a9c1e-5b7d-4e8a-9c21-7d4e5f6a8b90', rotulo: 'Boleto · Distribuidora Sul' }, medida: 'cada_item', quando: { data: '2026-11-25', em: '16:00' }, vezes: 'uma_vez', agrupar: true }),
     );

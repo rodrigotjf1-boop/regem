@@ -113,6 +113,17 @@ const podeFazer = (e: { nivel: string; permissoes?: Permissoes | null }, def: (t
   e.nivel === 'presidente' || (temAPermissao(e.permissoes, def.permissao) && (!def.pedeVerValores || !!e.permissoes?.ver_financeiro));
 const NOME_DA_SITUACAO: Record<string, string> = { novo: 'aguardando aceite', confirmado: 'em preparo', pronto: 'pronto', despachado: 'a caminho', concluido: 'concluído', entregue: 'entregue', cancelado: 'cancelado' };
 
+/** A ação conferida, pronta para virar proposta (`propor_acao`) ou um passo do plano (V7c). */
+export interface AcaoPreparada {
+  acao: AcaoDoMister;
+  def: DefinicaoDaAcao;
+  unidadeId: string | null;
+  parametros: Record<string, unknown>;
+  resumo: string;
+  /** A chave do alvo: a mesma ação no mesmo alvo é a mesma proposta. */
+  alvo: string;
+}
+
 @Injectable()
 export class MisterAcoesService implements OnModuleInit {
   private readonly logger = new Logger('MisterAcoes');
@@ -148,6 +159,42 @@ export class MisterAcoesService implements OnModuleInit {
   /** A ferramenta `propor_acao`. Nunca lança: o erro vira a frase que volta à IA. */
   async propor(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
     try {
+      const pronta = await this.preparar(e, en, loja);
+      if ('erro' in pronta) return recusa(pronta.erro);
+      const { acao, def, unidadeId, parametros, resumo, alvo } = pronta;
+      const p = await this.gravar(e, acao, unidadeId, parametros, alvo);
+      if (!p) return recusa('Essa mesma ação já foi autorizada e está em andamento; o resultado chega na conversa.');
+      if (def.nivel === 'pin') {
+        // A de PIN sai com o link "Abrir no Regem", depois da resposta (o agente chama `enviarLinkDaProposta`), nunca com botões.
+        const proposta: PropostaPendente = { id: p.id, procedimento: acao, nivel: 'pin', pergunta: TEXTOS_DAS_ACOES.linkDaAcao(resumo, horaNoFuso(new Date(p.venceEm))), botoes: [] };
+        return { ok: true, dados: { oQueVouFazer: resumo, siga: sigaDaAcao(acao) }, proposta };
+      }
+      return {
+        ok: true,
+        dados: {
+          oQueVouFazer: resumo,
+          siga: sigaDaAcao(acao),
+        },
+        mensagens: [
+          acao === 'criar_imagem'
+            ? { texto: TEXTOS_DAS_ACOES.perguntaDaImagem(resumo, def.prazoMin), botoes: botoesDaProposta(p.id, BOTOES_DA_IMAGEM) }
+            : { texto: TEXTOS_DAS_ACOES.pergunta(resumo, def.prazoMin), botoes: botoesDaProposta(p.id) },
+        ],
+      };
+    } catch (err: any) {
+      if (semTabela(err)) return recusa('As ações do Mister ainda não estão disponíveis neste servidor.');
+      this.logger.error(`a ação não foi proposta: ${String(err?.message ?? err).slice(0, 300)}`, err?.stack);
+      return recusa('Não consegui preparar a ação agora.');
+    }
+  }
+
+  /**
+   * Toda a conferência da ação, sem gravar nada: o formato, a permissão do perfil, o alvo e o "o que vou fazer". É a porta
+   * única: `propor_acao` passa por aqui e cada passo do plano (V7c) também, ao propor e de novo na hora de fazer. Pode lançar.
+   */
+  async preparar(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<AcaoPreparada | { erro: string }> {
+    const recusa = (erro: string) => ({ erro });
+    {
       if (e.nivel !== 'presidente' && e.nivel !== 'gerente') return recusa(TEXTOS_DAS_ACOES.soGestor);
       const c = conferirAcao(en.acao, en);
       if ('erro' in c) return recusa(c.erro);
@@ -279,29 +326,7 @@ export class MisterAcoesService implements OnModuleInit {
       }
       // M6l: cada pedido de imagem é um alvo (o mesmo pedido repetido é a mesma proposta e não paga de novo).
       if (c.parametros.acao === 'criar_imagem') alvo = `${c.parametros.proporcao}:${c.parametros.pedido}`;
-      const p = await this.gravar(e, c.parametros.acao, unidadeId, parametros, `${alvo}:${unidadeId ?? 'empresa'}`);
-      if (!p) return recusa('Essa mesma ação já foi autorizada e está em andamento; o resultado chega na conversa.');
-      if (def.nivel === 'pin') {
-        // A de PIN sai com o link "Abrir no Regem", depois da resposta (o agente chama `enviarLinkDaProposta`), nunca com botões.
-        const proposta: PropostaPendente = { id: p.id, procedimento: c.parametros.acao, nivel: 'pin', pergunta: TEXTOS_DAS_ACOES.linkDaAcao(resumo, horaNoFuso(new Date(p.venceEm))), botoes: [] };
-        return { ok: true, dados: { oQueVouFazer: resumo, siga: sigaDaAcao(c.parametros.acao) }, proposta };
-      }
-      return {
-        ok: true,
-        dados: {
-          oQueVouFazer: resumo,
-          siga: sigaDaAcao(c.parametros.acao),
-        },
-        mensagens: [
-          c.parametros.acao === 'criar_imagem'
-            ? { texto: TEXTOS_DAS_ACOES.perguntaDaImagem(resumo, def.prazoMin), botoes: botoesDaProposta(p.id, BOTOES_DA_IMAGEM) }
-            : { texto: TEXTOS_DAS_ACOES.pergunta(resumo, def.prazoMin), botoes: botoesDaProposta(p.id) },
-        ],
-      };
-    } catch (err: any) {
-      if (semTabela(err)) return recusa('As ações do Mister ainda não estão disponíveis neste servidor.');
-      this.logger.error(`a ação não foi proposta: ${String(err?.message ?? err).slice(0, 300)}`, err?.stack);
-      return recusa('Não consegui preparar a ação agora.');
+      return { acao: c.parametros.acao, def, unidadeId, parametros, resumo, alvo: `${alvo}:${unidadeId ?? 'empresa'}` };
     }
   }
 

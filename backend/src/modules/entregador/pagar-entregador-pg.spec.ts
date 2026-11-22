@@ -22,7 +22,9 @@ const MIG = (a: string) => join(__dirname, '../../../../database/migrations', a)
 descrever('pagar o entregador (Postgres)', () => {
   const pool = new Pool({ connectionString: URL_PG, max: 8 });
   const db = drizzle(pool, { schema }) as any;
-  const q = async (s: string, p: any[] = []) => (await pool.query(s, p)).rows;
+  // No banco dividido do CI, a instrução pode cair em impasse com a migration ou a limpeza de outra spec (ERR-570). Cada uma aqui
+  // é sozinha na transação: repetir é seguro.
+  const q = async (s: string, p: any[] = []) => (await repetirNaCorridaDeCatalogo(() => pool.query(s, p))).rows;
   const svc = new EntregadorService(db, {} as any, {} as any);
   const empresas: string[] = [];
 

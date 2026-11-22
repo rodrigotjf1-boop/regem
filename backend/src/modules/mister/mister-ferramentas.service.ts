@@ -597,6 +597,8 @@ export class MisterFerramentasService {
         return Promise.resolve(this.refazerGrafico(e, en));
       case 'propor_acao':
         return this.acoes ? this.acoes(e, en, loja) : Promise.resolve(recusa('As ações do Mister ainda não estão disponíveis neste servidor.'));
+      case 'propor_plano':
+        return this.planos ? this.planos(e, en, loja) : Promise.resolve(recusa('As ações do Mister ainda não estão disponíveis neste servidor.'));
     }
   }
 
@@ -647,6 +649,11 @@ export class MisterFerramentasService {
   private acoes: ((e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }) => Promise<ResultadoDaFerramenta>) | null = null;
   registrarAcoes(f: (e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }) => Promise<ResultadoDaFerramenta>): void {
     this.acoes = f;
+  }
+  // Versão 7, V7c: várias ações num pedido, pelo `MisterPlanosService`.
+  private planos: ((e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }) => Promise<ResultadoDaFerramenta>) | null = null;
+  registrarPlano(f: (e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }) => Promise<ResultadoDaFerramenta>): void {
+    this.planos = f;
   }
 
   /**

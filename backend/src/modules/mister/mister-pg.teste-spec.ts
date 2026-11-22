@@ -93,6 +93,8 @@ import { TEXTOS_DAS_REGRAS } from './mister-regra';
 import { MisterPadroesService, padroesNaInstalacao } from './mister-padroes.service';
 import { TEXTOS_DOS_PADROES } from './mister-padroes';
 import { MisterAcoesService } from './mister-acoes.service';
+import { MisterPlanosService } from './mister-planos.service';
+import { RESULTADO_DO_PLANO_TROCADO, TEXTOS_DO_PLANO, botaoDeDeixar, botaoDeTentar } from './mister-plano';
 import { TarefaInstanciaService } from '../tarefa/tarefa-instancia.service';
 import { TarefaDefService } from '../tarefa/tarefa-def.service';
 import { ProdutoService } from '../produto/produto.service';
@@ -4167,6 +4169,29 @@ export function testesDoMisterComPostgres(): void {
           },
         },
         c60: { acao: 'listar' },
+        c61: {
+          passos: [
+            { acao: 'pausar_canal', canais: ['ifood'], motivo: 'entregador', minutos: 30 },
+            { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'kg' },
+          ],
+        },
+        c62: { acao: 'conferir', regraId: '00000000-0000-4000-8000-000000000002' },
+        c63: {
+          acao: 'propor',
+          regra: {
+            fonte: 'pedidos',
+            titulo: '2 pedidos a caminho há 40 min',
+            filtros: [
+              { campo: 'situacao', op: '=', valor: 'a_caminho' },
+              { campo: 'min_desde_aceite', op: '>=', valor: 40 },
+            ],
+            medida: 'quantidade',
+            condicao: { op: '>=', valor: 2 },
+            quando: {},
+            vezes: 'sempre',
+            agrupar: true,
+          },
+        },
         c54: { acao: 'criar_imagem', proporcao: '9:16', pedidoDaImagem: "Cartaz vertical da terça do smash. Foto de um smash duplo com batata, fundo escuro, luz quente. Texto exato: \"TERÇA DO SMASH\" e \"Smash duplo + batata · R$ 29,90\"." },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
@@ -4220,18 +4245,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 60 de 60, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 63 de 63, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(60);
+        expect(r.total).toBe(63);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 60, acertos: 60, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 63, acertos: 63, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 60, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 60, acertos: 60, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 63, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 63, acertos: 63, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4251,7 +4276,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 59 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 62 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -9111,14 +9136,16 @@ export function testesDoMisterComPostgres(): void {
         const r = await ferramentas.executar(await escopo('ana'), 'regras', { acao: 'propor', regra: TRES });
         expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
         expect(r.dados).toMatchObject({ titulo: TRES.titulo, deixaDeReceber: ['pedido_parado'] });
-        expect(String(r.dados.oQueVouFazer)).toContain('a partir de 3');
+        expect(String(r.dados.oQueVouFazer)).toContain('3 ou mais pedidos em preparo passarem de 20 min');
         expect(r.botoes?.map((b) => b.titulo)).toEqual(['Confirmar', 'Mudar']);
         // antes do Confirmar, a regra não avisa
         for (const [n, min] of [[22, 24], [24, 31], [28, 22], [30, 5]]) await pedidoAceito(n, min);
         expect(await regras.volta([A])).toMatchObject({ avisos: 0 });
         numero.pedidos.length = 0;
         expect(await mandar(tel, 'Confirmar', { botaoId: r.botoes![0].id })).toBe('respondeu_proposta');
-        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DAS_REGRAS.ligada(TRES.titulo)]);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DAS_REGRAS.ligada(TRES.titulo, TRES.substitui)]);
+        expect(numero.enviadas[0].texto).toContain('*Parou de chegar:* o aviso "pedido parado", um por um.');
+        expect(numero.enviadas[0].texto).toContain('*Continua chegando:* servidor sem sinal com pedido esperando, certificado e chave de IA parada.');
         // a volta: uma mensagem com os três; a seguinte, nada
         numero.pedidos.length = 0;
         expect(await regras.volta([A])).toMatchObject({ avaliadas: 1, avisos: 1 });
@@ -9277,6 +9304,203 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from pedido_externo where unidade_id = $1`, [deOutraLoja]);
           await q(`delete from unidade where id = $1`, [deOutraLoja]);
         }
+      });
+
+      // ───────────── versão 7, V7c: o ajuste na conversa, o efeito ao ligar e a reclamação conferida ─────────────
+      const com25 = {
+        ...TRES,
+        titulo: '3 pedidos há mais de 25 min em preparo',
+        filtros: [
+          { campo: 'situacao', op: '=', valor: 'em_preparo' },
+          { campo: 'min_desde_aceite', op: '>', valor: 25 },
+        ],
+      };
+      const situacaoDe = async (id: unknown) => (await q(`select situacao from mister_regra where id = $1`, [id]))[0].situacao;
+
+      it('V7c: "faz 25 min" fica no lugar da proposta aberta; a lista a mostra, o botão antigo explica e o novo diz o efeito', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const e = await escopo('ana');
+        const p1 = await ferramentas.executar(e, 'regras', { acao: 'propor', regra: TRES });
+        const lista = await ferramentas.executar(e, 'regras', { acao: 'listar' });
+        expect(lista.dados.propostaAberta).toMatchObject({ id: p1.dados.id, titulo: TRES.titulo, regra: { filtros: TRES.filtros } });
+        expect(lista.dados).not.toHaveProperty('aviso');
+        const p2 = await ferramentas.executar(e, 'regras', { acao: 'propor', regra: com25 });
+        expect(await situacaoDe(p1.dados.id)).toBe('descartada');
+        expect(await situacaoDe(p2.dados.id)).toBe('proposta');
+        expect(((await ferramentas.executar(e, 'regras', { acao: 'listar' })).dados.propostaAberta as any).id).toBe(p2.dados.id);
+        // os dois botões da proposta velha dizem o que houve e não ligam nada
+        for (const b of p1.botoes!) {
+          numero.pedidos.length = 0;
+          expect(await mandar(tel, b.titulo, { botaoId: b.id })).toBe('respondeu_proposta');
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DAS_REGRAS.trocada]);
+        }
+        expect(await ferramentas.executar(e, 'regras', { acao: 'confirmar', regraId: p1.dados.id })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_REGRAS.trocada } });
+        expect(await situacaoDe(p1.dados.id)).toBe('descartada');
+        expect(await situacaoDe(p2.dados.id)).toBe('proposta');
+        numero.pedidos.length = 0;
+        await mandar(tel, 'Confirmar', { botaoId: p2.botoes![0].id });
+        expect(numero.enviadas[0].texto).toBe(TEXTOS_DAS_REGRAS.ligada(com25.titulo, ['pedido_parado']));
+        expect(await situacaoDe(p2.dados.id)).toBe('ativa');
+        expect((await ferramentas.executar(e, 'regras', { acao: 'listar' })).dados).not.toHaveProperty('propostaAberta');
+        // o Mudar de uma regra que já ligou não diz "não liguei"
+        numero.pedidos.length = 0;
+        await mandar(tel, 'Mudar', { botaoId: p2.botoes![1].id });
+        expect(numero.enviadas[0].texto).toBe(TEXTOS_DAS_REGRAS.jaLigada);
+        expect(await situacaoDe(p2.dados.id)).toBe('ativa');
+      });
+
+      it('V7c: a proposta de outra pessoa não é tocada, e assunto novo não apaga a regra que a anterior trocaria', async () => {
+        await ligar('ana', telefone());
+        await ligar('carlos', telefone(), A, 'gerente');
+        const ana = await escopo('ana');
+        const daAna = await ferramentas.executar(ana, 'regras', { acao: 'propor', regra: TRES });
+        const doCarlos = await ferramentas.executar(await escopo('carlos'), 'regras', { acao: 'propor', regra: TRES });
+        expect(await situacaoDe(daAna.dados.id)).toBe('proposta');
+        expect(await situacaoDe(doCarlos.dados.id)).toBe('proposta');
+        await regras.ativar(String(daAna.dados.id), A, pessoa.ana, true);
+        // a troca da regra ligada, ajustada sem repetir o id: continua trocando a mesma regra
+        const troca = await ferramentas.executar(ana, 'regras', { acao: 'propor', regra: { ...com25, titulo: 'Troca' }, substituiRegraId: daAna.dados.id });
+        const ajuste = await ferramentas.executar(ana, 'regras', { acao: 'propor', regra: { ...com25, titulo: 'Troca com 30', filtros: [TRES.filtros[0], { campo: 'min_desde_aceite', op: '>', valor: 30 }] } });
+        expect(ajuste.dados.trocaARegra).toBe(daAna.dados.id);
+        expect(await situacaoDe(troca.dados.id)).toBe('descartada');
+        // assunto novo depois de uma troca: não leva a regra junto
+        const troca2 = await ferramentas.executar(ana, 'regras', { acao: 'propor', regra: { ...com25, titulo: 'Troca de novo' }, substituiRegraId: daAna.dados.id });
+        const outra = await ferramentas.executar(ana, 'regras', {
+          acao: 'propor',
+          regra: { fonte: 'caixas', titulo: 'Caixa aberto', filtros: [{ campo: 'aberto_ha_horas', op: '>', valor: 12 }], medida: 'cada_item', quando: {}, vezes: 'sempre', agrupar: true },
+        });
+        expect(outra.dados).not.toHaveProperty('trocaARegra');
+        expect(await situacaoDe(troca2.dados.id)).toBe('descartada');
+        await regras.ativar(String(outra.dados.id), A, pessoa.ana, true);
+        expect(await situacaoDe(daAna.dados.id)).toBe('ativa');
+        // voltar ao que já está ligado: diz que já existe e o ajuste aberto não vale mais
+        const aberta = await ferramentas.executar(ana, 'regras', { acao: 'propor', regra: { ...com25, titulo: 'Mais um ajuste' } });
+        const volta = await ferramentas.executar(ana, 'regras', { acao: 'propor', regra: TRES });
+        expect(volta.dados).toMatchObject({ jaExiste: true, id: daAna.dados.id });
+        expect(await situacaoDe(aberta.dados.id)).toBe('descartada');
+      });
+
+      it('V7c (V98): seis propostas juntas da mesma pessoa deixam exatamente UMA aberta, a mais nova', async () => {
+        await ligar('ana', telefone());
+        const e = await escopo('ana');
+        const juntas = await Promise.all(
+          [21, 22, 23, 24, 25, 26].map((min) =>
+            ferramentas.executar(e, 'regras', { acao: 'propor', regra: { ...TRES, titulo: `Com ${min}`, filtros: [TRES.filtros[0], { campo: 'min_desde_aceite', op: '>', valor: min }] } }),
+          ),
+        );
+        expect(juntas.every((r) => r.ok)).toBe(true);
+        const abertas = await q(`select id::text as id from mister_regra where tenant_id = $1 and colaborador_id = $2 and situacao = 'proposta'`, [A, pessoa.ana]);
+        expect(abertas).toHaveLength(1);
+        const [maisNova] = await q(`select id::text as id from mister_regra where tenant_id = $1 and colaborador_id = $2 order by criada_em desc, id desc limit 1`, [A, pessoa.ana]);
+        expect(abertas[0].id).toBe(maisNova.id);
+      });
+
+      describe('V7c: a reclamação conferida', () => {
+        // Um dia fixo no passado: os pedidos dos outros testes (criados "agora") ficam depois do fim da conta.
+        const dia = '2026-11-10';
+        const as = (hhmm: string) => `${dia}T${hhmm}:00-03:00`;
+        const NOITE = new Date(as('22:00'));
+        const REGRA_25 = { ...TRES, titulo: 'Aviso dos 3 pedidos', filtros: [TRES.filtros[0], { campo: 'min_desde_aceite', op: '>=', valor: 25 }], substitui: ['pedido_parado:confirmado'] };
+        const pedido = (n: number, aceite: string, pronto: string, loja: string | null = lojaDeA) =>
+          q(
+            `insert into pedido_externo (tenant_id, unidade_id, canal, status, display_id, numero, criado_em, confirmado_em, pronto_em)
+             values ($1, $2, 'ifood', 'pronto', $3, $4, $5::timestamptz - interval '2 minutes', $5::timestamptz, $6::timestamptz)`,
+            [A, loja, `R6E${n}`, n, as(aceite), as(pronto)],
+          );
+        const ligada = async (nome: string, regra: Record<string, unknown>, ativada = '12:00') =>
+          (
+            await q(
+              `insert into mister_regra (tenant_id, colaborador_id, situacao, titulo, resumo, fonte, regra, substitui, ativada_em)
+               values ($1, $2, 'ativa', $3, 'o que faz', $4, $5::jsonb, '{}', $6::timestamptz) returning id::text as id`,
+              [A, pessoa[nome], regra.titulo, regra.fonte, JSON.stringify(regra), as(ativada)],
+            )
+          )[0].id as string;
+
+        it('pelos pedidos do dia: o máximo ao mesmo tempo, a hora e o que aconteceria com menos tempo; e não muda nada', async () => {
+          // Com 25 min: A de 20:25 a 20:40, B de 20:30 a 20:36, C de 20:37 em diante. Com 20 min, os três às 20:32.
+          await pedido(801, '20:00', '20:40');
+          await pedido(802, '20:05', '20:36');
+          await pedido(803, '20:12', '21:00');
+          const id = await ligada('ana', REGRA_25);
+          const antes = await q(`select estado, ultimo_envio_em, situacao from mister_regra where id = $1`, [id]);
+          const r = await regras.conferirODia(await escopo('ana'), id, NOITE);
+          expect(r.ok).toBe(true);
+          expect(r.dados).toMatchObject({
+            titulo: 'Aviso dos 3 pedidos',
+            situacao: 'ativa',
+            ligadaDesde: '10/11 12:00',
+            ultimoAviso: 'ainda não avisou',
+            avisosNoDia: 0,
+            hoje: {
+              desde: '06:00',
+              ate: '22:00',
+              tempoDaRegraEmMinutos: 25,
+              maximoAoMesmoTempo: 2,
+              as: '20:30',
+              teriaAvisado: false,
+              vezes: 0,
+              primeiraVez: null,
+              comMenosTempo: { minutos: 20, maximoAoMesmoTempo: 3, as: '20:32', teriaAvisado: true, vezes: 1, primeiraVez: '20:32' },
+            },
+          });
+          // conferir só lê
+          expect(await q(`select estado, ultimo_envio_em, situacao from mister_regra where id = $1`, [id])).toEqual(antes);
+          expect(await q(`select count(*)::int as n from mister_regra_envio where regra_id = $1`, [id])).toEqual([{ n: 0 }]);
+        });
+
+        it('quando teria avisado, conta as vezes; antes de ligar, não; o último envio que falhou aparece', async () => {
+          await pedido(811, '20:00', '20:50');
+          await pedido(812, '20:01', '20:50');
+          await pedido(813, '20:02', '20:50');
+          const id = await ligada('ana', REGRA_25);
+          const r = await regras.conferirODia(await escopo('ana'), id, NOITE);
+          expect((r.dados.hoje as any)).toMatchObject({ maximoAoMesmoTempo: 3, as: '20:27', teriaAvisado: true, vezes: 1, primeiraVez: '20:27' });
+          expect(r.dados.hoje).not.toHaveProperty('comMenosTempo');
+          const depois = await ligada('ana', { ...REGRA_25, titulo: 'Ligada depois', condicao: { op: '>=', valor: 2 } }, '21:30');
+          expect(((await regras.conferirODia(await escopo('ana'), depois, NOITE)).dados.hoje as any)).toMatchObject({ maximoAoMesmoTempo: 3, teriaAvisado: false, vezes: 0 });
+          await q(`insert into mister_regra_envio (regra_id, tenant_id, colaborador_id, chave, texto, resultado, criado_em) values ($1, $2, $3, 'k', 't', 'falhou: erro', $4::timestamptz)`, [id, A, pessoa.ana, as('20:27')]);
+          const comFalha = await regras.conferirODia(await escopo('ana'), id, NOITE);
+          expect(comFalha.dados).toMatchObject({ ultimoEnvioNaoSaiu: true, avisosNoDia: 0 });
+        });
+
+        it('o gerente vê só a dele; a do gerente, para o presidente, é lida na loja do gerente', async () => {
+          await ligar('carlos', telefone(), A, 'gerente');
+          const deOutraLoja = (await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja Sul V7C') returning id::text as id`, [A]))[0].id as string;
+          try {
+            for (const [n, loja] of [[821, deOutraLoja], [822, deOutraLoja], [823, deOutraLoja]] as const) await pedido(n, '20:00', '20:50', loja);
+            await pedido(824, '20:00', '20:50');
+            const doCarlos = await ligada('carlos', REGRA_25);
+            const daAna = await ligada('ana', { ...REGRA_25, titulo: 'Da Ana' });
+            expect(await regras.conferirODia(await escopo('carlos'), daAna, NOITE)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_REGRAS.naoAchada } });
+            expect(((await regras.conferirODia(await escopo('ana'), doCarlos, NOITE)).dados.hoje as any).maximoAoMesmoTempo).toBe(1);
+            expect(((await regras.conferirODia(await escopo('carlos'), doCarlos, NOITE)).dados.hoje as any).maximoAoMesmoTempo).toBe(1);
+            expect(((await regras.conferirODia(await escopo('ana'), daAna, NOITE)).dados.hoje as any).maximoAoMesmoTempo).toBe(4);
+          } finally {
+            await q(`delete from pedido_externo where unidade_id = $1`, [deOutraLoja]);
+            await q(`delete from unidade where id = $1`, [deOutraLoja]);
+          }
+        });
+
+        it('as outras fontes: o estado e o que ela pega agora, sem valor para quem não vê; regra que não existe não é "conferida"', async () => {
+          await q(`insert into titulo_financeiro (tenant_id, tipo, descricao, valor, vencimento, status) values ($1, 'pagar', 'R6E Conta conferida', 900, $2, 'aberto')`, [A, hojeISO()]);
+          const soma = await ligada('ana', {
+            fonte: 'contas',
+            titulo: 'Contas de hoje',
+            filtros: [{ campo: 'dias_para_vencer', op: '<=', valor: 0 }],
+            medida: 'soma',
+            campoDaMedida: 'valor',
+            condicao: { op: '>=', valor: 500 },
+            quando: {},
+            vezes: 'sempre',
+            agrupar: true,
+          });
+          const e = await escopo('ana');
+          expect((await regras.conferirODia(e, soma)).dados.agora).toMatchObject({ itensQueElaPegaAgora: 1, valeAgora: true, medidaAgora: 900 });
+          expect((await regras.conferirODia({ ...e, verValores: false }, soma)).dados.agora).not.toHaveProperty('medidaAgora');
+          expect(await ferramentas.executar(e, 'regras', { acao: 'conferir', regraId: randomUUID() })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_REGRAS.naoAchada } });
+          expect(await ferramentas.executar(e, 'regras', { acao: 'conferir', regraId: 'lixo' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_REGRAS.naoAchada } });
+        });
       });
 
       it('a proposta que ninguém confirma some em 30 min; o Mudar descarta', async () => {
@@ -10292,6 +10516,338 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from tarefa_def where id = $1`, [def]);
           await q(`delete from produto where id = $1`, [prod]);
         }
+      });
+
+      // ───────────── versão 7, V7c: várias tarefas num pedido, com um botão só ─────────────
+      describe('o plano (V7c, decisões V7-2 e V7-3)', () => {
+        const planos = new MisterPlanosService(db, ferramentas, propostasDasAcoes, acoes, numero, entrada, auditoria);
+        beforeAll(() => planos.onModuleInit());
+        let prod = '';
+        let pinAntes: any = null;
+        const TAREFA = 'V7C Repor guardanapos';
+        beforeEach(async () => {
+          [{ id: prod }] = await q(`insert into produto (tenant_id, unidade_id, nome, preco_venda) values ($1, $2, 'V7C Batata', 20) returning id::text as id`, [A, lojaDeA]);
+          [{ pin_hash: pinAntes }] = await q(`select pin_hash from colaborador where id = $1`, [pessoa.ana]);
+          await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        });
+        afterEach(async () => {
+          await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, pinAntes]);
+          await q(`delete from mister_proposta where tenant_id = $1`, [A]);
+          await q(`delete from tarefa_instancia where tenant_id = $1 and tarefa_def_id in (select id from tarefa_def where tenant_id = $1 and titulo like 'V7C %')`, [A]);
+          await q(`delete from tarefa_def where tenant_id = $1 and titulo like 'V7C %'`, [A]);
+          await q(`delete from produto where tenant_id = $1 and nome like 'V7C %'`, [A]);
+        });
+        const passoTarefa = { acao: 'criar_tarefa', titulo: TAREFA, funcao: 'f execucao' };
+        const passoPausa = { acao: 'pausar_produto', produto: 'V7C Batata', canais: ['regem'] };
+        const passoPreco = { acao: 'mudar_preco', produto: 'V7C Batata', canais: ['regem'], precoNovo: 25 };
+        const quemAna = (tel: string) => quem(tel, 'ana', 'presidente');
+        const idDoPlano = (r: any) => /^prop:([0-9a-f-]{36}):sim$/.exec(r.mensagens?.[r.mensagens.length - 1]?.botoes?.[0]?.id ?? '')?.[1] ?? '';
+        const propor = async (tel: string, passos: unknown[]) => {
+          const r = await ferramentas.executar((await ferramentas.escopo(A, pessoa.ana, tel))!, 'propor_plano', { passos, loja: 'Loja Centro' });
+          expect({ ok: r.ok, erro: (r.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
+          return { r, id: idDoPlano(r) };
+        };
+        const esperar = async (cond: () => Promise<boolean>) => {
+          for (let i = 0; i < 200; i++) {
+            if (await cond()) return;
+            await new Promise((x) => setTimeout(x, 25));
+          }
+          throw new Error('o plano não chegou ao estado esperado');
+        };
+        const situacao = async (id: string) => (await q(`select situacao from mister_proposta where id = $1`, [id]))[0]?.situacao;
+        /** O plano fechou e a mensagem do fim já saiu (a gravação vem antes do envio — ERR-548). */
+        const esperarOFim = async (id: string, abre: RegExp) => {
+          await esperar(async () => ['feita', 'nao_deu'].includes(await situacao(id)) && numero.enviadas.some((m) => abre.test(m.texto)));
+          return numero.enviadas.find((m) => abre.test(m.texto))!;
+        };
+        const filhas = (id: string) =>
+          q(
+            `select procedimento, situacao, resultado, (parametros ->> 'passo')::int as n, (parametros ->> 'tentativa')::int as t, id::text as id
+               from mister_proposta where tenant_id = $1 and parametros ->> 'planoId' = $2 order by (parametros ->> 'passo')::int, (parametros ->> 'tentativa')::int`,
+            [A, id],
+          );
+        const tarefas = async () => (await q(`select count(*)::int as n from tarefa_def where tenant_id = $1 and titulo = $2`, [A, TAREFA]))[0].n;
+        const instancias = async () =>
+          (await q(`select count(*)::int as n from tarefa_instancia i join tarefa_def d on d.id = i.tarefa_def_id where d.tenant_id = $1 and d.titulo = $2`, [A, TAREFA]))[0].n;
+        const pausado = async () => (await q(`select disponivel_balcao as b from produto where id = $1`, [prod]))[0].b === false;
+        const preco = async () => Number((await q(`select preco_venda from produto where id = $1`, [prod]))[0].preco_venda);
+        const codigoDe = (url: string | undefined) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+
+        it('mostra o plano com um botão; nada acontece antes do toque; cinco toques juntos fazem cada passo uma vez, na ordem e com a auditoria', async () => {
+          const tel = telefone();
+          await ligar('ana', tel);
+          const { r, id } = await propor(tel, [passoTarefa, passoPausa]);
+          expect(r.mensagens).toHaveLength(1);
+          expect(r.mensagens![0].texto).toContain('Vou fazer em dois passos:');
+          expect(r.mensagens![0].texto).toContain('1. Criar para hoje a tarefa "V7C Repor guardanapos"');
+          expect(r.mensagens![0].texto).toContain('2. Pausar "V7C Batata" no Regem');
+          expect(r.mensagens![0].botoes!.map((b) => b.titulo)).toEqual(['Fazer os dois', 'Mudar']);
+          expect(r.dados.botao).toBe('Fazer os dois');
+          expect([await tarefas(), await pausado()]).toEqual([0, false]);
+          numero.pedidos.length = 0;
+          auditados.length = 0;
+          await Promise.all(Array.from({ length: 5 }, () => propostasDasAcoes.responder(`prop:${id}:sim`, quemAna(tel))));
+          const fim = await esperarOFim(id, /^Pronto, fiz os dois/);
+          expect(fim.texto).toContain('✓ A tarefa "V7C Repor guardanapos" foi criada para hoje.');
+          expect(fim.texto).toContain('✓ "V7C Batata" pausado no Regem');
+          expect(fim.botoes).toEqual([]);
+          expect([await situacao(id), await tarefas(), await instancias(), await pausado()]).toEqual(['feita', 1, 1, true]);
+          expect((await filhas(id)).map((f) => [f.n, f.procedimento, f.situacao, f.t])).toEqual([
+            [1, 'criar_tarefa', 'feita', 1],
+            [2, 'pausar_produto', 'feita', 1],
+          ]);
+          const textos = numero.enviadas.map((m) => m.texto);
+          expect(textos.filter((t) => t === TEXTOS_DO_PLANO.autorizado)).toHaveLength(1);
+          expect(textos.filter((t) => t === 'Essa pergunta já foi respondida.')).toHaveLength(4);
+          expect(textos.filter((t) => /^Pronto, fiz/.test(t))).toHaveLength(1);
+          // o passo não fala sozinho: só a mensagem do fim
+          expect(textos.filter((t) => t.startsWith('✅ Feito'))).toHaveLength(0);
+          // cada passo passou pela execução e pela auditoria das ações
+          const dosPassos = (await filhas(id)).map((f) => f.id);
+          for (const f of dosPassos) {
+            expect(auditados.some((a) => a.acao === 'mister_proposta_executada' && a.entidadeId === f)).toBe(true);
+            expect(auditados.some((a) => a.acao === 'mister_proposta_feita' && a.entidadeId === f)).toBe(true);
+          }
+          // tocar de novo depois do fim não refaz
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quemAna(tel));
+          expect([await tarefas(), await instancias()]).toEqual([1, 1]);
+        });
+
+        it('o avanço chamado várias vezes ao mesmo tempo (dois processos) não cria nem executa um passo duas vezes', async () => {
+          const tel = telefone();
+          await ligar('ana', tel);
+          const { id } = await propor(tel, [passoTarefa, passoPausa]);
+          await q(`update mister_proposta set situacao = 'executando', autorizada_por = $2, respondida_em = now() where id = $1`, [id, pessoa.ana]);
+          // Cada serviço tem o próprio controle de "já estou andando", como dois processos: só o banco os segura.
+          const outro = new MisterPlanosService(db, ferramentas, propostasDasAcoes, acoes, numero, entrada, auditoria);
+          const terceiro = new MisterPlanosService(db, ferramentas, propostasDasAcoes, acoes, numero, entrada, auditoria);
+          numero.pedidos.length = 0;
+          await Promise.all([planos.avancar(id), outro.avancar(id), terceiro.avancar(id), planos.avancar(id)]);
+          await esperarOFim(id, /^Pronto, fiz os dois/);
+          expect([await tarefas(), await instancias()]).toEqual([1, 1]);
+          expect(await filhas(id)).toHaveLength(2);
+          expect(numero.enviadas.filter((m) => /^Pronto, fiz/.test(m.texto))).toHaveLength(1);
+        });
+
+        it('o passo que falha não desfaz o outro: diz o que entrou, e "Tentar de novo" (tocado duas vezes) refaz só o que faltou', async () => {
+          const tel = telefone();
+          await ligar('ana', tel);
+          const { id } = await propor(tel, [passoTarefa, passoPausa, { acao: 'reativar_produto', produto: 'V7C Outro' }].slice(0, 2));
+          // Entre a pergunta e o toque, o produto saiu do cardápio: a conferência de novo recusa o passo 2.
+          await q(`update produto set deleted_at = now() where id = $1`, [prod]);
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quemAna(tel));
+          const fim = await esperarOFim(id, /^Fiz um, e um não entrou/);
+          expect(fim.texto).toContain('✓ A tarefa "V7C Repor guardanapos" foi criada para hoje.');
+          expect(fim.texto).toContain(`! Pausar "V7C Batata" no Regem (balcão e cardápio digital): ${TEXTOS_DAS_ACOES.produtoNaoAchado}`);
+          expect(fim.texto).toContain(TEXTOS_DO_PLANO.perguntaDeNovo);
+          expect(fim.botoes.map((b) => b.titulo)).toEqual(['Tentar de novo', 'Deixar assim']);
+          expect(await situacao(id)).toBe('nao_deu');
+          expect([await tarefas(), await pausado()]).toEqual([1, false]);
+          // o produto voltou; dois toques juntos em "Tentar de novo"
+          await q(`update produto set deleted_at = null where id = $1`, [prod]);
+          numero.pedidos.length = 0;
+          await Promise.all([planos.tocou(botaoDeTentar(id, 1), quemAna(tel)), planos.tocou(botaoDeTentar(id, 1), quemAna(tel))]);
+          await esperarOFim(id, /^Pronto, fiz os dois/);
+          const textos = numero.enviadas.map((m) => m.texto);
+          expect(textos.filter((t) => t === TEXTOS_DO_PLANO.tentando)).toHaveLength(1);
+          expect(textos.filter((t) => t === TEXTOS_DO_PLANO.tentativaNaoVale)).toHaveLength(1);
+          expect([await situacao(id), await tarefas(), await instancias(), await pausado()]).toEqual(['feita', 1, 1, true]);
+          expect((await filhas(id)).map((f) => [f.n, f.t, f.situacao])).toEqual([
+            [1, 1, 'feita'],
+            [2, 1, 'nao_deu'],
+            [2, 2, 'feita'],
+          ]);
+          // o botão velho não vale mais
+          numero.pedidos.length = 0;
+          await planos.tocou(botaoDeTentar(id, 1), quemAna(tel));
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PLANO.tentativaNaoVale]);
+        });
+
+        it('"Deixar assim" fecha a tentativa, e o "Tentar de novo" vencido não refaz', async () => {
+          const tel = telefone();
+          await ligar('ana', tel);
+          await q(`update produto set deleted_at = now() where id = $1`, [prod]);
+          const semProduto = await ferramentas.executar((await ferramentas.escopo(A, pessoa.ana, tel))!, 'propor_plano', { passos: [passoTarefa, passoPausa], loja: 'Loja Centro' });
+          expect(semProduto).toEqual({ ok: false, dados: { erro: `Passo 2: ${TEXTOS_DAS_ACOES.produtoNaoAchado}` } });
+          await q(`update produto set deleted_at = null where id = $1`, [prod]);
+          const { id } = await propor(tel, [passoTarefa, passoPausa]);
+          await q(`update produto set deleted_at = now() where id = $1`, [prod]);
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quemAna(tel));
+          await esperarOFim(id, /^Fiz um/);
+          await q(`update produto set deleted_at = null where id = $1`, [prod]);
+          // vencido
+          await q(`update mister_proposta set concluida_em = now() - interval '31 minutes' where id = $1`, [id]);
+          numero.pedidos.length = 0;
+          await planos.tocou(botaoDeTentar(id, 1), quemAna(tel));
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PLANO.tentativaNaoVale]);
+          expect(await situacao(id)).toBe('nao_deu');
+          await q(`update mister_proposta set concluida_em = now() where id = $1`, [id]);
+          numero.pedidos.length = 0;
+          await planos.tocou(botaoDeDeixar(id, 1), quemAna(tel));
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PLANO.deixado]);
+          numero.pedidos.length = 0;
+          await planos.tocou(botaoDeTentar(id, 1), quemAna(tel));
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PLANO.tentativaNaoVale]);
+          expect(await pausado()).toBe(false);
+        });
+
+        it('o passo que ficou sem confirmação não se refaz: não oferece "Tentar de novo" e nem o botão velho lança em dobro', async () => {
+          const tel = telefone();
+          await ligar('ana', tel);
+          const { id } = await propor(tel, [passoTarefa, passoPausa]);
+          // O processo caiu no meio da tarefa: o passo 1 ficou "executando" há mais tempo que o limite.
+          await q(`update mister_proposta set situacao = 'executando' where id = $1`, [id]);
+          await q(
+            `insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, situacao, vence_em, executada_em)
+             values ($1, $2, $3, 'criar_tarefa', $4::jsonb, 'botao', 'executando', now() + interval '10 minutes', now() - interval '6 minutes')`,
+            [A, lojaDeA, uuidDeChave('mister:plano:', id, ':', '1', ':', '1'), JSON.stringify({ colaboradorId: pessoa.ana, nivel: 'presidente', planoId: id, passo: 1, tentativa: 1 })],
+          );
+          numero.pedidos.length = 0;
+          await planos.avancar(id);
+          const fim = await esperarOFim(id, /^Fiz um, e um não entrou/);
+          expect(fim.texto).toContain(TEXTOS_DO_PLANO.naoConfirmou);
+          expect(fim.texto).toContain(TEXTOS_DO_PLANO.naoRepito);
+          expect(fim.botoes ?? []).toEqual([]);
+          expect([await tarefas(), await pausado()]).toEqual([0, true]);
+          // Um toque num botão guardado também não refaz o passo.
+          await planos.tocou(botaoDeTentar(id, 1), quemAna(tel));
+          await esperar(async () => (await situacao(id)) === 'nao_deu');
+          expect(await tarefas()).toBe(0);
+          expect((await filhas(id)).filter((f) => f.n === 1)).toHaveLength(1);
+        });
+
+        it('o nome que passou a apontar para outro item não executa: a pessoa autorizou o que viu', async () => {
+          const tel = telefone();
+          await ligar('ana', tel);
+          const { id } = await propor(tel, [passoTarefa, passoPausa]);
+          // Entre a pergunta e o toque, o produto foi trocado por outro com o mesmo nome.
+          await q(`update produto set deleted_at = now() where id = $1`, [prod]);
+          const [{ id: outro }] = await q(`insert into produto (tenant_id, unidade_id, nome, preco_venda) values ($1, $2, 'V7C Batata', 30) returning id::text as id`, [A, lojaDeA]);
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quemAna(tel));
+          const fim = await esperarOFim(id, /^Fiz um, e um não entrou/);
+          expect(fim.texto).toContain(TEXTOS_DO_PLANO.alvoMudou);
+          const [novo] = await q(`select disponivel_balcao as b from produto where id = $1`, [outro]);
+          expect(novo.b).not.toBe(false);
+        });
+
+        it('o passo de PIN pede o PIN pelo link: o plano espera, e o PIN certo faz o resto na ordem', async () => {
+          const tel = telefone();
+          await ligar('ana', tel);
+          const { r, id } = await propor(tel, [passoTarefa, passoPreco, passoPausa]);
+          expect(r.mensagens![0].texto).toContain('(pede o seu PIN)');
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quemAna(tel));
+          await esperar(async () => numero.enviadas.some((m) => !!m.link));
+          const comLink = numero.enviadas.find((m) => !!m.link)!;
+          expect(comLink.texto).toMatch(/^Passo 2 de 3\. Mudar o preço de "V7C Batata" para R\$ 25,00/);
+          // parou no PIN: o 1 fez, o 2 espera, o 3 nem nasceu
+          expect((await filhas(id)).map((f) => [f.n, f.situacao])).toEqual([
+            [1, 'feita'],
+            [2, 'proposta'],
+          ]);
+          expect([await preco(), await pausado(), await situacao(id)]).toEqual([20, false, 'executando']);
+          // a rotina não anda sem o PIN, e o botão montado à mão não autoriza o passo de PIN
+          await planos.avancar(id);
+          const doPreco = (await filhas(id))[1].id;
+          await propostasDasAcoes.responder(`prop:${doPreco}:sim`, quemAna(tel));
+          expect([await situacao(doPreco), await preco()]).toEqual(['proposta', 20]);
+          const c = codigoDe(comLink.link!.url);
+          expect((await propostasDasAcoes.autorizarPeloLink(c, '0000')).erro).toContain('O PIN não confere');
+          expect(await preco()).toBe(20);
+          await propostasDasAcoes.autorizarPeloLink(c, '2580');
+          const fim = await esperarOFim(id, /^Pronto, fiz os três/);
+          expect(fim.texto).toContain('✓ "V7C Batata" agora custa R$ 25,00');
+          expect([await preco(), await pausado(), await situacao(id)]).toEqual([25, true, 'feita']);
+        });
+
+        it('o PIN que vence ou é recusado para o plano ali: o resto não acontece sozinho, e "Tentar de novo" pede o PIN de novo', async () => {
+          const tel = telefone();
+          await ligar('ana', tel);
+          const { id } = await propor(tel, [passoTarefa, passoPreco, passoPausa]);
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quemAna(tel));
+          await esperar(async () => numero.enviadas.some((m) => !!m.link));
+          const doPreco = (await filhas(id))[1].id;
+          await q(`update mister_proposta set vence_em = now() - interval '1 second' where id = $1`, [doPreco]);
+          await propostasDasAcoes.vencer();
+          const fim = await esperarOFim(id, /^Fiz um, e dois não entraram/);
+          expect(fim.texto).toContain('o PIN não foi confirmado a tempo');
+          expect(fim.texto).toContain('não fiz, porque o passo de antes ficou esperando o PIN');
+          expect([await preco(), await pausado(), await situacao(id)]).toEqual([20, false, 'nao_deu']);
+          // de novo: só os dois que faltaram, com um link novo; agora recusado
+          numero.pedidos.length = 0;
+          await planos.tocou(botaoDeTentar(id, 1), quemAna(tel));
+          await esperar(async () => numero.enviadas.some((m) => !!m.link));
+          expect(await tarefas()).toBe(1);
+          const link = numero.enviadas.find((m) => !!m.link)!.link!.url;
+          await propostasDasAcoes.naoAutorizarPeloLink(codigoDe(link));
+          await esperar(async () => (await situacao(id)) === 'nao_deu');
+          expect([await preco(), await pausado(), await tarefas()]).toEqual([20, false, 1]);
+        });
+
+        it('é de quem pediu; o plano novo troca o aberto (o botão antigo explica), e "Mudar" não faz nada', async () => {
+          const tel = telefone();
+          const telCarlos = telefone();
+          await ligar('ana', tel);
+          await ligar('carlos', telCarlos, A, 'gerente');
+          const p1 = await propor(tel, [passoTarefa, passoPausa]);
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${p1.id}:sim`, quem(telCarlos, 'carlos', 'gerente'));
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DAS_ACOES.naoDisponivel]);
+          expect(await situacao(p1.id)).toBe('proposta');
+          const p2 = await propor(tel, [passoPausa, passoTarefa]);
+          expect((await q(`select situacao, resultado from mister_proposta where id = $1`, [p1.id]))[0]).toEqual({ situacao: 'recusada', resultado: RESULTADO_DO_PLANO_TROCADO });
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${p1.id}:sim`, quemAna(tel));
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PLANO.trocado]);
+          expect(await tarefas()).toBe(0);
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${p2.id}:nao`, quemAna(tel));
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PLANO.mudar]);
+          expect([await situacao(p2.id), await tarefas(), await pausado()]).toEqual(['recusada', 0, false]);
+          expect(await filhas(p2.id)).toEqual([]);
+        });
+
+        it('a conferência de cada passo é a de propor_acao: permissão, formato e passo repetido; quem perde o acesso no meio não faz', async () => {
+          const tel = telefone();
+          const telCarlos = telefone();
+          await ligar('ana', tel);
+          await ligar('carlos', telCarlos, A, 'gerente');
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          expect(await ferramentas.executar(e, 'propor_plano', { passos: [passoPausa, passoPausa], loja: 'Loja Centro' })).toEqual({ ok: false, dados: { erro: `Passo 2: ${TEXTOS_DO_PLANO.repetido}` } });
+          expect((await ferramentas.executar(e, 'propor_plano', { passos: [passoPausa], loja: 'Loja Centro' })).ok).toBe(false);
+          expect((await ferramentas.executar(e, 'propor_plano', { passos: [passoPausa, { acao: 'mudar_preco', produto: 'V7C Batata', canais: ['regem'], precoNovo: -1 }], loja: 'Loja Centro' })).dados.erro).toContain('Passo 2:');
+          const c = (await ferramentas.escopo(A, pessoa.carlos, telCarlos))!;
+          const semLoja = { ...c, permissoes: { ...c.permissoes, loja: false } } as any;
+          expect(await ferramentas.executar(semLoja, 'propor_plano', { passos: [passoTarefa, passoPausa] })).toMatchObject({ ok: false, dados: { erro: expect.stringContaining('Passo') } });
+          // perdeu o acesso entre a pergunta e o toque: o passo não acontece
+          const { id } = await propor(tel, [passoTarefa, passoPausa]);
+          await q(`update mister_proposta set situacao = 'executando', autorizada_por = $2, respondida_em = now() where id = $1`, [id, pessoa.ana]);
+          await q(`update colaborador set status = 'inativo' where id = $1`, [pessoa.ana]);
+          try {
+            await planos.avancar(id);
+            expect(await situacao(id)).toBe('nao_deu');
+            expect((await filhas(id)).map((f) => f.situacao)).toEqual(['nao_deu', 'nao_deu']);
+            expect([await tarefas(), await pausado()]).toEqual([0, false]);
+          } finally {
+            await q(`update colaborador set status = 'ativo' where id = $1`, [pessoa.ana]);
+          }
+        });
+
+        it('pela conexão por QR Code o plano não sai (não há botão)', async () => {
+          const tel = telefone();
+          await ligar('ana', tel);
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          const ler = numero.ler.bind(numero);
+          (numero as any).ler = async () => ({ ...(await ler()), provedor: 'evolution' });
+          try {
+            expect(await ferramentas.executar(e, 'propor_plano', { passos: [passoTarefa, passoPausa], loja: 'Loja Centro' })).toEqual({ ok: false, dados: { erro: TEXTOS_DO_PLANO.semBotao } });
+          } finally {
+            delete (numero as any).ler;
+          }
+        });
       });
 
       it('lote 3: criar a tarefa de hoje — a função pelo nome, o responsável entre os ativos da loja, as duas etapas da tela', async () => {
