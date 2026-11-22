@@ -23,7 +23,10 @@ const ETIQUETA: Record<string, string> = {
 const FAIXA: Record<string, string> = {
   madrugada: 'Madrugada (0–4h)', manha: 'Manhã', almoco: 'Almoço (11–15h)', tarde: 'Tarde', inicio_noite: 'Início da noite (18–21h)', noite: 'Noite (21–24h)',
 };
-const FAIXAS_DA_GRADE = ['inicio_noite', 'noite', 'madrugada', 'almoco'] as const;
+// As seis faixas do cálculo, na ordem do dia de operação. Manhã e tarde só aparecem para quem tem pedido nelas: assim a
+// grade soma todos os pedidos, e a loja que só abre à noite não ganha duas linhas vazias.
+const FAIXAS_DA_GRADE = ['manha', 'almoco', 'tarde', 'inicio_noite', 'noite', 'madrugada'] as const;
+const FAIXAS_SO_COM_PEDIDO = new Set<string>(['manha', 'tarde']);
 const DIAS = ['seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'];
 const CONFIANCA: Record<string, { rotulo: string; cls: string }> = {
   alta: { rotulo: 'confiança alta', cls: 'bg-ok/15 text-ok' },
@@ -90,6 +93,9 @@ export function FichaDoPerfil({ clienteId, nome, aoFechar }: { clienteId: string
   const fav: any[] = cam.gosto?.favoritos ?? [];
   const maxFav = Math.max(1, ...fav.map((f) => Number(f.pedidos) || 0));
   const grade = cam.ritmo?.grade ?? {};
+  const faixasDaGrade = FAIXAS_DA_GRADE.filter(
+    (fx) => !FAIXAS_SO_COM_PEDIDO.has(fx) || DIAS.some((_, i) => Number(grade?.[String(i + 1)]?.[fx] ?? 0) > 0),
+  );
 
   return (
     <Gaveta titulo={`Perfil do cliente · ${nome}`} aoFechar={aoFechar} media rodape={<Button variant="outline" onClick={aoFechar}>Fechar</Button>}>
@@ -206,7 +212,7 @@ export function FichaDoPerfil({ clienteId, nome, aoFechar }: { clienteId: string
                     </tr>
                   </thead>
                   <tbody>
-                    {FAIXAS_DA_GRADE.map((fx) => (
+                    {faixasDaGrade.map((fx) => (
                       <tr key={fx}>
                         <th scope="row" className="w-16 pr-1 text-left font-semibold leading-tight text-muted-foreground sm:w-24">{FAIXA[fx].split(' (')[0]}</th>
                         {DIAS.map((_, i) => {

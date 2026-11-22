@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { useModoDaLista } from '@/components/ui/lista';
 import { AniversarioNaGaveta } from '@/components/clientes/aniversario-na-gaveta';
+import { BotaoDoPerfil } from '@/components/clientes/botao-do-perfil';
 import { FichaDoPerfil } from '@/components/clientes/ficha-do-perfil';
 import { SegmentosDoPerfil, nomeDoSegmentoDoPerfil } from '@/components/clientes/segmentos-do-perfil';
 import { QuandoEnviar, type PreviaHabitual } from '@/components/marketing/quando-enviar';
@@ -228,7 +229,7 @@ export default function ClientesPage() {
     setSelec(todosSel ? new Set() : new Set(lista.map((c) => c.id)));
   }
   // A lista vira cartões quando a tabela não cabe (decisão do dono 4A, 03/11/2026 — V45): a mesma medida do `ListaDados`.
-  const { caixa: caixaLista, modo: modoLista } = useModoDaLista('clientes:selecao|cliente|telefone|pedidos|ultimo|ticket|total|canais');
+  const { caixa: caixaLista, modo: modoLista } = useModoDaLista(`clientes:selecao|cliente${perfilLigado ? '+perfil' : ''}|telefone|pedidos|ultimo|ticket|total|canais`);
   // As marcas ao lado do nome (na tabela e no cartão).
   const selosDoCliente = (c: any) => (
     <>
@@ -707,6 +708,7 @@ export default function ClientesPage() {
                                 onClick={(e) => e.stopPropagation()}
                                 aria-label={`Selecionar ${c.nome || 'cliente'}`}
                               />
+                              {perfilLigado && <BotaoDoPerfil nome={c.nome || 'cliente'} aoAbrir={() => setPerfilDe(c)} />}
                               <button
                                 type="button"
                                 className="min-w-0 flex-1 break-words text-left font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -852,8 +854,13 @@ export default function ClientesPage() {
                           />
                         </td>
                         <td className="px-3 py-2 font-medium">
-                          {c.nome || 'Cliente'}
-                          {selosDoCliente(c)}
+                          <div className="flex items-center gap-2">
+                            {perfilLigado && <BotaoDoPerfil nome={c.nome || 'cliente'} aoAbrir={() => setPerfilDe(c)} />}
+                            <span className="min-w-0">
+                              {c.nome || 'Cliente'}
+                              {selosDoCliente(c)}
+                            </span>
+                          </div>
                         </td>
                         <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
                           {c.telefone}

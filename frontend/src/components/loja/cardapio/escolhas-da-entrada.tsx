@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { Caixa } from './partes';
 
@@ -38,6 +38,37 @@ export function TextoDoAviso({ texto }: { texto: string }) {
   );
 }
 
+/** O aviso do perfil num cartão, com as duas respostas no mesmo desenho: recusar não pode parecer menor que aceitar. */
+export function CartaoDoAviso({
+  texto,
+  ocupado,
+  aoResponder,
+  rotuloContinuar = 'Continuar',
+}: {
+  texto: string;
+  ocupado: boolean;
+  aoResponder: (resposta: 'continuou' | 'recusou') => void;
+  rotuloContinuar?: string;
+}) {
+  const id = useId();
+  return (
+    <div className="ac-aviso" role="group" aria-labelledby={id}>
+      <h3 id={id} className="c-h">
+        Como a loja usa seus dados
+      </h3>
+      <TextoDoAviso texto={texto} />
+      <div className="ac-aviso-acoes">
+        <button type="button" className="p-btn2" disabled={ocupado} onClick={() => aoResponder('continuou')}>
+          {rotuloContinuar}
+        </button>
+        <button type="button" className="p-btn2" disabled={ocupado} onClick={() => aoResponder('recusou')}>
+          Não quero esse resumo
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function EscolhasDaEntrada({
   token,
   clienteToken,
@@ -65,6 +96,7 @@ export function EscolhasDaEntrada({
   const [maior, setMaior] = useState(false);
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState('');
+  const idAviso = useId();
   const vivo = useRef(true);
   useEffect(
     () => () => {
@@ -128,23 +160,18 @@ export function EscolhasDaEntrada({
   }
 
   const rotuloAceitar = temOfertas ? 'Aceitar as duas e continuar' : 'Aceitar e continuar';
+  // Com o aviso na tela, todas as respostas têm o mesmo desenho; sem ele, a entrada continua como era.
+  const classeDosBotoes = avisoPerfil ? 'p-btn2' : 'p-btn c';
 
   if (avisoPerfil && soAviso) {
     return (
       <div className="c-sec">
-        <h3 className="c-h">Como a loja usa seus dados</h3>
-        <TextoDoAviso texto={avisoPerfil.texto} />
+        <CartaoDoAviso texto={avisoPerfil.texto} ocupado={busy} aoResponder={(r) => void responderAviso(r)} rotuloContinuar={busy ? 'Salvando…' : 'Continuar'} />
         {erro && (
           <p className="c-msg err" role="alert">
             {erro}
           </p>
         )}
-        <button type="button" className="p-btn c" onClick={() => void responderAviso('continuou')} disabled={busy}>
-          {busy ? 'Salvando…' : 'Continuar'}
-        </button>
-        <button type="button" className="p-btn c" onClick={() => void responderAviso('recusou')} disabled={busy}>
-          Não quero esse resumo
-        </button>
       </div>
     );
   }
@@ -152,10 +179,12 @@ export function EscolhasDaEntrada({
   return (
     <div className="c-sec">
       {avisoPerfil && (
-        <>
-          <h3 className="c-h">Como a loja usa seus dados</h3>
+        <div className="ac-aviso" role="group" aria-labelledby={idAviso}>
+          <h3 id={idAviso} className="c-h">
+            Como a loja usa seus dados
+          </h3>
           <TextoDoAviso texto={avisoPerfil.texto} />
-        </>
+        </div>
       )}
       <h3 className="c-h">Você escolhe · opcional</h3>
       {/* Não é caixa: as recomendações vêm ligadas por legítimo interesse (D16); o aviso é o texto do servidor. */}
@@ -185,14 +214,14 @@ export function EscolhasDaEntrada({
           {erro}
         </p>
       )}
-      <button type="button" className="p-btn c" onClick={aceitarTodas} disabled={busy}>
+      <button type="button" className={classeDosBotoes} onClick={aceitarTodas} disabled={busy}>
         {rotuloAceitar}
       </button>
-      <button type="button" className="p-btn c" onClick={() => void salvar({ conv, ofe, maior })} disabled={busy}>
+      <button type="button" className={classeDosBotoes} onClick={() => void salvar({ conv, ofe, maior })} disabled={busy}>
         {busy ? 'Salvando…' : algumMarcado ? 'Continuar com o que marquei' : 'Continuar sem marcar'}
       </button>
       {avisoPerfil && (
-        <button type="button" className="p-btn c" onClick={() => void responderAviso('recusou')} disabled={busy}>
+        <button type="button" className={classeDosBotoes} onClick={() => void responderAviso('recusou')} disabled={busy}>
           Não quero esse resumo
         </button>
       )}
