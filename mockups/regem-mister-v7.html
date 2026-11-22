@@ -1,0 +1,1193 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mister que conversa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PROTÓTIPO DO MISTER — VERSÃO 7, "O MISTER QUE CONVERSA" (22/11/2026), para aprovação do dono.
+   Conversa natural, análises de venda (BI), indicadores financeiros, voz no tom de quem fala e os dois ajustes novos.
+   Os estilos são os da v6; os novos vêm depois. Todos os dados são inventados. */
+:root{
+  --bg:#EDF0F4; --card:#FFFFFF; --ink:#0F2230; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E2A340; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0E7C66; --ok-bg:#E8F6F1; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A; --d-azul:#7CC0F5;
+  /* o gráfico (claro) */
+  --g-fundo:#FFFFFF; --g-ink:#0F2230; --g-ink2:#55697B; --g-grade:#E6ECF1; --g-eixo:#C8D2DC; --g-barra:#2F4A60; --g-ant:#D3DCE4;
+  --g-dest:#C08118; --g-area:rgba(212,149,47,.16); --g-bom:#0E7C66; --g-ruim:#B93232;
+  --g-c1:#2F4A60; --g-c2:#D4952F; --g-c3:#5B8DB8; --g-c4:#3E8E7E; --g-c5:#A9B7C4;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px} h3{font-size:16px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pular{position:absolute;left:8px;top:-60px;background:var(--gold);color:var(--on-gold);padding:8px 12px;border-radius:8px;font-weight:700;z-index:99}
+.pular:focus{top:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+.pagina{padding:20px;max-width:1240px;margin-inline:auto;container-type:inline-size;container-name:principal}
+.cab{margin-bottom:16px} .cab .sub{max-width:76ch;margin-top:4px}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.faixa{border-radius:10px;padding:10px 14px;margin-bottom:14px;border:1px solid}
+.faixa.warn{background:var(--warn-bg);border-color:#EBC7B0;color:#6F3410} .faixa.info{background:var(--info-bg);border-color:#BFD6EA;color:#1D4C77}
+.faixa.ok{background:var(--ok-bg);border-color:#B5DCC8;color:#0B4A33}
+a{color:var(--info);text-underline-offset:2px}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.v5{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:2px;white-space:nowrap}
+.fase{font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--gold-ink)}
+
+/* celular */
+.celulares{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:24px 18px;align-items:start}
+.caso h3{margin-bottom:2px} .caso > .sub{font-size:13.5px;margin-bottom:8px}
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:370px}
+.cel-topo{background:var(--c-wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:150px;align-content:start}
+.bolha{max-width:90%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.42;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere;min-width:0}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha.larga{max-width:96%;width:96%}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#5E6E7A;margin-top:2px}
+.bolha ul{margin:4px 0;padding-left:18px} .bolha li{margin-bottom:2px}
+.entendi{display:block;font-size:13px;color:#43586C;background:#F3F6F8;border-left:3px solid var(--c-wa);border-radius:4px;padding:4px 8px;margin:-1px -3px 6px}
+.botoes-wa{display:grid;gap:4px;margin-top:6px}
+.botoes-wa span{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.botoes-wa.dois{grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr))}
+.toque{justify-self:end;font-size:12px;color:#5E6E7A;background:rgba(255,255,255,.7);border-radius:999px;padding:2px 10px}
+.audio{display:flex;gap:8px;align-items:center;min-width:0;padding:2px 0}
+.audio .play{width:30px;height:30px;border-radius:50%;background:var(--c-wa);color:#fff;display:grid;place-items:center;font-size:11px;flex:none}
+.audio .onda{flex:1;min-width:40px;height:20px;background:repeating-linear-gradient(90deg,#7C8B96 0 2px,transparent 2px 5px);border-radius:2px;opacity:.8}
+.audio small{font:600 11px var(--mono);color:#5E6E7A;flex:none}
+.midia{display:block;border-radius:8px;overflow:hidden;margin:-3px -6px 6px;background:#fff;border:1px solid #D5DDE3}
+.doc-msg{display:flex;gap:10px;align-items:center;background:#F3F6F8;border-radius:8px;padding:8px 10px;margin:-2px -4px 6px;min-width:0}
+.doc-msg .ico{width:32px;height:38px;border-radius:4px;background:var(--crit);color:#fff;display:grid;place-items:center;font:800 10px var(--display);flex:none}
+.doc-msg > span:not(.ico){min-width:0}
+.doc-msg b{display:block;font-size:13px;line-height:1.25;overflow-wrap:anywhere} .doc-msg small{font-size:11.5px;color:#5E6E7A}
+/* fotos ilustradas */
+.f-tela{display:grid;grid-template-columns:70px minmax(0,1fr);font-size:10px;background:#F4F5F7;min-height:116px}
+.f-tela .l{background:#3A3A3A;color:#ddd;padding:8px 6px;display:grid;gap:4px;align-content:start}
+.f-tela .c{padding:10px;display:grid;gap:6px;align-content:start;min-width:0}
+.f-tela .alerta{background:#FDECEC;color:#8A1F1F;border:1px solid #F2B8B8;border-radius:4px;padding:5px 7px;font-weight:700}
+.f-tela .cinza{height:7px;border-radius:3px;background:#D8DDE2} .f-tela .cinza.c2{width:60%}
+.f-freezer{position:relative;height:128px;background:linear-gradient(180deg,#DCE8EF,#C3D3DD);padding:12px;display:flex;gap:8px;align-items:flex-end}
+.f-freezer .cx{flex:1;height:70px;background:linear-gradient(160deg,#D9C29A,#BFA374);border-radius:3px;display:grid;place-items:center;font:700 9.5px var(--mono);color:#4B3A1E;text-align:center;padding:4px}
+.f-freezer .cx:nth-child(2){height:84px} .f-freezer .gelo{position:absolute;inset:0;background:repeating-linear-gradient(115deg,rgba(255,255,255,.18) 0 6px,transparent 6px 18px);pointer-events:none}
+.f-papel{height:128px;background:#FBF7EC;padding:12px 16px;display:grid;gap:7px;align-content:start;font:italic 600 12px "Segoe Print","Comic Sans MS",cursive;color:#2B3A67;transform:rotate(-1deg)}
+.f-papel span{border-bottom:1px solid #E3DCC8}
+
+/* gráfico */
+.grafico{background:var(--g-fundo);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.g-svg{display:block;width:100%;height:auto}
+.g-svg text{font-family:var(--body)}
+.g-fundo{fill:var(--g-fundo)} .g-faixa{fill:var(--g-dest)}
+.g-tit{font-family:var(--display)!important;font-weight:700;font-size:15.5px;fill:var(--g-ink)}
+.g-sub{font-size:11.5px;fill:var(--g-ink2)}
+.g-kpi{font-family:var(--mono)!important;font-weight:700;font-size:22px;fill:var(--g-ink)}
+.g-delta{font-size:11.5px;font-weight:700} .g-delta.bom{fill:var(--g-bom)} .g-delta.ruim{fill:var(--g-ruim)}
+.g-grade{stroke:var(--g-grade);stroke-width:1} .g-eixo{stroke:var(--g-eixo);stroke-width:1}
+.g-barra{fill:var(--g-barra)} .g-ant{fill:var(--g-ant)} .g-dest{fill:var(--g-dest)}
+.g-val{font-family:var(--mono)!important;font-size:10.5px;font-weight:700;fill:var(--g-ink)}
+.g-rot{font-size:11px;font-weight:600;fill:var(--g-ink)} .g-rot2{font-size:10px;fill:var(--g-ink2)}
+.g-leg{font-size:10.5px;fill:var(--g-ink2)} .g-rod{font-size:10px;fill:var(--g-ink2)}
+.g-area{fill:var(--g-area)} .g-linha{fill:none;stroke:var(--g-dest);stroke-width:2.5;stroke-linejoin:round}
+.g-ponto{fill:var(--g-fundo);stroke:var(--g-dest);stroke-width:2} .g-pico{fill:var(--g-dest)}
+.g-media{stroke:var(--g-ink);stroke-width:1.5;stroke-dasharray:6 4} .g-media-t{font-size:10.5px;font-weight:700;fill:var(--g-ink)}
+.g-c1{fill:var(--g-c1)} .g-c2{fill:var(--g-c2)} .g-c3{fill:var(--g-c3)} .g-c4{fill:var(--g-c4)} .g-c5{fill:var(--g-c5)}
+.g-nome{font-size:11.5px;font-weight:600;fill:var(--g-ink)} .g-num{font-family:var(--mono)!important;font-size:11px;font-weight:700;fill:var(--g-ink)}
+.g-num2{font-family:var(--mono)!important;font-size:10.5px;fill:var(--g-ink2)} .g-trilho{fill:var(--g-grade)}
+/* o desenho antigo, para comparar */
+.antigo .g-svg text{font-family:Arial,sans-serif}
+.escuro{--g-fundo:#0E1A24; --g-ink:#EEF3F7; --g-ink2:#A7B6C3; --g-grade:#22323F; --g-eixo:#3A4C5B; --g-barra:#9FB7CC; --g-ant:#34495A; --g-dest:#F0B252; --g-area:rgba(240,178,82,.18); --g-bom:#4ED19B; --g-ruim:#F58A8A;
+  --g-c1:#9FB7CC; --g-c2:#F0B252; --g-c3:#6FA8DC; --g-c4:#5CC2AE; --g-c5:#5D6F7E; color-scheme:dark}
+
+/* vista dos gráficos */
+.graficos{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr));gap:18px;align-items:start}
+.g-caso h3{margin-bottom:2px} .g-caso > .sub{font-size:13.5px;margin-bottom:8px}
+.onde{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.comparar{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px;align-items:start}
+.lista-melhor{margin:6px 0 0;padding-left:20px} .lista-melhor li{margin-bottom:4px}
+
+/* arquivo e link */
+.arquivos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:22px;align-items:start}
+.folha{background:#fff;border:1px solid var(--line-2);border-radius:4px;box-shadow:0 6px 20px rgba(19,37,54,.12);padding:22px;display:flex;flex-direction:column;gap:14px;min-width:0;container-type:inline-size;container-name:folha}
+.folha-cab{display:flex;justify-content:space-between;gap:8px 12px;align-items:flex-start;border-bottom:2px solid var(--navy);padding-bottom:10px;flex-wrap:wrap}
+.folha-cab .marca-f{font:800 15px var(--display);letter-spacing:.04em}
+.folha-cab .marca-f small{display:block;font:500 11px var(--body);color:var(--ink-2);letter-spacing:0}
+.folha-cab .quando{font-size:12px;color:var(--ink-2)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,124px),1fr));gap:8px}
+.kpi{border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+.kpi b{display:block;font:700 18px var(--mono);font-variant-numeric:tabular-nums}
+.kpi span{font-size:12px;color:var(--ink-2)} .kpi .d{font-size:12px;font-weight:700;color:var(--ok)}
+.folha-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px}
+.folha h4{font:700 13px var(--display);margin:0 0 4px}
+.folha-rod{font-size:11px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:8px}
+.tab{width:100%;border-collapse:collapse;font-size:13px}
+.tab th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:6px 8px;border-bottom:2px solid var(--line-2)}
+.tab td{padding:7px 8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere} .tab .num{text-align:right}
+@container folha (max-width: 420px){
+  .tab thead{display:none} .tab,.tab tbody,.tab tr,.tab td{display:block;width:100%}
+  .tab tr{border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin-bottom:8px}
+  .tab td{border:0;padding:2px 0;text-align:left!important}
+  .tab td[data-rot]::before{content:attr(data-rot) " · ";font-weight:600;color:var(--ink-2)}
+}
+.tela-link{border:8px solid #1B2A36;border-radius:28px;overflow:hidden;max-width:380px;background:var(--bg)}
+.tela-link .barra-end{background:#fff;border-bottom:1px solid var(--line);padding:7px 12px;font:600 11.5px var(--mono);color:var(--ink-2);overflow-wrap:anywhere}
+.lk{padding:14px;display:grid;gap:12px;background:var(--lk-bg,#F1F4F8);color:var(--lk-ink,#132536)}
+.lk .lk-cab{display:grid;gap:2px}
+.lk .lk-sobre{font:700 11px var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--lk-ouro,#7A5209)}
+.lk .lk-card{background:var(--lk-card,#fff);border:1px solid var(--lk-linha,#DEE5EC);border-radius:12px;padding:12px;min-width:0}
+.lk .lk-card h4{font:700 13.5px var(--display);margin:0 0 6px}
+.lk .lk-abas{display:flex;flex-wrap:wrap;gap:6px}
+.lk .lk-aba{border:1px solid var(--lk-linha,#C8D2DC);background:var(--lk-card,#fff);color:inherit;border-radius:999px;padding:4px 12px;min-height:36px;font-weight:600;cursor:pointer}
+.lk .lk-aba[aria-pressed="true"]{background:var(--lk-ink,#132536);color:var(--lk-card,#fff);border-color:var(--lk-ink,#132536)}
+.lk .lk-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.lk .lk-kpi{background:var(--lk-card,#fff);border:1px solid var(--lk-linha,#DEE5EC);border-radius:10px;padding:8px 10px;min-width:0}
+.lk .lk-kpi b{display:block;font:700 17px var(--mono)} .lk .lk-kpi span{font-size:12px;opacity:.8}
+.lk .lk-rod{font-size:12px;opacity:.85}
+.lk .lk-btn{border:1px solid var(--lk-linha,#C8D2DC);background:var(--lk-card,#fff);color:inherit;border-radius:10px;padding:8px 12px;min-height:40px;font-weight:600;cursor:pointer;flex:1 1 140px}
+.lk.escuro{--lk-bg:#07111A; --lk-ink:#EEF3F7; --lk-card:#0E1A24; --lk-linha:#22323F; --lk-ouro:#F0B252}
+.lk.escuro .grafico{border-color:#22323F}
+
+/* app da loja */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:70vh;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#EDF0F4}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px;letter-spacing:.02em}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px}
+.lado li.atual{background:rgba(226,163,64,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:loja}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.onde-app{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.corpo-app{padding:18px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.grupo-aj{font:700 12.5px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin:4px 0 2px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}
+.grupo-aj span{font:500 12.5px var(--body);text-transform:none;letter-spacing:0}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line)}
+.aj.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;min-width:0}
+.aj .ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:40px;background:#fff;max-width:100%;min-width:0}
+.liga{position:relative;width:52px;height:30px;border-radius:999px;border:1px solid var(--line-2);background:var(--neutro-bg);cursor:pointer;flex:none;padding:0}
+.liga::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.liga[aria-checked="true"]{background:var(--ok);border-color:var(--ok)} .liga[aria-checked="true"]::after{left:25px}
+.liga[disabled]{opacity:.5;cursor:not-allowed}
+.estado-liga{font-size:13px;color:var(--ink-2);min-width:64px}
+@container loja (max-width: 620px){ .aj{grid-template-columns:minmax(0,1fr)} .aj .ctrl{justify-content:flex-start} }
+.barra-salvar{position:sticky;bottom:0;background:var(--navy);color:#fff;border-radius:12px 12px 0 0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;z-index:5;margin-top:12px}
+.barra-salvar .btn{border-color:#3C5568;background:transparent;color:#fff} .barra-salvar .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.barra-salvar :focus-visible{outline-color:var(--d-azul)}
+.medidor{height:12px;border-radius:999px;background:var(--neutro-bg);overflow:hidden;margin:8px 0}
+.medidor span{display:block;height:100%;background:var(--navy);border-radius:999px}
+.usos{list-style:none;margin:8px 0 0;padding:0}
+.usos li{display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)}
+.usos li:first-child{border-top:0}
+
+/* notas */
+.notas{max-width:1000px}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:6px}
+.decisao{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0 0}
+.decisao h3{font-size:15px;margin-bottom:6px}
+.decisao ol{margin:0;padding-left:20px} .decisao li{margin-bottom:4px}
+.rec{font:700 11px var(--display);background:var(--ok-bg);color:var(--ok);padding:1px 7px;border-radius:999px;letter-spacing:.03em;white-space:nowrap}
+.fases{width:100%;border-collapse:collapse;font-size:14px}
+.fases th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px;border-bottom:2px solid var(--line-2)}
+.fases td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+@container principal (max-width: 700px){
+  .fases thead{display:none} .fases,.fases tbody,.fases tr,.fases td{display:block;width:100%}
+  .fases tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff}
+  .fases td{border:0;padding:3px 0}
+  .fases td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+}
+
+@media (max-width: 900px){
+  .app{grid-template-columns:minmax(0,1fr)} .lado{display:none}
+  .pagina{padding:14px} .topo{padding:10px 14px} .corpo-app{padding:14px}
+  .btn,.parte{min-height:44px}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important} }
+
+
+/* ── peças novas da v6 ── */
+.v6{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:2px;white-space:nowrap}
+.trava{display:block;font-size:13px;color:#6F3410;background:var(--warn-bg);border-left:3px solid var(--warn);border-radius:4px;padding:4px 8px;margin:-1px -3px 6px}
+.regra-pt{display:block;background:#F3F6F8;border-radius:8px;padding:8px 10px;margin:6px -4px 4px;font-size:13.5px}
+.regra-pt b{font-family:var(--display);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#43586C;display:block;margin-bottom:2px}
+.link-wa{display:block;margin-top:6px;background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.lista-num{margin:4px 0;padding-left:20px} .lista-num li{margin-bottom:2px}
+.f-cupom{background:#FFFEF8;padding:10px 12px;font:600 10px var(--mono);color:#3A3A3A;display:grid;gap:3px;min-height:128px}
+.f-cupom .lin{display:flex;justify-content:space-between;gap:8px} .f-cupom .tr{border-top:1px dashed #9AA;margin:2px 0}
+.f-planilha{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));font:600 10px var(--mono);background:#fff;min-height:110px}
+.f-planilha span{border:1px solid #DDE3E8;padding:3px 5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.f-planilha span.h{background:#E8F1E8;font-weight:800}
+.bolha.com-foto{width:min(270px,84%)}
+.g-mini{display:block;width:100%;height:auto;background:#fff;border-radius:8px;margin:-3px -6px 6px;border:1px solid #D5DDE3}
+
+/* lista no modelo do Estoque */
+.lista-cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;margin-bottom:10px}
+.lista-cab h2{font-size:18px} .lista-cab h2 .mono{font-size:15px;color:var(--ink-2)}
+.situacoes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.sit{background:#fff;border:1px solid var(--line-2);border-radius:999px;padding:5px 12px;min-height:36px;cursor:pointer;font-weight:600;color:var(--ink-2)}
+.sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.sit .mono{margin-left:4px}
+.busca{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.busca input,.busca select{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff;min-width:0;flex:1 1 200px}
+.busca select{flex:0 1 200px}
+.linhas{display:grid;gap:8px}
+.linha{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;align-items:start}
+.linha .t{font-weight:600} .linha .d{font-size:13.5px;color:var(--ink-2)}
+.linha .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.linha .ac{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.btn.peq{min-height:36px;padding:5px 10px;font-size:13.5px}
+.btn.perigo{color:var(--crit);border-color:#E9B8B8}
+@container loja (max-width: 560px){ .linha{grid-template-columns:minmax(0,1fr)} .linha .ac{justify-content:flex-start} }
+.vazio{border:1px dashed var(--line-2);border-radius:10px;padding:18px;text-align:center;color:var(--ink-2)}
+
+/* gaveta e diálogo */
+.fundo{position:fixed;inset:0;background:rgba(11,24,34,.45);z-index:40}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:#fff;z-index:41;display:flex;flex-direction:column;box-shadow:-8px 0 30px rgba(0,0,0,.18)}
+.gaveta-cab{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line)}
+.gaveta-corpo{padding:16px 18px;overflow-y:auto;display:grid;gap:12px;align-content:start;min-height:0;flex:1}
+.gaveta-rod{padding:12px 18px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.campo{display:grid;gap:4px} .campo label,.campo .rot{font-weight:600;font-size:14px}
+.campo input,.campo select,.campo textarea{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff;width:100%;min-width:0}
+.campo .ajuda{font-size:12.5px;color:var(--ink-2)}
+.fechar{background:transparent;border:1px solid var(--line-2);border-radius:10px;min-width:40px;min-height:40px;cursor:pointer;font-size:18px;line-height:1}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(460px,calc(100% - 32px));max-height:calc(100% - 32px);overflow-y:auto;background:#fff;border-radius:14px;z-index:43;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+.fundo.alto{z-index:42}
+.dialogo h2{margin-bottom:8px}
+.dialogo .acoes{justify-content:flex-end;margin-top:14px}
+.lista-ok{margin:6px 0 0;padding-left:20px} .lista-ok li{margin-bottom:4px}
+
+/* console */
+.console .app{background:#0F1B25} .console .lado{background:#07111A}
+.console .principal{background:#EDF0F4}
+.tab-c{width:100%;border-collapse:collapse;font-size:14px;background:#fff;border-radius:10px;overflow:hidden}
+.tab-c th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line-2)}
+.tab-c td{padding:9px 10px;border-bottom:1px solid var(--line);overflow-wrap:anywhere;vertical-align:top}
+@container loja (max-width: 640px){
+  .tab-c thead{display:none} .tab-c,.tab-c tbody,.tab-c tr,.tab-c td{display:block;width:100%}
+  .tab-c tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:8px;background:#fff}
+  .tab-c td{border:0;padding:3px 0}
+  .tab-c td[data-rot]::before{content:attr(data-rot) " · ";font-weight:600;color:var(--ink-2)}
+}
+
+
+/* ── peças novas da v7 ── */
+.v7{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:3px;white-space:nowrap}
+.secao{font-size:18px;margin:22px 0 4px}
+.secao:first-of-type{margin-top:6px}
+.secao-sub{color:var(--ink-2);font-size:14px;margin-bottom:12px;max-width:76ch}
+.bolha .hora{color:#52616C}
+.toque{color:#47555F;background:rgba(255,255,255,.85)}
+.entendi{color:#3C4F60}
+
+/* antes e depois */
+.par{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:22px 18px;align-items:start;margin-bottom:8px}
+.etq{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin-bottom:8px;font-size:13.5px;color:var(--ink-2)}
+.cel.antes .cel-topo{background:#55646F}
+.cel.antes .cel-topo .foto{color:#55646F}
+.robo{display:block;font:500 12.5px/1.45 var(--mono);color:#33434F}
+.mudou-lista{margin:6px 0 0;padding-left:20px}
+.mudou-lista li{margin-bottom:6px}
+.nunca{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:10px}
+.nunca li{border-top:1px solid var(--line);padding-top:10px}
+.nunca li:first-child{border-top:0;padding-top:0}
+.nunca s{display:block;color:var(--crit);text-decoration-thickness:1.5px;font-weight:600}
+.nunca span{font-size:13.5px;color:var(--ink-2)}
+
+/* o Mister conferindo e os passos */
+.pensa{justify-self:start;display:inline-flex;gap:7px;align-items:center;font-size:12.5px;color:#3C4F60;background:rgba(255,255,255,.88);border-radius:999px;padding:3px 11px}
+.pensa::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--gold);flex:none}
+.passos{list-style:none;margin:5px 0;padding:0;display:grid;gap:5px}
+.passos li{display:grid;grid-template-columns:20px minmax(0,1fr);gap:4px;align-items:start}
+.passos .m{font-weight:700;text-align:center;line-height:1.42}
+.passos .m.ok{color:var(--ok)} .passos .m.nao{color:var(--warn)} .passos .m.n{color:#47555F;font-family:var(--mono);font-size:12.5px}
+
+/* números × sugestão */
+.bloco{display:block;border-radius:6px;padding:6px 9px;margin:6px -2px 2px;font-size:13.5px;line-height:1.42}
+.bloco > b:first-child{display:block;font:700 12px var(--display);margin-bottom:2px}
+.mostra{background:#EEF2F6;border-left:3px solid var(--navy)}
+.mostra > b:first-child{color:var(--navy)}
+.sugere{background:var(--gold-bg);border-left:3px solid var(--gold)}
+.sugere > b:first-child{color:var(--gold-ink)}
+.legenda{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px;margin-bottom:16px}
+.legenda .bloco{margin:0;background-clip:padding-box}
+.legenda .mostra{background:#fff;border:1px solid var(--line);border-left:3px solid var(--navy)}
+.legenda .sugere{background:#fff;border:1px solid var(--line);border-left:3px solid var(--gold)}
+
+/* gráfico no balão: desenhado em HTML para a letra não encolher no celular */
+.gb{display:block;background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:9px 10px;margin:6px -3px}
+.gb-t{display:block;font:700 13.5px/1.25 var(--display);color:var(--ink)}
+.gb-s{display:block;font-size:11.5px;color:#52616C;margin:1px 0 7px}
+.gb-lin{display:grid;grid-template-columns:minmax(0,5.6em) minmax(0,1fr) auto;gap:6px;align-items:center;font-size:12px;line-height:1.25;padding:2px 0}
+.gb-lin .r{color:var(--ink);overflow-wrap:break-word}
+.gb-lin .tr{height:11px;display:block;background:#EEF2F6;border-radius:0 4px 4px 0;overflow:hidden}
+.gb-lin .tr i{display:block;height:100%;background:var(--g-barra);border-radius:0 4px 4px 0}
+.gb-lin.dest .r{font-weight:700}
+.gb-lin.dest .tr i{background:var(--g-dest)}
+.gb-lin .v{font:700 11.5px var(--mono);font-variant-numeric:tabular-nums;color:var(--ink);text-align:right;white-space:nowrap}
+
+/* financeiro */
+.k-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin-bottom:8px}
+.k-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;min-width:0;display:flex;flex-direction:column;gap:5px}
+.k-card .nome{font:700 14px var(--display)}
+.k-card .num{font:700 27px/1.1 var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+.k-card .como{font-size:13px;color:var(--ink-2)}
+.k-card .selo{align-self:flex-start;white-space:normal}
+.f-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,215px),1fr));gap:12px;margin-bottom:8px}
+.f-card{background:var(--card);border:1px dashed var(--line-2);border-radius:var(--radius);padding:14px 16px;min-width:0;display:flex;flex-direction:column;gap:6px}
+.f-card .topo-f{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;justify-content:space-between}
+.f-card .nome{font:700 14.5px var(--display)}
+.f-card p{font-size:13.5px;margin:0}
+.f-card .rot{font-weight:700;color:var(--ink)}
+.f-card .ausente{font:700 22px var(--mono);color:var(--ink-2)}
+
+/* voz */
+.regras-voz{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px;margin-bottom:16px}
+.regra-v{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--navy);border-radius:10px;padding:12px 14px;min-width:0}
+.regra-v.forte{border-top-color:var(--crit)}
+.regra-v h3{font-size:14.5px;margin-bottom:3px}
+.regra-v p{font-size:13.5px;color:var(--ink-2);margin:0}
+.tom{display:inline-block;font:700 11.5px/1.3 var(--display);padding:2px 8px;border-radius:999px;margin-bottom:4px;background:var(--neutro-bg);color:#33434F}
+.tom.alegre{background:#FFF1D6;color:#694606}
+.tom.serio{background:#E4E9EE;color:#22323F}
+.audio-v7{display:flex;gap:8px;align-items:center;min-width:0;padding:2px 0}
+.audio-v7 .play{width:30px;height:30px;border-radius:50%;background:var(--c-wa);color:#fff;display:grid;place-items:center;font-size:11px;flex:none}
+.audio-v7 small{font:600 11px var(--mono);color:#52616C;flex:none}
+.onda-v7{flex:1 1 auto;min-width:40px;width:100%;height:26px;display:block}
+.onda-v7 rect{fill:#74838E}
+.onda-v7 rect.o-riso{fill:#C98512}
+.transc{display:block;font-size:13.5px;margin-top:4px;padding-top:5px;border-top:1px solid #E6EBEF}
+.transc > b:first-child{display:block;font:700 11.5px var(--display);color:#47555F;margin-bottom:1px}
+mark.riso{background:#FFE9BD;color:#5C3D05;border-radius:4px;padding:0 5px;font-weight:700;font-size:12.5px;white-space:nowrap}
+.percebeu{display:block;font-size:12.5px;color:#3C4F60;margin-top:3px}
+.comparar-voz{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px;margin-bottom:6px}
+.voz-card{background:var(--wa-fundo);border-radius:var(--radius);padding:12px;min-width:0;display:grid;gap:8px}
+.voz-card .bolha{max-width:100%;width:100%}
+.voz-card p{font-size:13.5px;margin:0;color:#2B3B48}
+
+/* ajustes */
+.parte[disabled]{cursor:default}
+.busca-aj{display:flex;margin-bottom:12px}
+.busca-aj input{flex:1 1 auto;min-width:0;max-width:420px;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff}
+.aj.largo{grid-template-columns:minmax(0,1fr)}
+.aj.largo .ctrl{justify-content:stretch}
+.aj textarea{font:inherit;color:inherit;width:100%;min-width:0;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;background:#fff;resize:vertical}
+.aj .preco{display:block;font-size:13px;font-weight:600;color:var(--gold-ink);margin-top:3px}
+.ja{font:600 11px var(--display);color:var(--ink-2);background:var(--neutro-bg);border-radius:4px;padding:1px 6px;white-space:nowrap;vertical-align:2px}
+.link-aj{background:transparent;border:0;padding:4px 0;min-height:32px;color:var(--info);font-weight:600;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.bloco-aj{margin-bottom:16px}
+.salvo{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ok);color:#fff;font-weight:600;padding:9px 16px;border-radius:10px;z-index:50;max-width:calc(100% - 32px);box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.conta-g{background:var(--neutro-bg);border-radius:10px;padding:10px 12px;font-size:14px}
+.conta-g b{font-family:var(--mono)}
+.gaveta-sec{display:grid;gap:12px;min-width:0}
+.gaveta h3{font-size:14.5px;margin-bottom:3px}
+.gaveta .lista-ok{font-size:14px}
+.barra-salvar{flex-wrap:wrap}
+
+/* notas */
+.notas{max-width:1040px}
+.dois-lados{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px}
+.dois-lados .cartao{margin-bottom:0}
+.dois-lados{margin-bottom:14px}
+/* a tabela de fases tem 4 colunas: vira cartões antes de espremer */
+@container principal (max-width: 940px){
+  .fases thead{display:none} .fases,.fases tbody,.fases tr,.fases td{display:block;width:100%}
+  .fases tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff}
+  .fases td{border:0;padding:3px 0}
+  .fases td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+}
+.fases td:first-child{font-weight:700}
+@media (max-width:900px){ .link-aj{min-height:44px} .busca-aj input{min-height:44px} }
+</style>
+</head>
+<body>
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+<header class="proto">
+  <span class="titulo">Protótipo · Mister v7</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button class="aba" data-aba="conversa" aria-pressed="true">Conversa natural</button>
+    <button class="aba" data-aba="analises" aria-pressed="false">Análises (BI)</button>
+    <button class="aba" data-aba="financeiro" aria-pressed="false">Financeiro</button>
+    <button class="aba" data-aba="voz" aria-pressed="false">Voz</button>
+    <button class="aba" data-aba="loja" aria-pressed="false">Na loja</button>
+    <button class="aba" data-aba="notas" aria-pressed="false">Notas e decisões</button>
+  </nav>
+  <span class="nota">Dados inventados. Nada aqui fala com o Regem.</span>
+</header>
+
+<main id="conteudo" tabindex="-1">
+
+<!-- ═════════════════════ CONVERSA NATURAL ═════════════════════ -->
+<section class="vista ativa" id="v-conversa" aria-labelledby="h-conversa">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-conversa">Conversa natural <span class="v7">v7</span></h1>
+      <p class="sub">O Mister para de responder como formulário. Entende de primeira, diz o plano numa frase, ajusta na conversa e só aplica depois do seu toque. Os dados, os relatórios e os alertas continuam os mesmos.</p>
+    </div>
+
+    <h2 class="secao">O caso real: "me avisa só quando juntar 3 pedidos"</h2>
+    <p class="secao-sub">A mesma frase, nas duas versões.</p>
+    <div class="par">
+      <article class="caso" aria-label="Como é hoje">
+        <p class="etq"><span class="selo warn">Como é hoje</span> Cria, nega e cria de novo</p>
+        <div class="cel antes"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">me avisa só quando juntar 3 pedidos com 20 min<span class="hora">21:05</span></div>
+          <div class="bolha dele"><span class="robo">✅ REGRA CRIADA<br>Fonte: pedidos_canais<br>Condição: qtd ≥ 3, tempo &gt; 20 min<br>Frequência: sempre</span>Para ver ou apagar: "minhas regras".<span class="hora">21:05</span></div>
+          <div class="bolha dele">⏱ Pedido #22 parado há 21 min.<span class="hora">21:41</span></div>
+          <div class="bolha dele">⏱ Pedido #24 parado há 20 min.<span class="hora">21:42</span></div>
+          <div class="bolha meu">não falei pra só avisar com 3? continua vindo um por um<span class="hora">21:43</span></div>
+          <div class="bolha dele">Não encontrei essa regra criada. Vou criar agora.<span class="robo">✅ REGRA CRIADA</span><span class="hora">21:43</span></div>
+          <div class="bolha meu">como assim? você disse que tinha criado<span class="hora">21:44</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso" aria-label="Com a versão 7">
+        <p class="etq"><span class="selo ok">Com a v7</span> Entende, ajusta e aplica</p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">me avisa só quando juntar 3 pedidos com 20 min<span class="hora">21:05</span></div>
+          <div class="bolha dele larga">Combinado: quando <b>3 ou mais pedidos</b> passarem de <b>20 min</b> na cozinha, te mando <b>uma mensagem só</b>, com os números. Com 1 ou 2 eu fico quieto, e o aviso de um em um para de chegar pra você. Fica assim?
+            <div class="botoes-wa dois"><span>Aplicar</span><span>Mudar</span></div><span class="hora">21:05</span></div>
+          <div class="bolha meu">faz 25 min<span class="hora">21:06</span></div>
+          <div class="bolha dele larga">Troquei para <b>25 min</b>. Juntou 3 ou mais pedidos passando disso, vem uma mensagem só. Aplico?
+            <div class="botoes-wa dois"><span>Aplicar</span><span>Mudar</span></div><span class="hora">21:06</span></div>
+          <div class="toque">Aplicar</div>
+          <div class="pensa">Aplicando e conferindo</div>
+          <div class="bolha dele larga">Pronto, conferi e a regra está ligada.<br><br><b>Parou de chegar:</b> o aviso de pedido parado, um por um.<br><b>Continua chegando:</b> servidor sem sinal com pedido esperando, certificado e chave de IA parada. Esses eu posso juntar, mas não calo.<span class="hora">21:06</span></div>
+          <div class="bolha dele">⏱ <b>3 pedidos</b> passaram de 25 min: <b>#22</b> (iFood), <b>#24</b> (cardápio) e <b>#28</b> (99). O mais antigo está com 31 min.<span class="hora">21:58</span></div>
+        </div></div>
+      </article>
+
+      <div class="cartao">
+        <h3>O que mudou neste caso</h3>
+        <ul class="mudou-lista">
+          <li><b>Linguagem de gente.</b> Sai "Fonte: pedidos_canais", entra o que vai acontecer.</li>
+          <li><b>Plano em uma frase</b>, antes de fazer.</li>
+          <li><b>Ajuste na conversa.</b> "Faz 25 min" refaz o plano, sem começar de novo.</li>
+          <li><b>Só aplica depois do toque</b> e confere se gravou antes de dizer "pronto".</li>
+          <li><b>Diz o efeito:</b> o que parou de chegar e o que continua.</li>
+          <li><b>Não nega o que fez.</b> Antes de responder a uma reclamação, ele olha o que existe.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2 class="secao">No dia a dia</h2>
+    <p class="secao-sub">Reclamação, pedido com várias tarefas, conversa solta e o limite do que ele diz.</p>
+    <div class="celulares">
+
+      <article class="caso">
+        <h3>"Não está funcionando"</h3>
+        <p class="sub">Ele confere a regra e os pedidos antes de responder. Se achar defeito, diz qual foi. <span class="fase">V7c</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">esse aviso dos 3 pedidos não tá funcionando<span class="hora">22:20</span></div>
+          <div class="pensa">Conferindo a regra e os pedidos de hoje</div>
+          <div class="bolha dele larga">Olhei antes de te responder. A regra <b>está ligada</b> desde ontem às 21:06 e rodou normal. Hoje o máximo foi <b>2 pedidos</b> acima de 25 min ao mesmo tempo, às 20:48, então ela não teve o que avisar.<br><br>Com <b>20 min</b>, ela teria te avisado <b>uma vez</b> hoje, às 20:52. Quer mudar?
+            <div class="botoes-wa dois"><span>Baixar para 20 min</span><span>Deixar em 25</span></div><span class="hora">22:20</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>Várias tarefas num pedido</h3>
+        <p class="sub">Planeja, faz uma a uma e mostra o resultado de cada uma, inclusive a que não entrou. <span class="fase">V7c</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">amanhã a gente abre só às 17h, pausa a batata rústica no ifood e avisa a equipe no mural<span class="hora">15:10</span></div>
+          <div class="bolha dele larga">Vou fazer em três passos:
+            <ol class="passos">
+              <li><span class="m n">1</span><span>Terça abre das <b>17:00 às 23:30</b> no cardápio digital (pede o seu PIN)</span></li>
+              <li><span class="m n">2</span><span>Pausar a <b>batata rústica</b> no iFood</span></li>
+              <li><span class="m n">3</span><span>Recado no mural: "Amanhã abrimos às 17h."</span></li>
+            </ol>
+            Posso seguir?
+            <div class="botoes-wa dois"><span>Fazer os três</span><span>Mudar</span></div><span class="hora">15:10</span></div>
+          <div class="toque">Fazer os três · PIN confirmado</div>
+          <div class="bolha dele larga">Fiz dois, e um não entrou:
+            <ul class="passos">
+              <li><span class="m ok" aria-label="Feito">✓</span><span>Terça das 17:00 às 23:30 (o iFood e a 99 seguem o horário de lá)</span></li>
+              <li><span class="m nao" aria-label="Não entrou">!</span><span>Batata rústica: o iFood não respondeu, então <b>nada foi pausado</b></span></li>
+              <li><span class="m ok" aria-label="Feito">✓</span><span>Recado publicado no mural</span></li>
+            </ul>
+            Tento a pausa de novo?
+            <div class="botoes-wa dois"><span>Tentar de novo</span><span>Deixar assim</span></div><span class="hora">15:11</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>Conversa solta</h3>
+        <p class="sub">Resposta curta, sem empurrar relatório. <span class="fase">V7c</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">bom dia mister, dormi mal mas bora<span class="hora">08:12</span></div>
+          <div class="bolha dele">Bom dia! Então hoje é café forte e pouca conversa. Quer o resumo de ontem agora ou prefere que eu espere você sentar?<span class="hora">08:12</span></div>
+          <div class="bolha meu">depois<span class="hora">08:13</span></div>
+          <div class="bolha dele">Fechado. Quando quiser, é só chamar.<span class="hora">08:13</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>Não finge e não inventa</h3>
+        <p class="sub">Diz que é uma IA e, sem o dado, diz o que falta. <span class="fase">V7c</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">você é gente ou robô?<span class="hora">10:02</span></div>
+          <div class="bolha dele">Sou uma IA, o Mister. Não sou uma pessoa, mas os números que te passo vêm direto do Regem.<span class="hora">10:02</span></div>
+          <div class="bolha meu">e quanto deu de lucro ontem?<span class="hora">10:03</span></div>
+          <div class="bolha dele larga">Lucro eu ainda não consigo te dizer: faltam a folha e os impostos, e não vou chutar. O que eu tenho certo é a <b>venda de ontem, R$ 6.210</b>, e a <b>margem bruta de outubro, 65,8%</b>. Se me passar a folha, começo a fechar essa conta.<span class="hora">10:03</span></div>
+        </div></div>
+      </article>
+
+      <div class="cartao">
+        <h3>A frase que ele nunca diz</h3>
+        <ul class="nunca">
+          <li><s>"Aqui é a Ana, do suporte."</s><span>Não finge ser uma pessoa.</span></li>
+          <li><s>"Deve ter vendido uns 5 mil."</s><span>Número só vem de consulta.</span></li>
+          <li><s>"Pronto!", sem ter conferido.</s><span>Só diz que fez depois de ver que gravou.</span></li>
+          <li><s>"Não achei essa regra", sem olhar.</s><span>Procura antes de responder.</span></li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ ANÁLISES ═════════════════════ -->
+<section class="vista" id="v-analises" aria-labelledby="h-analises">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-analises">Análises no WhatsApp <span class="v7">v7</span></h1>
+      <p class="sub">O Mister lê as vendas e explica o que está acontecendo: comportamento, fases da semana e do mês, pico, itens do pico, perdas, cancelamentos e erros. Toda análise separa o fato da opinião dele.</p>
+    </div>
+    <div class="legenda">
+      <div class="bloco mostra"><b>O que os números mostram</b>Vem das consultas ao Regem. É fato, e dá para conferir na tela.</div>
+      <div class="bloco sugere"><b>Minha sugestão</b>É a leitura do Mister. Ele nunca aplica sozinho: oferece e espera o seu toque.</div>
+    </div>
+    <div class="celulares">
+
+      <article class="caso">
+        <h3>"Como foi a semana?"</h3>
+        <p class="sub">O resultado primeiro, o gráfico e o que fazer com isso. <span class="fase">V7e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">como foi a semana?<span class="hora">09:10</span></div>
+          <div class="bolha dele larga">Foi boa! A loja vendeu <b>R$ 38.420</b>, 12% acima da semana anterior. Vieram mais pedidos e cada um rendeu um pouco mais.
+            <span class="gb" role="img" aria-label="Sábado foi o melhor dia. Vendas de 9 a 15/11, em reais. Seg: 2.890; Ter: 3.150; Qua: 4.130; Qui: 5.420; Sex: 7.980; Sáb: 8.640; Dom: 6.210."><span class="gb-t" aria-hidden="true">Sábado foi o melhor dia</span><span class="gb-s" aria-hidden="true">Vendas de 9 a 15/11, em reais</span><span class="gb-lin" aria-hidden="true"><span class="r">Seg</span><span class="tr"><i style="width:33.4%"></i></span><span class="v">2.890</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Ter</span><span class="tr"><i style="width:36.5%"></i></span><span class="v">3.150</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Qua</span><span class="tr"><i style="width:47.8%"></i></span><span class="v">4.130</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Qui</span><span class="tr"><i style="width:62.7%"></i></span><span class="v">5.420</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Sex</span><span class="tr"><i style="width:92.4%"></i></span><span class="v">7.980</span></span><span class="gb-lin dest" aria-hidden="true"><span class="r">Sáb</span><span class="tr"><i style="width:100.0%"></i></span><span class="v">8.640</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Dom</span><span class="tr"><i style="width:71.9%"></i></span><span class="v">6.210</span></span></span>
+            <span class="bloco mostra"><b>O que os números mostram</b>812 pedidos (9% a mais), ticket médio de R$ 47,32 (2% a mais). Sexta e sábado fizeram 43% da semana.</span>
+            <span class="bloco sugere"><b>Minha sugestão</b>A segunda é o dia mais fraco. Vale testar uma promoção só nela antes de mexer na equipe.</span>
+            <span class="hora">09:10</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>O pico da sexta e o que sai nele</h3>
+        <p class="sub">Horário, itens e o que costuma sair junto. <span class="fase">V7e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">e o pico da sexta? o que mais sai?<span class="hora">09:12</span></div>
+          <div class="bolha dele larga">O pico é das <b>20h às 22h</b>: <b>R$ 4.450</b>, 56% da sexta, em 94 pedidos.
+            <span class="gb" role="img" aria-label="Das 20h às 22h sai mais da metade. Sexta, 13/11, por hora, em reais. Até 17h: 530; 18h: 420; 19h: 980; 20h: 2.310; 21h: 2.140; 22h: 1.250; 23h: 350."><span class="gb-t" aria-hidden="true">Das 20h às 22h sai mais da metade</span><span class="gb-s" aria-hidden="true">Sexta, 13/11, por hora, em reais</span><span class="gb-lin" aria-hidden="true"><span class="r">Até 17h</span><span class="tr"><i style="width:22.9%"></i></span><span class="v">530</span></span><span class="gb-lin" aria-hidden="true"><span class="r">18h</span><span class="tr"><i style="width:18.2%"></i></span><span class="v">420</span></span><span class="gb-lin" aria-hidden="true"><span class="r">19h</span><span class="tr"><i style="width:42.4%"></i></span><span class="v">980</span></span><span class="gb-lin dest" aria-hidden="true"><span class="r">20h</span><span class="tr"><i style="width:100.0%"></i></span><span class="v">2.310</span></span><span class="gb-lin dest" aria-hidden="true"><span class="r">21h</span><span class="tr"><i style="width:92.6%"></i></span><span class="v">2.140</span></span><span class="gb-lin" aria-hidden="true"><span class="r">22h</span><span class="tr"><i style="width:54.1%"></i></span><span class="v">1.250</span></span><span class="gb-lin" aria-hidden="true"><span class="r">23h</span><span class="tr"><i style="width:15.2%"></i></span><span class="v">350</span></span></span>
+            <span class="bloco mostra"><b>O que os números mostram</b>No pico saíram <b>58 smash duplo</b>, <b>46 batatas rústicas</b>, 41 refrigerantes e 19 onion rings. Smash e batata foram juntos em 38 dos 94 pedidos (40%).</span>
+            <span class="bloco sugere"><b>Minha sugestão</b>Deixar 60 porções de smash separadas antes das 19:30 e testar um combo de smash com batata.</span>
+            <span class="hora">09:12</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>Início e fim do mês</h3>
+        <p class="sub">A fase do mês, olhando três meses para não confundir com um mês ruim. <span class="fase">V7e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">o começo do mês vende mais que o fim?<span class="hora">09:15</span></div>
+          <div class="bolha dele larga">Vende. Olhei agosto, setembro e outubro: o fim do mês vende <b>29% menos por dia</b> que o começo.
+            <span class="gb" role="img" aria-label="A venda cai ao longo do mês. Média por dia, agosto a outubro, em reais. Dias 1 a 10: 6.125; Dias 11 a 20: 5.242; Dias 21 ao fim: 4.320."><span class="gb-t" aria-hidden="true">A venda cai ao longo do mês</span><span class="gb-s" aria-hidden="true">Média por dia, agosto a outubro, em reais</span><span class="gb-lin" aria-hidden="true"><span class="r">Dias 1 a 10</span><span class="tr"><i style="width:100.0%"></i></span><span class="v">6.125</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Dias 11 a 20</span><span class="tr"><i style="width:85.6%"></i></span><span class="v">5.242</span></span><span class="gb-lin dest" aria-hidden="true"><span class="r">Dias 21 ao fim</span><span class="tr"><i style="width:70.5%"></i></span><span class="v">4.320</span></span></span>
+            <span class="bloco mostra"><b>O que os números mostram</b>Do começo para o fim, os pedidos por dia caem 19% (de 123 para 100) e o ticket cai 13% (de R$ 49,80 para R$ 43,20).</span>
+            <span class="bloco sugere"><b>Minha sugestão</b>Um combo de entrada mais em conta do dia 21 em diante, e compra menor de perecível nessa fase.</span>
+            <span class="hora">09:15</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>Perdas, desperdício e cancelamentos</h3>
+        <p class="sub">Separa o que deixou de entrar do que foi perdido, com a causa provável. Não aponta pessoa. <span class="fase">V7e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">onde tô perdendo dinheiro?<span class="hora">09:20</span></div>
+          <div class="bolha dele larga">Na semana passada foram dois vazamentos diferentes, e vale olhar separado.
+            <span class="gb" role="img" aria-label="Cancelamentos: R$ 902,40 não entraram. 19 pedidos, de 9 a 15/11, por motivo. Atraso (8): 412,90; Item em falta (5): 226,40; Fora da área (4): 176,10; Erro ao lançar (2): 87,00."><span class="gb-t" aria-hidden="true">Cancelamentos: R$ 902,40 não entraram</span><span class="gb-s" aria-hidden="true">19 pedidos, de 9 a 15/11, por motivo</span><span class="gb-lin dest" aria-hidden="true"><span class="r">Atraso (8)</span><span class="tr"><i style="width:100.0%"></i></span><span class="v">412,90</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Item em falta (5)</span><span class="tr"><i style="width:54.8%"></i></span><span class="v">226,40</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Fora da área (4)</span><span class="tr"><i style="width:42.6%"></i></span><span class="v">176,10</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Erro ao lançar (2)</span><span class="tr"><i style="width:21.1%"></i></span><span class="v">87,00</span></span></span>
+            <span class="gb" role="img" aria-label="Mercadoria perdida: R$ 574,60. Desperdício e diferença na contagem. Muçarela (contagem): 168,00; Tomate: 124,00; Bacon (contagem): 88,00; Alface: 86,40; Pão: 72,00; Outros: 36,20."><span class="gb-t" aria-hidden="true">Mercadoria perdida: R$ 574,60</span><span class="gb-s" aria-hidden="true">Desperdício e diferença na contagem</span><span class="gb-lin dest" aria-hidden="true"><span class="r">Muçarela (contagem)</span><span class="tr"><i style="width:100.0%"></i></span><span class="v">168,00</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Tomate</span><span class="tr"><i style="width:73.8%"></i></span><span class="v">124,00</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Bacon (contagem)</span><span class="tr"><i style="width:52.4%"></i></span><span class="v">88,00</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Alface</span><span class="tr"><i style="width:51.4%"></i></span><span class="v">86,40</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Pão</span><span class="tr"><i style="width:42.9%"></i></span><span class="v">72,00</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Outros</span><span class="tr"><i style="width:21.5%"></i></span><span class="v">36,20</span></span></span>
+            <span class="bloco mostra"><b>O que os números mostram</b>8 dos 19 cancelamentos foram por atraso, 6 deles na sexta e no sábado, das 20h às 22h. Na contagem faltaram cerca de 4,3 kg de muçarela.</span>
+            <span class="bloco sugere"><b>Minha sugestão</b>Causa provável do atraso: a chapa não dá conta do pico. Da muçarela: porção acima da ficha ou saída sem registro. Eu começaria pesando a porção.</span>
+            <span class="hora">09:20</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>O padrão que ele percebe sozinho</h3>
+        <p class="sub">Avisa uma vez. "Deixa assim" cala esse padrão por 30 dias. <span class="fase">V7e</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha dele larga">🔎 <b>Percebi um padrão no tomate.</b> Quase toda segunda ele vai para o desperdício.
+            <span class="gb" role="img" aria-label="16 kg da compra não são usados. Tomate, compra de sexta, em kg. Comprado: 36 kg; Usado até seg.: 20 kg; Descartado: 16 kg."><span class="gb-t" aria-hidden="true">16 kg da compra não são usados</span><span class="gb-s" aria-hidden="true">Tomate, compra de sexta, em kg</span><span class="gb-lin" aria-hidden="true"><span class="r">Comprado</span><span class="tr"><i style="width:100.0%"></i></span><span class="v">36 kg</span></span><span class="gb-lin" aria-hidden="true"><span class="r">Usado até seg.</span><span class="tr"><i style="width:55.6%"></i></span><span class="v">20 kg</span></span><span class="gb-lin dest" aria-hidden="true"><span class="r">Descartado</span><span class="tr"><i style="width:44.4%"></i></span><span class="v">16 kg</span></span></span>
+            <span class="bloco mostra"><b>O que os números mostram</b>Em <b>4 das últimas 5 segundas</b> houve descarte de tomate, cerca de 16 kg por vez (R$ 124,00). A compra de 36 kg chega na sexta e, até segunda, a loja usa uns 20 kg.</span>
+            <span class="bloco sugere"><b>Minha sugestão</b>Comprar 20 kg na sexta e repor na terça só o que faltar. Posso deixar o pedido pronto para você aprovar.</span>
+            <div class="botoes-wa"><span>Preparar o pedido</span><span>Deixa assim</span></div><span class="hora">09:00</span></div>
+        </div></div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ FINANCEIRO ═════════════════════ -->
+<section class="vista" id="v-financeiro" aria-labelledby="h-financeiro">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-financeiro">Financeiro: o que já dá e o que falta <span class="v7">v7</span></h1>
+      <p class="sub">Dois indicadores já saem das vendas e das fichas. Dois dependem do que a loja lança nas contas. Os outros cinco pedem informação que o sistema ainda não tem. Nesses, o Mister diz o que falta e pede: nunca chuta.</p>
+    </div>
+
+    <h2 class="secao">Já sai dos dados · outubro</h2>
+    <p class="secao-sub">Venda do mês: <b class="mono">R$ 161.190</b>.</p>
+    <div class="k-grade">
+      <div class="k-card"><span class="nome">Margem bruta</span><span class="num">65,8%</span><span class="selo warn">1,3 ponto abaixo de setembro</span><span class="como">Venda menos o custo da ficha técnica. A ficha cobre 92% da venda.</span></div>
+      <div class="k-card"><span class="nome">CMV</span><span class="num">34,2%</span><span class="selo warn">era 32,9% em setembro</span><span class="como">Custo da mercadoria vendida sobre a venda, nos itens com ficha.</span></div>
+    </div>
+
+    <h2 class="secao">Sai do que a loja lançar</h2>
+    <p class="secao-sub">Só conta o que estiver lançado em Financeiro › Contas a pagar. Sem lançamento, o Mister diz que não tem o dado, em vez de mostrar zero.</p>
+    <div class="k-grade">
+      <div class="k-card"><span class="nome">Inadimplência</span><span class="num">14,0%</span><span class="selo neutro">R$ 1.180 de R$ 8.420</span><span class="como">O que já venceu sobre tudo o que a loja tem a receber.</span></div>
+      <div class="k-card"><span class="nome">Prazo de pagamento</span><span class="num">18 dias</span><span class="selo neutro">era 21 em setembro</span><span class="como">Tempo médio entre a compra e o pagamento ao fornecedor.</span></div>
+    </div>
+
+    <h2 class="secao">Falta dado</h2>
+    <p class="secao-sub">Sem a informação, o número não aparece.</p>
+    <div class="f-grade">
+      <div class="f-card"><div class="topo-f"><span class="nome">Burn rate</span><span class="selo warn">falta dado</span></div><span class="ausente" aria-label="Sem valor">—</span><p>Quanto sai do caixa por mês além do que entra.</p><p><span class="rot">Falta:</span> a folha e o que entrou de verdade na conta.</p></div>
+      <div class="f-card"><div class="topo-f"><span class="nome">Runway</span><span class="selo warn">falta dado</span></div><span class="ausente" aria-label="Sem valor">—</span><p>Por quantos meses o caixa aguenta.</p><p><span class="rot">Falta:</span> o saldo do banco, que você informa na conversa, e o burn rate.</p></div>
+      <div class="f-card"><div class="topo-f"><span class="nome">Giro de recebíveis</span><span class="selo warn">falta dado</span></div><span class="ausente" aria-label="Sem valor">—</span><p>Em quantos dias a venda vira dinheiro na conta.</p><p><span class="rot">Falta:</span> os repasses de iFood, 99 e cartão, que o Regem ainda não lê.</p></div>
+      <div class="f-card"><div class="topo-f"><span class="nome">Margem líquida</span><span class="selo warn">falta dado</span></div><span class="ausente" aria-label="Sem valor">—</span><p>O que sobra depois de todas as despesas.</p><p><span class="rot">Falta:</span> pessoal, impostos e as taxas dos canais.</p></div>
+      <div class="f-card"><div class="topo-f"><span class="nome">ROI de campanha</span><span class="selo warn">falta dado</span></div><span class="ausente" aria-label="Sem valor">—</span><p>Quanto voltou para cada real investido.</p><p><span class="rot">Falta:</span> o custo da campanha, que você informa na conversa.</p></div>
+    </div>
+
+    <h2 class="secao">Na conversa</h2>
+    <p class="secao-sub">O que ele responde com o dado e como pede o que não tem.</p>
+    <div class="celulares">
+
+      <article class="caso">
+        <h3>A margem, com o porquê</h3>
+        <p class="sub">Número, causa e o limite da conta. <span class="fase">V7f</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">como tá a margem?<span class="hora">11:00</span></div>
+          <div class="bolha dele larga">Em outubro a <b>margem bruta foi 65,8%</b>, 1,3 ponto abaixo de setembro. O CMV subiu de 32,9% para <b>34,2%</b>.
+            <span class="bloco mostra"><b>O que os números mostram</b>Muçarela (+11%) e bacon (+8%) explicam 1,1 desses 1,3 ponto. A ficha cobre 92% da venda; os outros 8% ficam fora da conta.</span>
+            <span class="bloco sugere"><b>Minha sugestão</b>Antes de subir preço, cotar a muçarela com outro fornecedor. Quer que eu compare as últimas compras?</span>
+            <div class="botoes-wa dois"><span>Comparar</span><span>Agora não</span></div><span class="hora">11:00</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>Quem deve e em quanto tempo paga</h3>
+        <p class="sub">Inadimplência em números. O nome do cliente fica na tela. <span class="fase">V7f</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">quem tá me devendo?<span class="hora">11:05</span></div>
+          <div class="bolha dele larga">Tem <b>R$ 1.180,00 vencidos</b> em 3 contas, de R$ 8.420,00 a receber: <b>14% de inadimplência</b>. A mais antiga venceu há 41 dias.<br><br>Os nomes ficam em <b>Financeiro › Contas a pagar</b>, no tipo "A receber". Dado de cliente eu não passo por aqui.<span class="hora">11:05</span></div>
+          <div class="bolha meu">e o prazo com fornecedor?<span class="hora">11:06</span></div>
+          <div class="bolha dele">Você paga em <b>18 dias</b>, em média, 3 a menos que em setembro. O dinheiro está saindo mais cedo justo no mês em que a margem caiu.<span class="hora">11:06</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>Informar o saldo pela conversa</h3>
+        <p class="sub">Ele pede, mostra o que vai guardar e marca que veio de você. Só o presidente vê. <span class="fase">V7f</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">quanto tempo de caixa eu tenho?<span class="hora">11:10</span></div>
+          <div class="bolha dele larga">Essa conta eu não fecho sozinho e não vou chutar. Faltam dois dados:
+            <ol class="passos">
+              <li><span class="m n">1</span><span>o <b>saldo de hoje</b> no banco;</span></li>
+              <li><span class="m n">2</span><span>quanto sai de <b>folha</b> por mês, que não está lançada no Regem.</span></li>
+            </ol>
+            Me passa o saldo?<span class="hora">11:10</span></div>
+          <div class="bolha meu">tem 42.300 na conta hoje<span class="hora">11:11</span></div>
+          <div class="bolha dele larga"><span class="regra-pt"><b>Vou guardar</b>Saldo em 16/11: <strong>R$ 42.300,00</strong>, informado por você. Não vem do banco.</span>Depois de 7 dias eu peço de novo, para a conta não envelhecer.
+            <div class="botoes-wa dois"><span>Guardar</span><span>Corrigir</span></div><span class="hora">11:11</span></div>
+          <div class="toque">Guardar</div>
+          <div class="bolha meu">a folha dá uns 24 mil<span class="hora">11:12</span></div>
+          <div class="bolha dele larga">Anotei <b>R$ 24.000 por mês</b>, como estimativa sua.<br><br>Com isso, as saídas de outubro dão <b>R$ 152.400</b> (R$ 128.400 lançados mais a folha). O saldo de hoje cobre <b>8 dias</b> dessas despesas, se a venda parasse.<br><br>O runway em meses depende do que entra na conta, e os repasses do iFood, da 99 e do cartão eu ainda não leio. Quando eu ler, fecho essa conta.<span class="hora">11:12</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>ROI de uma campanha</h3>
+        <p class="sub">Pede o custo, faz a conta e diz o limite dela. <span class="fase">V7f</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu">a campanha da terça do smash valeu a pena?<span class="hora">11:20</span></div>
+          <div class="bolha dele">Vendeu bem: <b>64 pedidos</b> com o cupom, <b>R$ 3.840</b>. Para dizer se valeu, preciso do custo. Quanto você gastou nela?<span class="hora">11:20</span></div>
+          <div class="bolha meu">300 no instagram<span class="hora">11:21</span></div>
+          <div class="bolha dele larga">Deu <b>ROI de 742%</b>.
+            <span class="bloco mostra"><b>O que os números mostram</b>Margem dessas vendas: R$ 2.527 (65,8%). Menos os R$ 300, sobram R$ 2.227. Cada R$ 1 investido deixou R$ 7,42, já descontado o próprio real.</span>
+            <span class="bloco sugere"><b>Minha sugestão</b>A conta inclui quem compraria de qualquer jeito. Para ver o efeito real, repita a campanha com grupo de controle.</span>
+            <span class="hora">11:21</span></div>
+        </div></div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ VOZ ═════════════════════ -->
+<section class="vista" id="v-voz" aria-labelledby="h-voz">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-voz">Voz no tom de quem fala <span class="v7">v7</span></h1>
+      <p class="sub">Quando a pessoa manda áudio, o Mister percebe o tom e responde no mesmo clima: ri junto numa venda boa, vai direto com quem tem pressa, fica calmo com quem está irritado e sério diante de um prejuízo.</p>
+    </div>
+    <div class="faixa warn"><b>Ainda sem teste real.</b> A voz nova em português e a risada não foram testadas. Este protótipo não toca som: a etiqueta e a transcrição mostram como deve soar, e o trecho dourado na onda marca a risada.</div>
+
+    <div class="regras-voz">
+      <div class="regra-v forte"><h3>Nunca ri de</h3><p>Prejuízo, reclamação, cliente ou funcionário. Mesmo que a pessoa esteja rindo.</p></div>
+      <div class="regra-v"><h3>O texto vai sempre junto</h3><p>A resposta chega escrita e o áudio fala o principal, em até cerca de 40 segundos.</p></div>
+      <div class="regra-v"><h3>Os números não mudam</h3><p>O tom muda a forma de falar. Os valores são os mesmos do texto, vindos da consulta.</p></div>
+    </div>
+
+    <h2 class="secao">Voz de hoje e voz nova</h2>
+    <p class="secao-sub">A mesma resposta nas duas vozes.</p>
+    <div class="comparar-voz">
+      <div class="voz-card">
+        <span class="selo neutro" style="justify-self:start">Voz de hoje (neutra)</span>
+        <div class="bolha dele"><span class="audio-v7" role="img" aria-label="Áudio de 4 segundos em voz neutra"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="7.7" width="2.4" height="10.6" rx="1"/><rect x="4" y="7.1" width="2.4" height="11.7" rx="1"/><rect x="8" y="7.9" width="2.4" height="10.3" rx="1"/><rect x="12" y="8.3" width="2.4" height="9.4" rx="1"/><rect x="16" y="7.8" width="2.4" height="10.5" rx="1"/><rect x="20" y="7.9" width="2.4" height="10.3" rx="1"/><rect x="24" y="8.7" width="2.4" height="8.6" rx="1"/><rect x="28" y="8.5" width="2.4" height="9.1" rx="1"/><rect x="32" y="7.6" width="2.4" height="10.8" rx="1"/><rect x="36" y="7.8" width="2.4" height="10.4" rx="1"/><rect x="40" y="8.2" width="2.4" height="9.6" rx="1"/><rect x="44" y="7.5" width="2.4" height="10.9" rx="1"/><rect x="48" y="7.2" width="2.4" height="11.6" rx="1"/><rect x="52" y="8.0" width="2.4" height="9.9" rx="1"/><rect x="56" y="8.4" width="2.4" height="9.2" rx="1"/><rect x="60" y="7.8" width="2.4" height="10.4" rx="1"/><rect x="64" y="8.0" width="2.4" height="10.0" rx="1"/><rect x="68" y="8.7" width="2.4" height="8.5" rx="1"/><rect x="72" y="8.3" width="2.4" height="9.4" rx="1"/><rect x="76" y="7.5" width="2.4" height="11.1" rx="1"/><rect x="80" y="7.8" width="2.4" height="10.4" rx="1"/><rect x="84" y="8.1" width="2.4" height="9.7" rx="1"/><rect x="88" y="7.5" width="2.4" height="11.1" rx="1"/><rect x="92" y="7.3" width="2.4" height="11.4" rx="1"/><rect x="96" y="8.3" width="2.4" height="9.5" rx="1"/><rect x="100" y="8.5" width="2.4" height="9.1" rx="1"/><rect x="104" y="7.8" width="2.4" height="10.3" rx="1"/><rect x="108" y="8.1" width="2.4" height="9.8" rx="1"/><rect x="112" y="8.7" width="2.4" height="8.6" rx="1"/><rect x="116" y="8.1" width="2.4" height="9.9" rx="1"/><rect x="120" y="7.3" width="2.4" height="11.4" rx="1"/><rect x="124" y="7.8" width="2.4" height="10.4" rx="1"/><rect x="128" y="8.1" width="2.4" height="9.8" rx="1"/><rect x="132" y="7.4" width="2.4" height="11.1" rx="1"/><rect x="136" y="7.5" width="2.4" height="11.0" rx="1"/><rect x="140" y="8.5" width="2.4" height="9.1" rx="1"/></svg><small>0:04</small></span>
+          <span class="transc"><b>Transcrição</b>Bateu sim. R$ 7.980, a melhor sexta do mês.</span></div>
+        <p>Mesma altura do começo ao fim. Lê a frase como um aviso.</p>
+      </div>
+      <div class="voz-card">
+        <span class="selo ok" style="justify-self:start">Voz nova</span>
+        <div class="bolha dele"><span class="tom alegre">Tom: animado · ri junto</span><span class="audio-v7" role="img" aria-label="Áudio de 5 segundos em voz animada, com risada no começo"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="4.2" width="2.4" height="17.6" rx="1"/><rect x="4" y="1.5" width="2.4" height="23.0" rx="1"/><rect x="8" y="2.5" width="2.4" height="21.1" rx="1" class="o-riso"/><rect x="12" y="3.4" width="2.4" height="19.3" rx="1" class="o-riso"/><rect x="16" y="2.3" width="2.4" height="21.4" rx="1" class="o-riso"/><rect x="20" y="2.5" width="2.4" height="21.0" rx="1" class="o-riso"/><rect x="24" y="4.2" width="2.4" height="17.7" rx="1" class="o-riso"/><rect x="28" y="3.7" width="2.4" height="18.6" rx="1" class="o-riso"/><rect x="32" y="3.9" width="2.4" height="18.3" rx="1"/><rect x="36" y="4.9" width="2.4" height="16.2" rx="1"/><rect x="40" y="6.8" width="2.4" height="12.4" rx="1"/><rect x="44" y="3.5" width="2.4" height="19.0" rx="1"/><rect x="48" y="1.8" width="2.4" height="22.4" rx="1"/><rect x="52" y="6.0" width="2.4" height="14.1" rx="1"/><rect x="56" y="7.7" width="2.4" height="10.6" rx="1"/><rect x="60" y="4.9" width="2.4" height="16.3" rx="1"/><rect x="64" y="5.8" width="2.4" height="14.4" rx="1"/><rect x="68" y="9.3" width="2.4" height="7.4" rx="1"/><rect x="72" y="7.1" width="2.4" height="11.7" rx="1"/><rect x="76" y="3.1" width="2.4" height="19.8" rx="1"/><rect x="80" y="4.7" width="2.4" height="16.6" rx="1"/><rect x="84" y="6.4" width="2.4" height="13.2" rx="1"/><rect x="88" y="3.1" width="2.4" height="19.7" rx="1"/><rect x="92" y="2.4" width="2.4" height="21.2" rx="1"/><rect x="96" y="7.0" width="2.4" height="12.0" rx="1"/><rect x="100" y="8.0" width="2.4" height="9.9" rx="1"/><rect x="104" y="5.0" width="2.4" height="16.0" rx="1"/><rect x="108" y="6.2" width="2.4" height="13.6" rx="1"/><rect x="112" y="9.1" width="2.4" height="7.9" rx="1"/><rect x="116" y="6.1" width="2.4" height="13.9" rx="1"/><rect x="120" y="2.4" width="2.4" height="21.2" rx="1"/><rect x="124" y="4.7" width="2.4" height="16.6" rx="1"/><rect x="128" y="6.2" width="2.4" height="13.6" rx="1"/><rect x="132" y="3.1" width="2.4" height="19.9" rx="1"/><rect x="136" y="3.3" width="2.4" height="19.4" rx="1"/><rect x="140" y="8.0" width="2.4" height="10.0" rx="1"/></svg><small>0:05</small></span>
+          <span class="transc"><b>Transcrição</b><mark class="riso">risada curta</mark> Bateu sim! R$ 7.980, a melhor sexta do mês.</span></div>
+        <p>Sobe e desce como numa conversa. As palavras e o valor são os mesmos.</p>
+      </div>
+    </div>
+
+    <h2 class="secao">Conforme o tom</h2>
+    <p class="secao-sub">Em cima, o áudio da pessoa e o tom percebido. Embaixo, a resposta.</p>
+    <div class="celulares">
+
+      <article class="caso">
+        <h3>Animado com a venda</h3>
+        <p class="sub">Ele ri junto, uma vez, no começo. <span class="fase">V7d</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu"><span class="audio-v7" role="img" aria-label="Áudio de 4 segundos da pessoa"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="3.6" width="2.4" height="18.7" rx="1"/><rect x="4" y="1.3" width="2.4" height="23.5" rx="1"/><rect x="8" y="4.4" width="2.4" height="17.3" rx="1"/><rect x="12" y="6.3" width="2.4" height="13.4" rx="1"/><rect x="16" y="4.0" width="2.4" height="18.0" rx="1"/><rect x="20" y="4.5" width="2.4" height="17.1" rx="1"/><rect x="24" y="8.0" width="2.4" height="9.9" rx="1"/><rect x="28" y="7.0" width="2.4" height="12.0" rx="1"/><rect x="32" y="3.3" width="2.4" height="19.3" rx="1"/><rect x="36" y="4.2" width="2.4" height="17.5" rx="1"/><rect x="40" y="5.9" width="2.4" height="14.1" rx="1"/><rect x="44" y="3.0" width="2.4" height="19.9" rx="1"/><rect x="48" y="1.5" width="2.4" height="23.0" rx="1"/><rect x="52" y="5.2" width="2.4" height="15.6" rx="1"/><rect x="56" y="6.7" width="2.4" height="12.6" rx="1"/><rect x="60" y="4.2" width="2.4" height="17.6" rx="1"/><rect x="64" y="5.0" width="2.4" height="15.9" rx="1"/><rect x="68" y="8.1" width="2.4" height="9.7" rx="1"/><rect x="72" y="6.2" width="2.4" height="13.5" rx="1"/><rect x="76" y="2.7" width="2.4" height="20.7" rx="1"/><rect x="80" y="4.1" width="2.4" height="17.8" rx="1"/><rect x="84" y="5.6" width="2.4" height="14.8" rx="1"/><rect x="88" y="2.7" width="2.4" height="20.6" rx="1"/><rect x="92" y="2.1" width="2.4" height="21.9" rx="1"/><rect x="96" y="6.1" width="2.4" height="13.8" rx="1"/><rect x="100" y="7.0" width="2.4" height="11.9" rx="1"/></svg><small>0:04</small></span><span class="percebeu">🎧 "Mister, que sexta foi essa, rapaz! Bateu recorde?"</span><span class="hora">23:40</span></div>
+          <div class="bolha dele larga"><span class="tom alegre">Tom: animado · ri junto</span>
+            <span class="audio-v7" role="img" aria-label="Áudio de 8 segundos, animado, com risada no começo"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="4.2" width="2.4" height="17.6" rx="1"/><rect x="4" y="1.5" width="2.4" height="23.0" rx="1"/><rect x="8" y="2.5" width="2.4" height="21.1" rx="1" class="o-riso"/><rect x="12" y="3.4" width="2.4" height="19.3" rx="1" class="o-riso"/><rect x="16" y="2.3" width="2.4" height="21.4" rx="1" class="o-riso"/><rect x="20" y="2.5" width="2.4" height="21.0" rx="1" class="o-riso"/><rect x="24" y="4.2" width="2.4" height="17.7" rx="1" class="o-riso"/><rect x="28" y="3.7" width="2.4" height="18.6" rx="1" class="o-riso"/><rect x="32" y="3.9" width="2.4" height="18.3" rx="1"/><rect x="36" y="4.9" width="2.4" height="16.2" rx="1"/><rect x="40" y="6.8" width="2.4" height="12.4" rx="1"/><rect x="44" y="3.5" width="2.4" height="19.0" rx="1"/><rect x="48" y="1.8" width="2.4" height="22.4" rx="1"/><rect x="52" y="6.0" width="2.4" height="14.1" rx="1"/><rect x="56" y="7.7" width="2.4" height="10.6" rx="1"/><rect x="60" y="4.9" width="2.4" height="16.3" rx="1"/><rect x="64" y="5.8" width="2.4" height="14.4" rx="1"/><rect x="68" y="9.3" width="2.4" height="7.4" rx="1"/><rect x="72" y="7.1" width="2.4" height="11.7" rx="1"/><rect x="76" y="3.1" width="2.4" height="19.8" rx="1"/><rect x="80" y="4.7" width="2.4" height="16.6" rx="1"/><rect x="84" y="6.4" width="2.4" height="13.2" rx="1"/><rect x="88" y="3.1" width="2.4" height="19.7" rx="1"/><rect x="92" y="2.4" width="2.4" height="21.2" rx="1"/><rect x="96" y="7.0" width="2.4" height="12.0" rx="1"/><rect x="100" y="8.0" width="2.4" height="9.9" rx="1"/><rect x="104" y="5.0" width="2.4" height="16.0" rx="1"/><rect x="108" y="6.2" width="2.4" height="13.6" rx="1"/><rect x="112" y="9.1" width="2.4" height="7.9" rx="1"/><rect x="116" y="6.1" width="2.4" height="13.9" rx="1"/><rect x="120" y="2.4" width="2.4" height="21.2" rx="1"/><rect x="124" y="4.7" width="2.4" height="16.6" rx="1"/><rect x="128" y="6.2" width="2.4" height="13.6" rx="1"/><rect x="132" y="3.1" width="2.4" height="19.9" rx="1"/><rect x="136" y="3.3" width="2.4" height="19.4" rx="1"/><rect x="140" y="8.0" width="2.4" height="10.0" rx="1"/></svg><small>0:08</small></span>
+            <span class="transc"><b>Transcrição</b><mark class="riso">risada curta</mark> Bateu sim! <b>R$ 7.980</b>, a melhor sexta do mês. E o smash duplo saiu 58 vezes só no pico.</span><span class="hora">23:40</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>Com pressa</h3>
+        <p class="sub">Curto, só o que foi perguntado. <span class="fase">V7d</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu"><span class="audio-v7" role="img" aria-label="Áudio de 2 segundos da pessoa"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="4.8" width="2.4" height="16.5" rx="1"/><rect x="4" y="3.2" width="2.4" height="19.6" rx="1"/><rect x="8" y="5.2" width="2.4" height="15.5" rx="1"/><rect x="12" y="6.5" width="2.4" height="12.9" rx="1"/><rect x="16" y="5.0" width="2.4" height="16.0" rx="1"/><rect x="20" y="5.3" width="2.4" height="15.4" rx="1"/><rect x="24" y="7.7" width="2.4" height="10.6" rx="1"/><rect x="28" y="7.0" width="2.4" height="12.0" rx="1"/><rect x="32" y="4.6" width="2.4" height="16.9" rx="1"/><rect x="36" y="5.2" width="2.4" height="15.7" rx="1"/><rect x="40" y="6.3" width="2.4" height="13.4" rx="1"/><rect x="44" y="4.4" width="2.4" height="17.3" rx="1"/><rect x="48" y="3.3" width="2.4" height="19.3" rx="1"/><rect x="52" y="5.8" width="2.4" height="14.4" rx="1"/></svg><small>0:02</small></span><span class="percebeu">🎧 "Rápido, quanto tem no caixa do balcão?"</span><span class="hora">19:32</span></div>
+          <div class="bolha dele larga"><span class="tom">Tom: com pressa · curto</span>
+            <span class="audio-v7" role="img" aria-label="Áudio de 2 segundos, direto"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="5.2" width="2.4" height="15.7" rx="1"/><rect x="4" y="3.9" width="2.4" height="18.2" rx="1"/><rect x="8" y="5.5" width="2.4" height="14.9" rx="1"/><rect x="12" y="6.6" width="2.4" height="12.8" rx="1"/><rect x="16" y="5.3" width="2.4" height="15.3" rx="1"/><rect x="20" y="5.6" width="2.4" height="14.8" rx="1"/><rect x="24" y="7.5" width="2.4" height="11.0" rx="1"/><rect x="28" y="7.0" width="2.4" height="12.1" rx="1"/><rect x="32" y="5.0" width="2.4" height="16.0" rx="1"/><rect x="36" y="5.5" width="2.4" height="15.0" rx="1"/><rect x="40" y="6.4" width="2.4" height="13.2" rx="1"/><rect x="44" y="4.8" width="2.4" height="16.3" rx="1"/><rect x="48" y="4.0" width="2.4" height="17.9" rx="1"/><rect x="52" y="6.0" width="2.4" height="14.0" rx="1"/><rect x="56" y="6.8" width="2.4" height="12.4" rx="1"/><rect x="60" y="5.5" width="2.4" height="15.1" rx="1"/></svg><small>0:02</small></span>
+            <span class="transc"><b>Transcrição</b><b>R$ 1.240,00</b>, aberto desde as 11:02.</span><span class="hora">19:32</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>Irritado</h3>
+        <p class="sub">Calmo, sem riso, vai para a solução. <span class="fase">V7d</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu"><span class="audio-v7" role="img" aria-label="Áudio de 4 segundos da pessoa"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="3.2" width="2.4" height="19.7" rx="1"/><rect x="4" y="1.3" width="2.4" height="23.5" rx="1"/><rect x="8" y="3.7" width="2.4" height="18.5" rx="1"/><rect x="12" y="5.3" width="2.4" height="15.4" rx="1"/><rect x="16" y="3.4" width="2.4" height="19.1" rx="1"/><rect x="20" y="3.8" width="2.4" height="18.4" rx="1"/><rect x="24" y="6.7" width="2.4" height="12.6" rx="1"/><rect x="28" y="5.9" width="2.4" height="14.3" rx="1"/><rect x="32" y="2.9" width="2.4" height="20.2" rx="1"/><rect x="36" y="3.6" width="2.4" height="18.7" rx="1"/><rect x="40" y="5.0" width="2.4" height="16.0" rx="1"/><rect x="44" y="2.7" width="2.4" height="20.7" rx="1"/><rect x="48" y="1.5" width="2.4" height="23.1" rx="1"/><rect x="52" y="4.4" width="2.4" height="17.2" rx="1"/><rect x="56" y="5.6" width="2.4" height="14.8" rx="1"/><rect x="60" y="3.6" width="2.4" height="18.8" rx="1"/><rect x="64" y="4.3" width="2.4" height="17.5" rx="1"/><rect x="68" y="6.8" width="2.4" height="12.5" rx="1"/><rect x="72" y="5.2" width="2.4" height="15.5" rx="1"/><rect x="76" y="2.4" width="2.4" height="21.2" rx="1"/><rect x="80" y="3.5" width="2.4" height="19.0" rx="1"/><rect x="84" y="4.7" width="2.4" height="16.6" rx="1"/><rect x="88" y="2.4" width="2.4" height="21.2" rx="1"/><rect x="92" y="1.9" width="2.4" height="22.2" rx="1"/><rect x="96" y="5.1" width="2.4" height="15.7" rx="1"/><rect x="100" y="5.9" width="2.4" height="14.3" rx="1"/></svg><small>0:04</small></span><span class="percebeu">🎧 "De novo pedido atrasado, que saco, ninguém resolve nada!"</span><span class="hora">21:15</span></div>
+          <div class="bolha dele larga"><span class="tom serio">Tom: irritado · calmo, sem riso</span>
+            <span class="audio-v7" role="img" aria-label="Áudio de 7 segundos, calmo"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="8.5" width="2.4" height="9.0" rx="1"/><rect x="4" y="7.7" width="2.4" height="10.5" rx="1"/><rect x="8" y="8.8" width="2.4" height="8.5" rx="1"/><rect x="12" y="9.4" width="2.4" height="7.2" rx="1"/><rect x="16" y="8.6" width="2.4" height="8.7" rx="1"/><rect x="20" y="8.8" width="2.4" height="8.4" rx="1"/><rect x="24" y="10.0" width="2.4" height="6.0" rx="1"/><rect x="28" y="9.6" width="2.4" height="6.7" rx="1"/><rect x="32" y="8.4" width="2.4" height="9.2" rx="1"/><rect x="36" y="8.7" width="2.4" height="8.6" rx="1"/><rect x="40" y="9.3" width="2.4" height="7.4" rx="1"/><rect x="44" y="8.3" width="2.4" height="9.4" rx="1"/><rect x="48" y="7.8" width="2.4" height="10.4" rx="1"/><rect x="52" y="9.0" width="2.4" height="7.9" rx="1"/><rect x="56" y="9.5" width="2.4" height="6.9" rx="1"/><rect x="60" y="8.7" width="2.4" height="8.6" rx="1"/><rect x="64" y="9.0" width="2.4" height="8.0" rx="1"/><rect x="68" y="10.0" width="2.4" height="6.0" rx="1"/><rect x="72" y="9.4" width="2.4" height="7.2" rx="1"/><rect x="76" y="8.2" width="2.4" height="9.6" rx="1"/><rect x="80" y="8.7" width="2.4" height="8.7" rx="1"/><rect x="84" y="9.2" width="2.4" height="7.7" rx="1"/><rect x="88" y="8.2" width="2.4" height="9.6" rx="1"/><rect x="92" y="8.0" width="2.4" height="10.0" rx="1"/><rect x="96" y="9.3" width="2.4" height="7.3" rx="1"/><rect x="100" y="9.6" width="2.4" height="6.7" rx="1"/><rect x="104" y="8.8" width="2.4" height="8.5" rx="1"/><rect x="108" y="9.1" width="2.4" height="7.8" rx="1"/><rect x="112" y="10.0" width="2.4" height="6.1" rx="1"/><rect x="116" y="9.1" width="2.4" height="7.9" rx="1"/><rect x="120" y="8.0" width="2.4" height="10.0" rx="1"/><rect x="124" y="8.7" width="2.4" height="8.7" rx="1"/><rect x="128" y="9.1" width="2.4" height="7.8" rx="1"/><rect x="132" y="8.2" width="2.4" height="9.6" rx="1"/><rect x="136" y="8.3" width="2.4" height="9.5" rx="1"/><rect x="140" y="9.6" width="2.4" height="6.7" rx="1"/></svg><small>0:07</small></span>
+            <span class="transc"><b>Transcrição</b>Entendi. Agora são dois: o <b>#31</b> com 34 minutos e o <b>#33</b> com 28, os dois na chapa. Quer que eu avise os clientes?</span><span class="hora">21:15</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>Problema ou prejuízo</h3>
+        <p class="sub">Sério. Aqui nunca tem risada. <span class="fase">V7d</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu"><span class="audio-v7" role="img" aria-label="Áudio de 3 segundos da pessoa"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="8.1" width="2.4" height="9.8" rx="1"/><rect x="4" y="7.0" width="2.4" height="12.0" rx="1"/><rect x="8" y="8.5" width="2.4" height="9.1" rx="1"/><rect x="12" y="9.4" width="2.4" height="7.3" rx="1"/><rect x="16" y="8.3" width="2.4" height="9.4" rx="1"/><rect x="20" y="8.5" width="2.4" height="9.0" rx="1"/><rect x="24" y="10.2" width="2.4" height="5.7" rx="1"/><rect x="28" y="9.7" width="2.4" height="6.6" rx="1"/><rect x="32" y="8.0" width="2.4" height="10.0" rx="1"/><rect x="36" y="8.4" width="2.4" height="9.2" rx="1"/><rect x="40" y="9.2" width="2.4" height="7.6" rx="1"/><rect x="44" y="7.8" width="2.4" height="10.3" rx="1"/><rect x="48" y="7.1" width="2.4" height="11.7" rx="1"/><rect x="52" y="8.8" width="2.4" height="8.3" rx="1"/><rect x="56" y="9.6" width="2.4" height="6.9" rx="1"/><rect x="60" y="8.4" width="2.4" height="9.2" rx="1"/><rect x="64" y="8.8" width="2.4" height="8.5" rx="1"/><rect x="68" y="10.2" width="2.4" height="5.6" rx="1"/><rect x="72" y="9.3" width="2.4" height="7.3" rx="1"/><rect x="76" y="7.7" width="2.4" height="10.7" rx="1"/></svg><small>0:03</small></span><span class="percebeu">🎧 "O freezer parou de noite. Perdi muita coisa?"</span><span class="hora">07:50</span></div>
+          <div class="bolha dele larga"><span class="tom serio">Tom: preocupado · sério</span>
+            <span class="audio-v7" role="img" aria-label="Áudio de 8 segundos, sério"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="9.3" width="2.4" height="7.4" rx="1"/><rect x="4" y="8.7" width="2.4" height="8.6" rx="1"/><rect x="8" y="9.5" width="2.4" height="7.0" rx="1"/><rect x="12" y="10.0" width="2.4" height="5.9" rx="1"/><rect x="16" y="9.4" width="2.4" height="7.2" rx="1"/><rect x="20" y="9.5" width="2.4" height="6.9" rx="1"/><rect x="24" y="10.5" width="2.4" height="5.0" rx="1"/><rect x="28" y="10.2" width="2.4" height="5.6" rx="1"/><rect x="32" y="9.2" width="2.4" height="7.5" rx="1"/><rect x="36" y="9.5" width="2.4" height="7.0" rx="1"/><rect x="40" y="9.9" width="2.4" height="6.1" rx="1"/><rect x="44" y="9.2" width="2.4" height="7.7" rx="1"/><rect x="48" y="8.8" width="2.4" height="8.5" rx="1"/><rect x="52" y="9.7" width="2.4" height="6.5" rx="1"/><rect x="56" y="10.1" width="2.4" height="5.7" rx="1"/><rect x="60" y="9.5" width="2.4" height="7.1" rx="1"/><rect x="64" y="9.7" width="2.4" height="6.6" rx="1"/><rect x="68" y="10.5" width="2.4" height="5.0" rx="1"/><rect x="72" y="10.0" width="2.4" height="6.0" rx="1"/><rect x="76" y="9.1" width="2.4" height="7.9" rx="1"/><rect x="80" y="9.4" width="2.4" height="7.1" rx="1"/><rect x="84" y="9.8" width="2.4" height="6.3" rx="1"/><rect x="88" y="9.1" width="2.4" height="7.9" rx="1"/><rect x="92" y="8.9" width="2.4" height="8.2" rx="1"/><rect x="96" y="10.0" width="2.4" height="6.0" rx="1"/><rect x="100" y="10.2" width="2.4" height="5.6" rx="1"/><rect x="104" y="9.5" width="2.4" height="7.0" rx="1"/><rect x="108" y="9.8" width="2.4" height="6.4" rx="1"/><rect x="112" y="10.5" width="2.4" height="5.1" rx="1"/><rect x="116" y="9.8" width="2.4" height="6.5" rx="1"/><rect x="120" y="8.9" width="2.4" height="8.2" rx="1"/><rect x="124" y="9.4" width="2.4" height="7.1" rx="1"/><rect x="128" y="9.8" width="2.4" height="6.4" rx="1"/><rect x="132" y="9.1" width="2.4" height="7.9" rx="1"/><rect x="136" y="9.1" width="2.4" height="7.8" rx="1"/><rect x="140" y="10.2" width="2.4" height="5.6" rx="1"/></svg><small>0:08</small></span>
+            <span class="transc"><b>Transcrição</b>Sinto muito. O desperdício lançado hoje soma <b>R$ 1.280,00</b>, 16 kg de carne. Quer que eu veja o que precisa repor para hoje à noite?</span><span class="hora">07:50</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>Brincadeira</h3>
+        <p class="sub">Entra na brincadeira e volta para o dado. <span class="fase">V7d</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu"><span class="audio-v7" role="img" aria-label="Áudio de 3 segundos da pessoa"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="4.7" width="2.4" height="16.7" rx="1"/><rect x="4" y="2.5" width="2.4" height="21.1" rx="1"/><rect x="8" y="5.4" width="2.4" height="15.3" rx="1"/><rect x="12" y="7.2" width="2.4" height="11.6" rx="1"/><rect x="16" y="5.0" width="2.4" height="16.0" rx="1"/><rect x="20" y="5.4" width="2.4" height="15.1" rx="1"/><rect x="24" y="8.8" width="2.4" height="8.4" rx="1"/><rect x="28" y="7.8" width="2.4" height="10.3" rx="1"/><rect x="32" y="4.4" width="2.4" height="17.2" rx="1"/><rect x="36" y="5.2" width="2.4" height="15.5" rx="1"/><rect x="40" y="6.8" width="2.4" height="12.3" rx="1"/><rect x="44" y="4.1" width="2.4" height="17.8" rx="1"/><rect x="48" y="2.7" width="2.4" height="20.6" rx="1"/><rect x="52" y="6.1" width="2.4" height="13.7" rx="1"/><rect x="56" y="7.5" width="2.4" height="10.9" rx="1"/><rect x="60" y="5.2" width="2.4" height="15.6" rx="1"/><rect x="64" y="6.0" width="2.4" height="14.0" rx="1"/><rect x="68" y="8.9" width="2.4" height="8.2" rx="1"/><rect x="72" y="7.1" width="2.4" height="11.8" rx="1"/><rect x="76" y="3.8" width="2.4" height="18.5" rx="1"/></svg><small>0:03</small></span><span class="percebeu">🎧 "Se o smash acabar de novo eu te demito, hein!"</span><span class="hora">18:05</span></div>
+          <div class="bolha dele larga"><span class="tom alegre">Tom: brincando · ri junto</span>
+            <span class="audio-v7" role="img" aria-label="Áudio de 7 segundos, bem-humorado, com risada no começo"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="5.1" width="2.4" height="15.9" rx="1"/><rect x="4" y="1.0" width="2.4" height="24.0" rx="1" class="o-riso"/><rect x="8" y="2.5" width="2.4" height="21.1" rx="1" class="o-riso"/><rect x="12" y="3.4" width="2.4" height="19.3" rx="1" class="o-riso"/><rect x="16" y="2.3" width="2.4" height="21.4" rx="1" class="o-riso"/><rect x="20" y="2.5" width="2.4" height="21.0" rx="1" class="o-riso"/><rect x="24" y="9.5" width="2.4" height="7.0" rx="1"/><rect x="28" y="8.5" width="2.4" height="9.1" rx="1"/><rect x="32" y="4.8" width="2.4" height="16.4" rx="1"/><rect x="36" y="5.7" width="2.4" height="14.6" rx="1"/><rect x="40" y="7.4" width="2.4" height="11.2" rx="1"/><rect x="44" y="4.5" width="2.4" height="17.1" rx="1"/><rect x="48" y="3.0" width="2.4" height="20.1" rx="1"/><rect x="52" y="6.6" width="2.4" height="12.7" rx="1"/><rect x="56" y="8.2" width="2.4" height="9.7" rx="1"/><rect x="60" y="5.7" width="2.4" height="14.7" rx="1"/><rect x="64" y="6.5" width="2.4" height="13.1" rx="1"/><rect x="68" y="9.6" width="2.4" height="6.8" rx="1"/><rect x="72" y="7.7" width="2.4" height="10.7" rx="1"/><rect x="76" y="4.1" width="2.4" height="17.8" rx="1"/><rect x="80" y="5.5" width="2.4" height="15.0" rx="1"/><rect x="84" y="7.0" width="2.4" height="11.9" rx="1"/><rect x="88" y="4.1" width="2.4" height="17.7" rx="1"/><rect x="92" y="3.5" width="2.4" height="19.0" rx="1"/><rect x="96" y="7.5" width="2.4" height="10.9" rx="1"/><rect x="100" y="8.5" width="2.4" height="9.1" rx="1"/><rect x="104" y="5.8" width="2.4" height="14.4" rx="1"/><rect x="108" y="6.8" width="2.4" height="12.3" rx="1"/><rect x="112" y="9.4" width="2.4" height="7.3" rx="1"/><rect x="116" y="6.7" width="2.4" height="12.6" rx="1"/><rect x="120" y="3.5" width="2.4" height="19.0" rx="1"/><rect x="124" y="5.5" width="2.4" height="15.0" rx="1"/><rect x="128" y="6.9" width="2.4" height="12.3" rx="1"/><rect x="132" y="4.1" width="2.4" height="17.9" rx="1"/><rect x="136" y="4.3" width="2.4" height="17.5" rx="1"/><rect x="140" y="8.4" width="2.4" height="9.2" rx="1"/></svg><small>0:07</small></span>
+            <span class="transc"><b>Transcrição</b><mark class="riso">ri</mark> Aí vou querer aviso prévio! Hoje tem blend para <b>64 smash</b>. Quer que eu te avise se baixar de 20?</span><span class="hora">18:05</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso">
+        <h3>A pessoa ri de um cliente</h3>
+        <p class="sub">A regra vale mais que o clima: ele não acompanha o riso. <span class="fase">V7d</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv">
+          <div class="bolha meu"><span class="audio-v7" role="img" aria-label="Áudio de 3 segundos da pessoa"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="4.3" width="2.4" height="17.3" rx="1"/><rect x="4" y="2.0" width="2.4" height="22.0" rx="1"/><rect x="8" y="5.1" width="2.4" height="15.8" rx="1"/><rect x="12" y="7.0" width="2.4" height="11.9" rx="1"/><rect x="16" y="4.7" width="2.4" height="16.6" rx="1"/><rect x="20" y="5.2" width="2.4" height="15.6" rx="1"/><rect x="24" y="8.8" width="2.4" height="8.5" rx="1"/><rect x="28" y="7.7" width="2.4" height="10.5" rx="1"/><rect x="32" y="4.1" width="2.4" height="17.9" rx="1"/><rect x="36" y="5.0" width="2.4" height="16.1" rx="1"/><rect x="40" y="6.7" width="2.4" height="12.7" rx="1"/><rect x="44" y="3.7" width="2.4" height="18.5" rx="1"/><rect x="48" y="2.2" width="2.4" height="21.5" rx="1"/><rect x="52" y="5.9" width="2.4" height="14.2" rx="1"/><rect x="56" y="7.4" width="2.4" height="11.1" rx="1"/><rect x="60" y="4.9" width="2.4" height="16.1" rx="1"/><rect x="64" y="5.8" width="2.4" height="14.5" rx="1"/><rect x="68" y="8.9" width="2.4" height="8.3" rx="1"/><rect x="72" y="6.9" width="2.4" height="12.1" rx="1"/><rect x="76" y="3.4" width="2.4" height="19.2" rx="1"/></svg><small>0:03</small></span><span class="percebeu">🎧 "Kkkk, olha o cliente reclamando que o lanche veio frio!"</span><span class="hora">22:30</span></div>
+          <div class="bolha dele larga"><span class="tom serio">Tom: rindo de cliente · não acompanha</span>
+            <span class="audio-v7" role="img" aria-label="Áudio de 7 segundos, neutro e cordial"><span class="play" aria-hidden="true">▶</span><svg class="onda-v7" viewBox="0 0 144 26" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="8.5" width="2.4" height="9.0" rx="1"/><rect x="4" y="7.7" width="2.4" height="10.5" rx="1"/><rect x="8" y="8.8" width="2.4" height="8.5" rx="1"/><rect x="12" y="9.4" width="2.4" height="7.2" rx="1"/><rect x="16" y="8.6" width="2.4" height="8.7" rx="1"/><rect x="20" y="8.8" width="2.4" height="8.4" rx="1"/><rect x="24" y="10.0" width="2.4" height="6.0" rx="1"/><rect x="28" y="9.6" width="2.4" height="6.7" rx="1"/><rect x="32" y="8.4" width="2.4" height="9.2" rx="1"/><rect x="36" y="8.7" width="2.4" height="8.6" rx="1"/><rect x="40" y="9.3" width="2.4" height="7.4" rx="1"/><rect x="44" y="8.3" width="2.4" height="9.4" rx="1"/><rect x="48" y="7.8" width="2.4" height="10.4" rx="1"/><rect x="52" y="9.0" width="2.4" height="7.9" rx="1"/><rect x="56" y="9.5" width="2.4" height="6.9" rx="1"/><rect x="60" y="8.7" width="2.4" height="8.6" rx="1"/><rect x="64" y="9.0" width="2.4" height="8.0" rx="1"/><rect x="68" y="10.0" width="2.4" height="6.0" rx="1"/><rect x="72" y="9.4" width="2.4" height="7.2" rx="1"/><rect x="76" y="8.2" width="2.4" height="9.6" rx="1"/><rect x="80" y="8.7" width="2.4" height="8.7" rx="1"/><rect x="84" y="9.2" width="2.4" height="7.7" rx="1"/><rect x="88" y="8.2" width="2.4" height="9.6" rx="1"/><rect x="92" y="8.0" width="2.4" height="10.0" rx="1"/><rect x="96" y="9.3" width="2.4" height="7.3" rx="1"/><rect x="100" y="9.6" width="2.4" height="6.7" rx="1"/><rect x="104" y="8.8" width="2.4" height="8.5" rx="1"/><rect x="108" y="9.1" width="2.4" height="7.8" rx="1"/><rect x="112" y="10.0" width="2.4" height="6.1" rx="1"/><rect x="116" y="9.1" width="2.4" height="7.9" rx="1"/><rect x="120" y="8.0" width="2.4" height="10.0" rx="1"/><rect x="124" y="8.7" width="2.4" height="8.7" rx="1"/><rect x="128" y="9.1" width="2.4" height="7.8" rx="1"/><rect x="132" y="8.2" width="2.4" height="9.6" rx="1"/><rect x="136" y="8.3" width="2.4" height="9.5" rx="1"/><rect x="140" y="9.6" width="2.4" height="6.7" rx="1"/></svg><small>0:07</small></span>
+            <span class="transc"><b>Transcrição</b>Vi a reclamação do pedido <b>#27</b>: ele saiu 18 minutos depois de pronto. Vale responder hoje. Quer que eu escreva a resposta?</span><span class="hora">22:30</span></div>
+        </div></div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NA LOJA ═════════════════════ -->
+<section class="vista" id="v-loja" aria-labelledby="h-loja">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-loja">Mister › Jeito e memória <span class="v7">v7</span></h1>
+      <p class="sub">Dois ajustes novos, só do presidente. Os dois nascem desligados, com o preço ao lado, e gastam a chave de IA da empresa.</p>
+    </div>
+    <div class="app">
+      <nav class="lado" aria-label="Menu do aplicativo">
+        <div class="marca">Regem</div>
+        <ul><li>Painel</li><li>Delivery</li><li>Estoque</li><li>Financeiro</li><li>Pessoas</li><li>Relatórios</li><li class="atual">Mister</li><li>Configurações</li></ul>
+      </nav>
+      <div class="principal">
+        <div class="topo"><span class="onde-app">Mister</span><span class="peq sub">Ana · presidente</span></div>
+        <div class="corpo-app">
+          <div class="partes" role="group" aria-label="Partes do Mister">
+            <button class="parte" disabled aria-pressed="false">Resumo</button>
+            <button class="parte" disabled aria-pressed="false">Pessoas</button>
+            <button class="parte" disabled aria-pressed="false">IA e uso</button>
+            <button class="parte" disabled aria-pressed="false">Avisos e relatórios</button>
+            <button class="parte" disabled aria-pressed="false">Documentos</button>
+            <button class="parte" disabled aria-pressed="false">Histórico</button>
+            <button class="parte" aria-pressed="true">Jeito e memória</button>
+          </div>
+
+          <div class="busca-aj"><label class="sr" for="aj-busca">Buscar ajuste</label><input id="aj-busca" type="search" placeholder="Buscar ajuste" autocomplete="off"></div>
+
+          <div class="cartao" id="aj-lista">
+            <div class="bloco-aj" data-grupo>
+              <p class="grupo-aj">Conversa <span data-conta>· 2 ajustes</span></p>
+              <div class="aj" data-aj="perfil" data-palavras="perfil tom respostas">
+                <div><div class="t" id="t-perfil">Perfil <span class="ja">já existe</span></div><div class="d">O tom das respostas escritas. "Como hoje" não muda nada.</div></div>
+                <div class="ctrl"><select id="c-perfil" aria-labelledby="t-perfil"><option>Como hoje</option><option>Profissional</option><option>Cordial</option><option>Gentil</option><option>Descontraído</option><option>Objetivo</option><option>Acolhedor</option></select></div>
+              </div>
+              <div class="aj largo" data-aj="jeito" data-palavras="jeito empresa frase falar">
+                <div><div class="t" id="t-jeito">Jeito da empresa <span class="ja">já existe</span></div><div class="d">Uma frase sobre como o Mister deve falar com vocês.</div></div>
+                <div class="ctrl"><textarea id="c-jeito" rows="2" maxlength="300" aria-labelledby="t-jeito">Fale como sócio, sem formalidade.</textarea></div>
+              </div>
+            </div>
+
+            <div class="bloco-aj" data-grupo>
+              <p class="grupo-aj">Voz <span data-conta>· 1 ajuste</span></p>
+              <div class="aj" data-aj="voz" data-palavras="voz emoção áudio tom risada">
+                <div><div class="t" id="t-voz">Voz com emoção <span class="v7">v7</span></div>
+                  <div class="d">A resposta em áudio acompanha o tom de quem fala, com risada quando a ocasião pede. Precisa de "Responder em áudio" ligado em Avisos e relatórios.</div>
+                  <span class="preco">Cerca de US$ 0,01 a cada 40 s de áudio</span>
+                  <button class="link-aj" data-gaveta="voz">Ver como funciona</button></div>
+                <div class="ctrl"><span class="estado-liga" id="e-voz">Desligada</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="t-voz" data-liga="voz"></button></div>
+              </div>
+            </div>
+
+            <div class="bloco-aj" data-grupo style="margin-bottom:0">
+              <p class="grupo-aj">Análises <span data-conta>· 1 ajuste</span></p>
+              <div class="aj" data-aj="analise" data-palavras="análises profundas modelo maior bi">
+                <div><div class="t" id="t-analise">Análises mais profundas <span class="v7">v7</span></div>
+                  <div class="d">Usa o modelo maior só nas perguntas de análise: semana, pico, padrões, perdas e financeiro. O resto continua como hoje.</div>
+                  <span class="preco">De cerca de US$ 0,001 para até US$ 0,02 por pergunta</span>
+                  <button class="link-aj" data-gaveta="analise">Ver como funciona</button></div>
+                <div class="ctrl"><span class="estado-liga" id="e-analise">Desligada</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="t-analise" data-liga="analise"></button></div>
+              </div>
+            </div>
+            <div class="vazio" id="aj-vazio" hidden>Nenhum ajuste com essa busca.</div>
+          </div>
+
+          <div class="barra-salvar" id="barra" hidden>
+            <span id="barra-txt">1 alteração ainda não salva</span>
+            <span class="acoes"><button class="btn" id="descartar">Descartar</button><button class="btn pri" id="salvar">Salvar</button></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NOTAS ═════════════════════ -->
+<section class="vista" id="v-notas" aria-labelledby="h-notas">
+  <div class="pagina notas">
+    <div class="cab">
+      <h1 id="h-notas">Notas e decisões</h1>
+      <p class="sub">O que muda, o que fica, as fases e o que precisa da sua decisão. Em cada decisão, a recomendada vem primeiro.</p>
+    </div>
+
+    <div class="dois-lados">
+      <div class="cartao">
+        <h2>O que muda</h2>
+        <ul>
+          <li>A conversa: plano em uma frase, ajuste falando, confirmação e resultado.</li>
+          <li>Antes de responder a uma reclamação, ele confere.</li>
+          <li>Um pedido pode ter várias tarefas.</li>
+          <li>Análises de venda, fases, pico, perdas e padrões, com gráfico.</li>
+          <li>Indicadores financeiros, e o pedido do dado que falta.</li>
+          <li>A voz acompanha o tom de quem fala (opcional).</li>
+        </ul>
+      </div>
+      <div class="cartao">
+        <h2>O que não muda</h2>
+        <ul>
+          <li><b>Número só vem de consulta.</b> A IA não calcula de cabeça nem estima.</li>
+          <li><b>Ação com dinheiro</b> continua com botão ou PIN.</li>
+          <li><b>Dado de cliente</b> não vai à IA além do necessário e não sai pelo WhatsApp.</li>
+          <li>Cada perfil vê só o que já podia ver. Saldo e folha, só o presidente.</li>
+          <li>Avisos críticos podem ser agrupados, mas não calados.</li>
+          <li>O Mister sempre diz que é uma IA.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="cartao">
+      <h2>Fases</h2>
+      <table class="fases"><caption class="sr">Fases da versão 7</caption>
+        <thead><tr><th>Fase</th><th>O que entra</th><th>Migration</th><th>Depende de</th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Fase">V7c · Conversa</td><td data-rot="O que entra">Plano em uma frase, ajuste na conversa, conferir antes de responder, várias tarefas, conversa solta</td><td data-rot="Migration">não prevista</td><td data-rot="Depende de">Avaliação de regressão com os casos novos</td></tr>
+          <tr><td data-rot="Fase">V7d · Voz</td><td data-rot="O que entra">Voz com emoção, leitura do tom, risada com as regras</td><td data-rot="Migration">não prevista</td><td data-rot="Depende de">Teste real da voz em português e da risada</td></tr>
+          <tr><td data-rot="Fase">V7e · BI</td><td data-rot="O que entra">Semana, pico, fases do mês, perdas, padrões, gráfico no balão e "Análises mais profundas"</td><td data-rot="Migration">não prevista (só leitura)</td><td data-rot="Depende de">Medir o tempo das consultas em loja com muito pedido</td></tr>
+          <tr><td data-rot="Fase">V7f · KPIs financeiros</td><td data-rot="O que entra">Margem, CMV, inadimplência e prazo; saldo, folha e custo informados na conversa; runway, margem líquida e ROI</td><td data-rot="Migration">uma (o que o dono informa)</td><td data-rot="Depende de">Leitura dos repasses de iFood, 99 e cartão para fechar runway e giro</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cartao">
+      <h2>As 10 decisões</h2>
+      <div class="decisao"><h3>V7-1 · Quando ele aplica</h3><ol><li>Mostra o plano em uma frase e aplica depois do botão, em tudo o que muda algo <span class="rec">recomendada</span></li><li>Pede confirmação só em ação com dinheiro</li></ol></div>
+      <div class="decisao"><h3>V7-2 · Pedido com várias tarefas</h3><ol><li>Um botão para o plano inteiro, e o PIN só nos passos que já pedem PIN <span class="rec">recomendada</span></li><li>Confirmar passo a passo</li></ol></div>
+      <div class="decisao"><h3>V7-3 · Quando um passo falha</h3><ol><li>Diz o que entrou e o que não entrou, e oferece tentar de novo <span class="rec">recomendada</span></li><li>Desfaz todos os passos</li></ol></div>
+      <div class="decisao"><h3>V7-4 · A risada na voz</h3><ol><li>Só com a pessoa animada ou brincando, e nunca nos temas proibidos <span class="rec">recomendada</span></li><li>Só a entonação, sem risada</li></ol></div>
+      <div class="decisao"><h3>V7-5 · O tom de quem fala</h3><ol><li>Usado só para responder aquela mensagem: não fica guardado nem vira relatório <span class="rec">recomendada</span></li><li>Guardar para acompanhar o clima da equipe</li></ol></div>
+      <div class="decisao"><h3>V7-6 · Voz com emoção</h3><ol><li>Nasce desligada, o presidente liga, com o preço ao lado <span class="rec">recomendada</span></li><li>Nasce ligada para quem já usa "Responder em áudio"</li></ol></div>
+      <div class="decisao"><h3>V7-7 · Análises mais profundas</h3><ol><li>Modelo maior só nas perguntas de análise, nascendo desligado <span class="rec">recomendada</span></li><li>Modelo maior em todas as perguntas</li></ol></div>
+      <div class="decisao"><h3>V7-8 · Sugestões do Mister</h3><ol><li>Sempre separadas dos números, e ele nunca aplica sozinho <span class="rec">recomendada</span></li><li>Pode aplicar sozinho o que for de baixo risco</li></ol></div>
+      <div class="decisao"><h3>V7-9 · Saldo do banco</h3><ol><li>O dono informa na conversa, com a data, só o presidente vê, e ele pede de novo a cada 7 dias <span class="rec">recomendada</span></li><li>Ligar ao banco agora (Open Finance), com custo e prazo maiores</li></ol></div>
+      <div class="decisao"><h3>V7-10 · Indicador sem dado</h3><ol><li>Mostra o que falta e pede <span class="rec">recomendada</span></li><li>Estima pela média do setor, marcando como estimativa</li></ol></div>
+    </div>
+
+    <div class="cartao">
+      <h2>Ainda depende de teste real</h2>
+      <ul>
+        <li><b>A voz nova em português:</b> sotaque, valores em reais e números de pedido. Ainda não foi testada.</li>
+        <li><b>A risada:</b> se soa natural ou forçada. Ainda não foi testada. Se soar mal, fica só a entonação (V7-4).</li>
+        <li><b>A leitura do tom:</b> quantas vezes ele acerta com áudio real de loja, com barulho de cozinha.</li>
+        <li><b>O custo:</b> os valores deste protótipo são estimativas e precisam ser medidos com uso real.</li>
+        <li><b>O tempo de resposta:</b> uma análise maior na hora do pico não pode deixar a pessoa esperando.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- gaveta e diálogo -->
+<div class="fundo" id="fundo-g" hidden></div>
+<aside class="gaveta" id="gaveta" role="dialog" aria-modal="true" aria-labelledby="g-titulo" hidden>
+  <div class="gaveta-cab"><div><h2 id="g-titulo">Voz com emoção</h2><p class="peq sub" id="g-estado">Desligada</p></div><button class="fechar" data-fechar aria-label="Fechar">×</button></div>
+  <div class="gaveta-corpo">
+    <div data-g="voz" class="gaveta-sec">
+      <div><h3>O que faz</h3><p class="sub">Quando a pessoa manda áudio, o Mister percebe o tom e responde no mesmo clima. O texto continua indo junto, com os mesmos números.</p></div>
+      <div><h3>O que ele nunca faz</h3><ul class="lista-ok"><li>Rir de prejuízo, reclamação, cliente ou funcionário.</li><li>Guardar o tom de quem falou.</li><li>Falar um valor diferente do texto.</li></ul></div>
+      <div class="campo"><label for="g-qtd-voz">Quantos áudios por dia</label><select id="g-qtd-voz"><option value="5">5 áudios</option><option value="15" selected>15 áudios</option><option value="30">30 áudios</option></select><span class="ajuda">Conta feita com 30 segundos por áudio e 30 dias.</span></div>
+      <div class="conta-g" role="status">Estimativa: cerca de <b id="g-custo-voz">US$ 3,38</b> por mês, na chave de IA da empresa.</div>
+      <div class="faixa warn" style="margin:0">A voz nova e a risada ainda não foram testadas em português.</div>
+      <p class="peq sub">Precisa de "Responder em áudio" ligado em Mister › Avisos e relatórios.</p>
+    </div>
+    <div data-g="analise" class="gaveta-sec" hidden>
+      <div><h3>O que faz</h3><p class="sub">Nas perguntas de análise (semana, pico, padrões, perdas, financeiro), o Mister usa um modelo maior para cruzar melhor os dados. Pergunta simples continua no modelo de hoje.</p></div>
+      <div><h3>O que não muda</h3><ul class="lista-ok"><li>Os números continuam vindo das consultas.</li><li>A sugestão continua separada do fato.</li><li>Nada é aplicado sem o seu toque.</li></ul></div>
+      <div class="campo"><label for="g-qtd-analise">Quantas perguntas de análise por dia</label><select id="g-qtd-analise"><option value="3">3 perguntas</option><option value="10" selected>10 perguntas</option><option value="30">30 perguntas</option></select><span class="ajuda">Conta feita com 30 dias, no teto de US$ 0,02 por pergunta.</span></div>
+      <div class="conta-g" role="status">Estimativa: de cerca de <b id="g-antes-analise">US$ 0,30</b> para até <b id="g-custo-analise">US$ 6,00</b> por mês, na chave de IA da empresa.</div>
+    </div>
+  </div>
+  <div class="gaveta-rod"><button class="btn" data-fechar>Fechar</button><button class="btn pri" id="g-aplicar">Ligar</button></div>
+</aside>
+
+<div class="fundo alto" id="fundo-d" hidden></div>
+<div class="dialogo" id="d-custo" role="dialog" aria-modal="true" aria-labelledby="d-custo-t" hidden>
+  <h2 id="d-custo-t">Ligar e salvar?</h2>
+  <p>Estes ajustes passam a gastar a chave de IA da empresa:</p>
+  <ul class="lista-ok" id="d-custo-lista"></ul>
+  <p class="peq sub" style="margin-top:8px">Você pode desligar quando quiser, aqui mesmo. A mudança fica na auditoria.</p>
+  <div class="acoes"><button class="btn" data-fechar>Cancelar</button><button class="btn pri" id="d-custo-ok">Ligar e salvar</button></div>
+</div>
+<div class="salvo" id="salvo" role="status" hidden>Ajustes salvos</div>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+
+  // abas do protótipo
+  const abas = [...document.querySelectorAll('.aba')];
+  abas.forEach((b) => b.addEventListener('click', () => {
+    abas.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll('.vista').forEach((v) => v.classList.toggle('ativa', v.id === 'v-' + b.dataset.aba));
+    window.scrollTo(0, 0);
+  }));
+
+  // os ajustes: o que está salvo × o que está na tela
+  const NOMES = { voz: 'Voz com emoção', analise: 'Análises mais profundas' };
+  const PRECOS = { voz: 'cerca de US$ 0,01 a cada 40 s de áudio', analise: 'de cerca de US$ 0,001 para até US$ 0,02 por pergunta' };
+  const salvos = { voz: false, analise: false, perfil: $('c-perfil').value, jeito: $('c-jeito').value };
+  const atual = { ...salvos };
+  const CHAVES = Object.keys(salvos);
+
+  function pintar() {
+    ['voz', 'analise'].forEach((k) => {
+      document.querySelector(`[data-liga="${k}"]`).setAttribute('aria-checked', String(atual[k]));
+      $('e-' + k).textContent = atual[k] ? 'Ligada' : 'Desligada';
+    });
+    $('c-perfil').value = atual.perfil;
+    $('c-jeito').value = atual.jeito;
+    const mudados = CHAVES.filter((k) => atual[k] !== salvos[k]);
+    CHAVES.forEach((k) => document.querySelector(`[data-aj="${k}"]`).classList.toggle('mudou', atual[k] !== salvos[k]));
+    $('barra').hidden = mudados.length === 0;
+    $('barra-txt').textContent = mudados.length === 1 ? '1 alteração ainda não salva' : `${mudados.length} alterações ainda não salvas`;
+  }
+  function gravar() {
+    Object.assign(salvos, atual);
+    pintar();
+    const s = $('salvo');
+    s.hidden = false;
+    clearTimeout(gravar.t);
+    gravar.t = setTimeout(() => { s.hidden = true; }, 2600);
+  }
+  document.querySelectorAll('[data-liga]').forEach((b) => b.addEventListener('click', () => { atual[b.dataset.liga] = !atual[b.dataset.liga]; pintar(); }));
+  $('c-perfil').addEventListener('change', (e) => { atual.perfil = e.target.value; pintar(); });
+  $('c-jeito').addEventListener('input', (e) => { atual.jeito = e.target.value; pintar(); });
+  $('descartar').addEventListener('click', () => { Object.assign(atual, salvos); pintar(); });
+  $('salvar').addEventListener('click', (e) => {
+    const novos = ['voz', 'analise'].filter((k) => atual[k] && !salvos[k]);
+    if (!novos.length) { gravar(); return; }
+    const lista = $('d-custo-lista');
+    lista.textContent = '';
+    novos.forEach((k) => {
+      const li = document.createElement('li');
+      const b = document.createElement('b');
+      b.textContent = NOMES[k];
+      li.append(b, ': ' + PRECOS[k] + '.');
+      lista.append(li);
+    });
+    abrir('d-custo', e.currentTarget);
+  });
+  $('d-custo-ok').addEventListener('click', () => { fecharTopo(); gravar(); });
+
+  // buscar ajuste
+  $('aj-busca').addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    let total = 0;
+    document.querySelectorAll('[data-grupo]').forEach((g) => {
+      let n = 0;
+      g.querySelectorAll('.aj').forEach((a) => {
+        const ok = !q || (a.textContent + ' ' + a.dataset.palavras).toLowerCase().includes(q);
+        a.hidden = !ok;
+        if (ok) n++;
+      });
+      g.hidden = n === 0;
+      g.querySelector('[data-conta]').textContent = `· ${n} ${n === 1 ? 'ajuste' : 'ajustes'}`;
+      total += n;
+    });
+    $('aj-vazio').hidden = total > 0;
+  });
+
+  // as contas da gaveta
+  const brl = (n) => 'US$ ' + n.toFixed(2).replace('.', ',');
+  function contas() {
+    const audios = Number($('g-qtd-voz').value);
+    $('g-custo-voz').textContent = brl((audios * 30 / 40) * 0.01 * 30);
+    const perguntas = Number($('g-qtd-analise').value);
+    $('g-antes-analise').textContent = brl(perguntas * 30 * 0.001);
+    $('g-custo-analise').textContent = brl(perguntas * 30 * 0.02);
+  }
+  $('g-qtd-voz').addEventListener('change', contas);
+  $('g-qtd-analise').addEventListener('change', contas);
+
+  // gaveta e diálogo, com a pilha (Esc fecha só o de cima) e o foco preso na peça aberta
+  const pilha = [];
+  let gavetaDe = 'voz';
+  function pintarGaveta() {
+    $('g-titulo').textContent = NOMES[gavetaDe];
+    $('g-estado').textContent = atual[gavetaDe] ? 'Ligada' : 'Desligada';
+    $('g-aplicar').textContent = atual[gavetaDe] ? 'Desligar' : 'Ligar';
+    document.querySelectorAll('[data-g]').forEach((s) => { s.hidden = s.dataset.g !== gavetaDe; });
+  }
+  function abrir(id, origem) {
+    const el = $(id);
+    $(id === 'gaveta' ? 'fundo-g' : 'fundo-d').hidden = false;
+    el.hidden = false;
+    pilha.push({ id, origem });
+    const alvo = id === 'gaveta' ? el.querySelector('[data-g]:not([hidden]) select') : el.querySelector('button');
+    if (alvo) alvo.focus();
+  }
+  function fecharTopo() {
+    const topo = pilha.pop();
+    if (!topo) return;
+    $(topo.id).hidden = true;
+    $(topo.id === 'gaveta' ? 'fundo-g' : 'fundo-d').hidden = true;
+    if (topo.origem && document.contains(topo.origem) && topo.origem.offsetParent !== null) topo.origem.focus();
+  }
+  document.querySelectorAll('[data-gaveta]').forEach((b) => b.addEventListener('click', () => {
+    gavetaDe = b.dataset.gaveta;
+    pintarGaveta();
+    abrir('gaveta', b);
+  }));
+  $('g-aplicar').addEventListener('click', () => { atual[gavetaDe] = !atual[gavetaDe]; pintar(); fecharTopo(); });
+  document.querySelectorAll('[data-fechar]').forEach((b) => b.addEventListener('click', fecharTopo));
+  $('fundo-g').addEventListener('click', fecharTopo);
+  $('fundo-d').addEventListener('click', fecharTopo);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { fecharTopo(); return; }
+    if (e.key !== 'Tab' || !pilha.length) return;
+    const el = $(pilha[pilha.length - 1].id);
+    const itens = [...el.querySelectorAll('button,select,input,textarea,a[href]')].filter((x) => !x.disabled && x.offsetParent !== null);
+    if (!itens.length) return;
+    const primeiro = itens[0];
+    const ultimo = itens[itens.length - 1];
+    if (!el.contains(document.activeElement)) { e.preventDefault(); primeiro.focus(); }
+    else if (e.shiftKey && document.activeElement === primeiro) { e.preventDefault(); ultimo.focus(); }
+    else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primeiro.focus(); }
+  });
+
+  contas();
+  pintar();
+})();
+</script>
+</body>
+</html>

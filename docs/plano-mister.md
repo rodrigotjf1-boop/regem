@@ -2215,3 +2215,39 @@ plano e a doc oficial da Meta ("User identity changes" e "Phone Numbers"). Nada 
 ## 6. Como foi levantado
 
 Três varreduras de leitura no checkout limpo de `origin/main` `7b7a573f`, por área (saúde e comandos; sinais de operação e vencimentos; canal, acesso e sync), com conferência manual dos pontos que sustentam o plano. Limites: nada foi executado; hardware, conta Meta, provedores de pagamento e homologação fiscal não foram testados; onde a documentação e o código divergiam, valeu o código.
+
+## Versão 7 — conversa natural, BI, financeiro e voz (aprovada em 22/11/2026)
+
+Pedido do dono: a conversa "como num chat de uma renomada IA", que planeja, cria, edita, apresenta, confirma e aplica; análise de
+vendas, picos, perdas, desperdício e cancelamentos; KPIs financeiros; reconciliação e idempotência; e, no áudio, responder no tom de
+quem fala, "até risada se a ocasião assim se apresentar". Protótipo: `mockups/regem-mister-v7.html`.
+
+**Etapas:**
+
+| Etapa | O que entrega | Situação |
+|---|---|---|
+| V7a · Números únicos | O Mister usa a conta do Painel (`vendasOficiais`); a medida do atraso do Anota Aí | no ar (#1259, ERR-564) |
+| V7b · Dinheiro sem duplicar | Pagar o entregador, conta recorrente e resultado do pinpad | mesclado (#1260, #1261, ERR-565, ERR-566) |
+| V7c · Conversa natural | Plano em uma frase, ajuste na conversa, várias tarefas, conferir antes de dizer "pronto" | a fazer |
+| V7e · BI | Semana, pico e itens do pico, fases do mês, perdas e cancelamentos, padrões | a fazer |
+| V7f · KPIs financeiros | Margem, CMV, inadimplência, prazo; saldo, folha e custo informados na conversa | a fazer |
+| V7d · Voz | A voz com tom e a risada, pelo DMS Graph, nascendo desligada | a fazer |
+
+**As dez decisões (todas na recomendada):**
+
+- V7-1: mostra o plano em uma frase e aplica depois do botão, em tudo o que muda algo.
+- V7-2: um botão para o plano inteiro, e o PIN só nos passos que já pedem PIN.
+- V7-3: quando um passo falha, diz o que entrou e o que não entrou e oferece tentar de novo.
+- V7-4: risada só com a pessoa animada ou brincando, nunca em prejuízo, reclamação, cliente ou funcionário.
+- V7-5: o tom de quem fala serve só para responder aquela mensagem: não fica guardado nem vira relatório.
+- V7-6: "Voz com emoção" nasce desligada; o presidente liga, com o preço ao lado.
+- V7-7: "Análises mais profundas" usa o modelo maior só nas análises e nasce desligada.
+- V7-8: as sugestões vêm separadas dos números, e o Mister nunca as aplica sozinho.
+- V7-9: o saldo do banco é informado na conversa, com a data; só o presidente vê; ele pede de novo a cada 7 dias.
+- V7-10: indicador sem dado mostra o que falta e pede; nunca estima pela média do setor.
+
+**O que pesa na loja real (medido em 22/11):** as fichas cobrem 71,4% da venda dos últimos 30 dias; há 1 conta a pagar e nenhuma a
+receber lançadas, então inadimplência e prazo de pagamento ficam sem número até a loja lançar.
+
+**Ainda depende de teste real:** a voz nova em português, a risada, a leitura do tom com barulho de cozinha, o custo e o tempo de
+resposta das análises no pico.
