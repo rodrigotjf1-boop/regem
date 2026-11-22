@@ -17,7 +17,7 @@ import type { FimDaPergunta } from './mister-laco';
 import { GUIA_DE_USO, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { conferirMemoria } from './mister-memoria';
 import { canalDito, conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
-import { AVISOS_QUE_NAO_SE_CALAM, conferirRegra, descreverRegra } from './mister-regra';
+import { AVISOS_QUE_NAO_SE_CALAM, conferirRegra, descreverRegra, fraseDoQueDeixaDeChegar } from './mister-regra';
 import { lerPedidos } from './mister-lista';
 import { conferirAcao, resumoDoPedido, sigaDaAcao } from './mister-acoes';
 import { ehTipoDeAviso } from './mister-avisos.regras';
@@ -292,6 +292,7 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         id: '00000000-0000-4000-8000-000000000001',
         titulo: r.regra.titulo,
         oQueVouFazer: descreverRegra(r.regra),
+        ...(r.regra.substitui?.length ? { dizerAntesDoConfirmar: fraseDoQueDeixaDeChegar(r.regra.substitui) } : {}),
         siga: 'Mostre o "oQueVouFazer" como veio e diga que os botões Confirmar e Mudar vão junto. Nada liga sem o Confirmar.',
       });
     }
