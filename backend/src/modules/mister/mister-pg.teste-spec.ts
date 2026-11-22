@@ -9191,7 +9191,7 @@ export function testesDoMisterComPostgres(): void {
         numero.pedidos.length = 0;
         expect(await regras.volta([A])).toMatchObject({ avaliadas: 1, avisos: 1 });
         expect(numero.enviadas.filter((m) => m.para === tel)).toHaveLength(1);
-        const nova = await ferramentas.executar(await escopo('ana'), 'regras', { acao: 'propor', regra: semSubstitui });
+        const nova = await ferramentas.executar(await escopo('ana'), 'regras', { acao: 'propor', regra: { ...semSubstitui, intervaloMin: 45 } }); // o mesmo, com outro intervalo: troca, não soma
         expect(nova.dados).toMatchObject({ deixaDeReceber: ['pedido_parado:confirmado'], ficaNoLugarDe: expect.stringContaining('Cópia') });
         await regras.ativar(String(nova.dados.id), A, pessoa.ana, true);
         expect(await q(`select id::text as id from mister_regra where tenant_id = $1 and colaborador_id = $2 and situacao = 'ativa'`, [A, pessoa.ana])).toEqual([{ id: nova.dados.id }]);

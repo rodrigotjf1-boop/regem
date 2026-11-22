@@ -186,6 +186,7 @@ describe('a regra que junta os pedidos parados fica no lugar do aviso um a um (E
     const a = ok(TRES_PARADOS);
     const b = ok({ ...TRES_PARADOS, titulo: 'Outro nome', filtros: [...TRES_PARADOS.filtros].reverse(), substitui: [] });
     expect(chaveDaRegra(a)).toBe(chaveDaRegra(b));
+    expect(chaveDaRegra(a)).toBe(chaveDaRegra(ok({ ...TRES_PARADOS, intervaloMin: 45 })));
     expect(chaveDaRegra(a)).not.toBe(chaveDaRegra(ok({ ...TRES_PARADOS, condicao: { op: '>=', valor: 4 } })));
   });
 });

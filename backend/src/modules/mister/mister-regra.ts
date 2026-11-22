@@ -240,7 +240,10 @@ function substituiPorPadrao(r: Pick<Regra, 'fonte' | 'medida' | 'agrupar' | 'fil
   return new Set(etapas).size === 3 ? ['pedido_parado'] : [...new Set(etapas)].map((e) => `pedido_parado:${e}`);
 }
 
-/** O que a regra FAZ, sem o título e sem os avisos que ela substitui: duas regras com a mesma chave são a mesma regra. */
+/**
+ * O que a regra OLHA, sem o título, sem os avisos que ela substitui e sem o intervalo: duas regras com a mesma chave são a
+ * mesma regra. Pedir a mesma com outro intervalo é mudar a que existe, não criar outra.
+ */
 export function chaveDaRegra(r: Regra): string {
   const filtros = (l?: Filtro[]) =>
     [...(l ?? [])]
@@ -258,7 +261,6 @@ export function chaveDaRegra(r: Regra): string {
     quando: [q.dias ?? null, q.de ?? null, q.ate ?? null, q.em ?? null, q.data ?? null, q.soNoExpediente === true],
     vezes: r.vezes,
     agrupar: r.agrupar,
-    intervaloMin: r.intervaloMin ?? null,
   });
 }
 

@@ -203,7 +203,7 @@ export class MisterRegrasService implements OnModuleInit {
          order by criada_em`),
     ).filter((v) => v.id !== antiga && chaveDaRegra(v.regra as Regra) === chave);
     const avisosDe = (l: unknown) => [...(Array.isArray(l) ? l : [])].map(String).sort().join(',');
-    const igual = gemeas.find((v) => avisosDe(v.substitui) === avisosDe(regra.substitui));
+    const igual = gemeas.find((v) => avisosDe(v.substitui) === avisosDe(regra.substitui) && (v.regra as Regra)?.intervaloMin === regra.intervaloMin);
     if (igual && !antiga) {
       const repetidas = gemeas.filter((v) => v.id !== igual.id).map((v) => v.id);
       return {
@@ -582,7 +582,7 @@ export class MisterRegrasService implements OnModuleInit {
       const estado = (a.estado ?? {}) as EstadoDaRegra;
       const fonte = fonteDaRegra(regra?.fonte);
       if (!fonte) continue;
-      const igual = `${a.tenantId}|${a.colaboradorId}|${chaveDaRegra(regra)}`;
+      const igual = `${a.tenantId}|${a.colaboradorId}|${regra.intervaloMin ?? ''}|${chaveDaRegra(regra)}`;
       if (jaOlhadas.has(igual)) continue;
       jaOlhadas.add(igual);
       // A de um dia só que já passou se encerra (sem avisar: o dia dela acabou).
