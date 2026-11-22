@@ -150,24 +150,7 @@ export class RelatoriosService {
   async vendasOficiais(tenantId: string, inicio?: string, fim?: string, verFin = false, atual: string | null = null) {
     const r = await this.vendas(tenantId, inicio, fim, verFin, atual);
     const { inicio: ini, fim: f } = r.periodo;
-    const linhas = await this.rows(sql`
-      with v as (
-        select case when c.mesa_id is not null then 'mesa' else 'balcão' end as canal,
-               ${noFuso('c.fechada_em')} as quando,
-               ${faturamentoComanda('c')} as fat,
-               ${gorjetaComanda('c')} as gorj
-          from comanda c
-         where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status = 'fechada'
-           and ${noPeriodo('c.fechada_em', ini, f)} and not ${comandaEhDeCanal('c')}
-        union all
-        select 'delivery/app', ${noFuso('pe.criado_em')}, ${faturamentoPedido('pe')}, ${gorjetaPedido('pe')}
-          from pedido_externo pe
-         where pe.tenant_id = ${tenantId} ${sqlUnidade('pe.unidade_id', atual)} and ${pedidoVale('pe')}
-           and ${noPeriodo('pe.criado_em', ini, f)}
-      )
-      select canal, to_char(quando, 'YYYY-MM-DD') as chave, quando::date as dia, extract(hour from quando)::int as hora,
-             count(*)::int as qtd, coalesce(sum(fat), 0) as fat, coalesce(sum(gorj), 0) as gorj
-        from v group by 1, 2, 3, 4`);
+    const linhas = await this.linhasDaVendaOficial(tenantId, ini, f, atual);
     // Em centavos: somar reais em ponto flutuante deixaria o total diferente do Painel por um centavo.
     const centavos = (v: unknown) => Math.round(Number(v) * 100);
     const juntar = <K>(chave: (l: any) => K) => {
@@ -206,6 +189,33 @@ export class RelatoriosService {
         .sort((a, b) => a.k - b.k)
         .map((g) => ({ hora: g.k, qtd: g.qtd, total: m(g.total) })),
     };
+  }
+
+  /**
+   * As linhas da conta OFICIAL, por canal, dia e hora do relógio da loja: é daqui que `vendasOficiais` soma. Versão 7, V7e: as
+   * análises do Mister (dia da semana, pico, fases do mês) agrupam ESTAS linhas, numa consulta só e sem outra soma de venda.
+   * `fat` e `gorj` vêm em reais; o total de cada linha se arredonda em centavos antes de somar (como acima).
+   */
+  async linhasDaVendaOficial(tenantId: string, inicio?: string, fim?: string, atual: string | null = null): Promise<any[]> {
+    const { ini, fim: f } = this.periodo(inicio, fim);
+    return this.rows(sql`
+      with v as (
+        select case when c.mesa_id is not null then 'mesa' else 'balcão' end as canal,
+               ${noFuso('c.fechada_em')} as quando,
+               ${faturamentoComanda('c')} as fat,
+               ${gorjetaComanda('c')} as gorj
+          from comanda c
+         where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status = 'fechada'
+           and ${noPeriodo('c.fechada_em', ini, f)} and not ${comandaEhDeCanal('c')}
+        union all
+        select 'delivery/app', ${noFuso('pe.criado_em')}, ${faturamentoPedido('pe')}, ${gorjetaPedido('pe')}
+          from pedido_externo pe
+         where pe.tenant_id = ${tenantId} ${sqlUnidade('pe.unidade_id', atual)} and ${pedidoVale('pe')}
+           and ${noPeriodo('pe.criado_em', ini, f)}
+      )
+      select canal, to_char(quando, 'YYYY-MM-DD') as chave, quando::date as dia, extract(hour from quando)::int as hora,
+             count(*)::int as qtd, coalesce(sum(fat), 0) as fat, coalesce(sum(gorj), 0) as gorj
+        from v group by 1, 2, 3, 4`);
   }
 
   // Curva ABC dos produtos por faturamento: A = os que formam os primeiros 80%, B = os 15%

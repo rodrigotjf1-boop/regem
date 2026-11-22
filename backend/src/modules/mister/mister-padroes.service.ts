@@ -18,7 +18,10 @@ import {
   MINIMO_DE_AVISOS_SEM_RESPOSTA,
   PREFIXO_DO_PADRAO,
   AtrasosDaHora,
+  DescarteDoDia,
+  MINIMO_DE_SEMANAS_DO_DESCARTE,
   ParadaDaImpressora,
+  SEMANAS_DO_DESCARTE,
   TEMPO_PADRAO_DO_PEDIDO_MIN,
   TEXTOS_DOS_PADROES,
   TipoDoPadrao,
@@ -27,6 +30,7 @@ import {
   nomeDaImpressora,
   padraoDosAtrasos,
   padroesDaImpressora,
+  padroesDoDescarte,
   recadoDaImpressora,
   regraDoPadrao,
   textoDaSugestao,
@@ -204,6 +208,52 @@ export class MisterPadroesService implements OnModuleInit {
       if (x) daLoja(g.t, g.u, { tipo: 'atrasos_na_faixa', chave: `atrasos:${g.u ?? 'empresa'}`, unidadeId: g.u, dados: { tipo: 'atrasos_na_faixa', parametro: tempo(g.t), ...x } });
     }
 
+    // 4) Versão 7, V7e: o mesmo item descartado no mesmo dia da semana. Só registro ligado a um item do estoque (o texto livre
+    //    não entra) e por dia, numa consulta só. A data do desperdício é o dia da loja (`hojeISO` ao gravar).
+    const descartes = !(await this.aceitaODescarte()) ? [] : linhas(
+      // Só as linhas de quem já tem o mínimo de semanas (o corte é no banco): o teto não esconde o padrão de uma loja atrás
+      // dos registros soltos das outras.
+      await this.db.execute(sql`
+        with dia as (
+          select d.tenant_id, d.unidade_id, d.item_id, d.data, i.nome as item,
+                 coalesce(sum(d.quantidade), 0) as quantidade,
+                 min(coalesce(d.unidade_medida, i.unidade_medida)) as unidade,
+                 count(distinct coalesce(d.unidade_medida, i.unidade_medida))::int as unidades,
+                 coalesce(sum(round(d.quantidade * d.custo_unitario * 100)), 0)::bigint as centavos,
+                 bool_and(coalesce(d.custo_unitario, 0) > 0) as todos_com_custo
+            from desperdicio d
+            join item_estoque i on i.id = d.item_id and i.tenant_id = d.tenant_id
+           where ${em('d.tenant_id')} and d.deleted_at is null and d.item_id is not null and d.quantidade > 0
+             and d.data >= ${somarDias(hoje, -7 * SEMANAS_DO_DESCARTE)}::date and d.data < ${hoje}::date
+           group by 1, 2, 3, 4, 5
+        ),
+        vale as (
+          select tenant_id, unidade_id, item_id, extract(dow from data)::int as dow
+            from dia
+           group by 1, 2, 3, 4
+          having count(*) >= ${MINIMO_DE_SEMANAS_DO_DESCARTE}::int
+        )
+        select x.tenant_id::text as "tenantId", x.unidade_id::text as "unidadeId", x.item_id::text as "itemId", x.item,
+               to_char(x.data, 'YYYY-MM-DD') as dia, x.quantidade, x.unidade, x.unidades, x.centavos, x.todos_com_custo as "todosComCusto"
+          from dia x
+          join vale v on v.tenant_id = x.tenant_id and v.unidade_id is not distinct from x.unidade_id and v.item_id = x.item_id
+                     and v.dow = extract(dow from x.data)::int
+         limit 5000`),
+    );
+    const descartesPorLoja = new Map<string, { t: string; u: string | null; l: DescarteDoDia[] }>();
+    for (const x of descartes) {
+      const k = `${x.tenantId}|${x.unidadeId ?? ''}`;
+      const g = descartesPorLoja.get(k) ?? { t: x.tenantId, u: x.unidadeId ?? null, l: [] as DescarteDoDia[] };
+      // Unidades diferentes no mesmo dia não se somam: a linha fica sem unidade, e o texto não diz a quantidade.
+      g.l.push({ itemId: String(x.itemId), item: String(x.item), dia: String(x.dia), quantidade: Number(x.quantidade) || 0, unidade: Number(x.unidades) === 1 ? (x.unidade ?? null) : `mista:${x.dia}`, centavos: x.todosComCusto ? Number(x.centavos) : null });
+      descartesPorLoja.set(k, g);
+    }
+    for (const g of descartesPorLoja.values())
+      for (const x of padroesDoDescarte(g.l, hoje)) {
+        const { itemId, ...resto } = x;
+        daLoja(g.t, g.u, { tipo: 'descarte_no_dia_da_semana', chave: `descarte:${g.u ?? 'empresa'}:${itemId}:${x.diaDaSemana}`, unidadeId: g.u, dados: { tipo: 'descarte_no_dia_da_semana', ...resto } });
+      }
+
     // 2) Os avisos de pedido parado de ontem sem resposta: quantos chegaram a cada telefone (pelo final gravado na trilha,
     //    que só vale quando é único na empresa) e se a pessoa mandou alguma mensagem ao Mister depois do primeiro.
     const semResposta = new Map<string, number>(); // `${tenant}|${colaborador}` → avisos
@@ -281,12 +331,28 @@ export class MisterPadroesService implements OnModuleInit {
       const e = await this.ferramentas.escopo(p.tenantId, p.colaboradorId, p.telefone);
       if (!e) continue;
       for (const c of livres) {
-        if (!this.regras.cabe(e, regraDoPadrao(c.dados))) continue; // a pessoa não poderia aceitar (o perfil não lê a fonte)
+        const regra = regraDoPadrao(c.dados);
+        // A pessoa não poderia aceitar (o perfil não lê a fonte). V7e: o descarte não tem regra e pede o Estoque do perfil.
+        if (regra ? !this.regras.cabe(e, regra) : !(e.nivel === 'presidente' || podeAcessar(e.permissoes, 'estoque'))) continue;
         if (await this.sugerir(p, e, c, inicioDeHoje)) res.enviados++;
         break; // uma sugestão por pessoa por dia
       }
     }
     return res;
+  }
+
+  /**
+   * A mig 491 entrou? Ela tem `drop constraint` e vai pelo SQL Editor, depois do deploy. Sem ela, gravar o tipo novo daria erro e
+   * gastaria a vez da pessoa no dia: o padrão do descarte fica de fora e os outros seguem.
+   */
+  private async aceitaODescarte(): Promise<boolean> {
+    const [r] = linhas(
+      await this.db.execute(sql`
+        select 1 as ok from pg_constraint c
+         where c.conname = 'ck_mister_padrao_tipo' and c.conrelid = 'mister_padrao'::regclass
+           and pg_get_constraintdef(c.oid) like '%descarte_no_dia_da_semana%'`),
+    );
+    return !!r;
   }
 
   /** Grava a sugestão (só se o padrão está livre e a pessoa não recebeu outra hoje) e manda. Devolve se saiu. */
@@ -307,7 +373,7 @@ export class MisterPadroesService implements OnModuleInit {
     if (!r) return false;
     const comRecado = c.tipo === 'impressora_antes_do_fechamento' && !!this.recados && (e.nivel === 'presidente' || podeAcessar(e.permissoes, 'mural'));
     try {
-      await this.numero.enviar(p.telefone, { texto: textoDaSugestao(c.dados, comRecado), botoes: botoesDoPadrao(c.tipo, r.id, comRecado) });
+      await this.numero.enviar(p.telefone, { texto: textoDaSugestao(c.dados, comRecado, e.verValores), botoes: botoesDoPadrao(c.tipo, r.id, comRecado) });
       return true;
     } catch (err: any) {
       // Não saiu: tenta de novo amanhã (a pessoa pode ter saído da janela entre a leitura e o envio).
@@ -337,6 +403,11 @@ export class MisterPadroesService implements OnModuleInit {
       await this.dizer(quem.telefone, TEXTOS_DOS_PADROES.naoDisponivel);
       return true;
     }
+    // V7e: a sugestão do descarte só tem "Deixa assim". Um botão de outra ação com o id dela não faz nada e não a toma.
+    if (r.tipo === 'descarte_no_dia_da_semana' && b.acao !== 'nao') {
+      await this.dizer(quem.telefone, TEXTOS_DOS_PADROES.naoDisponivel);
+      return true;
+    }
     // A resposta toma a sugestão (o segundo toque, ou o de outro aparelho, encontra "já respondida").
     const situacao = b.acao === 'nao' ? 'calado' : b.acao === 'rec' ? 'recado' : 'regra';
     const [tomada] = linhas(
@@ -363,7 +434,13 @@ export class MisterPadroesService implements OnModuleInit {
     }
     const dados = r.dados as DadosDoPadrao;
     if (b.acao === 'regra') {
-      const p = await this.regras.proporDoPadrao(e, regraDoPadrao(dados));
+      const regra = regraDoPadrao(dados);
+      if (!regra) {
+        await devolver();
+        await this.dizer(quem.telefone, TEXTOS_DOS_PADROES.naoDisponivel);
+        return true;
+      }
+      const p = await this.regras.proporDoPadrao(e, regra);
       if (!p.ok) {
         await devolver();
         await this.dizer(quem.telefone, String((p.dados as any)?.erro ?? TEXTOS_DOS_PADROES.falhou));

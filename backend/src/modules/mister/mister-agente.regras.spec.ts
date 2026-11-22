@@ -242,6 +242,8 @@ describe('Mister — o que o modelo recebe', () => {
       // Versão 5, M5d.2: o gráfico na conversa.
       'mostrar_grafico',
       'produtos_mais_vendidos',
+      // Versão 7, V7e: as análises de venda.
+      'analisar_vendas',
       'insumo_vendido',
       'pedidos_em_andamento',
       'estoque_em_alerta',

@@ -93,6 +93,8 @@ export function refazerPlano(p: PlanoDoGrafico, o: OpcoesDoRefazer): { plano: Pl
       partes,
       legenda,
       destaque,
+      // V7e: a faixa do pico é por posição: só vale com a mesma forma, a mesma ordem e sem um destaque escolhido.
+      faixa: forma === 'colunas' && o.ordem !== 'maior' && (o.destaque === undefined || o.destaque === null) ? p.faixa : undefined,
       semValores: o.mostrarValores === false ? true : o.mostrarValores === true ? false : p.semValores,
     },
   };

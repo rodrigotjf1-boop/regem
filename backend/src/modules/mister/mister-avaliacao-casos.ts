@@ -432,6 +432,103 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
       });
     }
+    // Versão 7, V7e: as análises, com as MESMAS chaves da de verdade e números inventados que batem entre si.
+    case 'analisar_vendas': {
+      const foco = String(en.foco ?? '');
+      const semV = perfil.verValores ? {} : { aviso: SEM_VALORES };
+      if (foco === 'semana')
+        return ok({
+          loja: LOJA,
+          foco,
+          periodo: 'semana passada (de 02/11 a 08/11)',
+          comparadoCom: 'de 26/10 a 01/11',
+          faturamento: v(38420.35),
+          pedidos: 812,
+          ticketMedio: v(47.32),
+          diasComVenda: 7,
+          anterior: { faturamento: v(34303.85), pedidos: 745, ticketMedio: v(46.05), diasComVenda: 7 },
+          variacaoPct: { faturamento: perfil.verValores ? 12 : null, pedidos: 9, ticketMedio: perfil.verValores ? 2.8 : null },
+          diferencaDeFaturamento: perfil.verValores ? { valor: 4116.5, sentido: 'a mais' } : null,
+          porDiaDaSemana: [
+            { dia: 'Seg', data: '02/11', pedidos: 61, faturamento: v(2890.15), partePct: 8 },
+            { dia: 'Sex', data: '06/11', pedidos: 168, faturamento: v(7980.45), partePct: 21 },
+            { dia: 'Sáb', data: '07/11', pedidos: 182, faturamento: v(8640.25), partePct: 22 },
+          ],
+          doisMelhoresDias: { dias: ['sexta', 'sábado'], pedidos: 350, faturamento: v(16620.7), partePct: 43 },
+          diaMaisFraco: { dia: 'segunda', pedidos: 61, faturamento: v(2890.15), partePct: 8 },
+          ...semV,
+        });
+      if (foco === 'pico')
+        return ok({
+          loja: LOJA,
+          foco,
+          periodo: 'as últimas 4 sextas (de 16/10 a 06/11)',
+          diasOlhados: 4,
+          diasComVenda: 4,
+          comoContei: 'O dia vai das 06:00 às 05:59 do dia seguinte: a venda depois da meia-noite conta na noite em que começou.',
+          totalDoDia: { pedidos: 672, faturamento: v(31840.6) },
+          porHora: [
+            { hora: '19h', pedidos: 96, faturamento: v(4530.2), partePct: 14 },
+            { hora: '20h', pedidos: 201, faturamento: v(9590.15), partePct: 30 },
+            { hora: '21h', pedidos: 187, faturamento: v(8870.35), partePct: 28 },
+          ],
+          faixaDePico: { de: '20h', ate: '22h', pedidos: 388, faturamento: v(18460.5), partePct: 58, mediaPorDia: { pedidos: 97, faturamento: v(4615.13) } },
+          pedidosComItens: 388,
+          itensQueMaisSaem: [
+            { item: 'Smash duplo', quantidade: 232, emPedidos: 201, de: 388 },
+            { item: 'Batata rústica', quantidade: 184, emPedidos: 171, de: 388 },
+          ],
+          saemJuntos: [{ itens: 'Batata rústica + Smash duplo', juntos: 152, de: 388, frase: 'em 152 de 388 pedidos', partePct: 39 }],
+          ...semV,
+        });
+      if (foco === 'fases_do_mes')
+        return ok({
+          loja: LOJA,
+          foco,
+          periodo: '01/08 a 31/10',
+          mesesOlhados: 'agosto, setembro e outubro',
+          comoContei: 'A venda, os pedidos e o ticket por dia contam só os dias em que a loja vendeu: dia fechado não puxa a média para baixo.',
+          fases: [
+            { fase: 'dias 1 a 10', diasComVenda: 29, pedidos: 3567, faturamento: v(177625.15), vendaPorDia: v(6125.01), pedidosPorDia: 123, ticketMedio: v(49.8) },
+            { fase: 'dias 11 a 20', diasComVenda: 29, pedidos: 3219, faturamento: v(152018.45), vendaPorDia: v(5242.02), pedidosPorDia: 111, ticketMedio: v(47.22) },
+            { fase: 'dias 21 ao fim', diasComVenda: 31, pedidos: 3100, faturamento: v(133920.35), vendaPorDia: v(4320.01), pedidosPorDia: 100, ticketMedio: v(43.2) },
+          ],
+          doComecoParaOFim: { vendaPorDiaPct: perfil.verValores ? -29.5 : null, pedidosPorDiaPct: -18.7, ticketPct: perfil.verValores ? -13.3 : null },
+          porMes: [],
+          totalDosMeses: { pedidos: 9886, faturamento: v(463563.95) },
+          ...semV,
+        });
+      if (foco === 'perdas')
+        return ok({
+          loja: LOJA,
+          foco,
+          periodo: 'últimos 30 dias (de 15/10 a 13/11)',
+          comoSeparar: 'Cancelamento é venda que não entrou. Mercadoria perdida é custo que saiu do estoque. Fale dos dois separados e não some um com o outro.',
+          cancelamentos: {
+            naoEntrou: { pedidos: 19, valor: v(902.45) },
+            porCausa: [
+              { causa: 'fora da área de entrega', pedidos: 8, valor: v(412.95), partePct: 46 },
+              { causa: 'sem motivo informado pelo canal', naoDizACausa: true, pedidos: 6, valor: v(312.35), partePct: 35 },
+              { causa: 'pedido repetido', pedidos: 5, valor: v(177.15), partePct: 19 },
+            ],
+            principalCausa: { causa: 'fora da área de entrega', pedidos: 8, valor: v(412.95) },
+            ondeSeConcentra: { diaDaSemana: { dia: 'sexta', pedidos: 7, partePct: 37 }, hora: { hora: '21h', pedidos: 6, partePct: 32 } },
+            pedidosDeTeste: { pedidos: 2, valor: v(61.8), observacao: 'Pedido de teste não é perda: está fora do total.' },
+            avisos: ['6 de 19 cancelamentos não dizem a causa (o canal não informou, ou não foi anotado): não conclua nada sobre eles.'],
+          },
+          mercadoriaPerdida: {
+            valorPerdido: null,
+            desperdicio: { registros: 0, registrosSemCusto: 0, valor: null, itens: [] },
+            contagem: { itensContados: 0, itensComDiferenca: 0, valorQueFaltou: null, faltou: [] },
+            oQueFalta: [
+              'Nenhum desperdício lançado neste período. Para medir, a loja lança em Estoque › aba "Desperdício", botão "Registrar desperdício".',
+              'Nenhuma contagem concluída neste período. Para achar diferença de estoque, a loja conta em Estoque › aba "Contagem".',
+            ],
+          },
+          ...semV,
+        });
+      return recusa('Diga o foco da análise: "semana", "pico", "fases_do_mes", "perdas".');
+    }
     case 'produtos_mais_vendidos': {
       const p = periodoPedido(en);
       const ordem = String(en.ordem ?? 'quantidade').trim().toLowerCase() || 'quantidade';
@@ -891,6 +988,14 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c61', pergunta: 'Pausa o iFood por 30 minutos porque faltou entregador e dá entrada de 10 kg de bacon no estoque.', consultas: ['propor_plano'], contem: ['Fazer os dois|botão'] },
   { id: 'c62', pergunta: 'O aviso dos 3 pedidos não está funcionando, hoje não chegou nada.', consultas: ['regras'], numeros: ['19:48'] },
   { id: 'c63', pergunta: 'Faz 40 min em vez de 30 naquela regra que você acabou de me propor.', consultas: ['regras'], contem: ['40'] },
+  // Versão 7, V7e: as análises. O resultado primeiro, o fato separado da sugestão (V7-8), e o dado que falta sem estimar (V7-10).
+  { id: 'c64', pergunta: 'Como foi a semana passada?', consultas: ['analisar_vendas'], numeros: ['38.420,35'], contem: ['O que os números mostram', 'Minha sugestão'] },
+  { id: 'c65', pergunta: 'Qual é o pico da sexta e o que mais sai nele?', consultas: ['analisar_vendas'], numeros: ['152'], contem: ['20h', 'Smash', 'Batata'] },
+  { id: 'c66', pergunta: 'O começo do mês vende mais que o fim?', consultas: ['analisar_vendas'], numeros: ['6.125,01', '4.320,01'], contem: ['dias em que a loja vendeu|dias com venda|dias que vendeu'] },
+  { id: 'c67', pergunta: 'Onde estou perdendo dinheiro?', consultas: ['analisar_vendas'], numeros: ['902,45'], contem: ['fora da área', 'Desperdício|desperdício'] },
+  { id: 'c68', pergunta: 'Quanto perdi de mercadoria nos últimos 30 dias?', consultas: ['analisar_vendas'], contem: ['Desperdício|desperdício', 'Contagem|contagem', 'lança'] },
+  { id: 'c69', pergunta: 'Como foi a semana passada?', perfil: GERENTE_SEM_VALORES, consultas: ['analisar_vendas'], numeros: ['812'], semValores: true },
+  { id: 'c70', pergunta: 'Vale fazer uma promoção no dia mais fraco da semana? Olha a semana passada.', consultas: ['analisar_vendas'], contem: ['segunda', 'Minha sugestão'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

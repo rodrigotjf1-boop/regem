@@ -69,6 +69,8 @@ function colunas(t: Tela, p: PlanoDoGrafico, M: number, y: number, W: number, H:
   const cabem = !p.semValores && barras.every((b) => t.medir(b.texto, tam) <= passo - 4);
   // M6i: o destaque escolhido no "refazer"; sem ele, o maior.
   const iMaior = p.destaque ? p.destaque - 1 : barras.reduce((m, b, i) => (b.valor > barras[m].valor ? i : m), 0);
+  // V7e: a faixa de pico (duas ou três horas seguidas) fica toda em dourado; sem ela, só a maior.
+  const naFaixa = (i: number) => (p.faixa?.length ? p.faixa.includes(i + 1) : i === iMaior);
   const pulo = Math.max(1, Math.ceil((Math.max(1, ...barras.map((b) => t.medir(b.rotulo, 'pequeno'))) + 10) / passo));
   for (const f of [1 / 3, 2 / 3]) t.linhaH(M, W - M, base - (base - topo) * f, GRADE, 1);
   t.linhaH(M, W - M, base, LINHA, 2);
@@ -79,10 +81,10 @@ function colunas(t: Tela, p: PlanoDoGrafico, M: number, y: number, W: number, H:
     if (comparadas) {
       const ha = ((b.anterior ?? 0) / maior) * (base - topo);
       if (ha > 0) t.retangulo(cx - larg - 1, base - ha, larg, Math.max(1, ha), ANTERIOR);
-      if (h > 0) t.retangulo(cx + 1, base - h, larg, Math.max(1, h), i === iMaior ? OURO : MARINHO);
+      if (h > 0) t.retangulo(cx + 1, base - h, larg, Math.max(1, h), naFaixa(i) ? OURO : MARINHO);
       topoDaBarra = Math.min(base - h, base - ha);
-    } else if (h > 0) t.retangulo(cx - larg / 2, base - h, larg, Math.max(1, h), i === iMaior ? OURO : MARINHO);
-    if (cabem || (!p.semValores && i === iMaior)) t.texto(b.texto, cx, topoDaBarra - t.alturaDaLinha(tam) - 2, { tamanho: tam, cor: TINTA, alinhar: 'centro' });
+    } else if (h > 0) t.retangulo(cx - larg / 2, base - h, larg, Math.max(1, h), naFaixa(i) ? OURO : MARINHO);
+    if (cabem || (!p.semValores && naFaixa(i))) t.texto(b.texto, cx, topoDaBarra - t.alturaDaLinha(tam) - 2, { tamanho: tam, cor: TINTA, alinhar: 'centro' });
     if (i % pulo === 0) {
       t.texto(b.rotulo, cx, base + 8, { tamanho: 'pequeno', cor: TINTA, alinhar: 'centro' });
       if (b.rotulo2) t.texto(b.rotulo2, cx, base + 8 + t.alturaDaLinha('pequeno') + 2, { tamanho: 'pequeno', cor: CINZA, alinhar: 'centro' });

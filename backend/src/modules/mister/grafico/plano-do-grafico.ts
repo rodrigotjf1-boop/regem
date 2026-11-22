@@ -39,6 +39,8 @@ export interface PlanoDoGrafico {
   rodape: string;
   /** Versão 6, M6i: a posição (1 = o primeiro) do item em dourado — sem ela, o maior (ou o primeiro). */
   destaque?: number;
+  /** Versão 7, V7e: as posições (1 = a primeira) da FAIXA em dourado, nas colunas (o pico de duas ou três horas). */
+  faixa?: number[];
   /** Versão 6, M6i: sem os valores escritos em cima das barras (a pessoa pediu "mais limpo"). */
   semValores?: boolean;
 }

@@ -24,7 +24,11 @@ export const FAIXA_MAXIMA_H = 3;
 /** O tempo do pedido parado quando a empresa não escolheu (o padrão do aviso, 15/20/30). */
 export const TEMPO_PADRAO_DO_PEDIDO_MIN = 20;
 
-export type TipoDoPadrao = 'impressora_antes_do_fechamento' | 'avisos_sem_resposta' | 'atrasos_na_faixa';
+export type TipoDoPadrao = 'impressora_antes_do_fechamento' | 'avisos_sem_resposta' | 'atrasos_na_faixa' | 'descarte_no_dia_da_semana';
+
+/** Versão 7, V7e (mig 490): o descarte olha as últimas 5 semanas e vale a partir de 3 delas. */
+export const SEMANAS_DO_DESCARTE = 5;
+export const MINIMO_DE_SEMANAS_DO_DESCARTE = 3;
 
 const HHMM_SP = (d: Date) => new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
 const hora2 = (h: number) => `${String(h).padStart(2, '0')}:00`;
@@ -145,6 +149,73 @@ export function padraoDosAtrasos(linhas: AtrasosDaHora[]): PadraoDosAtrasos | nu
   return { de: hora2(melhor.de), ate: melhor.ate + 1 >= 24 ? '23:59' : hora2(melhor.ate + 1), dias: melhor.dias };
 }
 
+// ───────────────────────────── 4. o descarte no mesmo dia da semana (versão 7, V7e) ─────────────────────────────
+
+const NOME_DO_DIA = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+const PLURAL_DO_DIA = ['domingos', 'segundas', 'terças', 'quartas', 'quintas', 'sextas', 'sábados'];
+const diaDaSemanaDe = (iso: string) => new Date(`${iso}T12:00:00Z`).getUTCDay();
+
+/** O que foi descartado de um item da loja num dia (a soma dos registros daquele dia). */
+export interface DescarteDoDia {
+  itemId: string;
+  item: string;
+  dia: string;
+  quantidade: number;
+  unidade: string | null;
+  /** O valor dos registros com custo; null = algum registro do dia não tem custo. */
+  centavos: number | null;
+}
+
+export interface PadraoDoDescarte {
+  itemId: string;
+  item: string;
+  /** 0 = domingo … 6 = sábado. */
+  diaDaSemana: number;
+  semanas: number;
+  /** Por vez, só quando a unidade é uma só. */
+  quantidadePorVez: number | null;
+  unidade: string | null;
+  /** Por vez, só quando todos os dias têm custo. */
+  valorPorVez: number | null;
+}
+
+/**
+ * O mesmo item descartado no mesmo dia da semana em `MINIMO_DE_SEMANAS_DO_DESCARTE` ou mais das últimas
+ * `SEMANAS_DO_DESCARTE` semanas (os 35 dias até ontem têm exatamente 5 de cada dia da semana). Um padrão por item: o dia da
+ * semana com mais semanas; no empate, o que vem primeiro na semana.
+ */
+export function padroesDoDescarte(linhas: DescarteDoDia[], hoje: string): PadraoDoDescarte[] {
+  const de = somarDias(hoje, -7 * SEMANAS_DO_DESCARTE);
+  const grupos = new Map<string, DescarteDoDia[]>();
+  for (const l of linhas) {
+    if (l.dia < de || l.dia >= hoje) continue;
+    const k = `${l.itemId}|${diaDaSemanaDe(l.dia)}`;
+    grupos.set(k, [...(grupos.get(k) ?? []), l]);
+  }
+  const porItem = new Map<string, PadraoDoDescarte>();
+  for (const [k, ls] of grupos) {
+    const semanas = new Set(ls.map((l) => l.dia)).size;
+    if (semanas < MINIMO_DE_SEMANAS_DO_DESCARTE) continue;
+    const dia = Number(k.split('|')[1]);
+    const unidades = new Set(ls.map((l) => l.unidade ?? ''));
+    const umaUnidade = unidades.size === 1;
+    const todosComCusto = ls.every((l) => l.centavos !== null);
+    const p: PadraoDoDescarte = {
+      itemId: ls[0].itemId,
+      item: ls[0].item,
+      diaDaSemana: dia,
+      semanas,
+      quantidadePorVez: umaUnidade ? Math.round((ls.reduce((s, l) => s + l.quantidade, 0) / semanas) * 10) / 10 : null,
+      unidade: umaUnidade ? ls[0].unidade : null,
+      valorPorVez: todosComCusto ? Math.round(ls.reduce((s, l) => s + (l.centavos ?? 0), 0) / semanas) / 100 : null,
+    };
+    const atual = porItem.get(p.itemId);
+    const ordem = (d: number) => (d + 6) % 7; // segunda primeiro
+    if (!atual || p.semanas > atual.semanas || (p.semanas === atual.semanas && ordem(p.diaDaSemana) < ordem(atual.diaDaSemana))) porItem.set(p.itemId, p);
+  }
+  return [...porItem.values()].sort((a, b) => b.semanas - a.semanas || (b.valorPorVez ?? 0) - (a.valorPorVez ?? 0) || a.item.localeCompare(b.item));
+}
+
 // ───────────────────────────── a sugestão ─────────────────────────────
 // Cada sugestão vai uma vez; "Não, deixa assim" cala aquele padrão por 30 dias. O Mister NUNCA muda uma regra sozinho: o
 // botão propõe a regra (pelo mesmo caminho da conversa), que só liga no "Confirmar"; o recado só sai no "Publicar".
@@ -157,6 +228,8 @@ export function botoesDoPadrao(tipo: TipoDoPadrao, padraoId: string, comRecado: 
   const b = (acao: AcaoDoPadrao, titulo: string) => ({ id: `${PREFIXO_DO_PADRAO}${acao}:${padraoId}`, titulo });
   if (tipo === 'impressora_antes_do_fechamento')
     return [...(comRecado ? [b('rec', 'Escrever o recado')] : []), b('regra', 'Avisar na hora'), b('nao', 'Não, deixa assim')];
+  // V7e: a sugestão do descarte não liga nada (não há regra a propor): só o "Deixa assim".
+  if (tipo === 'descarte_no_dia_da_semana') return [b('nao', 'Deixa assim')];
   return [b('regra', 'Quero'), b('nao', 'Não, deixa assim')];
 }
 
@@ -169,12 +242,31 @@ export function lerBotaoDoPadrao(botaoId: unknown): { padraoId: string; acao: Ac
 export type DadosDoPadrao =
   | ({ tipo: 'impressora_antes_do_fechamento' } & Pick<PadraoDaImpressora, 'nome' | 'dias' | 'de' | 'ate'>)
   | { tipo: 'avisos_sem_resposta'; avisos: number; parametro: number }
-  | ({ tipo: 'atrasos_na_faixa'; parametro: number } & PadraoDosAtrasos);
+  | ({ tipo: 'atrasos_na_faixa'; parametro: number } & PadraoDosAtrasos)
+  | ({ tipo: 'descarte_no_dia_da_semana' } & Omit<PadraoDoDescarte, 'itemId'>);
 
 const faixa = (de: string, ate: string) => (de === ate ? `sempre por volta das ${de}` : `sempre entre ${de} e ${ate}`);
 
-/** A mensagem da sugestão (a conversa 8 e a 9 do protótipo). */
-export function textoDaSugestao(d: DadosDoPadrao, comRecado = false): string {
+/** "16 kg" ou "2,5 un". */
+const quantidadeNoTexto = (q: number, u: string | null) => `${q.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}${u ? ` ${u}` : ''}`;
+const reaisNoTexto = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * V7e (o padrão do protótipo `regem-mister-v7.html`): o fato separado da sugestão, sem IA. O valor só para quem vê valores. A
+ * sugestão não diz quanto comprar: o Regem não sabe quanto do item se usa até aquele dia, e quantidade sem base é inventar.
+ */
+function textoDoDescarte(d: Extract<DadosDoPadrao, { tipo: 'descarte_no_dia_da_semana' }>, verValores: boolean): string {
+  const porVez = [d.quantidadePorVez !== null ? `cerca de ${quantidadeNoTexto(d.quantidadePorVez, d.unidade)} por vez` : null, verValores && d.valorPorVez !== null ? `${reaisNoTexto(d.valorPorVez)} por vez` : null].filter(Boolean).join(', ');
+  return (
+    `🔎 *Percebi um padrão: ${d.item}*\n\n` +
+    `O que os números mostram: em ${d.semanas} das últimas ${SEMANAS_DO_DESCARTE} ${PLURAL_DO_DIA[d.diaDaSemana]} houve descarte de ${d.item}${porVez ? `, ${porVez}` : ''}.\n\n` +
+    `Minha sugestão: rever a compra ou o preparo antes ${d.diaDaSemana === 0 || d.diaDaSemana === 6 ? 'do' : 'da'} ${NOME_DO_DIA[d.diaDaSemana]}. Nada muda sem você pedir.`
+  );
+}
+
+/** A mensagem da sugestão (a conversa 8 e a 9 do protótipo). `verValores`: o perfil de quem recebe mostra valores em reais. */
+export function textoDaSugestao(d: DadosDoPadrao, comRecado = false, verValores = false): string {
+  if (d.tipo === 'descarte_no_dia_da_semana') return textoDoDescarte(d, verValores);
   if (d.tipo === 'impressora_antes_do_fechamento')
     return (
       `🔎 *Percebi um padrão*\nA impressora ${d.nome} foi desligada antes do fechamento em ${d.dias} dos últimos ${DIAS_OLHADOS} dias, ${faixa(d.de, d.ate)}. ` +
@@ -212,9 +304,11 @@ export const recadoDaImpressora = (nome: string): string =>
  * o "o que vou fazer" antes do "Confirmar".
  *  • impressora: a impressora pelo nome, parada dentro do horário da loja, um aviso por parada;
  *  • avisos sem resposta: 3 ou mais pedidos parados ao mesmo tempo, numa mensagem, NO LUGAR do aviso de pedido parado;
- *  • atrasos: na faixa, o pedido aceito há mais do tempo escolhido e ainda não pronto, numa mensagem com a lista.
+ *  • atrasos: na faixa, o pedido aceito há mais do tempo escolhido e ainda não pronto, numa mensagem com a lista;
+ *  • descarte (V7e): não há regra a propor (null).
  */
-export function regraDoPadrao(d: DadosDoPadrao): Record<string, unknown> {
+export function regraDoPadrao(d: DadosDoPadrao): Record<string, unknown> | null {
+  if (d.tipo === 'descarte_no_dia_da_semana') return null;
   if (d.tipo === 'impressora_antes_do_fechamento')
     return {
       fonte: 'equipamentos',

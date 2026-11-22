@@ -1,12 +1,15 @@
 import { FalhaDaIa, PedidoDeIa, RespostaDaIa } from '../ia/ia-empresa.service';
 import { PRECOS_POR_MILHAO } from '../ia/ia.regras';
-import { FERRAMENTAS, INSTRUCOES_DO_MISTER, MODELO_DAS_PERGUNTAS, MotivoSemResposta, RECURSO_DAS_PERGUNTAS, TETOS, TrocaDaMemoria, entradaParaATrilha, perguntaDaMemoria, podeRodarJunto } from './mister-agente.regras';
+import { FERRAMENTAS, FERRAMENTA_DA_ANALISE, INSTRUCOES_DO_MISTER, MODELO_DAS_ANALISES, MODELO_DAS_PERGUNTAS, MotivoSemResposta, RECURSO_DAS_PERGUNTAS, TETOS, TrocaDaMemoria, entradaParaATrilha, perguntaDaMemoria, podeRodarJunto } from './mister-agente.regras';
 
 /** O modelo das perguntas: o da distribuição (`MISTER_MODELO_PERGUNTAS`), se estiver na tabela de preços; senão o padrão. */
 export function modeloDasPerguntas(): string {
   const pedido = String(process.env.MISTER_MODELO_PERGUNTAS ?? '').trim();
   return pedido && PRECOS_POR_MILHAO[pedido] ? pedido : MODELO_DAS_PERGUNTAS;
 }
+
+/** Versão 7, V7e: o modelo maior das análises, só se ele tem preço na tabela (sem preço não há como medir o custo). */
+export const modeloDasAnalises = (): string | null => (PRECOS_POR_MILHAO[MODELO_DAS_ANALISES] ? MODELO_DAS_ANALISES : null);
 import { comOQueDeixaDeChegar } from './mister-regra';
 import type { ResultadoDaFerramenta } from './mister-ferramentas.service';
 import type { Trilha } from './mister-fila.service';
@@ -76,6 +79,11 @@ export async function rodarNaOrdem<T>(tarefas: ReadonlyArray<() => Promise<T>>, 
 export interface PortasDoLaco {
   /** O modelo desta pergunta. */
   modelo: string;
+  /**
+   * Versão 7, V7e ("Análises mais profundas", V7-7): o modelo das voltas DEPOIS que `analisar_vendas` trouxe dados. Sem ele, a
+   * pergunta inteira fica em `modelo`. Cada chamada é medida pelo modelo que ela usou de fato.
+   */
+  modeloDaAnalise?: string | null;
   /** O recurso no medidor (o relatório passa o dele). */
   recurso?: string;
   /** O bloco "Esta conversa", já montado (`blocoDaConversa`). */
@@ -95,7 +103,7 @@ export type FimDaPergunta = { texto: string; motivo: null; trilha: Trilha; resul
  * ferramentas trouxeram — ou o motivo de não haver resposta. Não lança por falha da IA.
  */
 export async function responderComFerramentas(portas: PortasDoLaco, memoria: TrocaDaMemoria[], pergunta: string): Promise<FimDaPergunta> {
-  const modelo = portas.modelo;
+  let modelo = portas.modelo;
   const trilha: Required<Omit<Trilha, 'conferencia'>> = { modelo, chamadas: 0, tokensEntrada: 0, tokensSaida: 0, ferramentas: [] };
   const resultados: unknown[] = [];
   const inicio = Date.now();
@@ -113,17 +121,26 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
   try {
     for (let volta = 1; volta <= TETOS.voltas; volta++) {
       if (Date.now() - inicio > TETOS.prazoMs) return { texto: null, motivo: 'nao_fechou', trilha };
-      const r = await portas.pedir({
-        // O relatório (mig 420) passa o recurso dele: cada um soma no seu no "Uso da IA".
-        recurso: portas.recurso ?? RECURSO_DAS_PERGUNTAS,
-        modelo,
-        maxTokens: TETOS.maxTokens,
-        system,
-        tools: FERRAMENTAS,
-        messages,
-        prazoMs: TETOS.prazoDaChamadaMs,
-      });
+      let r: RespostaDaIa;
+      try {
+        r = await portas.pedir({
+          // O relatório (mig 420) passa o recurso dele: cada um soma no seu no "Uso da IA".
+          recurso: portas.recurso ?? RECURSO_DAS_PERGUNTAS,
+          modelo,
+          maxTokens: TETOS.maxTokens,
+          system,
+          tools: FERRAMENTAS,
+          messages,
+          prazoMs: TETOS.prazoDaChamadaMs,
+        });
+      } catch (e) {
+        // V7e: o modelo maior falhou (sem acesso, limite, demora). A análise já está na conversa: o modelo de sempre responde.
+        if (!(e instanceof FalhaDaIa) || modelo === portas.modelo) throw e;
+        modelo = portas.modelo;
+        continue;
+      }
       trilha.chamadas++;
+      trilha.modelo = modelo; // o da última chamada: é o que escreveu a resposta
       trilha.tokensEntrada += r.uso.entrada + r.uso.cacheEscrita + r.uso.cacheLeitura;
       trilha.tokensSaida += r.uso.saida;
       if (r.recusou) return { texto: null, motivo: 'recusou', trilha };
@@ -159,6 +176,8 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
         return { type: 'tool_result', tool_use_id: p.id, content: JSON.stringify(feito.dados), ...(feito.ok ? {} : { is_error: true }) };
       });
       messages.push({ role: 'user', content: respostas });
+      // V7e: só a análise que trouxe dados troca o modelo. A que veio vazia, recusada ou com erro segue no modelo de sempre.
+      if (portas.modeloDaAnalise && rodam.some((p: any, i: number) => p.name === FERRAMENTA_DA_ANALISE && feitos[i].feito.ok && feitos[i].feito.dados?.semDados !== true)) modelo = portas.modeloDaAnalise;
     }
     return { texto: null, motivo: 'nao_fechou', trilha };
   } catch (e: any) {

@@ -23,6 +23,10 @@ export const RECURSO_DAS_PERGUNTAS = 'mister_perguntas';
 
 /** O modelo das perguntas. A distribuição troca por `MISTER_MODELO_PERGUNTAS` sem novo código (só modelo com preço na tabela). */
 export const MODELO_DAS_PERGUNTAS = 'claude-haiku-5-5';
+/** Versão 7, V7e (V7-7): com "Análises mais profundas" ligada, a resposta DEPOIS de uma análise com dados usa este modelo. */
+export const MODELO_DAS_ANALISES = 'claude-sonnet-5-5';
+/** A consulta que libera o modelo maior. */
+export const FERRAMENTA_DA_ANALISE = 'analisar_vendas' as const;
 
 /** Os tetos: o que uma pergunta e uma pessoa podem gastar. Todos conferidos no servidor. */
 export const TETOS = {
@@ -71,7 +75,7 @@ export const INSTRUCOES_DO_MISTER = `Você é o Mister, o administrador virtual 
 COMO VOCÊ TRABALHA
 - Você não sabe nada da loja de cabeça. Todo número, valor, horário, nome de produto e situação que você disser vem de uma ferramenta que você chamou para ESTA pergunta.
 - Antes de responder a uma pergunta sobre a loja, chame a ferramenta que traz o dado. Se a pergunta pede dois assuntos, chame as duas. Junte consultas, compare períodos e faça as contas que a pergunta pedir.
-- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, quanto a venda gastou de um insumo pela ficha técnica (por hora, por dia e de onde saiu), pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal), o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram) como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns) e o que já foi conversado com você nos últimos 30 dias. Antes de dizer que ainda não tem acesso, chame anotar_o_que_falta com o tema do dado pedido. Nunca estime, nunca invente e nunca complete um dado que faltou.
+- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, quanto a venda gastou de um insumo pela ficha técnica (por hora, por dia e de onde saiu), pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, a análise da semana, do pico e dos itens que saem juntos, das fases do mês e das perdas, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal), o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram) como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns) e o que já foi conversado com você nos últimos 30 dias. Antes de dizer que ainda não tem acesso, chame anotar_o_que_falta com o tema do dado pedido. Nunca estime, nunca invente e nunca complete um dado que faltou.
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu.
@@ -166,6 +170,16 @@ CONVERSA NATURAL
 - "Pronto", "feito", "ligado", "pausado" só depois que a ferramenta confirmou que aconteceu. Antes do toque, fale no futuro ("vou", "fica assim?").
 - Fale do que vai acontecer na loja, nunca de como o sistema guarda: nada de nome de campo, fonte, filtro, medida, condição, parâmetro, id, "proposta" ou "regra criada". Não copie palavra com sublinhado.
 - Sugestão vem separada dos números e é só sugestão: o número é o que a consulta trouxe, a sugestão é a sua leitura, e você não a aplica sem a pessoa pedir.
+
+AS ANÁLISES DE VENDA
+- "Como foi a semana?", "qual o pico da sexta?", "o que mais sai no pico?", "o começo do mês vende mais que o fim?", "onde estou perdendo dinheiro?", "o que está dando prejuízo?": chame analisar_vendas com o foco certo (semana, pico, fases_do_mes, perdas). Para um número só ("quanto vendi ontem"), continue nas outras consultas. Se a pessoa pedir gráfico, ou se ajudar a ver a série, chame também mostrar_grafico com o tipo da análise.
+- Escreva nesta ordem. Primeiro o RESULTADO, em uma frase, com o número principal, a loja e o período. Depois uma linha começando com "O que os números mostram:", só com o que a consulta trouxe. Por último, uma linha começando com "Minha sugestão:", com a sua leitura, em uma ou duas frases. Nunca misture número com opinião.
+- A sugestão é só sugestão: não chame nenhuma ferramenta que propõe ou muda algo por causa dela, e não diga que fez, marcou ou ajustou. Se a pessoa disser que quer, aí sim siga pelo caminho de sempre.
+- Causa provável é hipótese: fica na "Minha sugestão", com "pode ser" ou "provável", nunca como fato. Não aponte pessoa em análise nenhuma.
+- Use as contas que vieram (variação, parte em %, por dia, "em X de Y pedidos"). Não refaça nem arredonde de outro jeito.
+- Se vierem "avisos", diga o que importa deles: pouco dado não vira conclusão. Dia sem venda não conta na média, e as fases do mês dizem isso: repita.
+- Sem dado ("semDados", "oQueFalta", valor nulo): diga o que falta lançar e onde, como veio. Nunca estime, nunca use média do setor nem de outras lojas, e nunca diga "R$ 0 de perda" quando nada foi lançado.
+- Perdas: fale SEMPRE separado do que não entrou (cancelamentos) e da mercadoria perdida, e não some os dois. O pedido de teste não é perda. Quando a causa vier como "sem motivo informado pelo canal" ou "sem motivo anotado", diga que não dá para saber a causa desses.
 
 REFAZER O GRÁFICO
 - "Não entendi", "não gostei", "faz de outro jeito", "em barras deitadas", "em tabela", "destaca o sábado", "só os principais": chame refazer_grafico com o que muda (a forma, o título com a mensagem principal, o destaque, a ordem, sem os valores). Nunca chame mostrar_grafico de novo para isso: os números são os mesmos.
@@ -296,6 +310,8 @@ export type NomeDaFerramenta =
   | 'vendas_do_periodo'
   | 'mostrar_grafico'
   | 'produtos_mais_vendidos'
+  // Versão 7, V7e: as análises de venda (semana, pico, fases do mês, perdas).
+  | 'analisar_vendas'
   | 'insumo_vendido'
   | 'pedidos_em_andamento'
   | 'estoque_em_alerta'
@@ -527,12 +543,15 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'mostrar_grafico',
     description:
-      'Manda um GRÁFICO (uma imagem) na conversa, desenhado pelo Regem com os números da loja: "vendas_por_dia" (cada dia do período, com o período anterior ao lado), "vendas_por_hora" (o pico do dia), "canais" (o delivery por canal: iFood, 99, cardápio) ou "mais_vendidos" (os 6 primeiros por quantidade). Use quando a pessoa pedir gráfico, ou quando a resposta for uma série de 4 pontos ou mais (dias, horas). A imagem vai antes da sua resposta: não descreva as barras uma a uma; diga em 2 ou 3 frases o que importa (o total, a comparação, o destaque), com os números que vierem aqui. Sem período, os últimos 7 dias (por hora: hoje).',
+      'Manda um GRÁFICO (uma imagem) na conversa, desenhado pelo Regem com os números da loja: "vendas_por_dia" (cada dia do período, com o período anterior ao lado), "vendas_por_hora" (o pico do dia), "canais" (o delivery por canal: iFood, 99, cardápio), "mais_vendidos" (os 6 primeiros por quantidade); e os das análises: "pico" (por hora de um dia ou de um dia da semana, com a faixa de pico em destaque), "fases_do_mes" (a venda por dia em cada fase dos 3 últimos meses completos), "cancelamentos_por_causa" e "mercadoria_perdida". Use quando a pessoa pedir gráfico, ou quando a resposta for uma série de 4 pontos ou mais (dias, horas). A imagem vai antes da sua resposta: não descreva as barras uma a uma; diga em 2 ou 3 frases o que importa (o total, a comparação, o destaque), com os números que vierem aqui. Sem período, os últimos 7 dias (por hora: hoje; pico: ontem; perdas: 30 dias).',
     input_schema: {
       type: 'object',
       properties: {
-        tipo: { type: 'string', enum: ['vendas_por_dia', 'vendas_por_hora', 'canais', 'mais_vendidos'], description: 'Qual gráfico.' },
+        tipo: { type: 'string', enum: ['vendas_por_dia', 'vendas_por_hora', 'canais', 'mais_vendidos', 'pico', 'fases_do_mes', 'cancelamentos_por_causa', 'mercadoria_perdida'], description: 'Qual gráfico.' },
         ...PERIODO,
+        dia: { type: 'string', description: 'Para "pico" de um dia só: "hoje", "ontem" ou AAAA-MM-DD.' },
+        diaDaSemana: { type: 'string', enum: ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'], description: 'Para "pico" de um dia da semana ao longo das últimas semanas.' },
+        semanas: { type: 'integer', description: 'Com diaDaSemana: quantas semanas olhar, de 2 a 8. Sem isto, 4.' },
         loja: LOJA,
       },
       required: ['tipo'],
@@ -551,6 +570,25 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
         ordem: { type: 'string', enum: ['quantidade', 'faturamento', 'lucro'], description: 'Como ordenar. Sem isto, quantidade.' },
         loja: LOJA,
       },
+      additionalProperties: false,
+    },
+  },
+  // Versão 7, V7e: a análise devolve números conferíveis; a IA escreve a resposta em cima deles.
+  {
+    name: 'analisar_vendas',
+    description:
+      'A ANÁLISE das vendas e das perdas, com os números prontos. "foco": "semana" (como foi a semana ou um período contra o anterior: faturamento, pedidos, ticket, cada dia da semana, os dois melhores dias e o mais fraco; sem período, a última semana completa); "pico" (por hora de um dia ou de um dia da semana ao longo de algumas semanas: a faixa de pico, os itens que mais saem nela e os que saem juntos, "em X de Y pedidos"; sem dia, ontem); "fases_do_mes" (os 3 últimos meses completos em dias 1 a 10, 11 a 20 e 21 ao fim, por dia com venda); "perdas" (separado: o que não entrou nos cancelamentos, por causa, e a mercadoria perdida, em desperdício e diferença de contagem; sem período, os últimos 30 dias). Use para "como foi a semana", "qual o pico da sexta", "o que mais sai no pico", "o começo do mês vende mais que o fim", "onde estou perdendo dinheiro". Para um número só, use as outras consultas.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        foco: { type: 'string', enum: ['semana', 'pico', 'fases_do_mes', 'perdas'], description: 'O que analisar.' },
+        ...PERIODO,
+        dia: { type: 'string', description: 'Para "pico" de um dia só: "hoje", "ontem" ou AAAA-MM-DD.' },
+        diaDaSemana: { type: 'string', enum: ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'], description: 'Para "pico" de um dia da semana ao longo das últimas semanas ("o pico da sexta").' },
+        semanas: { type: 'integer', description: 'Com diaDaSemana: quantas semanas olhar, de 2 a 8. Sem isto, 4.' },
+        loja: LOJA,
+      },
+      required: ['foco'],
       additionalProperties: false,
     },
   },
@@ -1005,7 +1043,7 @@ export function perguntaDaMemoria(t: TrocaDaMemoria): string {
   return `[pergunta feita às ${t.hora} · ${como}${feitas}]\n${t.pergunta}`;
 }
 
-const CAMPOS_DA_ENTRADA = ['periodo', 'de', 'ate', 'dia', 'dias', 'loja', 'quantos', 'ordem', 'busca', 'pagina', 'numero', 'assunto', 'tema'] as const;
+const CAMPOS_DA_ENTRADA = ['foco', 'periodo', 'de', 'ate', 'dia', 'diaDaSemana', 'semanas', 'dias', 'loja', 'quantos', 'ordem', 'busca', 'pagina', 'numero', 'assunto', 'tema'] as const;
 
 /**
  * O que foi pedido a uma ferramenta, para a trilha: só os campos conhecidos, curtos. É o PEDIDO (período, loja, ordem),

@@ -44,6 +44,25 @@ import { PlanoDoPdfDoInsumo, gerarPdfDoInsumo, nomeDoPdfDoInsumo, planoDoPdfDoIn
 import { GraficoDaConversa, valeAImagem } from './grafico/grafico-do-insumo';
 import { PlanoDoGrafico, nomeDoCanal, planoCanais, planoMaisVendidos, planoVendasPorDia, planoVendasPorHora, reaisCurtos, valeOPlano } from './grafico/plano-do-grafico';
 import { GRAFICO_GUARDADO_MIN, refazerPlano } from './grafico/refazer-do-grafico';
+import { TIPOS_DE_GRAFICO_DA_ANALISE, TipoDeGraficoDaAnalise, planoDaMercadoria, planoDasFases, planoDoPico, planoDosCancelamentos } from './grafico/plano-da-analise';
+import {
+  FOCOS_DA_ANALISE,
+  FocoDaAnalise,
+  MAX_DIAS_DA_ANALISE,
+  SEMANAS_DO_PICO,
+  analiseDaMercadoria,
+  analiseDaSemana,
+  analiseDasFases,
+  analiseDoPico,
+  analiseDosCancelamentos,
+  itensDaFaixa,
+  lerDiaDaSemana,
+  lerLinhasOficiais,
+  mesesCompletos,
+  nomeDoDia,
+  ultimosDiasDaSemana,
+} from './mister-analises';
+import { lerCancelamentos, lerContagem, lerDesperdicio, lerItensDaFaixa } from './mister-analises.leitura';
 import {
   AtencaoDoResumo,
   DadosDoResumo,
@@ -529,6 +548,8 @@ export class MisterFerramentasService {
         return this.vendasDoPeriodo(e, en, loja);
       case 'produtos_mais_vendidos':
         return this.produtosMaisVendidos(e, en, loja);
+      case 'analisar_vendas':
+        return this.analisarVendas(e, en, loja);
       case 'pedidos_em_andamento':
         return this.pedidosEmAndamento(e, loja);
       case 'estoque_em_alerta':
@@ -2027,7 +2048,9 @@ export class MisterFerramentasService {
    */
   private async mostrarGrafico(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
     const tipo = String(en.tipo ?? '').trim();
-    if (!TIPOS_DE_GRAFICO.includes(tipo)) return recusa('Diga qual gráfico: "vendas_por_dia", "vendas_por_hora", "canais" ou "mais_vendidos".');
+    // Versão 7, V7e: os gráficos das análises saem da MESMA leitura de `analisar_vendas`, com a permissão de cada parte.
+    if ((TIPOS_DE_GRAFICO_DA_ANALISE as readonly string[]).includes(tipo)) return this.graficoDaAnalise(e, en, loja, tipo as TipoDeGraficoDaAnalise);
+    if (!TIPOS_DE_GRAFICO.includes(tipo)) return recusa(`Diga qual gráfico: ${[...TIPOS_DE_GRAFICO, ...TIPOS_DE_GRAFICO_DA_ANALISE].map((t) => `"${t}"`).join(', ')}.`);
     if (!this.pode(e, 'relatorios_vendas')) return recusa(SEM_PERMISSAO);
     const p = periodoDaFerramenta(en, hojeISO(), tipo === 'vendas_por_hora' ? 'hoje' : undefined);
     if ('erro' in p) return recusa(p.erro);
@@ -2108,6 +2131,190 @@ export class MisterFerramentasService {
             ],
           }
         : {}),
+    };
+  }
+
+  // ───────────────────────────── versão 7, V7e: as análises de venda ─────────────────────────────
+
+  /**
+   * `analisar_vendas`: semana, pico, fases do mês e perdas. A venda vem SEMPRE da conta oficial (`linhasDaVendaOficial`, as
+   * mesmas linhas de `vendas_do_periodo`); as contas e a classificação são as de `mister-analises.ts`. Ao modelo vão números e
+   * nomes de produto: o texto livre do motivo de cancelamento e do registro de desperdício fica aqui dentro.
+   */
+  private async analisarVendas(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const foco = String(en.foco ?? '').trim();
+    if (!(FOCOS_DA_ANALISE as readonly string[]).includes(foco)) return recusa(`Diga o foco da análise: ${FOCOS_DA_ANALISE.map((f) => `"${f}"`).join(', ')}.`);
+    const r = await this.lerAnalise(e, foco as FocoDaAnalise, en, loja);
+    return 'erro' in r ? recusa(r.erro) : { ok: true, dados: r.dados };
+  }
+
+  private async lerAnalise(
+    e: EscopoDoMister,
+    foco: FocoDaAnalise,
+    en: Record<string, unknown>,
+    loja: { atual: string | null; nome: string },
+  ): Promise<{ dados: Record<string, unknown>; horasDaFaixa?: number[]; rotulo: string } | { erro: string }> {
+    const hoje = hojeISO();
+    if (foco === 'perdas') return this.analiseDasPerdas(e, en, loja, hoje);
+    if (!this.pode(e, 'relatorios_vendas')) return { erro: SEM_PERMISSAO };
+    const v = e.verValores;
+    const semVenda = (o: string) => ({ semDados: true, oQueFalta: [`Não há venda registrada ${o}: não dá para analisar.`] });
+    const comAviso = v ? {} : { aviso: SEM_VALORES };
+
+    if (foco === 'semana') {
+      const p = periodoDaFerramenta(en, hoje, 'semana_passada');
+      if ('erro' in p) return { erro: p.erro };
+      if (diasEntre(p.de, p.ate).length > MAX_DIAS_DA_ANALISE) return { erro: `Para esta análise, escolha até ${MAX_DIAS_DA_ANALISE} dias.` };
+      const ant = periodoAnterior(p);
+      // Uma depois da outra: uma análise segura no máximo uma conexão do pool da API.
+      const atuais = lerLinhasOficiais(await this.relatorios.linhasDaVendaOficial(e.tenantId, p.de, p.ate, loja.atual));
+      const anteriores = lerLinhasOficiais(await this.relatorios.linhasDaVendaOficial(e.tenantId, ant.de, ant.ate, loja.atual));
+      const { temDados, ...a } = analiseDaSemana({ linhas: atuais, anteriores, de: p.de, ate: p.ate, deAnterior: ant.de, ateAnterior: ant.ate, hoje, verValores: v });
+      return { rotulo: p.rotulo, dados: { loja: loja.nome, foco, periodo: p.rotulo, comparadoCom: ant.rotulo, ...a, ...comAviso, ...(temDados ? {} : semVenda(`em ${p.rotulo}`)) } };
+    }
+
+    if (foco === 'fases_do_mes') {
+      const meses = mesesCompletos(hoje);
+      const linhasDosMeses = lerLinhasOficiais(await this.relatorios.linhasDaVendaOficial(e.tenantId, meses[0].de, meses[meses.length - 1].ate, loja.atual));
+      const { temDados, ...a } = analiseDasFases(linhasDosMeses, meses, v);
+      return {
+        rotulo: a.mesesOlhados,
+        dados: { loja: loja.nome, foco, periodo: `${diaMes(meses[0].de)} a ${diaMes(meses[meses.length - 1].ate)}`, ...a, ...comAviso, ...(temDados ? {} : semVenda(`em ${a.mesesOlhados}`)) },
+      };
+    }
+
+    // O pico: de um dia, ou de um dia da semana ao longo de algumas semanas.
+    const pediuDiaDaSemana = en.diaDaSemana !== undefined && en.diaDaSemana !== null && String(en.diaDaSemana).trim() !== '';
+    let dias: string[];
+    let rotulo: string;
+    if (pediuDiaDaSemana) {
+      const d = lerDiaDaSemana(en.diaDaSemana);
+      if (d === null) return { erro: 'O dia da semana é segunda, terça, quarta, quinta, sexta, sábado ou domingo.' };
+      const semanas = Math.min(SEMANAS_DO_PICO.maximo, Math.max(SEMANAS_DO_PICO.minimo, inteiro(en.semanas) || SEMANAS_DO_PICO.padrao));
+      dias = ultimosDiasDaSemana(d, semanas, hoje);
+      const plural = d === 0 ? 'domingos' : d === 6 ? 'sábados' : `${nomeDoDia(d)}s`;
+      rotulo = `${d === 0 || d === 6 ? 'os últimos' : 'as últimas'} ${semanas} ${plural} (de ${diaMes(dias[0])} a ${diaMes(dias[dias.length - 1])})`;
+    } else {
+      const d = diaDaFerramenta(en.dia ?? 'ontem', hoje);
+      if ('erro' in d) return { erro: d.erro };
+      dias = [d.dia];
+      rotulo = d.rotulo;
+    }
+    const ate = somarDias(dias[dias.length - 1], 1); // a noite do último dia passa da meia-noite
+    const linhasDoPico = lerLinhasOficiais(await this.relatorios.linhasDaVendaOficial(e.tenantId, dias[0], ate, loja.atual));
+    const { temDados, horasDaFaixa, ...a } = analiseDoPico({ linhas: linhasDoPico, dias, porSemanas: pediuDiaDaSemana, hoje, verValores: v });
+    const itens = a.faixaDePico ? await lerItensDaFaixa(this.db, { tenantId: e.tenantId, atual: loja.atual, de: dias[0], ate, dias, horas: horasDaFaixa }) : null;
+    return {
+      rotulo,
+      horasDaFaixa,
+      dados: {
+        loja: loja.nome,
+        foco,
+        periodo: rotulo,
+        ...a,
+        ...(itens && a.faixaDePico ? itensDaFaixa(itens.itens, itens.pares, itens.pedidosComItens, a.faixaDePico.pedidos) : {}),
+        ...comAviso,
+        ...(temDados ? {} : semVenda(`em ${rotulo}`)),
+      },
+    };
+  }
+
+  /** As perdas: o que não entrou (cancelamentos) e a mercadoria perdida, separados, cada parte com a permissão da tela dela. */
+  private async analiseDasPerdas(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }, hoje: string): Promise<{ dados: Record<string, unknown>; rotulo: string } | { erro: string }> {
+    const verPedidos = this.pode(e, 'delivery');
+    const verVendas = this.pode(e, 'cupons') || this.pode(e, 'relatorios_vendas');
+    const verEstoque = this.pode(e, 'estoque');
+    if (!verPedidos && !verVendas && !verEstoque) return { erro: SEM_PERMISSAO };
+    const p = periodoDaFerramenta(en, hoje, 'ultimos_30_dias');
+    if ('erro' in p) return { erro: p.erro };
+    if (diasEntre(p.de, p.ate).length > MAX_DIAS_DA_ANALISE) return { erro: `Para esta análise, escolha até ${MAX_DIAS_DA_ANALISE} dias.` };
+    const onde = { tenantId: e.tenantId, atual: loja.atual, de: p.de, ate: p.ate };
+    let cancelamentos: Record<string, unknown> = { aviso: SEM_PERMISSAO };
+    let temCancelamento = false;
+    if (verPedidos || verVendas) {
+      const c = await lerCancelamentos(this.db, { ...onde, verPedidos, verVendas });
+      const { temDados, ...a } = analiseDosCancelamentos(c.grupos, c.total, e.verValores);
+      temCancelamento = temDados;
+      cancelamentos = {
+        ...a,
+        ...(verPedidos && verVendas ? {} : { observacaoDoPerfil: verPedidos ? 'O perfil desta pessoa vê só os pedidos dos canais.' : 'O perfil desta pessoa vê só as vendas lançadas na loja.' }),
+        ...(temDados ? {} : { semCancelamento: 'Nenhum cancelamento neste período.' }),
+      };
+    }
+    let mercadoria: Record<string, unknown> = { aviso: SEM_PERMISSAO };
+    let temMercadoria = false;
+    if (verEstoque) {
+      const desperdicio = await lerDesperdicio(this.db, onde);
+      const contagem = await lerContagem(this.db, onde);
+      const { temDados, ...a } = analiseDaMercadoria(desperdicio, contagem.linhas, contagem.itensContados, e.verValores);
+      temMercadoria = temDados;
+      mercadoria = a;
+    }
+    return {
+      rotulo: p.rotulo,
+      dados: {
+        loja: loja.nome,
+        foco: 'perdas',
+        periodo: p.rotulo,
+        comoSeparar: 'Cancelamento é venda que não entrou. Mercadoria perdida é custo que saiu do estoque. Fale dos dois separados e não some um com o outro.',
+        cancelamentos,
+        mercadoriaPerdida: mercadoria,
+        ...(e.verValores ? {} : { aviso: SEM_VALORES }),
+        ...(temCancelamento || temMercadoria ? {} : { semDados: true }),
+      },
+    };
+  }
+
+  /** Os gráficos das análises: a mesma leitura, o mesmo desenho (`grafico/plano-da-analise.ts`). Sem PDF nem link por enquanto. */
+  private async graficoDaAnalise(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }, tipo: TipoDeGraficoDaAnalise): Promise<ResultadoDaFerramenta> {
+    if (tipo === 'mercadoria_perdida' && !e.verValores) return recusa('O gráfico da mercadoria perdida é em reais, e o perfil desta pessoa no Regem não mostra valores em reais.');
+    const foco: FocoDaAnalise = tipo === 'pico' ? 'pico' : tipo === 'fases_do_mes' ? 'fases_do_mes' : 'perdas';
+    const lida = await this.lerAnalise(e, foco, en, loja);
+    if ('erro' in lida) return recusa(lida.erro);
+    const d = lida.dados as any;
+    const lidoEm = lidoAgora();
+    let plano: PlanoDoGrafico;
+    if (tipo === 'pico') {
+      plano = planoDoPico({
+        loja: loja.nome,
+        rotulo: lida.rotulo,
+        verValores: e.verValores,
+        lidoEm,
+        diasComVenda: inteiro(d.diasComVenda),
+        porHora: d.porHora ?? [],
+        faixa: d.faixaDePico ?? null,
+        horasDaFaixa: (lida.horasDaFaixa ?? []).map((h) => `${String(h).padStart(2, '0')}h`),
+      });
+    } else if (tipo === 'fases_do_mes') {
+      plano = planoDasFases({ loja: loja.nome, meses: lida.rotulo, verValores: e.verValores, lidoEm, fases: d.fases ?? [], doComecoParaOFim: d.doComecoParaOFim ?? null });
+    } else if (tipo === 'cancelamentos_por_causa') {
+      const c = d.cancelamentos;
+      if (c?.aviso) return recusa(String(c.aviso));
+      plano = planoDosCancelamentos({ loja: loja.nome, rotulo: lida.rotulo, verValores: e.verValores, lidoEm, naoEntrou: c?.naoEntrou ?? { pedidos: 0, valor: null }, porCausa: c?.porCausa ?? [] });
+    } else {
+      const m = d.mercadoriaPerdida;
+      if (m?.aviso) return recusa(String(m.aviso));
+      plano = planoDaMercadoria({ loja: loja.nome, rotulo: lida.rotulo, lidoEm, valorPerdido: m?.valorPerdido ?? null, desperdicio: m?.desperdicio?.itens ?? [], faltou: m?.contagem?.faltou ?? [] });
+    }
+    const temOQueMostrar = valeOPlano(plano);
+    const vale = temOQueMostrar && midiaNaInstalacao();
+    if (vale) this.guardarGrafico(e, plano);
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        periodo: lida.rotulo,
+        grafico: vale
+          ? 'A imagem do gráfico vai antes da sua resposta, pelo Regem: diga o resultado e o que importa, sem descrever as barras uma a uma.'
+          : temOQueMostrar
+            ? 'O gráfico na conversa ainda não está ligado nesta instalação: responda sem gráfico, com os números.'
+            : 'Não há o que mostrar em gráfico neste período: responda sem gráfico e diga o que falta.',
+        titulo: plano.titulo,
+        numeroPrincipal: plano.kpi,
+        pontos: plano.barras?.map((b) => ({ ponto: b.rotulo, valor: b.valor })) ?? plano.partes?.map((x) => ({ ponto: x.nome, valor: x.valor })) ?? [],
+        ...(e.verValores ? {} : { aviso: SEM_VALORES }),
+      },
+      ...(vale ? { graficos: [plano] } : {}),
     };
   }
 

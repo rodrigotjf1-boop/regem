@@ -5,7 +5,7 @@ import { IaEmpresaService } from '../ia/ia-empresa.service';
 import { MotivoSemResposta, TETOS, TEXTOS_DO_AGENTE, blocoDaConversa, filtrarSaida, fraseDoMotivo, TrocaDaMemoria, juntarPerguntas } from './mister-agente.regras';
 import { EscopoDoMister, MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService, PerguntaNaFila, Trilha } from './mister-fila.service';
-import { FimDaPergunta, Vagas, modeloDasPerguntas, responderComFerramentas } from './mister-laco';
+import { FimDaPergunta, Vagas, modeloDasAnalises, modeloDasPerguntas, responderComFerramentas } from './mister-laco';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterInstrucoesService } from './mister-instrucoes.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
@@ -72,14 +72,14 @@ export class MisterAgenteService implements OnModuleInit {
   ) {}
 
   /** O perfil e o jeito da empresa para o bloco da conversa. A leitura que falha não segura a resposta: vai sem eles. */
-  private async jeitoDaEmpresa(tenantId: string): Promise<{ perfil: string | null; jeito: string | null }> {
-    if (!this.conversaConfig) return { perfil: null, jeito: null };
+  private async jeitoDaEmpresa(tenantId: string): Promise<{ perfil: string | null; jeito: string | null; analisesProfundas: boolean }> {
+    if (!this.conversaConfig) return { perfil: null, jeito: null, analisesProfundas: false };
     try {
       const c = await this.conversaConfig.daEmpresa(tenantId);
-      return { perfil: c.perfil, jeito: c.jeito };
+      return { perfil: c.perfil, jeito: c.jeito, analisesProfundas: c.analisesProfundas === true };
     } catch (e: any) {
       this.logger.warn(`mister: o jeito da empresa não foi lido, a resposta vai sem ele — ${e?.message ?? e}`);
-      return { perfil: null, jeito: null };
+      return { perfil: null, jeito: null, analisesProfundas: false };
     }
   }
 
@@ -351,12 +351,15 @@ export class MisterAgenteService implements OnModuleInit {
           },
         )
       : undefined;
+    const { analisesProfundas, ...jeito } = await this.jeitoDaEmpresa(escopo.tenantId);
     const fim = await responderComFerramentas(
       {
         modelo: this.modelo(),
+        // Versão 7, V7e (V7-7): só nas perguntas (o relatório tem o recurso dele e fica no modelo de sempre).
+        modeloDaAnalise: analisesProfundas && !opcoes.recurso ? modeloDasAnalises() : null,
         instrucoes,
         recurso: opcoes.recurso,
-        conversa: blocoDaConversa({ ...this.ferramentas.conversa(escopo), ...(await this.jeitoDaEmpresa(escopo.tenantId)), ...(await this.memoriaDaConversa(escopo)) }),
+        conversa: blocoDaConversa({ ...this.ferramentas.conversa(escopo), ...jeito, ...(await this.memoriaDaConversa(escopo)) }),
         pedir: (p) => this.ia.pedir(escopo.tenantId, p),
         executar: (nome, entrada) => this.vagas.com(() => this.ferramentas.executar(escopo, nome, entrada)),
         // Na ordem do pedido (as consultas juntas terminam em qualquer ordem): os anexos e as imagens saem na ordem pedida.

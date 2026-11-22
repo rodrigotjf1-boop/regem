@@ -9,7 +9,8 @@ import { Card } from '@/components/ui/card';
 import { Chave } from '@/components/ui/chave';
 import { Selo, texto2 } from '@/components/ui/lista';
 import { SkeletonList } from '@/components/ui/skeleton';
-import { Gaveta } from '@/components/ui/sobreposto';
+import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
+import { GavetaDasAnalises, PRECO_DAS_ANALISES } from './gaveta-das-analises';
 import { GavetaDosValores, textoDoValor } from './gaveta-dos-valores';
 
 // MISTER › AVISOS E RELATÓRIOS — "para onde vai" cada aviso (versão 2 do protótipo `mockups/regem-mister.html`, aprovada
@@ -48,10 +49,11 @@ type RelatorioNaTela = {
 type ModoDoBoleto = 'sozinho' | 'perguntar';
 /** Versão 5, M5e (mig 462): "Como mandar o resumo" — a mesma lista do servidor (`FORMAS_DE_ENTREGA_DO_RESUMO`). */
 type FormaDoResumo = 'botoes' | 'pdf' | 'link' | 'texto';
-type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean };
+type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean; analisesProfundas?: boolean };
 const CONV = 'conversa:documentos';
 const CONV_RESUMO = 'conversa:resumo';
 const CONV_VOZ = 'conversa:voz';
+const CONV_ANALISES = 'conversa:analises';
 const FORMAS_DO_RESUMO: { v: FormaDoResumo; rotulo: string }[] = [
   { v: 'botoes', rotulo: 'texto com os botões PDF e link' },
   { v: 'pdf', rotulo: 'texto e o PDF junto' },
@@ -262,6 +264,10 @@ export function AvisosDoMister() {
   const [conversa, setConversa] = useState<Conversa | null>(null);
   // M5e: a versão 5 está ligada nesta instalação? (Desligada, o resumo segue só por escrito; o ajuste diz isso.)
   const [resumoLigado, setResumoLigado] = useState<boolean | null>(null);
+  // V7e: a gaveta "Ver como funciona" das análises mais profundas.
+  const [vendoAnalises, setVendoAnalises] = useState(false);
+  // V7e: ligar o que gasta a chave de IA pede a confirmação, com o preço (o "Ligar e salvar?" do protótipo).
+  const [confirmandoCusto, setConfirmandoCusto] = useState(false);
 
   // Cada parte (avisos e relatórios) troca só os SEUS valores: salvar uma e falhar a outra mantém a pendência da que falhou.
   const aplicar = useCallback((d: DaTela) => {
@@ -284,8 +290,9 @@ export function AvisosDoMister() {
     setConversa(c);
     if (disponivel) setResumoLigado(disponivel.resumoEmArquivo === true);
     const voz = c.responderAudio === true ? '1' : '0';
-    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz }));
-    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz }));
+    const analises = c.analisesProfundas === true ? '1' : '0';
+    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_ANALISES]: analises }));
+    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_ANALISES]: analises }));
   }, []);
 
   const ler = useCallback(async () => {
@@ -617,7 +624,38 @@ export function AvisosDoMister() {
             },
           ],
         };
-    return [...dosAvisos, ...(doGrupo ? [doGrupo] : []), ...(daConversa ? [daConversa] : [])];
+    // Versão 7, V7e (V7-7, mig 490): "Análises mais profundas" — nasce desligada, com o preço ao lado.
+    const dasAnalises: GrupoDeAjustes | null = !conversa
+      ? null
+      : {
+          titulo: 'Análises',
+          itens: [
+            {
+              id: CONV_ANALISES,
+              rotulo: 'Análises mais profundas',
+              tipo: 'livre' as const,
+              palavras: 'análises profundas modelo maior bi semana pico fases do mês perdas',
+              ajuda: (
+                <>
+                  <span className="block">Usa o modelo maior só para escrever as respostas de análise: semana, pico, fases do mês e perdas. O resto continua como hoje.</span>
+                  <span className="mt-1 block text-xs font-semibold" data-preco-das-analises>
+                    {PRECO_DAS_ANALISES}
+                  </span>
+                  <button type="button" className="inline-flex min-h-11 items-center text-sm font-semibold underline" onClick={() => setVendoAnalises(true)}>
+                    Ver como funciona
+                  </button>
+                </>
+              ),
+              desenhar: (v: Valor, mudar: (x: Valor) => void) => (
+                <span className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                  <span className={`text-sm ${texto2}`}>{v === '1' ? 'Ligada' : 'Desligada'}</span>
+                  <Chave ligada={v === '1'} rotulo="Análises mais profundas" aoMudar={(l) => mudar(l ? '1' : '0')} />
+                </span>
+              ),
+            },
+          ],
+        };
+    return [...dosAvisos, ...(doGrupo ? [doGrupo] : []), ...(daConversa ? [daConversa] : []), ...(dasAnalises ? [dasAnalises] : [])];
   }, [dados, valores, nomes, relatorios, conversa, resumoLigado]);
 
   const salvar = async () => {
@@ -634,6 +672,7 @@ export function AvisosDoMister() {
         ...(conversa && valores[CONV] !== salvos[CONV] ? deValorDaConversa(valores[CONV]) : {}),
         ...(conversa && valores[CONV_RESUMO] !== salvos[CONV_RESUMO] ? { resumoEntrega: formaDoResumo(valores[CONV_RESUMO]) } : {}),
         ...(conversa && valores[CONV_VOZ] !== salvos[CONV_VOZ] ? { responderAudio: valores[CONV_VOZ] === '1' } : {}),
+        ...(conversa && valores[CONV_ANALISES] !== salvos[CONV_ANALISES] ? { analisesProfundas: valores[CONV_ANALISES] === '1' } : {}),
       };
       const conv = Object.keys(partesDaConversa).length ? partesDaConversa : null;
       if (regras.length) aplicar((await api.patch('/mister/avisos', { regras })) as DaTela);
@@ -672,7 +711,10 @@ export function AvisosDoMister() {
         valores={valores}
         salvos={salvos}
         aoMudar={(k: string, v: Valor) => setValores((x) => ({ ...x, [k]: v }))}
-        aoSalvar={() => void salvar()}
+        aoSalvar={() => {
+          if (conversa && valores[CONV_ANALISES] === '1' && salvos[CONV_ANALISES] !== '1') setConfirmandoCusto(true);
+          else void salvar();
+        }}
         aoDescartar={() => {
           setValores(salvos);
           setErro('');
@@ -686,6 +728,35 @@ export function AvisosDoMister() {
           </p>
         }
       />
+      {vendoAnalises && <GavetaDasAnalises aoFechar={() => setVendoAnalises(false)} />}
+      {confirmandoCusto && (
+        <Dialogo
+          titulo="Ligar e salvar?"
+          aoFechar={() => setConfirmandoCusto(false)}
+          rodape={
+            <>
+              <Button type="button" variant="outline" data-foco-inicial onClick={() => setConfirmandoCusto(false)}>
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setConfirmandoCusto(false);
+                  void salvar();
+                }}
+              >
+                Ligar e salvar
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm">Este ajuste passa a gastar a chave de IA da empresa:</p>
+          <p className="mt-2 text-sm">
+            <b>Análises mais profundas:</b> {PRECO_DAS_ANALISES.charAt(0).toLowerCase() + PRECO_DAS_ANALISES.slice(1)}.
+          </p>
+          <p className={`mt-2 text-xs ${texto2}`}>Você pode desligar quando quiser, aqui mesmo. A mudança fica na auditoria.</p>
+        </Dialogo>
+      )}
       {editandoValores && (
         <GavetaDosValores
           valores={deValor(valores[editandoValores.tipo]).valores ?? []}
