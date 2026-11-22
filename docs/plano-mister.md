@@ -2228,7 +2228,7 @@ quem fala, "até risada se a ocasião assim se apresentar". Protótipo: `mockups
 |---|---|---|
 | V7a · Números únicos | O Mister usa a conta do Painel (`vendasOficiais`); a medida do atraso do Anota Aí | no ar (#1259, ERR-564) |
 | V7b · Dinheiro sem duplicar | Pagar o entregador, conta recorrente e resultado do pinpad | mesclado (#1260, #1261, ERR-565, ERR-566) |
-| V7c · Conversa natural | Plano em uma frase, ajuste na conversa, várias tarefas, conferir antes de dizer "pronto" | a fazer |
+| V7c · Conversa natural | Plano em uma frase, ajuste na conversa, várias tarefas, conferir antes de dizer "pronto" | entregue (ERR-569); falta a avaliação com a IA real (63 casos) |
 | V7e · BI | Semana, pico e itens do pico, fases do mês, perdas e cancelamentos, padrões | a fazer |
 | V7f · KPIs financeiros | Margem, CMV, inadimplência, prazo; saldo, folha e custo informados na conversa | a fazer |
 | V7d · Voz | A voz com tom e a risada, pelo DMS Graph, nascendo desligada | a fazer |
@@ -2248,6 +2248,18 @@ quem fala, "até risada se a ocasião assim se apresentar". Protótipo: `mockups
 
 **O que pesa na loja real (medido em 22/11):** as fichas cobrem 71,4% da venda dos últimos 30 dias; há 1 conta a pagar e nenhuma a
 receber lançadas, então inadimplência e prazo de pagamento ficam sem número até a loja lançar.
+
+**Como a V7c ficou (22/11):**
+
+- O plano tem de 2 a 5 passos, numa loja só. Cada passo passa pela mesma conferência e execução da ação sozinha, e o passo de preço,
+  horário ou conta continua pedindo o PIN pelo link.
+- Se o PIN de um passo vence ou é recusado, o plano para ali. "Tentar de novo" vale por 30 minutos.
+- "Tentar de novo" não refaz o que pode já ter entrado: passo sem confirmação, lançamento de estoque e tarefa criada. O Mister manda
+  conferir no Regem, para não lançar em dobro.
+- Se o nome de um passo passar a apontar para outro item depois da pergunta, o passo não acontece.
+- O dia da conferência de uma regra começa às 06:00, e a noite que passa da meia-noite conta como um dia só.
+- Diferenças do protótipo: o botão da regra continua "Confirmar", recado no mural e imagem não entram no plano, e a sugestão na
+  reclamação vem em texto, sem botões.
 
 **Ainda depende de teste real:** a voz nova em português, a risada, a leitura do tom com barulho de cozinha, o custo e o tempo de
 resposta das análises no pico.

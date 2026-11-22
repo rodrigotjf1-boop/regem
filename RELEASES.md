@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 7, V7c: conversa natural e várias ações num botão (22/11; ERR-569; SEM migration).** Só na nuvem: vai no `.zip` sem
+  efeito na loja (o Mister não roda no servidor da loja).
+
 - **Relatórios › Vendas com o mesmo faturado do Painel (22/11; ERR-564; SEM migration).** **Vale na loja:** a tela do servidor da loja só
   muda com o próximo `.zip`. O "recebido" e a forma de pagamento continuam pelas comandas.
 
