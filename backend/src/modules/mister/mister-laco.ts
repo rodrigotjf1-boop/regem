@@ -1,6 +1,6 @@
 import { FalhaDaIa, PedidoDeIa, RespostaDaIa } from '../ia/ia-empresa.service';
 import { PRECOS_POR_MILHAO } from '../ia/ia.regras';
-import { FERRAMENTAS, FERRAMENTA_DA_ANALISE, INSTRUCOES_DO_MISTER, MODELO_DAS_ANALISES, MODELO_DAS_PERGUNTAS, MotivoSemResposta, RECURSO_DAS_PERGUNTAS, TETOS, TrocaDaMemoria, entradaParaATrilha, perguntaDaMemoria, podeRodarJunto } from './mister-agente.regras';
+import { FERRAMENTAS, FERRAMENTAS_DA_ANALISE, INSTRUCOES_DO_MISTER, MODELO_DAS_ANALISES, MODELO_DAS_PERGUNTAS, MotivoSemResposta, RECURSO_DAS_PERGUNTAS, TETOS, TrocaDaMemoria, entradaParaATrilha, perguntaDaMemoria, podeRodarJunto } from './mister-agente.regras';
 
 /** O modelo das perguntas: o da distribuição (`MISTER_MODELO_PERGUNTAS`), se estiver na tabela de preços; senão o padrão. */
 export function modeloDasPerguntas(): string {
@@ -80,7 +80,7 @@ export interface PortasDoLaco {
   /** O modelo desta pergunta. */
   modelo: string;
   /**
-   * Versão 7, V7e ("Análises mais profundas", V7-7): o modelo das voltas DEPOIS que `analisar_vendas` trouxe dados. Sem ele, a
+   * Versão 7, V7e ("Análises mais profundas", V7-7): o modelo das voltas DEPOIS que `analisar_vendas` ou `indicadores_financeiros` (V7f) trouxe dados. Sem ele, a
    * pergunta inteira fica em `modelo`. Cada chamada é medida pelo modelo que ela usou de fato.
    */
   modeloDaAnalise?: string | null;
@@ -177,7 +177,7 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
       });
       messages.push({ role: 'user', content: respostas });
       // V7e: só a análise que trouxe dados troca o modelo. A que veio vazia, recusada ou com erro segue no modelo de sempre.
-      if (portas.modeloDaAnalise && rodam.some((p: any, i: number) => p.name === FERRAMENTA_DA_ANALISE && feitos[i].feito.ok && feitos[i].feito.dados?.semDados !== true)) modelo = portas.modeloDaAnalise;
+      if (portas.modeloDaAnalise && rodam.some((p: any, i: number) => FERRAMENTAS_DA_ANALISE.includes(p.name) && feitos[i].feito.ok && feitos[i].feito.dados?.semDados !== true)) modelo = portas.modeloDaAnalise;
     }
     return { texto: null, motivo: 'nao_fechou', trilha };
   } catch (e: any) {

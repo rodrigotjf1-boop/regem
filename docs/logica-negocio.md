@@ -138,6 +138,40 @@ Alimenta o comparativo da Visão C&O. Enquanto não há PDV, `Receita` pode ser 
 
 Operador informa o contado SEM ver o esperado; sistema calcula `diferenca = contado − esperado` por meio de pagamento (dinheiro, cartão, Pix). Sangria/suprimento = lançamentos com motivo. Diferença acima do limite configurável → ocorrência automática (liga com a gamificação) + auditoria.
 
+### 2.6 Indicadores financeiros do Mister (versão 7, V7f)
+
+Regra geral: **sem dado, o indicador não aparece.** A resposta diz o que falta e o caminho do menu. Nunca R$ 0, nunca 100% de margem, nunca média do setor. A conta vive em `backend/src/modules/mister/mister-indicadores.ts`.
+
+```
+venda_oficial      = vendasOficiais do período (common/faturamento.ts; a mesma do Painel)
+venda_de_produto   = comanda: faturamentoComanda · pedido: bruto − desconto da loja (sem taxa de entrega e de serviço)
+venda_coberta      = parte da venda_de_produto (rateada pelo valor de cada linha) cujo produto tem custo completo
+custo_teorico      = Σ quantidade × custo_da_porção × fator_da_variação
+
+cobertura_%        = venda_coberta ÷ venda_de_produto × 100
+cmv_%_do_período   = custo_teorico ÷ venda_coberta × 100
+margem_bruta_%     = 100 − cmv_%
+margem_bruta_R$    = venda_coberta − custo_teorico
+```
+
+- **Custo completo:** todo ingrediente que entra naquela venda (também na sub-receita) tem custo maior que zero, ou o produto tem o custo informado à mão (`produto.preco_custo`). **Ingrediente sem custo não é custo zero**: um só tira o produto da conta. Linha sem quantidade não pede custo; ciclo de sub-receita deixa a ficha incompleta.
+- **Custo de hoje:** a linha ligada ao estoque usa o custo médio atual do item (o da loja, se houver; senão, o do cadastro) e, sem ele, o gravado na linha. Item feito na loja usa a ficha dele. Como não há histórico de custo por compra, a diferença entre dois meses vem de preço, desconto e do que foi vendido, e não se atribui a um insumo.
+- **Fica fora da conta:** venda com adicional pago (o preço está na linha e o custo do adicional não entra), combo sem custo informado, produto de revenda sem ficha nem custo informado, variação com custo só à mão (não diz quanto cada tamanho usa).
+- **Cobertura:** zero = sem margem. Abaixo de 50% = número **parcial**, sem comparar períodos. Só se compara com o período anterior quando os dois têm 50% ou mais.
+
+```
+inadimplência_%    = vencido em aberto ÷ total em aberto a receber × 100        (nome de cliente nunca sai)
+prazo_de_pagamento = média(data do lançamento de caixa − data do recebimento ou da criação da conta)
+                     (contas a pagar pagas no período, sem as estornadas; menos de 3 = pouco para concluir)
+despesas_do_mês    = saídas do último mês completo − sangria, estorno, devolução e folha lançada + folha informada
+dias_que_o_saldo_cobre = ⌊ saldo informado × dias do mês ÷ despesas_do_mês ⌋    (supõe a venda parada)
+roi_%              = (margem das vendas da campanha − custo informado) ÷ custo informado × 100
+```
+
+- **Dado informado na conversa** (`mister_dado_informado`, mig 492): saldo do banco, folha mensal e custo de campanha. Só de acréscimo; grava no toque em "Guardar"; só o presidente informa. Saldo e folha, e o que deriva deles, só o presidente vê. O saldo vale por 7 dias.
+- **ROI:** vendas atribuídas pelo cupom da campanha (`cupom_uso.pedido_id`), cada pedido uma vez, só pedido que vale na conta oficial. Exige o custo de toda a venda de produto desses pedidos; sem ele, não há ROI, e o faturamento não entra no lugar da margem.
+- **Falta dado até o Regem ler os repasses de iFood, 99 e cartão:** burn rate, runway em meses e giro de recebíveis. **Margem líquida** falta ainda pessoal, impostos e taxas dos canais.
+
 ---
 
 ## 3. Jornada e ponto (prévia gerencial — fechamento oficial valida com contador)

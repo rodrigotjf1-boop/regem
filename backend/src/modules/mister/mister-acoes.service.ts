@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -18,6 +19,11 @@ import {
   AcaoDoMister,
   CanalDoProduto,
   BOTOES_DA_IMAGEM,
+  BOTOES_DO_DADO,
+  TIPO_DO_DADO,
+  ehDadoInformado,
+  textoDoDadoGuardado,
+  type AcaoDeDadoInformado,
   ParametrosDaAcao,
   type ProporcaoDaImagem,
   TEXTOS_DAS_ACOES,
@@ -57,6 +63,7 @@ import { GraphImagemService } from '../graph/graph-imagem.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { FinanceiroService } from '../financeiro/financeiro.service';
 import { sqlUnidade } from '../../common/filtro-unidade';
+import { acharCampanha, gravarDadoInformado } from './mister-indicadores.leitura';
 import { ifoodPeloOrzuniLigado } from '../../common/ifood-pelo-orzuni';
 import { precosNa99Ligado } from '../../common/precos-na-99';
 import {
@@ -178,6 +185,8 @@ export class MisterAcoesService implements OnModuleInit {
         mensagens: [
           acao === 'criar_imagem'
             ? { texto: TEXTOS_DAS_ACOES.perguntaDaImagem(resumo, def.prazoMin), botoes: botoesDaProposta(p.id, BOTOES_DA_IMAGEM) }
+            : ehDadoInformado(acao)
+            ? { texto: TEXTOS_DAS_ACOES.perguntaDoDado(resumo, def.prazoMin), botoes: botoesDaProposta(p.id, BOTOES_DO_DADO) }
             : { texto: TEXTOS_DAS_ACOES.pergunta(resumo, def.prazoMin), botoes: botoesDaProposta(p.id) },
         ],
       };
@@ -199,13 +208,17 @@ export class MisterAcoesService implements OnModuleInit {
       const c = conferirAcao(en.acao, en);
       if ('erro' in c) return recusa(c.erro);
       const def = ACOES[c.parametros.acao];
+      // V7f: o dado da empresa inteira é do presidente da empresa inteira, com o PIN da sessão em dia.
+      if (def.soPresidente && e.nivel !== 'presidente') return recusa(TEXTOS_DAS_ACOES.dadoSoPresidente);
+      if (def.soPresidente && e.presa) return recusa(TEXTOS_DAS_ACOES.dadoEmpresaInteira);
+      if (def.soPresidente && !e.verValores) return recusa(TEXTOS_DAS_ACOES.dadoPedePin);
       if (!podeFazer(e, def))
         return recusa(def.id === 'mudar_horario' ? TEXTOS_DAS_ACOES.semPermissaoHorario : def.id === 'mudar_preco' ? TEXTOS_DAS_ACOES.semPermissaoPreco : semPermissaoDe(def.permissao));
       // Lote 10: quem autoriza dinheiro VÊ o valor. Com o PIN da sessão vencido, o link da sessão vai depois desta resposta.
       if (c.parametros.acao === 'pagar_conta' && !e.verValores) return recusa(TEXTOS_DAS_ACOES.contaPedePin);
       if (c.parametros.acao === 'criar_imagem' && !imagemLigada()) return recusa(TEXTOS_DAS_ACOES.imagemDesligada);
       // A de PIN vai pelo link, que também sai pela conexão por QR Code (escrito na mensagem).
-      if (def.nivel === 'botao' && this.numero && (await this.numero.ler()).provedor === 'evolution') return recusa(TEXTOS_DAS_ACOES.semBotao);
+      if (def.nivel === 'botao' && this.numero && (await this.numero.ler()).provedor === 'evolution') return recusa(ehDadoInformado(def.id) ? TEXTOS_DAS_ACOES.dadoSemBotao : TEXTOS_DAS_ACOES.semBotao);
       // A loja: a da conversa (o gerente, a dele); a empresa de uma loja só, ela.
       const lojas = loja.atual ? [loja.atual] : e.lojas.map((l) => l.id);
       if (!lojas.length && !e.lojaUnica) return recusa(TEXTOS_DAS_ACOES.semPermissao);
@@ -323,6 +336,21 @@ export class MisterAcoesService implements OnModuleInit {
         parametros.baixa = b.baixa;
         resumo = resumoDaBaixa(b.baixa);
         alvo = b.id;
+      }
+      if (ehDadoInformado(c.parametros.acao)) {
+        // V7f: é da empresa, não de uma loja. O `toque` é a chave da gravação: cada pergunta tem a sua, e repetir o mesmo toque não
+        // grava de novo. Informar outro valor é outra pergunta.
+        const d = c.parametros as { acao: AcaoDeDadoInformado; centavos: number; dia: string; campanha: string | null };
+        let campanhaId: string | null = null;
+        if (d.acao === 'informar_custo_campanha') {
+          const achada = await acharCampanha(this.db, e.tenantId, d.campanha ?? '');
+          if (!achada) return recusa(TEXTOS_DAS_ACOES.dadoSemCampanha);
+          campanhaId = achada.id;
+        }
+        unidadeId = null;
+        parametros.campanhaId = campanhaId;
+        parametros.toque = randomUUID();
+        alvo = `${d.acao}:${d.centavos}:${d.dia}:${campanhaId ?? ''}`;
       }
       // M6l: cada pedido de imagem é um alvo (o mesmo pedido repetido é a mesma proposta e não paga de novo).
       if (c.parametros.acao === 'criar_imagem') alvo = `${c.parametros.proporcao}:${c.parametros.pedido}`;
@@ -738,6 +766,38 @@ export class MisterAcoesService implements OnModuleInit {
     return { feita: true, texto: textoDaBaixaFeita(b, proxima) };
   }
 
+  /**
+   * V7f: guarda o que o presidente informou, uma vez por toque. O "feito" só com a linha lida de volta. A auditoria registra o tipo,
+   * nunca o valor: saldo e folha são só do presidente.
+   */
+  private async guardarDado(
+    p: { id: string; tenantId: string },
+    a: { acao: AcaoDeDadoInformado; centavos: number; dia: string; campanhaId?: string | null; toque?: string },
+    nivel: string,
+    quem: string,
+  ): Promise<{ feita: boolean; texto: string }> {
+    if (!a.toque) return { feita: false, texto: TEXTOS_DAS_ACOES.dadoNaoGuardou };
+    try {
+      const ficou = await gravarDadoInformado(this.db, {
+        tenantId: p.tenantId,
+        tipo: TIPO_DO_DADO[a.acao],
+        centavos: a.centavos,
+        dia: a.dia,
+        quem,
+        campanhaId: a.campanhaId ?? null,
+        chave: `proposta:${p.id}:${a.toque}`,
+      });
+      if (!ficou) return { feita: false, texto: TEXTOS_DAS_ACOES.dadoNaoGuardou };
+    } catch (err: any) {
+      this.logger.error(`o dado da proposta ${p.id} não foi guardado: ${String(err?.message ?? err).slice(0, 200)}`, err?.stack);
+      return { feita: false, texto: TEXTOS_DAS_ACOES.dadoNaoGuardou };
+    }
+    await this.auditoria
+      ?.registrar({ tenantId: p.tenantId, atorId: quem, atorPerfil: nivel, tipo: 'mister', acao: 'mister_dado_informado', entidadeTipo: 'mister_proposta', entidadeId: p.id, origem: 'whatsapp', detalhe: { tipo: TIPO_DO_DADO[a.acao] } } as any)
+      .catch(() => undefined);
+    return { feita: true, texto: textoDoDadoGuardado(a.acao, a.dia) };
+  }
+
   /** Lote 7: o item de estoque pelo nome (o da ficha ou o comercial), da empresa ou das lojas da pessoa. */
   private async acharItem(tenantId: string, dito: string, lojas: string[] | null): Promise<{ id: string; nome: string; unidadeId: string | null; unidade: string } | { erro: string }> {
     const achados = linhas(
@@ -810,6 +870,8 @@ export class MisterAcoesService implements OnModuleInit {
     if (!quem || quem !== String(p.parametros?.colaboradorId ?? '')) return { feita: false, texto: 'a ação só vale com o "Autorizar" de quem pediu. Nada foi feito.' };
     const e = await this.ferramentas.escopoDaTela(p.tenantId, quem);
     const def = ACOES[p.procedimento];
+    // V7f: o perfil pode ter mudado entre a pergunta e o toque.
+    if (def.soPresidente && (!e || e.nivel !== 'presidente' || e.presa)) return { feita: false, texto: 'só o presidente da empresa guarda esse dado. Nada foi gravado.' };
     if (!e || !podeFazer(e, def)) {
       const a = def.id === 'mudar_horario' ? 'às configurações da loja' : def.id === 'pagar_conta' ? 'ao Financeiro' : def.pedeVerValores ? 'à mudança de preço' : def.permissao === 'meu_dia' ? 'às Tarefas' : def.permissao === 'loja' ? 'ao cadastro dos produtos' : def.permissao === 'estoque' ? 'ao lançamento do estoque' : 'ao Delivery';
       return { feita: false, texto: `o seu perfil não dá mais acesso ${a}. Nada foi feito.` };
@@ -828,6 +890,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (parametros.acao === 'mudar_preco') return this.aplicarPreco(p, parametros as any, { id: quem, perfil: e.nivel });
     if (parametros.acao === 'mudar_horario') return this.aplicarHorario(p, parametros as any, { id: quem, perfil: e.nivel });
     if (parametros.acao === 'pagar_conta') return this.aplicarBaixa(p, parametros as any, e, quem);
+    if (ehDadoInformado(parametros.acao)) return this.guardarDado(p, parametros as any, e.nivel, quem);
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };

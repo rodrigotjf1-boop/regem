@@ -1,4 +1,4 @@
-import { ACOES, type AcaoDoMister, ehAcaoDoMister } from './mister-acoes';
+import { ACOES, type AcaoDoMister, ehAcaoDoMister, ehDadoInformado } from './mister-acoes';
 import { botoesDaProposta } from './mister-procedimentos';
 
 // VÁRIAS TAREFAS NUM PEDIDO (versão 7, V7c; decisões V7-1, V7-2 e V7-3; protótipo `mockups/regem-mister-v7.html`, "Várias
@@ -57,6 +57,8 @@ export function lerPassos(bruto: unknown): { passos: Record<string, unknown>[] }
     if (!ehAcaoDoMister(passo.acao)) return { erro: `Passo ${i + 1}: essa ação não existe.` };
     // A imagem tem pergunta e franquia próprias ("Gerar"): não entra no botão do plano.
     if (passo.acao === 'criar_imagem') return { erro: `Passo ${i + 1}: a imagem vai num pedido à parte, com o botão "Gerar". Proponha os outros passos sem ela.` };
+    // V7f: o dado informado tem pergunta própria ("Guardar" e "Corrigir"), para o valor ser lido antes do toque.
+    if (ehDadoInformado(passo.acao)) return { erro: `Passo ${i + 1}: saldo, folha e custo de campanha vão num pedido à parte, com o botão "Guardar". Proponha os outros passos sem ele.` };
     // A loja é uma só para o plano inteiro: um passo não escolhe outra.
     if (passo.loja !== undefined && passo.loja !== null && passo.loja !== '') return { erro: `Passo ${i + 1}: a loja vai no plano, não em cada passo.` };
     passos.push(passo);

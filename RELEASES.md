@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 7, V7f: indicadores financeiros (22/11; mig 492, só nuvem; ERR-572).** O Mister só roda na nuvem. **Vale na loja:** a
+  Curva ABC sem a margem falsa de 100% chega com o próximo `.zip`. **Próximo `.exe`:** o `sync-daemon.mjs` ganhou
+  `mister_dado_informado` em `SO_NUVEM` (a tabela não existe na loja).
+
 - **Mister versão 7, V7e: análises de venda (22/11; migs 490 e 491, só nuvem).** Só na nuvem: vai no `.zip` sem efeito na loja (o
   Mister não roda no servidor da loja, e a loja pula as duas migrations).
 

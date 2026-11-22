@@ -432,6 +432,88 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
       });
     }
+    // Versão 7, V7f: os indicadores. O caso de sempre é o da loja real: nenhum custo lançado. Setembro é o mês com custo.
+    case 'indicadores_financeiros': {
+      const foco = String(en.foco ?? '');
+      const semV = perfil.verValores ? {} : { aviso: SEM_VALORES };
+      if (foco === 'margem') {
+        if (!perfil.verValores) return ok({ loja: LOJA, foco, semDados: true, aviso: SEM_VALORES });
+        if (String(en.de ?? '').startsWith('2026-09'))
+          return ok({
+            loja: LOJA,
+            foco,
+            periodo: 'de 01/09 a 30/09',
+            cobertura: { vendaOficial: 158240.35, pedidos: 3312, vendaComCustoCompleto: 145581.12, partePct: 92 },
+            parcial: false,
+            margemBruta: { pct: 65.8, valor: 95792.38 },
+            cmv: { pct: 34.2, valor: 49788.74 },
+            comoContei: 'Venda oficial do período contra o custo teórico da ficha, com o custo de HOJE do cadastro.',
+            comparacao: null,
+            avisos: ['O número vale para 92% da venda; o resto fica fora da conta.'],
+          });
+        return ok({
+          loja: LOJA,
+          foco,
+          periodo: 'mês passado (de 01/10 a 31/10)',
+          semDados: true,
+          cobertura: { vendaOficial: 161190.45, pedidos: 3420, vendaComCustoCompleto: 0, partePct: 0 },
+          margemBruta: null,
+          cmv: null,
+          explica: 'Nenhum produto vendido tem custo completo: não dá para calcular a margem nem o CMV. Não diga 100% de margem nem R$ 0 de custo.',
+          oQueFalta: [
+            '2 produtos com ficha têm ingrediente sem custo (Smash duplo e Batata rústica). Ingrediente sem custo não é custo zero: esses produtos ficam fora da conta.',
+            'Para lançar o custo: Estoque › aba "Recebimento", botão "Nota avulsa" (ou "Conferir", no pedido que chegou), com o custo de cada item.',
+          ],
+        });
+      }
+      if (foco === 'inadimplencia')
+        return ok({
+          loja: LOJA,
+          foco,
+          contasEmAberto: 11,
+          contasVencidas: 3,
+          diasDaMaisAntiga: 41,
+          inadimplenciaPct: perfil.verValores ? 14 : null,
+          vencido: v(1180.45),
+          totalAReceber: v(8420.35),
+          ondeVer: 'Os nomes ficam em Financeiro › Contas a pagar, no filtro "A receber". Dado de cliente não sai por aqui.',
+          ...semV,
+        });
+      if (foco === 'prazo_pagamento')
+        return ok({ loja: LOJA, foco, periodo: 'últimos 90 dias', prazoMedioDias: 18, titulosPagos: 24, comparacao: { periodo: 'os 90 dias anteriores', prazoMedioDias: 21, titulosPagos: 22, diferencaEmDias: -3 } });
+      if (foco === 'caixa') {
+        if (perfil.nivel !== 'presidente') return recusa('O caixa, com o saldo e a folha informados, é só do presidente.');
+        return ok({
+          foco,
+          alcance: 'a empresa inteira',
+          saldo: null,
+          folhaMensal: null,
+          saidasDoMes: { mes: 'outubro', lancadas: 128400.35, comAFolhaInformada: null, foraDaConta: 2300.15, oQueFicaFora: 'Sangria, estorno e devolução não são despesa e ficam fora.' },
+          diasQueOSaldoCobre: null,
+          burnRate: null,
+          runwayEmMeses: null,
+          porQueNaoTemRunway: 'O runway em meses e o burn rate dependem do que entra de verdade na conta, e os repasses do iFood, da 99 e do cartão o Regem ainda não lê.',
+          oQueFalta: ['O saldo de hoje no banco: peça à pessoa.', 'Quanto sai de folha por mês, que não está lançada no Regem: peça à pessoa.'],
+          semDados: true,
+        });
+      }
+      if (foco === 'roi_campanha')
+        return ok({
+          loja: LOJA,
+          foco,
+          campanha: 'SMASH10',
+          desde: '20/10',
+          pedidosComCupom: 64,
+          faturamento: v(3840.45),
+          semDados: true,
+          roiPct: null,
+          custoInformado: null,
+          explica: 'Sem o custo da mercadoria destas vendas não dá para calcular o ROI. Não use o faturamento no lugar da margem.',
+          oQueFalta: ['Quanto foi gasto na campanha: peça à pessoa.', '2 produtos com ficha têm ingrediente sem custo (Smash duplo e Batata rústica).'],
+          ...semV,
+        });
+      return ok({ loja: LOJA, foco, semDados: true, oQueFalta: ['Os repasses do iFood, da 99 e do cartão, que o Regem ainda não lê.'] });
+    }
     // Versão 7, V7e: as análises, com as MESMAS chaves da de verdade e números inventados que batem entre si.
     case 'analisar_vendas': {
       const foco = String(en.foco ?? '');
@@ -996,6 +1078,15 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c68', pergunta: 'Quanto perdi de mercadoria nos últimos 30 dias?', consultas: ['analisar_vendas'], contem: ['Desperdício|desperdício', 'Contagem|contagem', 'lança'] },
   { id: 'c69', pergunta: 'Como foi a semana passada?', perfil: GERENTE_SEM_VALORES, consultas: ['analisar_vendas'], numeros: ['812'], semValores: true },
   { id: 'c70', pergunta: 'Vale fazer uma promoção no dia mais fraco da semana? Olha a semana passada.', consultas: ['analisar_vendas'], contem: ['segunda', 'Minha sugestão'] },
+  // Versão 7, V7f: os indicadores. A c71 é o caso real de hoje: nenhum custo lançado, e a resposta diz o que falta e onde (V7-10).
+  { id: 'c71', pergunta: 'Como está a minha margem?', consultas: ['indicadores_financeiros'], contem: ['custo', 'Recebimento'] },
+  { id: 'c72', pergunta: 'Qual foi a margem e o CMV de setembro de 2026?', consultas: ['indicadores_financeiros'], numeros: ['65,8', '34,2', '92'], contem: ['custo de hoje'] },
+  { id: 'c73', pergunta: 'Quem está me devendo?', consultas: ['indicadores_financeiros'], numeros: ['1.180,45', '14', '41'], contem: ['Contas a pagar'] },
+  { id: 'c74', pergunta: 'Em quanto tempo eu pago os fornecedores?', consultas: ['indicadores_financeiros'], numeros: ['18'] },
+  { id: 'c75', pergunta: 'Quanto tempo de caixa eu tenho?', consultas: ['indicadores_financeiros'], contem: ['saldo', 'folha'] },
+  { id: 'c76', pergunta: 'Tenho 42.300 reais na conta hoje, guarda esse saldo.', consultas: ['propor_acao'], numeros: ['42.300,00'], contem: ['Guardar'] },
+  { id: 'c77', pergunta: 'A campanha do cupom SMASH10 valeu a pena?', consultas: ['indicadores_financeiros'], numeros: ['64'], contem: ['custo'] },
+  { id: 'c78', pergunta: 'Como está a minha margem?', perfil: GERENTE_SEM_VALORES, consultas: ['indicadores_financeiros'], semValores: true },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

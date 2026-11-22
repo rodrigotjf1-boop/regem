@@ -64,6 +64,34 @@ import {
 } from './mister-analises';
 import { lerCancelamentos, lerContagem, lerDesperdicio, lerItensDaFaixa } from './mister-analises.leitura';
 import {
+  DIAS_PADRAO_DO_PRAZO,
+  FOCOS_DOS_INDICADORES,
+  MAX_DIAS_DOS_INDICADORES,
+  contaVazia,
+  contarCusto,
+  indicadorDeCaixa,
+  indicadorDeInadimplencia,
+  indicadorDeMargem,
+  indicadorDePrazo,
+  indicadorDeRoi,
+  indicadorSemDado,
+  mesAnteriorInteiro,
+  ONDE_CAMPANHAS,
+} from './mister-indicadores';
+import {
+  acharCampanha,
+  lerCadastroDeCusto,
+  lerCustoDaCampanha,
+  lerPrazo,
+  lerReceber,
+  lerSaidas,
+  lerSaldoEFolha,
+  lerTotalDeProduto,
+  lerVendaPorProduto,
+  lerVendasDaCampanha,
+  listarCampanhasComCupom,
+} from './mister-indicadores.leitura';
+import {
   AtencaoDoResumo,
   DadosDoResumo,
   PlanoDoResumo,
@@ -550,6 +578,8 @@ export class MisterFerramentasService {
         return this.produtosMaisVendidos(e, en, loja);
       case 'analisar_vendas':
         return this.analisarVendas(e, en, loja);
+      case 'indicadores_financeiros':
+        return this.indicadoresFinanceiros(e, en, loja);
       case 'pedidos_em_andamento':
         return this.pedidosEmAndamento(e, loja);
       case 'estoque_em_alerta':
@@ -2263,6 +2293,129 @@ export class MisterFerramentasService {
         ...(temCancelamento || temMercadoria ? {} : { semDados: true }),
       },
     };
+  }
+
+  // ───────────────────────────── versão 7, V7f: os indicadores financeiros ─────────────────────────────
+
+  /**
+   * `indicadores_financeiros`: margem, CMV, inadimplência, prazo, caixa e ROI. A venda vem da conta oficial; as contas são as de
+   * `mister-indicadores.ts`. Cada foco tem a permissão da tela dele. Saldo e folha só o presidente da empresa inteira recebe, e
+   * sem PIN em dia (`verValores`) nada do que deriva deles sai. Sem dado, volta o que falta.
+   */
+  private async indicadoresFinanceiros(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const foco = String(en.foco ?? '').trim();
+    if (!(FOCOS_DOS_INDICADORES as readonly string[]).includes(foco)) return recusa(`Diga o indicador: ${FOCOS_DOS_INDICADORES.map((f) => `"${f}"`).join(', ')}.`);
+    const hoje = hojeISO();
+    const base = { loja: loja.nome, foco };
+    const pronto = (dados: Record<string, unknown>): ResultadoDaFerramenta => ({ ok: true, dados: { ...base, ...dados } });
+    const comAviso = e.verValores ? {} : { aviso: SEM_VALORES };
+
+    if (foco === 'margem_liquida' || foco === 'giro_de_recebiveis') {
+      if (!this.pode(e, 'financeiro')) return recusa(SEM_PERMISSAO);
+      return pronto(indicadorSemDado(foco));
+    }
+    if (foco === 'inadimplencia') {
+      if (!this.pode(e, 'financeiro')) return recusa(SEM_PERMISSAO);
+      const l = await lerReceber(this.db, { tenantId: e.tenantId, atual: loja.atual, hoje });
+      return pronto({ ...indicadorDeInadimplencia(l, hoje, e.verValores), ...comAviso });
+    }
+    if (foco === 'prazo_pagamento') {
+      if (!this.pode(e, 'financeiro')) return recusa(SEM_PERMISSAO);
+      const semPeriodo = en.periodo === undefined && en.de === undefined && en.ate === undefined;
+      const p = semPeriodo ? { de: somarDias(hoje, 1 - DIAS_PADRAO_DO_PRAZO), ate: hoje, rotulo: `últimos ${DIAS_PADRAO_DO_PRAZO} dias` } : periodoDaFerramenta(en, hoje);
+      if ('erro' in p) return recusa(p.erro);
+      if (diasEntre(p.de, p.ate).length > MAX_DIAS_DOS_INDICADORES) return recusa(`Para este indicador, escolha até ${MAX_DIAS_DOS_INDICADORES} dias.`);
+      const ant = periodoAnterior(p);
+      const onde = { tenantId: e.tenantId, atual: loja.atual };
+      const atual = await lerPrazo(this.db, { ...onde, de: p.de, ate: p.ate });
+      const anterior = await lerPrazo(this.db, { ...onde, de: ant.de, ate: ant.ate });
+      return pronto({ periodo: p.rotulo, ...indicadorDePrazo(atual, { ...anterior, rotulo: ant.rotulo }) });
+    }
+    if (foco === 'caixa') {
+      // Saldo e folha são da empresa inteira: nem o gerente nem quem está preso a uma loja recebem, nem o que deriva deles.
+      if (e.nivel !== 'presidente') return recusa('O caixa, com o saldo e a folha informados, é só do presidente.');
+      if (e.presa) return recusa('O saldo e a folha são da empresa inteira, e o acesso desta pessoa é só a uma loja.');
+      if (!e.verValores) return pronto({ semDados: true, aviso: SEM_VALORES });
+      const mes = mesesCompletos(hoje, 1)[0];
+      let informados: Awaited<ReturnType<typeof lerSaldoEFolha>>;
+      try {
+        informados = await lerSaldoEFolha(this.db, e.tenantId);
+      } catch (err: any) {
+        if (!semTabela(err) && !semTabela(err?.cause)) throw err;
+        informados = { saldo: null, folha: null };
+      }
+      const saidas = await lerSaidas(this.db, { tenantId: e.tenantId, de: mes.de, ate: mes.ate });
+      return { ok: true, dados: { foco, ...indicadorDeCaixa({ ...informados, saidas, mes, hoje }) } };
+    }
+    if (foco === 'roi_campanha') return this.roiDaCampanha(e, en, loja, pronto);
+
+    // A margem bruta e o CMV.
+    if (!this.pode(e, 'relatorios_vendas') || !this.pode(e, 'fichas')) return recusa(SEM_PERMISSAO);
+    if (!e.verValores) return pronto({ semDados: true, aviso: SEM_VALORES });
+    const p = periodoDaFerramenta(en, hoje, 'mes_passado');
+    if ('erro' in p) return recusa(p.erro);
+    if (diasEntre(p.de, p.ate).length > MAX_DIAS_DOS_INDICADORES) return recusa(`Para este indicador, escolha até ${MAX_DIAS_DOS_INDICADORES} dias.`);
+    const somar = (rows: any[]) => lerLinhasOficiais(rows).reduce((s, l) => ({ centavos: s.centavos + l.centavos, pedidos: s.pedidos + l.pedidos }), { centavos: 0, pedidos: 0 });
+    const onde = { tenantId: e.tenantId, atual: loja.atual };
+    // Uma depois da outra: um indicador segura no máximo uma conexão do pool da API.
+    const oficial = somar(await this.relatorios.linhasDaVendaOficial(e.tenantId, p.de, p.ate, loja.atual));
+    if (oficial.centavos <= 0) return pronto({ periodo: p.rotulo, ...indicadorDeMargem({ vendaOficialCentavos: 0, pedidos: 0, conta: contaVazia() }) });
+    const cadastro = await lerCadastroDeCusto(this.db, e.tenantId);
+    const conta = contarCusto(await lerVendaPorProduto(this.db, { ...onde, de: p.de, ate: p.ate }), cadastro);
+    const vendaDeProdutoCentavos = await lerTotalDeProduto(this.db, { ...onde, de: p.de, ate: p.ate });
+    const mesAntes = mesAnteriorInteiro(p.de, p.ate);
+    const antes = mesAntes ? { ...mesAntes, rotulo: `de ${diaMes(mesAntes.de)} a ${diaMes(mesAntes.ate)}` } : periodoAnterior(p);
+    const oficialAntes = somar(await this.relatorios.linhasDaVendaOficial(e.tenantId, antes.de, antes.ate, loja.atual));
+    const contaAntes = oficialAntes.centavos > 0 ? contarCusto(await lerVendaPorProduto(this.db, { ...onde, de: antes.de, ate: antes.ate }), cadastro) : null;
+    const produtoAntes = contaAntes ? await lerTotalDeProduto(this.db, { ...onde, de: antes.de, ate: antes.ate }) : 0;
+    return pronto({
+      periodo: p.rotulo,
+      ...indicadorDeMargem({
+        vendaOficialCentavos: oficial.centavos,
+        vendaDeProdutoCentavos,
+        pedidos: oficial.pedidos,
+        conta,
+        anterior: contaAntes ? { rotulo: antes.rotulo, vendaOficialCentavos: oficialAntes.centavos, vendaDeProdutoCentavos: produtoAntes, conta: contaAntes } : null,
+      }),
+    });
+  }
+
+  /** O ROI de uma campanha, pelo cupom dela. Sem campanha dita, as campanhas que têm cupom, para a pessoa escolher. */
+  private async roiDaCampanha(
+    e: EscopoDoMister,
+    en: Record<string, unknown>,
+    loja: { atual: string | null; nome: string },
+    pronto: (dados: Record<string, unknown>) => ResultadoDaFerramenta,
+  ): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'delivery')) return recusa(SEM_PERMISSAO);
+    const cupom = typeof en.campanha === 'string' ? en.campanha.trim().slice(0, 40) : '';
+    if (!cupom) {
+      const lista = await listarCampanhasComCupom(this.db, e.tenantId);
+      return pronto({
+        semDados: true,
+        campanhas: lista.map((c) => ({ cupom: c.cupom, desde: diaMes(c.desde) })),
+        oQueFalta: [lista.length ? 'Diga de qual campanha: o código do cupom dela.' : `Não há campanha com cupom. Sem cupom não dá para saber quais vendas vieram dela. As campanhas ficam em ${ONDE_CAMPANHAS}.`],
+      });
+    }
+    const c = await acharCampanha(this.db, e.tenantId, cupom);
+    if (!c) return recusa(`Não achei campanha com esse cupom. Confira o código em ${ONDE_CAMPANHAS}.`);
+    const v = await lerVendasDaCampanha(this.db, { tenantId: e.tenantId, atual: loja.atual, campanhaId: c.id });
+    // O ROI mostra custo: precisa dos valores e das fichas, como a margem.
+    const verCusto = e.verValores && this.pode(e, 'fichas');
+    const cadastro = verCusto && v.pedidos ? await lerCadastroDeCusto(this.db, e.tenantId) : null;
+    const conta = cadastro ? contarCusto(v.grupos, cadastro) : contaVazia();
+    let custoCentavos: number | null = null;
+    if (verCusto) {
+      try {
+        custoCentavos = await lerCustoDaCampanha(this.db, e.tenantId, c.id);
+      } catch (err: any) {
+        if (!semTabela(err) && !semTabela(err?.cause)) throw err;
+      }
+    }
+    return pronto({
+      ...indicadorDeRoi({ campanha: c.cupom, desde: c.desde, pedidos: v.pedidos, faturamentoCentavos: v.faturamentoCentavos, baseCentavos: v.baseCentavos, conta, custoCentavos, verValores: verCusto }),
+      ...(verCusto ? {} : { aviso: e.verValores ? SEM_PERMISSAO : SEM_VALORES }),
+    });
   }
 
   /** Os gráficos das análises: a mesma leitura, o mesmo desenho (`grafico/plano-da-analise.ts`). Sem PDF nem link por enquanto. */

@@ -2229,8 +2229,8 @@ quem fala, "até risada se a ocasião assim se apresentar". Protótipo: `mockups
 | V7a · Números únicos | O Mister usa a conta do Painel (`vendasOficiais`); a medida do atraso do Anota Aí | no ar (#1259, ERR-564) |
 | V7b · Dinheiro sem duplicar | Pagar o entregador, conta recorrente e resultado do pinpad | mesclado (#1260, #1261, ERR-565, ERR-566) |
 | V7c · Conversa natural | Plano em uma frase, ajuste na conversa, várias tarefas, conferir antes de dizer "pronto" | entregue (ERR-569); falta a avaliação com a IA real (63 casos) |
-| V7e · BI | Semana, pico e itens do pico, fases do mês, perdas e cancelamentos, padrões | entregue (mig 490 aplicada); a 491 vai pelo SQL Editor; falta a avaliação com a IA real (70 casos) |
-| V7f · KPIs financeiros | Margem, CMV, inadimplência, prazo; saldo, folha e custo informados na conversa | a fazer |
+| V7e · BI | Semana, pico e itens do pico, fases do mês, perdas e cancelamentos, padrões | no ar (#1266, migs 490 e 491 aplicadas); falta a avaliação com a IA real |
+| V7f · KPIs financeiros | Margem, CMV, inadimplência, prazo; saldo, folha e custo informados na conversa | entregue (mig 492 aplicada, ERR-572); falta a avaliação com a IA real (78 casos) |
 | V7d · Voz | A voz com tom e a risada, pelo DMS Graph, nascendo desligada | a fazer |
 
 **As dez decisões (todas na recomendada):**
@@ -2275,6 +2275,21 @@ receber lançadas, então inadimplência e prazo de pagamento ficam sem número 
   procurado e os outros padrões seguem.
 - Diferenças do protótipo: sem o botão "Preparar o pedido" e sem "comprado × usado", porque o Regem não sabe quanto do item se usa até
   aquele dia; os gráficos das análises saem sem os botões de PDF e link.
+
+**Como a V7f ficou (22/11):**
+
+- A ferramenta `indicadores_financeiros` tem sete focos: margem e CMV, inadimplência, prazo de pagamento, caixa, margem líquida, giro
+  de recebíveis e ROI de campanha. As definições estão em `docs/logica-negocio.md` § 2.6.
+- **A loja real não tem custo cadastrado (0 de 527 ingredientes, 0 de 168 insumos):** margem, CMV e ROI respondem o que falta e onde
+  lançar. Ingrediente sem custo não é custo zero: o produto fica fora da conta.
+- A cobertura se mede sobre a venda de produto, sem taxa de entrega e de serviço. Abaixo de 50%, o número sai como parcial e não se
+  compara com outro período. A conta usa o custo de hoje do cadastro.
+- Saldo, folha e custo de campanha entram pela conversa, com "Guardar" e "Corrigir", só pelo presidente. Saldo e folha só ele vê. O
+  saldo vale 7 dias, e nenhum dos dois vai para a memória do Mister.
+- "O saldo cobre X dias" só sai com alguma conta da loja lançada além de entregador e folha. Burn rate, runway em meses, margem
+  líquida e giro ficam como "falta dado" até o Regem ler os repasses, as taxas e os impostos.
+- Diferenças do protótipo: sem "muçarela +11%" e sem o botão "Comparar" (falta histórico de compra com custo), a folha também passa por
+  "Guardar", e o prazo compara com o período anterior de mesmo tamanho.
 
 **Ainda depende de teste real:** a voz nova em português, a risada, a leitura do tom com barulho de cozinha, o custo e o tempo de
 resposta das análises no pico.

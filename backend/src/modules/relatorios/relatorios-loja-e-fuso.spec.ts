@@ -160,6 +160,17 @@ descrever('relatórios por loja, no dia e na hora da operação (sessão do banc
     expect([await vendasDe(A), await vendasDe(B), await vendasDe(null)]).toEqual([2, 2, 4]);
   });
 
+  it('curva ABC: custo zero é custo não lançado, e não vira margem de 100% (ERR-572)', async () => {
+    const outra = await empresa('curva sem custo');
+    const u = await loja(outra, 'Loja da curva');
+    const [{ id: pid }] = await q(`insert into produto (tenant_id, nome, preco_venda) values ($1, 'Sem custo', 10) returning id::text as id`, [outra]);
+    const comanda = await venda(outra, u, `${DIA} 12:00:00`, 10, 'Sem custo');
+    await q(`update comanda_item set produto_id = $1 where comanda_id = $2`, [pid, comanda]);
+    const comMapa = (custo: number) => new RelatoriosService(db, { custoEfetivoMapa: async () => ({ [pid]: custo }) } as any);
+    expect((await comMapa(0).produtos(outra, INI, FIM, true, u)).itens[0]).toMatchObject({ custo: null, lucro: null, margemPct: null });
+    expect((await comMapa(4).produtos(outra, INI, FIM, true, u)).itens[0]).toMatchObject({ custo: 4, lucro: 6, margemPct: 60 });
+  });
+
   it('balcão e delivery: o pedido de entrega é da loja B; por dia e por hora no relógio de Brasília', async () => {
     const balcaoA: any = await relatorios.detalheCanal(t, 'balcao', INI, FIM, true, A);
     expect(balcaoA.resumo).toMatchObject({ vendas: 2, faturado: 140 });
