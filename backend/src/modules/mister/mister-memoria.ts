@@ -36,6 +36,9 @@ const EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/;
 // Telefone (com ou sem DDD e o 9, com ou sem separador), CPF, CNPJ ou qualquer sequência longa de dígitos.
 const DADO_DE_PESSOA = /(\(?\d{2}\)?\s?9?\d{4}[-\s.]?\d{4})|(\d{3}\.\d{3}\.\d{3}-\d{2})|(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})|(\d{8,})/;
 const SENHA = /\b(senha|pin|c[oó]digo|token|chave)\b[^.]*\d{3,}/i;
+// V7f (V7-9): saldo e folha têm lugar próprio, com data e validade, e só o presidente vê. A memória entra em toda conversa da empresa.
+const ASSUNTO_DE_CAIXA = /\b(saldo|folha|sal[aá]rios?|caixa da empresa|conta do banco|no banco)\b/i;
+const QUANTIA = /\d[\d.,]*\s*(mil|k|reais|conto|contos|milh[aãoõ]+e?s?)\b|\b\d{1,3}(?:[.,]\d{3})+\b|\b\d{4,}\b|\b(mil|milh[aã]o|milh[oõ]es)\b/i;
 
 /** As frases de recusa (a tela e o Mister dizem a mesma). */
 export const RECUSAS_DA_MEMORIA = {
@@ -45,6 +48,7 @@ export const RECUSAS_DA_MEMORIA = {
   link: 'Sem link: o Mister não guarda endereço de site.',
   pessoa: 'Sem telefone, e-mail ou documento: dado de pessoa não fica na memória.',
   segredo: 'Senha, código, PIN ou chave não ficam na memória.',
+  caixa: 'Saldo e folha não ficam na memória: informe na conversa, que eu guardo com a data e só o presidente vê.',
 } as const;
 
 /**
@@ -56,6 +60,7 @@ export function conferirMemoria(v: unknown): { texto: string } | { erro: string 
   if (!texto) return { erro: RECUSAS_DA_MEMORIA.vazio };
   if (texto.length > TEXTO_DA_MEMORIA_MAX) return { erro: RECUSAS_DA_MEMORIA.longo };
   if (pareceSegredo(texto) || SENHA.test(texto)) return { erro: RECUSAS_DA_MEMORIA.segredo };
+  if (ASSUNTO_DE_CAIXA.test(texto) && (VALOR.test(texto) || QUANTIA.test(texto))) return { erro: RECUSAS_DA_MEMORIA.caixa };
   if (VALOR.test(texto)) return { erro: RECUSAS_DA_MEMORIA.valor };
   if (LINK.test(texto)) return { erro: RECUSAS_DA_MEMORIA.link };
   if (EMAIL.test(texto) || DADO_DE_PESSOA.test(texto)) return { erro: RECUSAS_DA_MEMORIA.pessoa };

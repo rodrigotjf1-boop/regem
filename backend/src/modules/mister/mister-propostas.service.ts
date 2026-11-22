@@ -49,7 +49,7 @@ import {
   TEXTOS_DA_SESSAO,
 } from './mister-procedimentos';
 import { estadoDaSessao } from './mister-sessao';
-import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDaBaixa, apresentacaoDoHorario, apresentacaoDoPreco, ehAcaoDoMister } from './mister-acoes';
+import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDaBaixa, apresentacaoDoHorario, apresentacaoDoPreco, ehAcaoDoMister, ehDadoInformado } from './mister-acoes';
 import { PROCEDIMENTO_DO_PLANO, RESULTADO_DO_PLANO_TROCADO, TEXTOS_DO_PLANO } from './mister-plano';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -387,6 +387,8 @@ export class MisterPropostasService implements OnModuleInit {
         ? TEXTOS_DA_PROPOSTA.autorizada(p.procedimento)
         : p.procedimento === 'criar_imagem'
           ? TEXTOS_DAS_ACOES.imagemMudar
+          : ehDadoInformado(p.procedimento)
+          ? TEXTOS_DAS_ACOES.dadoCorrigir
           : acao
             ? TEXTOS_DA_PROPOSTA.recusadaAcao
             : TEXTOS_DA_PROPOSTA.recusada;

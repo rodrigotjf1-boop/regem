@@ -512,7 +512,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -4200,6 +4200,14 @@ export function testesDoMisterComPostgres(): void {
         c68: { foco: 'perdas', periodo: 'ultimos_30_dias' },
         c69: { foco: 'semana', periodo: 'semana_passada' },
         c70: { foco: 'semana', periodo: 'semana_passada' },
+        c71: { foco: 'margem' },
+        c72: { foco: 'margem', de: '2026-09-01', ate: '2026-09-30' },
+        c73: { foco: 'inadimplencia' },
+        c74: { foco: 'prazo_pagamento' },
+        c75: { foco: 'caixa' },
+        c76: { acao: 'informar_saldo', valorInformado: 42300 },
+        c77: { foco: 'roi_campanha', campanha: 'SMASH10' },
+        c78: { foco: 'margem' },
         c54: { acao: 'criar_imagem', proporcao: '9:16', pedidoDaImagem: "Cartaz vertical da terça do smash. Foto de um smash duplo com batata, fundo escuro, luz quente. Texto exato: \"TERÇA DO SMASH\" e \"Smash duplo + batata · R$ 29,90\"." },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
@@ -4253,18 +4261,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 70 de 70, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 78 de 78, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(70);
+        expect(r.total).toBe(78);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 70, acertos: 70, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 78, acertos: 78, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 70, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 70, acertos: 70, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 78, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 78, acertos: 78, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4284,7 +4292,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 69 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 77 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -11281,6 +11289,341 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from tarefa_instancia where tenant_id = $1 and tarefa_def_id in (select id from tarefa_def where tenant_id = $1 and titulo like 'M6J %')`, [A]);
           await q(`delete from tarefa_def where tenant_id = $1 and titulo like 'M6J %'`, [A]);
         }
+      });
+
+      // ───────────── versão 7, V7f: os indicadores financeiros (a conta oficial, o custo, as permissões e o dado informado) ─────────────
+      describe('os indicadores financeiros (versão 7, V7f)', () => {
+        const hoje = hojeISO();
+        const mes = mesesCompletos(hoje, 1)[0];
+        const diaDoMes = `${mes.de.slice(0, 8)}15`;
+        const apagarInformados = async () => {
+          // A tabela é só de acréscimo: a limpeza do teste passa por fora do gatilho, nesta transação.
+          const c = await pool.connect();
+          try {
+            await c.query('begin');
+            await c.query(`set local session_replication_role = replica`);
+            await c.query(`delete from mister_dado_informado where tenant_id = any($1::uuid[])`, [[A, B]]);
+            await c.query('commit');
+          } catch (err) {
+            await c.query('rollback').catch(() => {});
+            throw err;
+          } finally {
+            c.release();
+          }
+        };
+        const limpar = async () => {
+          await apagarInformados();
+          await q(`delete from mister_proposta where tenant_id = any($1::uuid[]) and procedimento like 'informar_%'`, [[A, B]]);
+          for (const t of ['cupom_uso', 'cupom', 'campanha', 'lancamento_caixa', 'titulo_financeiro', 'pedido_externo', 'comanda_item', 'comanda', 'produto_variacao'])
+            await q(`delete from ${t} where tenant_id = any($1::uuid[])`, [[A, B]]);
+          await q(`delete from produto where tenant_id = any($1::uuid[]) and nome like 'V7F %'`, [[A, B]]);
+          await q(`delete from ficha_ingrediente where tenant_id = any($1::uuid[]) and ficha_id in (select id from ficha_tecnica where nome like 'V7F %')`, [[A, B]]);
+          await q(`delete from ficha_tecnica where tenant_id = any($1::uuid[]) and nome like 'V7F %'`, [[A, B]]);
+        };
+        afterEach(limpar);
+        const presidente = async () => {
+          const tel = telefone();
+          await ligar('ana', tel);
+          return { tel, e: (await ferramentas.escopo(A, pessoa.ana, tel))! };
+        };
+        const gerenteCom = (e: any, permissoes: any, verValores: boolean) => ({ ...e, nivel: 'gerente' as const, lojaUnica: false, presa: lojaDeA, lojas: [{ id: lojaDeA, nome: 'Loja Centro' }], permissoes, verValores });
+        const ficha = async (nome: string, linhas: Array<{ q: number; custo?: number; sub?: string }>, rendimento = 1, tenant = A) => {
+          const [{ id }] = await q(`insert into ficha_tecnica (tenant_id, nome, rendimento) values ($1, $2, $3) returning id::text as id`, [tenant, `V7F ${nome}`, rendimento]);
+          for (const [i, l] of linhas.entries())
+            await q(`insert into ficha_ingrediente (tenant_id, ficha_id, sub_ficha_id, insumo_nome, quantidade, custo_unitario) values ($1, $2, $3, $4, $5, $6)`, [tenant, id, l.sub ?? null, `${nome} ingrediente ${i + 1}`, l.q, l.custo ?? 0]);
+          return id as string;
+        };
+        const produto = async (nome: string, fichaId: string | null, precoCusto: number | null = null, tenant = A) =>
+          (await q(`insert into produto (tenant_id, nome, preco_venda, ficha_id, preco_custo) values ($1, $2, 10, $3, $4) returning id::text as id`, [tenant, `V7F ${nome}`, fichaId, precoCusto]))[0].id as string;
+        const venda = async (dia: string, itens: Array<[string | null, number, number]>, o: { total?: number; pct?: number; tenant?: string; loja?: string | null } = {}) => {
+          const bruto = itens.reduce((s, [, n, p]) => s + n * p, 0);
+          const [{ id }] = await q(
+            `insert into comanda (tenant_id, unidade_id, status, total, taxa_servico_pct, forma, aberta_em, fechada_em)
+             values ($1, $2, 'fechada', $3, $4, 'dinheiro', ($5::timestamp at time zone 'America/Sao_Paulo') - interval '10 minutes', ($5::timestamp at time zone 'America/Sao_Paulo')) returning id::text as id`,
+            [o.tenant ?? A, o.loja === undefined ? lojaDeA : o.loja, o.total ?? bruto, o.pct ?? 0, `${dia} 20:00:00`],
+          );
+          for (const [pid, n, p] of itens)
+            await q(`insert into comanda_item (tenant_id, comanda_id, produto_id, descricao, quantidade, preco_unitario) values ($1, $2, $3, 'V7F item', $4, $5)`, [o.tenant ?? A, id, pid, n, p]);
+          return id as string;
+        };
+
+        it('a venda é a de vendas_do_periodo; ficha com um ingrediente sem custo fica fora; sub-receita entra; a margem é sobre a parte com custo', async () => {
+          const { e } = await presidente();
+          const sub = await ficha('molho', [{ q: 1, custo: 4 }], 2);
+          const completa = await ficha('smash', [{ q: 0.1, custo: 20 }, { q: 1, custo: 1 }]);
+          const comSub = await ficha('batata', [{ q: 1, sub }]);
+          const faltando = await ficha('onion', [{ q: 1, custo: 3 }, { q: 1 }]);
+          const a = await produto('Smash', completa);
+          const b = await produto('Batata', comSub);
+          const c = await produto('Onion', faltando);
+          await venda(diaDoMes, [[a, 2, 10], [b, 1, 10]]);
+          await venda(diaDoMes, [[c, 1, 20]]);
+          // A taxa de serviço não é faturamento: a conta oficial tira, e a venda por produto também.
+          await venda(diaDoMes, [[a, 1, 10]], { total: 11, pct: 10 });
+
+          const oficial = await ferramentas.executar(e, 'vendas_do_periodo', { periodo: 'mes_passado' });
+          const r: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'margem', periodo: 'mes_passado' });
+          expect(r.ok).toBe(true);
+          expect(r.dados.cobertura.vendaOficial).toBe(oficial.dados.faturamento);
+          expect(r.dados.cobertura).toEqual({ vendaOficial: 60, vendaDeProduto: 60, pedidos: 3, vendaComCustoCompleto: 40, partePct: 66.7 });
+          // 3 smash a R$ 3,00 + 1 batata a R$ 2,00 = R$ 11,00 sobre R$ 40,00.
+          expect(r.dados).toMatchObject({ parcial: false, cmv: { pct: 27.5, valor: 11 }, margemBruta: { pct: 72.5, valor: 29 } });
+          expect(r.dados.comoContei).toContain('custo de HOJE');
+          expect(JSON.stringify(r.dados.oQueFalta)).toContain('V7F Onion');
+          expect(JSON.stringify(r.dados.oQueFalta)).toContain('onion ingrediente 2');
+        });
+
+        it('a loja sem custo nenhum: sem margem, sem 100%, sem R$ 0, com o que falta e o caminho', async () => {
+          const { e } = await presidente();
+          const f = await ficha('smash', [{ q: 1 }, { q: 2 }]);
+          await venda(diaDoMes, [[await produto('Smash', f), 2, 10], [await produto('Sem ficha', null), 1, 5]]);
+          const r: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'margem', periodo: 'mes_passado' });
+          expect(r.ok).toBe(true);
+          expect(r.dados).toMatchObject({ semDados: true, margemBruta: null, cmv: null, cobertura: { vendaOficial: 25, vendaComCustoCompleto: 0, partePct: 0 } });
+          const falta = r.dados.oQueFalta.join(' ');
+          expect(falta).toContain('Ingrediente sem custo não é custo zero');
+          expect(falta).toContain('Estoque › aba "Recebimento"');
+          expect(falta).toContain('V7F Sem ficha');
+        });
+
+        it('o custo informado no produto entra; o adicional pago e a venda de outra empresa não', async () => {
+          const { e } = await presidente();
+          const a = await produto('Refri', null, 2.5);
+          const c1 = await venda(diaDoMes, [[a, 2, 5]]);
+          const c2 = await venda(diaDoMes, [[a, 1, 8]]);
+          const [{ id: item }] = await q(`select id::text as id from comanda_item where comanda_id = $1`, [c2]);
+          await q(`insert into comanda_item_complemento (tenant_id, comanda_item_id, tipo, nome, preco_delta) values ($1, $2, 'adicionar', 'V7F Extra', 3)`, [A, item]);
+          const deB = await produto('De B', null, 1, B);
+          await venda(diaDoMes, [[deB, 100, 100]], { tenant: B, loja: null });
+          const r: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'margem', periodo: 'mes_passado' });
+          expect(r.dados.cobertura).toEqual({ vendaOficial: 18, vendaDeProduto: 18, pedidos: 2, vendaComCustoCompleto: 10, partePct: 55.6 });
+          expect(r.dados.cmv).toEqual({ pct: 50, valor: 5 });
+          expect(JSON.stringify(r.dados)).not.toContain('De B');
+          expect(c1).toBeTruthy();
+          await q(`delete from comanda_item_complemento where tenant_id = $1 and nome = 'V7F Extra'`, [A]);
+        });
+
+        it('a taxa de entrega da loja fica fora da cobertura: pedido com custo completo cobre 100% da venda de produto', async () => {
+          const { e } = await presidente();
+          const f = await ficha('entrega', [{ q: 1, custo: 4 }]);
+          const a = await produto('Entrega', f);
+          const c = await venda(diaDoMes, [[a, 1, 40]]);
+          await q(
+            `insert into pedido_externo (tenant_id, unidade_id, canal, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono, comanda_id, criado_em)
+             values ($1, $2, 'cardapio', 'concluido', 48, 40, 8, 'loja', $3, ($4::timestamp at time zone 'America/Sao_Paulo'))`,
+            [A, lojaDeA, c, `${diaDoMes} 20:00:00`],
+          );
+          const r: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'margem', periodo: 'mes_passado' });
+          expect(r.dados.cobertura).toEqual({ vendaOficial: 48, vendaDeProduto: 40, pedidos: 1, vendaComCustoCompleto: 40, partePct: 100 });
+          expect(r.dados.cmv).toEqual({ pct: 10, valor: 4 });
+          expect(r.dados.avisos).toBeUndefined();
+        });
+
+        it('sem permissão ou sem ver valores: nenhum R$, nenhum percentual; saldo e folha só o presidente', async () => {
+          const { e } = await presidente();
+          const f = await ficha('smash', [{ q: 1, custo: 3 }]);
+          await venda(diaDoMes, [[await produto('Smash', f), 2, 10]]);
+          await q(`insert into titulo_financeiro (tenant_id, unidade_id, tipo, descricao, valor, vencimento, status) values ($1, $2, 'receber', 'V7F Fulano da Silva', 100, $3, 'aberto')`, [A, lojaDeA, somarDias(hoje, -5)]);
+          await q(`insert into mister_dado_informado (tenant_id, tipo, valor_centavos, data_referencia, informado_por, chave) values ($1, 'saldo_banco', 4230000, $2, $3, 'teste:s1'), ($1, 'folha_mensal', 2400000, $2, $3, 'teste:f1')`, [A, hoje, pessoa.ana]);
+
+          const semValores = gerenteCom(e, { relatorios_vendas: true, fichas: true, financeiro: true, delivery: true }, false);
+          const margem: any = await ferramentas.executar(semValores, 'indicadores_financeiros', { foco: 'margem', periodo: 'mes_passado' });
+          expect(margem.dados).toMatchObject({ semDados: true, aviso: expect.stringContaining('não mostra valores') });
+          expect(margem.dados.cmv).toBeUndefined();
+          expect(margem.dados.cobertura).toBeUndefined();
+          const inad: any = await ferramentas.executar(semValores, 'indicadores_financeiros', { foco: 'inadimplencia' });
+          expect(inad.dados).toMatchObject({ contasVencidas: 1, inadimplenciaPct: null, vencido: null, totalAReceber: null });
+          expect(JSON.stringify(inad.dados)).not.toContain('Fulano');
+
+          for (const g of [semValores, gerenteCom(e, { financeiro: true, ver_financeiro: true }, true)]) {
+            const caixa = await ferramentas.executar(g, 'indicadores_financeiros', { foco: 'caixa' });
+            expect(caixa).toEqual({ ok: false, dados: { erro: expect.stringContaining('só do presidente') } });
+            expect(JSON.stringify(caixa)).not.toMatch(/42300|24000/);
+          }
+          // O presidente com o PIN da sessão vencido também espera.
+          const pendente: any = await ferramentas.executar({ ...e, verValores: false, pinPendente: true }, 'indicadores_financeiros', { foco: 'caixa' });
+          expect(JSON.stringify(pendente.dados)).not.toMatch(/42300|24000/);
+          expect(pendente.dados).toMatchObject({ semDados: true });
+          // Preso a uma loja, o dado da empresa inteira não sai.
+          expect((await ferramentas.executar({ ...e, presa: lojaDeA, lojaUnica: false, lojas: [{ id: lojaDeA, nome: 'Loja Centro' }] }, 'indicadores_financeiros', { foco: 'caixa' })).ok).toBe(false);
+          for (const foco of ['margem', 'inadimplencia', 'prazo_pagamento', 'margem_liquida', 'giro_de_recebiveis', 'roi_campanha'])
+            expect((await ferramentas.executar(gerenteCom(e, {}, true), 'indicadores_financeiros', { foco })).dados.erro).toContain('não dá acesso');
+          expect((await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'xis' })).dados.erro).toContain('indicador');
+        });
+
+        it('inadimplência: só o vencido em aberto da empresa e da loja; prazo: pela data do caixa, sem o estornado', async () => {
+          const { e } = await presidente();
+          const titulo = async (tipo: string, valor: number, vencimento: string | null, status = 'aberto', tenant = A, criado?: string) =>
+            (await q(
+              `insert into titulo_financeiro (tenant_id, unidade_id, tipo, descricao, valor, vencimento, status, created_at)
+               values ($1, $2, $3, 'V7F conta', $4, $5, $6, coalesce($7::timestamptz, now())) returning id::text as id`,
+              [tenant, tenant === A ? lojaDeA : null, tipo, valor, vencimento, status, criado ?? null],
+            ))[0].id as string;
+          await titulo('receber', 100.1, somarDias(hoje, -41));
+          await titulo('receber', 200.2, somarDias(hoje, -1));
+          await titulo('receber', 700, somarDias(hoje, 3));
+          await titulo('receber', 50, null);
+          await titulo('receber', 999, somarDias(hoje, -9), 'pago');
+          await titulo('receber', 999, somarDias(hoje, -9), 'aberto', B);
+          const r: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'inadimplencia' });
+          expect(r.dados).toMatchObject({ contasEmAberto: 4, contasVencidas: 2, diasDaMaisAntiga: 41, vencido: 300.3, totalAReceber: 1050.3, inadimplenciaPct: 28.6 });
+
+          const pagaEm = async (id: string, data: string) =>
+            (await q(`insert into lancamento_caixa (tenant_id, unidade_id, titulo_id, tipo, valor, data, categoria) values ($1, $2, $3, 'saida', 10, $4, 'fornecedor') returning id::text as id`, [A, lojaDeA, id, data]))[0].id as string;
+          const criada = (dias: number) => `${somarDias(hoje, -dias)} 12:00:00-03`;
+          await pagaEm(await titulo('pagar', 10, null, 'pago', A, criada(20)), somarDias(hoje, -10)); // 10 dias
+          await pagaEm(await titulo('pagar', 10, null, 'pago', A, criada(30)), somarDias(hoje, -10)); // 20 dias
+          const estornado = await titulo('pagar', 10, null, 'pago', A, criada(90));
+          const lanc = await pagaEm(estornado, somarDias(hoje, -5));
+          await q(`insert into lancamento_caixa (tenant_id, unidade_id, titulo_id, tipo, valor, data, categoria, estorno_de) values ($1, $2, $3, 'entrada', 10, $4, 'estorno', $5)`, [A, lojaDeA, estornado, somarDias(hoje, -4), lanc]);
+          const poucos: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'prazo_pagamento' });
+          expect(poucos.dados).toMatchObject({ prazoMedioDias: 15, titulosPagos: 2 });
+          expect(poucos.dados.avisos[0]).toContain('pouco para concluir');
+          await pagaEm(await titulo('pagar', 10, null, 'pago', A, criada(40)), somarDias(hoje, -10)); // 30 dias
+          const tres: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'prazo_pagamento' });
+          expect(tres.dados).toMatchObject({ prazoMedioDias: 20, titulosPagos: 3 });
+          expect(tres.dados.avisos).toBeUndefined();
+        });
+
+        it('caixa: despesa sem sangria nem estorno, e a folha informada no lugar da lançada', async () => {
+          const { e } = await presidente();
+          const saida = async (valor: number, categoria: string, estornoDe: string | null = null, tipo = 'saida') =>
+            (await q(`insert into lancamento_caixa (tenant_id, unidade_id, tipo, valor, data, categoria, estorno_de) values ($1, $2, $3, $4, $5, $6, $7) returning id::text as id`, [A, lojaDeA, tipo, valor, diaDoMes, categoria, estornoDe]))[0].id as string;
+          await saida(3000, 'aluguel');
+          await saida(500, 'sangria');
+          await saida(1000, 'folha');
+          const vaiEstornar = await saida(200, 'fornecedor');
+          await saida(200, 'estorno', vaiEstornar, 'entrada');
+          const venda2 = await saida(80, 'venda', null, 'entrada');
+          await saida(80, 'estorno', venda2);
+          const antes: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'caixa' });
+          expect(antes.dados).toMatchObject({ semDados: true, saldo: null, folhaMensal: null, diasQueOSaldoCobre: null, runwayEmMeses: null, burnRate: null });
+          expect(antes.dados.saidasDoMes.lancadas).toBe(4000);
+
+          await q(`insert into mister_dado_informado (tenant_id, tipo, valor_centavos, data_referencia, informado_por, chave) values ($1, 'saldo_banco', 900000, $2, $3, 'teste:s2'), ($1, 'folha_mensal', 600000, $2, $3, 'teste:f2')`, [A, hoje, pessoa.ana]);
+          const r: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'caixa' });
+          const diasNoMes = Number(mes.ate.slice(8, 10));
+          expect(r.dados.saidasDoMes).toMatchObject({ lancadas: 4000, comAFolhaInformada: 9000, foraDaConta: 500 });
+          expect(r.dados.diasQueOSaldoCobre).toBe(diasNoMes);
+          expect(r.dados.saldo).toMatchObject({ valor: 9000, origem: 'veio de você, não do banco' });
+          expect(r.dados.runwayEmMeses).toBeNull();
+          expect(r.dados.avisos.join(' ')).toContain('para não contar duas vezes');
+        });
+
+        it('o saldo com 8 dias não vale, com 7 vale; o valor mais novo do mesmo dia é o que conta', async () => {
+          const { e } = await presidente();
+          const ins = (tipo: string, c: number, dia: string, chave: string) =>
+            q(`insert into mister_dado_informado (tenant_id, tipo, valor_centavos, data_referencia, informado_por, chave) values ($1, $2, $3, $4, $5, $6)`, [A, tipo, c, dia, pessoa.ana, chave]);
+          await q(`insert into lancamento_caixa (tenant_id, tipo, valor, data, categoria) values ($1, 'saida', 1000, $2, 'aluguel')`, [A, diaDoMes]);
+          await ins('folha_mensal', 100000, hoje, 'teste:f3');
+          await ins('saldo_banco', 4230000, somarDias(hoje, -8), 'teste:s3');
+          const velho: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'caixa' });
+          expect(velho.dados).toMatchObject({ saldo: null, diasQueOSaldoCobre: null, semDados: true });
+          expect(JSON.stringify(velho.dados)).not.toContain('42300');
+          await ins('saldo_banco', 100000, somarDias(hoje, -7), 'teste:s4');
+          await ins('saldo_banco', 200000, somarDias(hoje, -7), 'teste:s5');
+          const vale: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'caixa' });
+          expect(vale.dados.saldo.valor).toBe(2000);
+          expect(vale.dados.diasQueOSaldoCobre).toBe(Math.floor((200000 * Number(mes.ate.slice(8, 10))) / 200000));
+        });
+
+        it('a tabela é só de acréscimo: nem alterar nem apagar; sai só junto com a empresa', async () => {
+          await q(`insert into mister_dado_informado (tenant_id, tipo, valor_centavos, data_referencia, informado_por, chave) values ($1, 'folha_mensal', 100, $2, $3, 'teste:ac')`, [A, hoje, pessoa.ana]);
+          await expect(q(`update mister_dado_informado set valor_centavos = 1 where tenant_id = $1`, [A])).rejects.toThrow('só de acréscimo');
+          await expect(q(`delete from mister_dado_informado where tenant_id = $1`, [A])).rejects.toThrow('só de acréscimo');
+          await expect(q(`insert into mister_dado_informado (tenant_id, tipo, valor_centavos, data_referencia, informado_por, chave) values ($1, 'folha_mensal', 0, $2, $3, 'teste:zero')`, [A, hoje, pessoa.ana])).rejects.toThrow();
+          await expect(q(`insert into mister_dado_informado (tenant_id, tipo, valor_centavos, data_referencia, informado_por, chave) values ($1, 'custo_campanha', 10, $2, $3, 'teste:semcamp')`, [A, hoje, pessoa.ana])).rejects.toThrow();
+          const [{ id: outra }] = await q(`insert into empresa (nome) values ('V7F empresa que sai') returning id`);
+          await q(`insert into mister_dado_informado (tenant_id, tipo, valor_centavos, data_referencia, informado_por, chave) values ($1, 'folha_mensal', 100, $2, $3, 'teste:empresa')`, [outra, hoje, pessoa.ana]);
+          await q(`delete from empresa where id = $1`, [outra]);
+          expect(await q(`select 1 from mister_dado_informado where tenant_id = $1`, [outra])).toHaveLength(0);
+        });
+
+        it('guardar: nada grava antes do toque; dois toques gravam uma vez; "Corrigir" não grava; gerente não informa', async () => {
+          const { tel, e } = await presidente();
+          const contar = async () => Number((await q(`select count(*)::int as n from mister_dado_informado where tenant_id = $1`, [A]))[0].n);
+          const r: any = await ferramentas.executar(e, 'propor_acao', { acao: 'informar_saldo', valorInformado: 42300 });
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toContain('R$ 42.300,00');
+          expect(r.dados.oQueVouFazer).toContain('Veio de você, não do banco');
+          expect(r.mensagens[0].botoes.map((b: any) => b.titulo)).toEqual(['Guardar', 'Corrigir']);
+          expect(await contar()).toBe(0);
+          const id = idDaProposta(r);
+          await Promise.all([propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente')), propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'))]);
+          const fim = await esperarFim(id);
+          expect(fim.situacao).toBe('feita');
+          expect(fim.resultado).toContain('Veio de você');
+          expect(fim.resultado).not.toMatch(/42\.?300/);
+          expect(await contar()).toBe(1);
+          const [l] = await q(`select tipo, valor_centavos::int as v, data_referencia::text as dia, informado_por::text as quem from mister_dado_informado where tenant_id = $1`, [A]);
+          expect(l).toEqual({ tipo: 'saldo_banco', v: 4230000, dia: hoje, quem: pessoa.ana });
+          // A execução repetida (a rotina que retoma, um processo caído no meio) não grava outra linha.
+          const [p] = await q(`select id::text as id, tenant_id::text as "tenantId", unidade_id as "unidadeId", procedimento, parametros, autorizada_por::text as "autorizadaPor" from mister_proposta where id = $1`, [id]);
+          expect(await acoes.executar(p)).toMatchObject({ feita: true });
+          expect(await contar()).toBe(1);
+          // A auditoria não leva o valor.
+          const aud = auditados.filter((x: any) => x.entidadeId === id);
+          expect(aud.length).toBeGreaterThan(0);
+          for (const a of aud) expect(JSON.stringify(a)).not.toMatch(/42\.?300/);
+
+          const corrigir: any = await ferramentas.executar(e, 'propor_acao', { acao: 'informar_folha', valorInformado: 24000 });
+          await propostasDasAcoes.responder(`prop:${idDaProposta(corrigir)}:nao`, quem(tel, 'ana', 'presidente'));
+          expect(await contar()).toBe(1);
+          expect(numero.enviadas.some((m: any) => String(m.texto ?? m).includes(TEXTOS_DAS_ACOES.dadoCorrigir))).toBe(true);
+
+          const gerente = gerenteCom(e, { financeiro: true, ver_financeiro: true }, true);
+          expect(await ferramentas.executar(gerente, 'propor_acao', { acao: 'informar_saldo', valorInformado: 100 })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.dadoSoPresidente } });
+          expect(await ferramentas.executar({ ...e, verValores: false, pinPendente: true }, 'propor_acao', { acao: 'informar_saldo', valorInformado: 100 })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.dadoPedePin } });
+          for (const v of [0, -10, '500', 1e12]) expect((await ferramentas.executar(e, 'propor_acao', { acao: 'informar_saldo', valorInformado: v })).ok).toBe(false);
+        });
+
+        it('ROI: cada pedido uma vez, só o que vale; sem custo da mercadoria não há ROI; com custo, a conta fecha', async () => {
+          const { tel, e } = await presidente();
+          const f = await ficha('smash', [{ q: 1 }]);
+          const prod = await produto('Smash', f);
+          const [{ id: campanha }] = await q(`insert into campanha (tenant_id, segmento, mensagem, cupom_codigo, criado_em) values ($1, 'todos', 'V7F', 'smash10', now() - interval '2 days') returning id::text as id`, [A]);
+          const [{ id: cupom }] = await q(`insert into cupom (tenant_id, codigo, tipo, valor) values ($1, 'SMASH10', 'valor', 5) returning id::text as id`, [A]);
+          const pedido = async (bruto: number, status: string, comanda: string | null, taxa = 0) =>
+            (await q(
+              `insert into pedido_externo (tenant_id, unidade_id, canal, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono, comanda_id, criado_em)
+               values ($1, $2, 'cardapio', $3, $4, $4, $5, 'loja', $6, now() - interval '1 hour') returning id::text as id`,
+              [A, lojaDeA, status, bruto, taxa, comanda],
+            ))[0].id as string;
+          const usar = (p: string) => q(`insert into cupom_uso (tenant_id, cupom_id, pedido_id, usado_em) values ($1, $2, $3, now() - interval '1 hour')`, [A, cupom, p]);
+          const c1 = await venda(hoje, [[prod, 2, 20]]);
+          const p1 = await pedido(40, 'entregue', c1, 7);
+          await usar(p1);
+          await usar(p1); // o mesmo pedido duas vezes no histórico
+          const c2 = await venda(hoje, [[prod, 1, 60]]);
+          await usar(await pedido(60, 'cancelado', c2));
+
+          const lista: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'roi_campanha' });
+          expect(lista.dados.campanhas[0].cupom).toBe('smash10');
+
+          const semCusto: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'roi_campanha', campanha: 'SMASH10' });
+          expect(semCusto.dados).toMatchObject({ pedidosComCupom: 1, faturamento: 47, semDados: true, roiPct: null });
+          expect(semCusto.dados.margemDasVendas).toBeUndefined();
+
+          await q(`update ficha_ingrediente set custo_unitario = 5 where ficha_id = $1`, [f]);
+          const semGasto: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'roi_campanha', campanha: 'SMASH10' });
+          expect(semGasto.dados).toMatchObject({ semDados: true, roiPct: null, margemDasVendas: 30 });
+
+          const g: any = await ferramentas.executar(e, 'propor_acao', { acao: 'informar_custo_campanha', valorInformado: 10, campanha: 'smash10' });
+          expect(g.ok).toBe(true);
+          await propostasDasAcoes.responder(`prop:${idDaProposta(g)}:sim`, quem(tel, 'ana', 'presidente'));
+          expect((await esperarFim(idDaProposta(g))).situacao).toBe('feita');
+          const [gravado] = await q(`select campanha_id::text as c, valor_centavos::int as v from mister_dado_informado where tenant_id = $1 and tipo = 'custo_campanha'`, [A]);
+          expect(gravado).toEqual({ c: campanha, v: 1000 });
+          const r: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'roi_campanha', campanha: 'SMASH10' });
+          // Margem: R$ 40 − 2 × R$ 5 = R$ 30. (30 − 10) ÷ 10 = 200%. A taxa de entrega fica no faturamento, não na margem.
+          expect(r.dados).toMatchObject({ pedidosComCupom: 1, faturamento: 47, custoInformado: 10, margemDasVendas: 30, sobraDepoisDoCusto: 20, roiPct: 200 });
+
+          const semV: any = await ferramentas.executar(gerenteCom(e, { delivery: true, fichas: true }, false), 'indicadores_financeiros', { foco: 'roi_campanha', campanha: 'SMASH10' });
+          expect(semV.dados).toMatchObject({ pedidosComCupom: 1, roiPct: null, aviso: expect.stringContaining('não mostra valores') });
+          expect(semV.dados.faturamento).toBeUndefined();
+          expect((await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'roi_campanha', campanha: 'NAOEXISTE' })).ok).toBe(false);
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'informar_custo_campanha', valorInformado: 10, campanha: 'NAOEXISTE' })).dados).toEqual({ erro: TEXTOS_DAS_ACOES.dadoSemCampanha });
+        });
       });
     });
   });

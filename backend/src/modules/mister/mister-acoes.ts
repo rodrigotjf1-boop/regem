@@ -43,6 +43,10 @@ export const ACOES_DO_MISTER = [
   'mudar_horario',
   // Lote 10 (de PIN): marcar uma conta a pagar como paga.
   'pagar_conta',
+  // V7f: o que o presidente informa na conversa (botões "Guardar" e "Corrigir").
+  'informar_saldo',
+  'informar_folha',
+  'informar_custo_campanha',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -59,6 +63,8 @@ export interface DefinicaoDaAcao {
   nome: string;
   /** A rota da tela também pede "Ver valores em R$" (o presidente sempre pode). */
   pedeVerValores?: boolean;
+  /** V7f: só o presidente da empresa inteira faz (nem o gerente com a permissão, nem o presidente preso a uma loja). */
+  soPresidente?: boolean;
 }
 
 export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
@@ -84,6 +90,10 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   mudar_horario: { id: 'mudar_horario', nivel: 'pin', permissao: 'loja', prazoMin: 15, nome: 'mudar o horário da loja' },
   // Lote 10: a rota `POST /financeiro/titulos/:id/pagar` pede o Financeiro; a pessoa precisa VER o valor que autoriza.
   pagar_conta: { id: 'pagar_conta', nivel: 'pin', permissao: 'financeiro', prazoMin: 15, nome: 'marcar uma conta como paga', pedeVerValores: true },
+  // V7f: não muda nada na loja, só guarda o que veio da pessoa; por isso é de botão.
+  informar_saldo: { id: 'informar_saldo', nivel: 'botao', permissao: 'financeiro', prazoMin: 10, nome: 'guardar o saldo do banco', pedeVerValores: true, soPresidente: true },
+  informar_folha: { id: 'informar_folha', nivel: 'botao', permissao: 'financeiro', prazoMin: 10, nome: 'guardar a folha do mês', pedeVerValores: true, soPresidente: true },
+  informar_custo_campanha: { id: 'informar_custo_campanha', nivel: 'botao', permissao: 'financeiro', prazoMin: 10, nome: 'guardar o custo de uma campanha', pedeVerValores: true, soPresidente: true },
 };
 
 /** As ações de PIN: o link vai a quem pediu (o presidente ou o gerente com a permissão), e o PIN é o dessa pessoa. */
@@ -102,13 +112,58 @@ export const BOTOES_DA_IMAGEM = { autorizar: 'Gerar', naoAgora: 'Mudar' } as con
 export const pareceDadoPessoal = (t: string): boolean => /[^\s@]+@[^\s@]+\.[^\s@]+/.test(t) || /(?:\d[\s().\/-]*){10,}/.test(t);
 /** O que a IA faz com a resposta da ação. */
 export const sigaDaAcao = (acao: AcaoDoMister): string =>
-  acao === 'pagar_conta'
+  ehDadoInformado(acao)
+    ? 'Mostre o "oQueVouFazer" como veio e diga que os botões "Guardar" e "Corrigir" chegam logo abaixo. Nada fica guardado antes do toque. Não diga que guardou.'
+    : acao === 'pagar_conta'
     ? 'Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN. O Regem só registra a baixa: nunca diga que pagou, transferiu ou fez Pix, e nunca peça o PIN na conversa.'
     : ACOES[acao].nivel === 'pin'
     ? 'Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN. Nada muda sem o PIN; nunca peça o PIN na conversa. Não diga que mudou.'
     : acao === 'criar_imagem'
     ? 'Mostre o "oQueVouFazer" como veio, entre aspas, e diga que os botões "Gerar" e "Mudar" chegam logo abaixo e que usa 1 da franquia de imagens do mês. Nada é gerado sem o "Gerar". Não diga que gerou.'
     : 'Mostre o "oQueVouFazer" como veio e diga que os botões "Autorizar" e "Não agora" chegam logo abaixo. Nada é feito sem o "Autorizar". Não diga que fez.';
+
+// ───────────────────────────── V7f: o que o presidente informa ─────────────────────────────
+
+export const ACOES_DE_DADO_INFORMADO = ['informar_saldo', 'informar_folha', 'informar_custo_campanha'] as const;
+export type AcaoDeDadoInformado = (typeof ACOES_DE_DADO_INFORMADO)[number];
+export const ehDadoInformado = (a: unknown): a is AcaoDeDadoInformado => (ACOES_DE_DADO_INFORMADO as readonly unknown[]).includes(a);
+export const BOTOES_DO_DADO = { autorizar: 'Guardar', naoAgora: 'Corrigir' } as const;
+/** O tipo gravado em `mister_dado_informado`. */
+export const TIPO_DO_DADO = { informar_saldo: 'saldo_banco', informar_folha: 'folha_mensal', informar_custo_campanha: 'custo_campanha' } as const;
+/** Os tetos em reais: acima disto é quase certo um zero a mais. O da tabela é o maior deles. */
+export const TETO_DO_DADO: Record<AcaoDeDadoInformado, number> = { informar_saldo: 99_999_999.99, informar_folha: 9_999_999.99, informar_custo_campanha: 9_999_999.99 };
+const NOME_DO_DADO: Record<AcaoDeDadoInformado, string> = { informar_saldo: 'o saldo', informar_folha: 'a folha do mês', informar_custo_campanha: 'o custo da campanha' };
+
+/** O valor vindo da IA (V109): número de verdade, positivo, dentro do teto e com até 2 casas. Devolve em centavos, ou null. */
+export function centavosDoDado(v: unknown, teto: number): number | null {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0 || v > teto) return null;
+  const centavos = v * 100;
+  if (Math.abs(Math.round(centavos) - centavos) > 1e-6) return null;
+  return Math.round(centavos);
+}
+
+/** O dia do saldo: um dia de verdade, de hoje até 7 dias atrás (saldo mais velho que isso não vale). */
+export function lerDiaDoSaldo(v: unknown, hoje: string): string | null {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const d = new Date(`${v}T12:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v || v > hoje) return null;
+  const limite = new Date(`${hoje}T12:00:00Z`);
+  limite.setUTCDate(limite.getUTCDate() - 7);
+  return v < limite.toISOString().slice(0, 10) ? null : v;
+}
+
+/** O "o que vou guardar", sempre dizendo que o dado veio da pessoa. */
+export function resumoDoDado(acao: AcaoDeDadoInformado, centavos: number, dia: string, campanha: string | null): string {
+  const valor = reaisDaAcao(centavos / 100);
+  if (acao === 'informar_saldo') return `Vou guardar o saldo em ${diaMesBr(dia)}: ${valor}, informado por você. Veio de você, não do banco. Depois de 7 dias eu peço de novo.`;
+  if (acao === 'informar_folha') return `Vou guardar a folha de ${valor} por mês, como estimativa sua. Veio de você, não do banco.`;
+  return `Vou guardar o custo de ${valor} na campanha do cupom ${campanha}. Veio de você, não do banco.`;
+}
+/** O desfecho. Sem o valor: esta frase fica na auditoria e no histórico da proposta, e saldo e folha são só do presidente. */
+export const textoDoDadoGuardado = (acao: AcaoDeDadoInformado, dia: string): string =>
+  acao === 'informar_saldo'
+    ? `Guardei o saldo de ${diaMesBr(dia)}. Veio de você, não do banco. Em 7 dias eu peço de novo.`
+    : `Guardei ${NOME_DO_DADO[acao]}. Veio de você, não do banco.`;
 
 // ───────────────────────────── lote 2: a tarefa e o produto ─────────────────────────────
 
@@ -369,7 +424,8 @@ export type ParametrosDaAcao =
   | { acao: 'movimentar_estoque'; item: string; tipo: TipoDoMovimento; quantidade: number | null; saldoContado: number | null; motivo: string | null }
   | { acao: 'mudar_preco'; produto: string; canais: CanalDoProduto[]; precoNovo: number }
   | { acao: 'mudar_horario'; dias: number[]; janela: JanelaDoDia | null; horarioDe: 'entrega' | 'retirada' | null }
-  | { acao: 'pagar_conta'; conta: string; venceEm: string | null; forma: FormaDaBaixa; pagoEm: string | null; valorPago: number | null };
+  | { acao: 'pagar_conta'; conta: string; venceEm: string | null; forma: FormaDaBaixa; pagoEm: string | null; valorPago: number | null }
+  | { acao: AcaoDeDadoInformado; centavos: number; dia: string; campanha: string | null };
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -509,6 +565,23 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
     if (!vazio(en.valorPago) && valorPago === null) return { erro: 'O valor pago vai em reais, maior que zero e com até 2 casas.' };
     return { parametros: { acao, conta, venceEm, forma, pagoEm, valorPago }, resumo: `Marcar como paga a conta "${conta}", em ${NOME_DA_FORMA[forma]}. ${SO_REGISTRA}` };
   }
+  if (ehDadoInformado(acao)) {
+    const centavos = centavosDoDado(en.valorInformado, TETO_DO_DADO[acao]);
+    if (centavos === null) return { erro: `Diga ${NOME_DO_DADO[acao]} em reais: maior que zero, até ${reaisDaAcao(TETO_DO_DADO[acao])} e com até 2 casas.` };
+    const hoje = dataNoFuso(agora);
+    let dia = hoje;
+    if (acao === 'informar_saldo' && en.dataDoSaldo !== undefined && en.dataDoSaldo !== null && en.dataDoSaldo !== '') {
+      const lido = lerDiaDoSaldo(en.dataDoSaldo, hoje);
+      if (!lido) return { erro: 'O dia do saldo vai em AAAA-MM-DD, de hoje até 7 dias atrás. Saldo mais velho que isso não vale: peça o de hoje.' };
+      dia = lido;
+    }
+    let campanha: string | null = null;
+    if (acao === 'informar_custo_campanha') {
+      campanha = String(en.campanha ?? '').trim().replace(/\s+/g, ' ');
+      if (campanha.length < 2 || campanha.length > 40) return { erro: 'Diga o código do cupom da campanha.' };
+    }
+    return { parametros: { acao, centavos, dia, campanha }, resumo: resumoDoDado(acao, centavos, dia, campanha) };
+  }
   const numero = String(en.numero ?? '').trim().replace(/^#/, '');
   if (!numero || numero.length > 40) return { erro: 'Diga o número do pedido como aparece no painel do Delivery.' };
   return { parametros: { acao, numero }, resumo: '' };
@@ -619,4 +692,14 @@ export const TEXTOS_DAS_ACOES = {
   contaMudouDeValor: (valor: string) => `o valor da conta mudou para ${valor} depois do pedido. Nada foi lançado: me peça de novo.`,
   contaRecusada: (motivo: string) => `o financeiro recusou: ${motivo}. Nada foi lançado.`,
   contaNaoFicou: 'a baixa não apareceu no caixa. Confira em Financeiro › Contas a pagar.',
+  // V7f.
+  perguntaDoDado: (resumo: string, prazo: number) => `${resumo}\n\nPosso guardar? A pergunta vale por ${prazo} minutos.`,
+  dadoGuardando: 'Guardando…',
+  dadoCorrigir: 'Certo, não guardei. Me diga o valor certo.',
+  dadoSoPresidente: 'Saldo, folha e custo de campanha só o presidente informa.',
+  dadoEmpresaInteira: 'Esse dado é da empresa inteira, e o seu acesso é só a uma loja: quem informa é o presidente da empresa.',
+  dadoPedePin: 'Para informar esse valor, confirme antes o seu PIN: o link vai logo depois desta resposta.',
+  dadoSemBotao: 'Pela conexão por QR Code não tenho o botão "Guardar": esse dado não fica guardado por aqui.',
+  dadoSemCampanha: 'Não achei campanha com esse cupom. Confira o código em Delivery › Marketing, aba "Campanhas".',
+  dadoNaoGuardou: 'não consegui guardar. Nada foi gravado: me diga de novo.',
 } as const;

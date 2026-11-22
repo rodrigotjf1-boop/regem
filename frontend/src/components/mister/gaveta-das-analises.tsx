@@ -31,7 +31,7 @@ export function GavetaDasAnalises({ aoFechar }: { aoFechar: () => void }) {
     >
       <h3 className="text-sm font-bold">O que faz</h3>
       <p className={`mt-1 text-sm ${texto2}`}>
-        Nas perguntas de análise (semana, pico, fases do mês e perdas), o Mister busca os números como sempre e usa um modelo maior só para escrever a resposta.
+        Nas perguntas de análise (semana, pico, fases do mês, perdas e indicadores financeiros), o Mister busca os números como sempre e usa um modelo maior só para escrever a resposta.
         Pergunta simples continua no modelo de hoje.
       </p>
       <h3 className="mt-4 text-sm font-bold">O que não muda</h3>

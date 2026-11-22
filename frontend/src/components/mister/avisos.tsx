@@ -634,10 +634,10 @@ export function AvisosDoMister() {
               id: CONV_ANALISES,
               rotulo: 'Análises mais profundas',
               tipo: 'livre' as const,
-              palavras: 'análises profundas modelo maior bi semana pico fases do mês perdas',
+              palavras: 'análises profundas modelo maior bi semana pico fases do mês perdas indicadores margem cmv',
               ajuda: (
                 <>
-                  <span className="block">Usa o modelo maior só para escrever as respostas de análise: semana, pico, fases do mês e perdas. O resto continua como hoje.</span>
+                  <span className="block">Usa o modelo maior só para escrever as respostas de análise: semana, pico, fases do mês, perdas e indicadores financeiros. O resto continua como hoje.</span>
                   <span className="mt-1 block text-xs font-semibold" data-preco-das-analises>
                     {PRECO_DAS_ANALISES}
                   </span>

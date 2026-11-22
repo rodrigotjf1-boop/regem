@@ -27,6 +27,9 @@ export const MODELO_DAS_PERGUNTAS = 'claude-haiku-5-5';
 export const MODELO_DAS_ANALISES = 'claude-sonnet-5-5';
 /** A consulta que libera o modelo maior. */
 export const FERRAMENTA_DA_ANALISE = 'analisar_vendas' as const;
+/** Versão 7, V7f: os indicadores financeiros seguem a mesma regra da análise: o modelo maior só depois de trazerem dados. */
+export const FERRAMENTA_DOS_INDICADORES = 'indicadores_financeiros' as const;
+export const FERRAMENTAS_DA_ANALISE: readonly string[] = [FERRAMENTA_DA_ANALISE, FERRAMENTA_DOS_INDICADORES];
 
 /** Os tetos: o que uma pergunta e uma pessoa podem gastar. Todos conferidos no servidor. */
 export const TETOS = {
@@ -181,6 +184,14 @@ AS ANÁLISES DE VENDA
 - Sem dado ("semDados", "oQueFalta", valor nulo): diga o que falta lançar e onde, como veio. Nunca estime, nunca use média do setor nem de outras lojas, e nunca diga "R$ 0 de perda" quando nada foi lançado.
 - Perdas: fale SEMPRE separado do que não entrou (cancelamentos) e da mercadoria perdida, e não some os dois. O pedido de teste não é perda. Quando a causa vier como "sem motivo informado pelo canal" ou "sem motivo anotado", diga que não dá para saber a causa desses.
 
+OS INDICADORES FINANCEIROS
+- "Como está a margem?", "qual o CMV?", "quem está me devendo?", "em quanto tempo pago o fornecedor?", "quanto tempo de caixa eu tenho?", "a campanha valeu a pena?": chame indicadores_financeiros com o foco certo. Escreva como nas análises: primeiro o número, depois "O que os números mostram:" e, separado, "Minha sugestão:". A sugestão não vira ação sem a pessoa pedir.
+- Margem e CMV: diga sempre quanto da venda tem custo completo e que a conta usa o custo de hoje do cadastro. Se vier "parcial", diga que o número é parcial e não compare meses. Diferença entre dois meses é só diferença: não atribua a um insumo nem a aumento de preço de compra.
+- Sem dado ("semDados", "oQueFalta", valor nulo): diga o que falta e o caminho, como veio, e peça. Ingrediente sem custo não é custo zero: nunca diga 100% de margem nem R$ 0 de custo, nunca estime pela média do setor e nunca use faturamento no lugar de margem.
+- Inadimplência: nome de cliente não sai por aqui. Diga onde ver na tela.
+- Caixa: o que dá para dizer é quantos dias o saldo cobre as despesas. Runway em meses e burn rate ficam como "falta dado" até o Regem ler os repasses.
+- Saldo do banco, folha por mês e custo de campanha: quando a pessoa disser o valor, chame propor_acao (informar_saldo, informar_folha, informar_custo_campanha). Nada fica guardado antes do toque em "Guardar", e o dado "veio de você, não do banco". Nunca anote saldo, folha ou valor na memória (lembrar). Saldo vencido não se usa: peça de novo.
+
 REFAZER O GRÁFICO
 - "Não entendi", "não gostei", "faz de outro jeito", "em barras deitadas", "em tabela", "destaca o sábado", "só os principais": chame refazer_grafico com o que muda (a forma, o título com a mensagem principal, o destaque, a ordem, sem os valores). Nunca chame mostrar_grafico de novo para isso: os números são os mesmos.
 - Pense na crítica: "não entendi" pede menos coisa e um título que diga a conclusão; "muitas barras" pede ordem maior (até 7); "não vejo o melhor dia" pede o destaque nele.
@@ -312,6 +323,8 @@ export type NomeDaFerramenta =
   | 'produtos_mais_vendidos'
   // Versão 7, V7e: as análises de venda (semana, pico, fases do mês, perdas).
   | 'analisar_vendas'
+  // Versão 7, V7f: margem, CMV, inadimplência, prazo, caixa e ROI.
+  | 'indicadores_financeiros'
   | 'insumo_vendido'
   | 'pedidos_em_andamento'
   | 'estoque_em_alerta'
@@ -478,7 +491,7 @@ export function temaDoQueFalta(v: unknown): TemaDoQueFalta {
 
 /** Os campos de uma ação: os de `propor_acao` e, sem a loja (que é uma só para o plano), os de cada passo de `propor_plano`. */
 const CAMPOS_DA_ACAO = {
-      acao: { type: 'string', enum: ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa', 'criar_imagem', 'movimentar_estoque', 'mudar_preco', 'mudar_horario', 'pagar_conta'] },
+      acao: { type: 'string', enum: ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa', 'criar_imagem', 'movimentar_estoque', 'mudar_preco', 'mudar_horario', 'pagar_conta', 'informar_saldo', 'informar_folha', 'informar_custo_campanha'] },
       item: { type: 'string', description: 'Para movimentar_estoque: o produto, como a pessoa disse.' },
       tipo: { type: 'string', enum: ['entrada', 'saida', 'ajuste'], description: 'Para movimentar_estoque: entrada, saida ou ajuste (o saldo que foi contado).' },
       quantidade: { type: 'number', description: 'Para movimentar_estoque com entrada ou saida: quanto, na unidade do produto.' },
@@ -514,8 +527,13 @@ const CAMPOS_DA_ACAO = {
       ate: { type: 'string', description: 'Para pausar o cardápio ou o iFood até uma hora: "HH:MM".' },
       fimDoDia: { type: 'boolean', description: 'Para pausar a 99 até o fim do dia.' },
       numero: { type: 'string', description: 'Para as ações de pedido: o número como aparece no painel ("4821", "#A12").' },
+      valorInformado: { type: 'number', description: 'Para informar_saldo, informar_folha e informar_custo_campanha: o valor em reais, exatamente como a pessoa disse (42300, 24000).' },
+      dataDoSaldo: { type: 'string', description: 'Para informar_saldo: o dia do saldo, AAAA-MM-DD, se não for hoje (até 7 dias atrás).' },
+      campanha: { type: 'string', description: 'Para informar_custo_campanha: o código do cupom da campanha.' },
 };
-const { loja: _lojaDoPlano, ...CAMPOS_DO_PASSO } = CAMPOS_DA_ACAO;
+// O que a pessoa informa tem botão próprio ("Guardar" e "Corrigir"): fica fora do plano, como a imagem.
+const { loja: _lojaDoPlano, valorInformado: _valorDoPlano, dataDoSaldo: _diaDoPlano, campanha: _campanhaDoPlano, ...RESTO_DO_PASSO } = CAMPOS_DA_ACAO;
+const CAMPOS_DO_PASSO = { ...RESTO_DO_PASSO, acao: { type: 'string', enum: CAMPOS_DA_ACAO.acao.enum.filter((a) => !a.startsWith('informar_')) } };
 
 /** As ferramentas, como o modelo as vê. A ordem e o texto são fixos (entram no trecho em cache). */
 export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; input_schema: any }> = [
@@ -586,6 +604,23 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
         dia: { type: 'string', description: 'Para "pico" de um dia só: "hoje", "ontem" ou AAAA-MM-DD.' },
         diaDaSemana: { type: 'string', enum: ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'], description: 'Para "pico" de um dia da semana ao longo das últimas semanas ("o pico da sexta").' },
         semanas: { type: 'integer', description: 'Com diaDaSemana: quantas semanas olhar, de 2 a 8. Sem isto, 4.' },
+        loja: LOJA,
+      },
+      required: ['foco'],
+      additionalProperties: false,
+    },
+  },
+  // Versão 7, V7f: indicadores conferíveis; sem dado, a resposta diz o que falta.
+  {
+    name: 'indicadores_financeiros',
+    description:
+      'Os INDICADORES financeiros, com os números prontos e o que falta. "foco": "margem" (margem bruta e CMV %, da venda oficial contra o custo da ficha, com a cobertura: a parte da venda que tem custo completo; sem período, o mês passado); "inadimplencia" (vencido sobre o total a receber, quantas contas e a mais antiga, nunca o nome do cliente); "prazo_pagamento" (dias médios entre a compra e o pagamento; sem período, 90 dias); "caixa" (só o presidente: o saldo e a folha informados e quantos dias o saldo cobre as despesas do último mês completo); "margem_liquida" e "giro_de_recebiveis" (ainda sem dado: dizem o que falta); "roi_campanha" (o retorno de uma campanha pelo cupom; sem "campanha", lista as campanhas com cupom). Use para "como está a margem", "qual o CMV", "quem está me devendo", "em quanto tempo pago o fornecedor", "quanto tempo de caixa eu tenho", "a campanha valeu a pena". Para o total de vendas ou a lista de contas, use as outras consultas.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        foco: { type: 'string', enum: ['margem', 'inadimplencia', 'prazo_pagamento', 'caixa', 'margem_liquida', 'giro_de_recebiveis', 'roi_campanha'], description: 'Qual indicador.' },
+        ...PERIODO,
+        campanha: { type: 'string', description: 'Para "roi_campanha": o código do cupom da campanha.' },
         loja: LOJA,
       },
       required: ['foco'],
@@ -972,7 +1007,7 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'propor_acao',
     description:
-      'Não é consulta: PROPÕE uma ação no Regem (versão 6) que só acontece quando a pessoa toca em "Autorizar", pelo mesmo caminho da tela. mudar_preco (vai com o link que pede o PIN, sem botões): produto, canais e precoNovo, o preço final em reais. mudar_horario (também pelo link com PIN): dias da semana e abre e fecha "HH:MM", ou fechado: true; horarioDe só se a loja tiver horário separado. pagar_conta (também pelo link com PIN; só registra a baixa, não paga no banco): conta, formaDePagamento e, se dito, pagoEm, valorPago e venceEm. movimentar_estoque: item, tipo (entrada ou saida com quantidade; ajuste com saldoContado) e medidaDita. criar_imagem (botões "Gerar" e "Mudar"): pedidoDaImagem completo e proporcao; nunca número de relatório nem dado de cliente. pausar_canal: canais (cardapio, ifood, 99), motivo e o tempo — minutos (cardápio e iFood: 15, 30 ou 60; 99: 10, 20 ou 30) ou ate "HH:MM" (cardápio e iFood) ou fimDoDia (99). reabrir_canal: canais. aceitar_pedido, pedido_pronto e despachar_pedido: numero do pedido como a pessoa disse. concluir_tarefa: tarefa (o título de uma tarefa de HOJE) e estado (feita, parcial ou nao_feita — esta pede a justificativa). pausar_produto e reativar_produto: produto (o nome no cardápio) e, se a pessoa disser, canais (regem = balcão e cardápio digital, ifood, 99); sem canal, todos em que o produto está. criar_tarefa: titulo, funcao (quem faz, como no cadastro das funções — obrigatória), e, se a pessoa disser, horario "HH:MM" e responsavel (o nome). Devolve o "oQueVouFazer"; os botões vão junto da sua resposta.',
+      'Não é consulta: PROPÕE uma ação no Regem (versão 6) que só acontece quando a pessoa toca em "Autorizar", pelo mesmo caminho da tela. informar_saldo, informar_folha e informar_custo_campanha (só o presidente; botões "Guardar" e "Corrigir"): valorInformado, com dataDoSaldo no saldo que não é de hoje e campanha (o cupom) no custo; use só com o valor que a pessoa disse. mudar_preco (vai com o link que pede o PIN, sem botões): produto, canais e precoNovo, o preço final em reais. mudar_horario (também pelo link com PIN): dias da semana e abre e fecha "HH:MM", ou fechado: true; horarioDe só se a loja tiver horário separado. pagar_conta (também pelo link com PIN; só registra a baixa, não paga no banco): conta, formaDePagamento e, se dito, pagoEm, valorPago e venceEm. movimentar_estoque: item, tipo (entrada ou saida com quantidade; ajuste com saldoContado) e medidaDita. criar_imagem (botões "Gerar" e "Mudar"): pedidoDaImagem completo e proporcao; nunca número de relatório nem dado de cliente. pausar_canal: canais (cardapio, ifood, 99), motivo e o tempo — minutos (cardápio e iFood: 15, 30 ou 60; 99: 10, 20 ou 30) ou ate "HH:MM" (cardápio e iFood) ou fimDoDia (99). reabrir_canal: canais. aceitar_pedido, pedido_pronto e despachar_pedido: numero do pedido como a pessoa disse. concluir_tarefa: tarefa (o título de uma tarefa de HOJE) e estado (feita, parcial ou nao_feita — esta pede a justificativa). pausar_produto e reativar_produto: produto (o nome no cardápio) e, se a pessoa disser, canais (regem = balcão e cardápio digital, ifood, 99); sem canal, todos em que o produto está. criar_tarefa: titulo, funcao (quem faz, como no cadastro das funções — obrigatória), e, se a pessoa disser, horario "HH:MM" e responsavel (o nome). Devolve o "oQueVouFazer"; os botões vão junto da sua resposta.',
     input_schema: {
       type: 'object',
       properties: CAMPOS_DA_ACAO,

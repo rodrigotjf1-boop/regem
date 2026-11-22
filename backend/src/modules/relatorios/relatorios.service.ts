@@ -279,7 +279,8 @@ export class RelatoriosService {
         const pctAcum = (acum / total) * 100;
         const classe = antes < 80 ? 'A' : antes < 95 ? 'B' : 'C';
         const pid = r.produto_id as string | null;
-        const custoUnit = pid && custoMapa[pid] != null ? custoMapa[pid] : null;
+        // Custo zero é custo não lançado (a ficha sem custo soma zero): sem isto, o produto aparecia com margem de 100% (ERR-572).
+        const custoUnit = pid && Number(custoMapa[pid]) > 0 ? custoMapa[pid] : null;
         const custoTotal = custoUnit != null ? custoUnit * Number(r.qtd) : null;
         const lucro = custoTotal != null ? fat - custoTotal : null;
         return {

@@ -244,6 +244,8 @@ describe('Mister — o que o modelo recebe', () => {
       'produtos_mais_vendidos',
       // Versão 7, V7e: as análises de venda.
       'analisar_vendas',
+      // Versão 7, V7f: os indicadores financeiros.
+      'indicadores_financeiros',
       'insumo_vendido',
       'pedidos_em_andamento',
       'estoque_em_alerta',

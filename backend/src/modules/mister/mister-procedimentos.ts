@@ -8,7 +8,7 @@
 
 import type { TipoDeAviso } from './mister-avisos.regras';
 import { compararVersao } from '../edge/release-selecao';
-import { ACOES, TEXTOS_DAS_ACOES, type AcaoDoMister } from './mister-acoes';
+import { ACOES, TEXTOS_DAS_ACOES, ehDadoInformado, type AcaoDoMister } from './mister-acoes';
 
 // Versão 6, M6j: as AÇÕES da porta `propor_acao` (`mister-acoes.ts`) também são propostas — de botão, de quem pediu.
 export type ProcedimentoDoMister = 'consultar_nota' | 'imprimir_teste' | 'cancelar_pedido' | 'reiniciar_impressao' | 'abrir_sessao' | AcaoDoMister;
@@ -136,6 +136,8 @@ export const TEXTOS_DA_PROPOSTA = {
   autorizada: (p: ProcedimentoDoMister) =>
     p === 'criar_imagem'
       ? TEXTOS_DAS_ACOES.imagemGerando
+      : ehDadoInformado(p)
+      ? TEXTOS_DAS_ACOES.dadoGuardando
       : p in ACOES
       ? 'Autorizado. Fazendo agora…'
       : p === 'consultar_nota'
