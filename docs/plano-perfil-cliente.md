@@ -6,7 +6,7 @@
 
 ## Andamento (atualizado em 19/11/2026)
 
-**22/11/2026 — o perfil só abre depois do aviso (mig 488, ERR-562).** A regra existe e nasce desligada: `PERFIL_SO_COM_AVISO=1` na
+**22/11/2026 — o perfil só abre depois do aviso (mig 489, ERR-562).** A regra existe e nasce desligada: `PERFIL_SO_COM_AVISO=1` na
 API (o dono liga). Ligada, apaga o perfil, a sensibilidade e o vínculo dos cliques de quem não viu o aviso, em até 30 minutos; pedidos,
 cadastro e o que o cliente contou ficam. O perfil é refeito na rotina da manhã seguinte ou ao abrir a ficha. Falta o aviso pelo WhatsApp
 com prova de envio e de entrega (Tema 1315 do STJ); sem ele, quem não entra no cardápio com o código fica sem perfil.

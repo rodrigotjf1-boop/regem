@@ -12,7 +12,7 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
-- **Perfil do cliente — só abre depois do aviso (22/11; mig 488 só nuvem; nasce DESLIGADO em `PERFIL_SO_COM_AVISO`).** Só na
+- **Perfil do cliente — só abre depois do aviso (22/11; mig 489 só nuvem; nasce DESLIGADO em `PERFIL_SO_COM_AVISO`).** Só na
   nuvem: vai no `.zip` sem efeito na loja. A tabela = SO_NUVEM no `sync-daemon.mjs` (o daemon mudou → o `.exe` da próxima release leva).
 
 - **Mister: a regra que junta os pedidos parados fica no lugar do aviso um a um, sem regra repetida (22/11; ERR-561; SEM migration).** Só

@@ -1,5 +1,5 @@
 -- @cloud-only
--- 488 · O AVISO DO PERFIL DO CLIENTE (`docs/plano-perfil-cliente.md`, decisão do dono de 22/11/2026: o perfil só abre depois de
+-- 489 · O AVISO DO PERFIL DO CLIENTE (`docs/plano-perfil-cliente.md`, decisão do dono de 22/11/2026: o perfil só abre depois de
 -- o cliente ser avisado; CDC art. 43 §2º, LGPD arts. 9º e 10 §2º). Só NUVEM (SO_NUVEM no sync-daemon).
 --
 -- cliente_aviso_perfil — a prova de que o aviso apareceu para quem provou ser o dono do telefone (o código do WhatsApp): a

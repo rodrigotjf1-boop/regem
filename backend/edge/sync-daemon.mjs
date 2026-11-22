@@ -2459,7 +2459,7 @@ const SO_NUVEM = new Set([
   // cliente sobre os próprios dados, o que ele contou e a última volta da rotina — o perfil é calculado e servido pela
   // nuvem (o robô, as campanhas e o cardápio moram lá). A loja não tem estas tabelas.
   'cliente_perfil', 'cliente_escolha', 'cliente_declarado', 'perfil_cliente_execucao',
-  // A prova do aviso do perfil (mig 488, @cloud-only): o cardápio, onde o cliente responde, mora na nuvem.
+  // A prova do aviso do perfil (mig 489, @cloud-only): o cardápio, onde o cliente responde, mora na nuvem.
   'cliente_aviso_perfil',
   // O calendário da loja (mig 461, @cloud-only; F2 do mesmo plano): os eventos que a loja cadastra em Delivery › Clientes
   // › Calendário de eventos e a cópia por loja e dia que a rotina noturna da nuvem grava. A loja não tem estas tabelas.

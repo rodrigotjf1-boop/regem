@@ -71,7 +71,7 @@ descrever('o perfil só abre depois do aviso (Postgres)', () => {
       '463_cliente_evento_sensibilidade.sql',
       '466_cardapio_interacao.sql',
       '481_lembrete_viu_na_conversa.sql',
-      '488_cliente_aviso_perfil.sql',
+      '489_cliente_aviso_perfil.sql',
     ])
       await pool.query(semFkCompartilhada(readFileSync(join(MIGS, m), 'utf8')));
   }, 60_000);
