@@ -79,10 +79,18 @@ const TOM = {
   neutro: ['bg-secondary', ''],
 } as const;
 export type Tom = keyof typeof TOM;
-export function Selo({ tom = 'neutro', children }: { tom?: Tom; children: React.ReactNode }) {
+// `quebrar`: para o selo de frase longa, que não cabe numa linha no celular. Sem ele, o selo é de uma linha só.
+export function Selo({ tom = 'neutro', quebrar = false, children }: { tom?: Tom; quebrar?: boolean; children: React.ReactNode }) {
   return (
-    <span className={cn('inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-bold', TOM[tom][0], tom === 'neutro' ? texto2 : 'text-foreground')}>
-      {TOM[tom][1] && <span className={cn('h-2 w-2 flex-none rounded-full', TOM[tom][1])} aria-hidden="true" />}
+    <span
+      className={cn(
+        'inline-flex gap-1.5 px-2.5 py-0.5 text-xs font-bold',
+        quebrar ? 'max-w-full items-start whitespace-normal rounded-xl' : 'items-center whitespace-nowrap rounded-full',
+        TOM[tom][0],
+        tom === 'neutro' ? texto2 : 'text-foreground',
+      )}
+    >
+      {TOM[tom][1] && <span className={cn('h-2 w-2 flex-none rounded-full', quebrar && 'mt-1', TOM[tom][1])} aria-hidden="true" />}
       {children}
     </span>
   );

@@ -174,7 +174,7 @@ descrever('embalagem do balcão e do delivery na ficha técnica (Postgres real)'
     let f: any = await fichas.getOne(l.t, l.ficha);
     expect(f).toMatchObject({ custoTotal: 2.3, custoPorcao: 2.3, cmv: 11.5, custoTotalDelivery: 3.5, custoPorcaoDelivery: 3.5, cmvDelivery: 17.5, temCustoDelivery: true });
     expect(((await fichas.list(l.t)) as any[]).find((x) => x.id === l.ficha)).toMatchObject({ custoPorcao: 2.3, custoPorcaoDelivery: 3.5 });
-    expect((await fichas.custoPorPorcao(l.t))[l.ficha]).toEqual({ balcao: 2.3, delivery: 3.5 });
+    expect((await fichas.custoPorPorcao(l.t))[l.ficha]).toMatchObject({ balcao: 2.3, delivery: 3.5 });
     expect(await fichas.embalagemConfig(l.t)).toEqual({ mesmaEmbalagem: false, fichasComEmbalagemDoDelivery: 1, fichasComEmbalagemDoBalcao: 1 });
 
     // liga a chave: fica um cadastro só, o do delivery, valendo para as duas vendas
@@ -186,7 +186,7 @@ descrever('embalagem do balcão e do delivery na ficha técnica (Postgres real)'
     expect(registros[0]).toMatchObject({ tenantId: l.t, atorId: l.ator, atorPerfil: 'presidente', acao: 'ficha_mesma_embalagem', detalhe: { de: false, para: true } });
     f = await fichas.getOne(l.t, l.ficha);
     expect(f).toMatchObject({ custoTotal: 3.5, custoPorcao: 3.5, custoTotalDelivery: 3.5, custoPorcaoDelivery: 3.5, temCustoDelivery: false });
-    expect((await fichas.custoPorPorcao(l.t))[l.ficha]).toEqual({ balcao: 3.5, delivery: 3.5 });
+    expect((await fichas.custoPorPorcao(l.t))[l.ficha]).toMatchObject({ balcao: 3.5, delivery: 3.5 });
     // a linha do balcão continua guardada (volta se a chave for desligada)
     expect(f.ingredientes.filter((i: any) => i.somenteBalcao)).toHaveLength(1);
 

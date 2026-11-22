@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { and, asc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
-import { custoTotalFicha, fichaAlcancavel, type FichaCusto } from '../../common/regras-negocio';
+import { custoDaLinhaDaFicha, custoTotalFicha, fichaAlcancavel, type FichaCusto } from '../../common/regras-negocio';
+import { lerCustosMedios } from '../../common/custo-loja';
 import { MODULO_MESMA_EMBALAGEM } from '../../common/embalagem-da-ficha';
 import { entitlement, fichaIngrediente, fichaTecnica, itemEstoque } from '../../db/schema';
 import { normalizarUnidade } from '../estoque/unidades';
@@ -61,15 +62,21 @@ export async function fichaExiste(db: any, tenantId: string, fichaId: string): P
 }
 
 // Insumo de custo (pro cálculo recursivo) a partir da ficha + suas linhas. A linha que usa um
-// produto FEITO NA LOJA leva a ficha dele: é dela que sai o custo (ver `custoTotalFicha`).
-export function fichaCustoDe(f: any, ings: any[], fichaDoItem: Map<string, string> = new Map()): FichaCusto {
+// produto FEITO NA LOJA leva a ficha dele: é dela que sai o custo (ver `custoTotalFicha`). A linha
+// ligada ao estoque entra pelo custo médio de hoje (`custoDaLinhaDaFicha`), não pela cópia gravada.
+export function fichaCustoDe(
+  f: any,
+  ings: any[],
+  fichaDoItem: Map<string, string> = new Map(),
+  custoMedio: (itemId: string) => number = () => 0,
+): FichaCusto {
   return {
     rendimento: Number(f.rendimento) || 1,
     margemPerda: Number(f.margemPerda) || 0,
     ingredientes: ings.map((i) => ({
       quantidade: Number(i.quantidade),
       fatorCorrecao: Number(i.fatorCorrecao),
-      custoUnitario: Number(i.custoUnitario),
+      custoUnitario: custoDaLinhaDaFicha(i.custoUnitario, !i.subFichaId && i.itemId ? custoMedio(i.itemId) : 0),
       subFichaId: i.subFichaId ?? null,
       fichaDoItemId: !i.subFichaId && i.itemId ? fichaDoItem.get(i.itemId) ?? null : null,
       somenteDelivery: !!i.somenteDelivery,
@@ -78,8 +85,8 @@ export function fichaCustoDe(f: any, ings: any[], fichaDoItem: Map<string, strin
   };
 }
 
-/** Tudo o que o cálculo de custo precisa: fichas vivas, ingredientes vivos, o mapa e as ligações. */
-export async function carregarFichas(db: any, tenantId: string) {
+/** A receita sem o custo: fichas vivas, ingredientes vivos e as ligações (o que as validações de ciclo e o Mister leem). */
+export async function carregarEstruturaDasFichas(db: any, tenantId: string) {
   const fichas: any[] = await db
     .select()
     .from(fichaTecnica)
@@ -98,14 +105,24 @@ export async function carregarFichas(db: any, tenantId: string) {
     : [];
   const feitos = fichas.length ? await produtosFeitosNaLoja(db, tenantId) : [];
   const fichaDoItem = new Map(feitos.map((p) => [p.itemId, p.fichaId]));
-  const mapa: Record<string, FichaCusto> = {};
   const nome: Record<string, string> = {};
-  for (const f of fichas) {
-    nome[f.id] = f.nome;
-    mapa[f.id] = fichaCustoDe(f, ings.filter((i) => i.fichaId === f.id), fichaDoItem);
-  }
+  for (const f of fichas) nome[f.id] = f.nome;
   const mesmaEmbalagem = fichas.length ? await mesmaEmbalagemDaEmpresa(db, tenantId) : false;
-  return { fichas, ings, mapa, nome, feitos, fichaDoItem, mesmaEmbalagem };
+  return { fichas, ings, nome, feitos, fichaDoItem, mesmaEmbalagem };
+}
+
+/**
+ * Tudo o que o cálculo de custo precisa: a estrutura, o mapa e o custo médio de hoje de cada item NESTA loja. Sem loja (empresa de
+ * uma loja só, ou "todas as lojas"): o custo do cadastro.
+ */
+export async function carregarFichas(db: any, tenantId: string, unidadeId: string | null = null) {
+  const estrutura = await carregarEstruturaDasFichas(db, tenantId);
+  const { fichas, ings, fichaDoItem } = estrutura;
+  const lido = fichas.length ? await lerCustosMedios(db, tenantId) : null;
+  const custoMedio = (itemId: string): number => (lido ? lido(itemId, unidadeId) : 0);
+  const mapa: Record<string, FichaCusto> = {};
+  for (const f of fichas) mapa[f.id] = fichaCustoDe(f, ings.filter((i) => i.fichaId === f.id), fichaDoItem, custoMedio);
+  return { ...estrutura, mapa, custoMedio };
 }
 
 /** Custo por unidade de rendimento de uma ficha (custo total ÷ rendimento). 0 = a ficha não tem custo. */
@@ -116,8 +133,8 @@ export function custoPorUnidadeDaFicha(fichaId: string, mapa: Record<string, Fic
 }
 
 /** itemId → custo por unidade pela ficha que o produz (só os que têm ficha com custo). */
-export async function custoDosProdutosFeitos(db: any, tenantId: string): Promise<Map<string, number>> {
-  const { mapa, feitos } = await carregarFichas(db, tenantId);
+export async function custoDosProdutosFeitos(db: any, tenantId: string, unidadeId: string | null = null): Promise<Map<string, number>> {
+  const { mapa, feitos } = await carregarFichas(db, tenantId, unidadeId);
   const custos = new Map<string, number>();
   for (const p of feitos) {
     const custo = custoPorUnidadeDaFicha(p.fichaId, mapa);
@@ -170,7 +187,7 @@ export async function conferirFichaDoProduto(
     );
 
   if (p.itemId) {
-    const { ings, fichaDoItem } = await carregarFichas(db, tenantId);
+    const { ings, fichaDoItem } = await carregarEstruturaDasFichas(db, tenantId);
     // A ligação nova cria a dependência "quem usa este produto → esta ficha": há ciclo se a ficha
     // já chega (por sub-receita ou por produto feito na loja) a alguma ficha que usa o produto.
     fichaDoItem.delete(p.itemId); // a ligação ANTIGA deste produto não conta: está sendo trocada

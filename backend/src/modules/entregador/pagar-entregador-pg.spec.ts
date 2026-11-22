@@ -4,6 +4,8 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { EntregadorService } from './entregador.service';
+import { FinanceiroService } from '../financeiro/financeiro.service';
+import { hojeISO } from '../../common/data';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -41,6 +43,7 @@ descrever('pagar o entregador (Postgres)', () => {
       await pool.query('delete from lancamento_caixa where tenant_id = any($1::uuid[])', [empresas]).catch(() => {});
       await pool.query('delete from caixa_sessao where tenant_id = any($1::uuid[])', [empresas]).catch(() => {});
       await pool.query('delete from colaborador where tenant_id = any($1::uuid[])', [empresas]).catch(() => {});
+      await pool.query('delete from unidade where tenant_id = any($1::uuid[])', [empresas]).catch(() => {});
       await pool.query('delete from empresa where id = any($1::uuid[])', [empresas]).catch(() => {});
     }
     await pool.end();
@@ -127,6 +130,61 @@ descrever('pagar o entregador (Postgres)', () => {
     const quebrado = new EntregadorService(comFalha, {} as any, {} as any);
     await expect(quebrado.pagarEntregador(t, null, p)).rejects.toThrow('falha na sangria');
     expect(await contas(t)).toEqual({ fechamentos: 0, sangrias: { n: 0, v: 0 }, semAcerto: 3 });
+  });
+
+  describe('a loja do lançamento', () => {
+    const financeiro = new FinanceiroService(db, { registrar: async () => undefined } as any, {} as any);
+    const loja = async (t: string, nome: string) => (await q(`insert into unidade (tenant_id, nome) values ($1, $2) returning id`, [t, nome]))[0].id as string;
+    const lojaDaSangria = async (t: string) =>
+      (await q(`select unidade_id from lancamento_caixa where tenant_id = $1 and categoria = 'pagamento_entregador'`, [t]))[0].unidade_id as string | null;
+    const pedidosDaLoja = (t: string, ...lojas: (string | null)[]) =>
+      Promise.all(
+        lojas.map((l, i) =>
+          q(`update pedido_externo set unidade_id = $2 where id = (select id from pedido_externo where tenant_id = $1 order by id offset $3 limit 1)`, [t, l, i]),
+        ),
+      );
+    const saidasDaDre = async (t: string, l: string | null) => {
+      const hoje = hojeISO();
+      const dre: any = await financeiro.dreCaixa(t, hoje, hoje, l);
+      return dre.despesas.find((d: any) => d.categoria === 'pagamento_entregador')?.valor ?? 0;
+    };
+
+    it('a sessão com loja: grava a loja da sessão, mesmo com pedido de outra', async () => {
+      const { t, p } = await montar();
+      const [a, b] = [await loja(t, 'Loja A'), await loja(t, 'Loja B')];
+      await q(`update caixa_sessao set unidade_id = $2 where tenant_id = $1`, [t, a]);
+      await pedidosDaLoja(t, b, b, b);
+      await svc.pagarEntregador(t, null, p);
+      expect(await lojaDaSangria(t)).toBe(a);
+    });
+
+    it('a sessão sem loja (como o caixa de entregas nasce): vale a loja dos pedidos, e o relatório da loja passa a contar', async () => {
+      const { t, p } = await montar();
+      const [a, b] = [await loja(t, 'Loja A'), await loja(t, 'Loja B')];
+      await pedidosDaLoja(t, a, a, a);
+      await svc.pagarEntregador(t, null, p);
+      expect(await lojaDaSangria(t)).toBe(a);
+      expect(await saidasDaDre(t, a)).toBe(24);
+      expect(await saidasDaDre(t, b)).toBe(0);
+      expect(await saidasDaDre(t, null)).toBe(24); // em "todas", uma vez só
+    });
+
+    it('a sessão sem loja e pedidos de duas lojas: fica sem loja, sem atribuir por palpite, e segue em "todas"', async () => {
+      const { t, p } = await montar();
+      const [a, b] = [await loja(t, 'Loja A'), await loja(t, 'Loja B')];
+      await pedidosDaLoja(t, a, a, b);
+      await svc.pagarEntregador(t, null, p);
+      expect(await lojaDaSangria(t)).toBeNull();
+      expect(await saidasDaDre(t, a)).toBe(0);
+      expect(await saidasDaDre(t, null)).toBe(24);
+    });
+
+    it('a sessão e os pedidos sem loja (empresa de uma loja antiga): fica sem loja, como sempre', async () => {
+      const { t, p } = await montar();
+      await svc.pagarEntregador(t, null, p);
+      expect(await lojaDaSangria(t)).toBeNull();
+      expect(await saidasDaDre(t, null)).toBe(24);
+    });
   });
 
   it('sem o caixa de entregas aberto não paga', async () => {

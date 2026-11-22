@@ -135,12 +135,12 @@ export class ProdutoController {
 
   // ----- Opções (catálogo reutilizável, Fase 2) -----
   @Get('opcoes')
-  listarOpcoes(@CurrentUser() user: AuthUser) {
+  listarOpcoes(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null = null) {
     // O custo que vem da ficha segue a regra da própria ficha (GET /fichas): presidente ou
     // quem tem a permissão "Fichas técnicas".
     const veCustoDaFicha = user.categoria === 'presidente' || podeAcessar(user.permissoes, 'fichas');
     // O custo que vem do estoque segue a regra do custo do produto (ver_financeiro).
-    return this.service.listarOpcoes(user.tenantId, veCustoDaFicha, !!user.permissoes?.ver_financeiro);
+    return this.service.listarOpcoes(user.tenantId, veCustoDaFicha, !!user.permissoes?.ver_financeiro, atual);
   }
 
   @Post('opcoes')

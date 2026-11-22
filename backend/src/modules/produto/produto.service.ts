@@ -617,7 +617,7 @@ export class ProdutoService {
   // ----- Opções (catálogo reutilizável, Fase 2) -----
   // veCustoDaFicha: quem pede pode ver custo de ficha técnica (a mesma regra de GET /fichas).
   // veFinanceiro: quem pede pode ver custo de estoque (a mesma regra do custo do produto).
-  async listarOpcoes(tenantId: string, veCustoDaFicha = false, veFinanceiro = false) {
+  async listarOpcoes(tenantId: string, veCustoDaFicha = false, veFinanceiro = false, atual: string | null = null) {
     // Traz a opção + nome da ficha/insumo ligado (para exibir o tipo com clareza).
     const res: any = await this.db.execute(sql`
       select o.id, o.nome, o.codigo_pdv as "codigoPdv", o.preco_ifood as "precoIfood", o.descricao,
@@ -643,7 +643,7 @@ export class ProdutoService {
     // que UMA porção dela custa — é essa porção que a venda baixa do estoque. O "preço de
     // custo" digitado segue valendo para as opções sem ficha.
     const temFicha = rows.some((o) => o.tipo === 'ficha' && o.fichaNome);
-    const custoDaFicha = veCustoDaFicha && temFicha ? await this.fichas.custoPorPorcao(tenantId) : {};
+    const custoDaFicha = veCustoDaFicha && temFicha ? await this.fichas.custoPorPorcao(tenantId, atual) : {};
     // Adicional ligado DIRETO a um insumo: o que sai do estoque a cada escolha é 1 da unidade
     // escolhida na ligação (`itemFator` unidades de estoque) e o custo é o custo médio × o fator.
     const insumos = rows.filter((o) => o.tipo === 'insumo' && o.itemId);
@@ -1590,7 +1590,7 @@ export class ProdutoService {
         custoFonte: null,
       }));
     }
-    const fichaCusto = await this.fichas.custoPorPorcao(tenantId);
+    const fichaCusto = await this.fichas.custoPorPorcao(tenantId, atual);
     return rows.map((p) => {
       const override = p.precoCusto != null && p.precoCusto !== '' ? Number(p.precoCusto) : null;
       const fc = p.fichaId ? fichaCusto[p.fichaId] : null;
@@ -1624,8 +1624,12 @@ export class ProdutoService {
 
   // Mapa produtoId → custo EFETIVO (balcão), pela MESMA prioridade do listar
   // (override manual → custo da ficha → custo médio do item de estoque). Reusado
-  // pelos relatórios (curva ABC com colunas de custo e lucro).
-  async custoEfetivoMapa(tenantId: string): Promise<Record<string, number>> {
+  // pelos relatórios (curva ABC com colunas de custo e lucro) e pela API de integração. O custo da
+  // ficha é o da loja pedida (sem loja: o do cadastro). Custo NÃO LANÇADO fica FORA do mapa: item que
+  // soma zero e ficha com ALGUM ingrediente sem custo (a soma dela daria margem falsa) não têm custo
+  // conhecido, e a integração manda `custo_centavos: null`. O zero que alguém digitou no `preco_custo`
+  // foi informado de propósito e continua valendo.
+  async custoEfetivoMapa(tenantId: string, unidadeId: string | null = null): Promise<Record<string, number>> {
     const res: any = await this.db.execute(sql`
       select p.id, p.preco_custo as "precoCusto", p.ficha_id as "fichaId",
              ie.custo_medio * p.item_fator as "itemCustoMedio"
@@ -1634,14 +1638,14 @@ export class ProdutoService {
       where p.tenant_id = ${tenantId} and p.deleted_at is null
     `);
     const rows = (res.rows ?? res) as any[];
-    const fichaCusto = await this.fichas.custoPorPorcao(tenantId);
+    const fichaCusto = await this.fichas.custoPorPorcao(tenantId, unidadeId);
     const out: Record<string, number> = {};
     for (const p of rows) {
       const override = p.precoCusto != null && p.precoCusto !== '' ? Number(p.precoCusto) : null;
       const fc = p.fichaId ? fichaCusto[p.fichaId] : null;
       const itemMedio = p.itemCustoMedio != null ? Number(p.itemCustoMedio) : null;
-      const custo = override != null ? override : fc ? fc.balcao : itemMedio;
-      if (custo != null && Number.isFinite(custo)) out[p.id] = custo;
+      const custo = override != null ? override : fc ? (fc.balcaoCompleto === false ? null : fc.balcao) : itemMedio;
+      if (custo != null && Number.isFinite(custo) && (override != null || custo > 0)) out[p.id] = custo;
     }
     return out;
   }

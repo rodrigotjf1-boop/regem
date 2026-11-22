@@ -1,5 +1,6 @@
 import { somarDias } from '../../common/data';
 import { linhaEntra, type CanalDaFicha } from '../../common/embalagem-da-ficha';
+import { custoDaLinhaDaFicha } from '../../common/regras-negocio';
 import { diaMes } from './mister-agente.regras';
 import { emLista, semAcentoMinusculo } from './mister-analises';
 
@@ -84,9 +85,9 @@ const rendimentoDe = (f: FichaDoCusto | undefined): number => (f && f.rendimento
 
 /**
  * O calculador do custo das fichas de uma empresa. A conta é a de `custoTotalFicha` (quantidade × fator × custo, a margem de perda
- * sobre o total, a embalagem de cada venda), com três diferenças: linha sem custo deixa a ficha INCOMPLETA; a linha ligada ao
- * estoque usa o custo médio de HOJE (a da ficha é a cópia de quando foi salva); e ciclo de sub-receita não trava, deixa
- * incompleta. Cada ficha é calculada uma vez por venda e loja.
+ * sobre o total, a embalagem de cada venda) e o custo de cada linha é o mesmo da tela (`custoDaLinhaDaFicha`), com duas diferenças:
+ * linha sem custo deixa a ficha INCOMPLETA, e ciclo de sub-receita não trava, deixa incompleta. Cada ficha é calculada uma vez por
+ * venda e loja.
  */
 export function calculadoraDeFichas(
   fichas: ReadonlyMap<string, FichaDoCusto>,
@@ -143,8 +144,9 @@ export function calculadoraDeFichas(
         }
       }
       if (unitario === null) {
-        const doItem = l.itemId ? custoDoItem(l.itemId, unidadeId) : 0;
-        unitario = doItem > 0 ? doItem : l.custoGravado > 0 ? l.custoGravado : null;
+        // A mesma regra da tela de fichas (`custoDaLinhaDaFicha`).
+        const daLinha = custoDaLinhaDaFicha(l.custoGravado, l.itemId ? custoDoItem(l.itemId, unidadeId) : 0);
+        unitario = daLinha > 0 ? daLinha : null;
       }
       if (unitario === null || !(unitario > 0)) {
         faltou([l.nome]);

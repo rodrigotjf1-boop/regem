@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Custo da ficha pelo custo médio de hoje, custo não lançado sem valor e pagamento de entregador com loja (22/11; ERR-575 a ERR-578;
+  SEM migration).** **Vale na loja:** a tela de fichas, a Curva ABC e o pagamento do entregador do servidor da loja só mudam com o próximo `.zip`.
+
 - **Mister versão 7: os dois casos da avaliação real (22/11; ERR-574; SEM migration).** Só na nuvem: vai no `.zip` sem efeito na loja.
 
 - **Mister versão 7, V7d: voz com emoção (22/11; mig 493, só nuvem).** Só na nuvem: vai no `.zip` sem efeito na loja (o Mister não

@@ -719,7 +719,7 @@ export class EstoqueService {
     // FEITO NA LOJA (mig 314): o custo pela ficha que produz o produto — é o que ele leva para as
     // outras fichas. Só é calculado quando há produto ligado, e só sai para quem vê valores em R$.
     const custoPelaFicha =
-      verFin && rows.some((r: any) => r.fichaId) ? await custoDosProdutosFeitos(this.db, tenantId) : new Map<string, number>();
+      verFin && rows.some((r: any) => r.fichaId) ? await custoDosProdutosFeitos(this.db, tenantId, atual) : new Map<string, number>();
     // Conversões por item (anexadas em memória).
     const convs = await this.db
       .select()

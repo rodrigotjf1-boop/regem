@@ -1,9 +1,10 @@
 import { sql, type SQL } from 'drizzle-orm';
 import type { DrizzleDB } from '../../db/drizzle.module';
 import { brutoPedido, comandaEhDeCanal, descontoLojaProduto, faturamentoComanda, faturamentoPedido, pedidoVale } from '../../common/faturamento';
+import { lerCustosMedios } from '../../common/custo-loja';
 import { sqlUnidade } from '../../common/filtro-unidade';
 import { FUSO_SQL, noPeriodo } from '../../common/fuso-sql';
-import { carregarFichas } from '../fichas/fichas-carga';
+import { carregarEstruturaDasFichas } from '../fichas/fichas-carga';
 import {
   type CadastroDeCusto,
   type DadoInformado,
@@ -39,7 +40,7 @@ export type TipoDoDado = 'saldo_banco' | 'folha_mensal' | 'custo_campanha';
  * os excluídos: a venda antiga aponta para eles), as variações e o custo médio de cada item, no cadastro e por loja.
  */
 export async function lerCadastroDeCusto(db: DrizzleDB, tenantId: string): Promise<CadastroDeCusto> {
-  const { fichas, ings, fichaDoItem, mesmaEmbalagem } = await carregarFichas(db, tenantId);
+  const { fichas, ings, fichaDoItem, mesmaEmbalagem } = await carregarEstruturaDasFichas(db, tenantId);
   const porFicha = new Map<string, LinhaDaFicha[]>();
   for (const i of ings) {
     const lista = porFicha.get(i.fichaId) ?? [];
@@ -64,20 +65,8 @@ export async function lerCadastroDeCusto(db: DrizzleDB, tenantId: string): Promi
     produtos.set(p.id, { nome: String(p.nome), tipo: String(p.tipo), fichaId: p.ficha ?? null, precoCusto: p.custo === null || p.custo === undefined ? null : numero(p.custo) });
   const fatores = new Map<string, number>();
   for (const v of linhas(await db.execute(sql`select id::text as id, fator_ficha as fator from produto_variacao where tenant_id = ${tenantId}::uuid`))) fatores.set(v.id, numero(v.fator));
-  const doCadastro = new Map<string, number>();
-  for (const i of linhas(await db.execute(sql`select id::text as id, custo_medio as custo from item_estoque where tenant_id = ${tenantId}::uuid and custo_medio > 0`))) doCadastro.set(i.id, numero(i.custo));
-  const daLoja = new Map<string, number>();
-  for (const i of linhas(
-    await db.execute(sql`
-      select item_id::text as item, unidade_id::text as loja, custo_medio as custo
-        from item_estoque_unidade where tenant_id = ${tenantId}::uuid and deleted_at is null and custo_medio is not null`),
-  ))
-    daLoja.set(`${i.item}|${i.loja}`, numero(i.custo));
-  // A mesma herança da tela: o custo da loja, se houver; senão, o do cadastro.
-  const custoDoItem = (itemId: string, unidadeId: string | null) => {
-    const proprio = unidadeId ? daLoja.get(`${itemId}|${unidadeId}`) : undefined;
-    return proprio !== undefined ? proprio : (doCadastro.get(itemId) ?? 0);
-  };
+  // A mesma leitura da tela de fichas: o custo da loja, se houver; senão, o do cadastro.
+  const custoDoItem = await lerCustosMedios(db, tenantId);
   return { produtos, fatores, custoDaFicha: calculadoraDeFichas(mapa, custoDoItem, mesmaEmbalagem) };
 }
 

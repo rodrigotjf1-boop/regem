@@ -506,6 +506,8 @@ descrever('API de integração — vendas (GET /pedidos e /clientes/anonimizados
     else process.env.EDGE_MODE = edgeOriginal;
     if (empresas.length) {
       await pool.query('delete from produto where tenant_id = any($1::uuid[])', [empresas]);
+      for (const t of ['ficha_ingrediente', 'ficha_tecnica', 'item_estoque'])
+        await pool.query(`delete from ${t} where tenant_id = any($1::uuid[])`, [empresas]);
       await pool.query('delete from empresa where id = any($1::uuid[])', [empresas]);
     }
     await pool.query(`drop schema if exists ${SCHEMA} cascade`);
@@ -817,6 +819,36 @@ descrever('API de integração — vendas (GET /pedidos e /clientes/anonimizados
       expect(sem.get(ids.pedCliente).itens[0].custo_centavos).toBeNull();
       await q(`update colaborador set perfil_acesso_id = null where id = $1`, [A.presidente]);
       (vendas as any).permissao.clear();
+    });
+
+    it('custos.ler: custo não lançado sai nulo (ficha ou item somando zero); o zero digitado no preço de custo continua zero', async () => {
+      const E = await empresa('Empresa Custo', ['C1']);
+      const t = await emitir(E, E.lojas[0], ['pedidos.ler', 'custos.ler']);
+      const ficha = async (nome: string, custo: number) => {
+        const [f] = await q(`insert into ficha_tecnica (tenant_id, nome, rendimento) values ($1, $2, 1) returning id`, [E.tenant, nome]);
+        await q(`insert into ficha_ingrediente (tenant_id, ficha_id, insumo_nome, quantidade, custo_unitario) values ($1, $2, 'Insumo', 2, $3)`, [E.tenant, f.id, custo]);
+        return f.id as string;
+      };
+      const produto = async (nome: string, o: { ficha?: string; item?: string; custo?: number }) =>
+        (await q(`insert into produto (tenant_id, nome, preco_venda, ficha_id, item_id, preco_custo) values ($1, $2, 10, $3, $4, $5) returning id`, [
+          E.tenant, nome, o.ficha ?? null, o.item ?? null, o.custo ?? null,
+        ]))[0].id as string;
+      const [semCustoMedio] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida, custo_medio) values ($1, 'Lata', 'unidade', 0) returning id`, [E.tenant]);
+      const itens = [
+        { desc: 'Ficha sem custo', qtd: 1, preco: 10, produto: await produto('Ficha sem custo', { ficha: await ficha('Sem', 0) }) },
+        { desc: 'Ficha com custo', qtd: 1, preco: 10, produto: await produto('Ficha com custo', { ficha: await ficha('Com', 1.5) }) },
+        { desc: 'Revenda sem custo', qtd: 1, preco: 10, produto: await produto('Revenda sem custo', { item: semCustoMedio.id }) },
+        { desc: 'Zero de propósito', qtd: 1, preco: 10, produto: await produto('Zero de propósito', { ficha: await ficha('Ignorada', 0), custo: 0 }) },
+      ];
+      const venda = await comanda(E.tenant, { loja: E.lojas[0], fechada: sp(DIA2, '12:00'), total: 40, itens });
+      await carimbar([E.tenant]);
+      const lida = ultimas((await lerTudo(t)).itens).get(venda);
+      expect(Object.fromEntries(lida.itens.map((i: any) => [i.nome, i.custo_centavos]))).toEqual({
+        'Ficha sem custo': null,
+        'Ficha com custo': 300,
+        'Revenda sem custo': null,
+        'Zero de propósito': 0,
+      });
     });
   });
 
