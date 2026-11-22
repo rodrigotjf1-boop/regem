@@ -53,6 +53,11 @@ export interface ConversaDoMister {
    * pedem o PIN pelo link, que vale por estas horas. null = desligado (o padrão).
    */
   pinACadaH: HorasDoPin | null;
+  /**
+   * Versão 7, V7e (mig 490, decisão V7-7): "Análises mais profundas" — a resposta depois de uma análise com dados usa o modelo
+   * maior; o resto continua no de sempre. Nasce desligada; só o presidente muda (a rota).
+   */
+  analisesProfundas: boolean;
 }
 /** As horas que o PIN da sessão vale (a escolha do presidente). */
 export const HORAS_DO_PIN = [6, 12, 24] as const;
@@ -70,6 +75,7 @@ export const CONVERSA_PADRAO: ConversaDoMister = {
   resumoEntrega: 'botoes',
   responderAudio: false,
   pinACadaH: null,
+  analisesProfundas: false,
 };
 
 /** O jeito como vai ao banco e às instruções: uma linha, espaços apertados; vazio vira null. */
@@ -124,6 +130,11 @@ export function conferirConversa(dto: unknown): Partial<ConversaDoMister> | { er
     if (d.pinACadaH !== null && !(HORAS_DO_PIN as readonly unknown[]).includes(d.pinACadaH)) return { erro: 'Pedir o PIN: escolha 6, 12 ou 24 horas, ou desligado.' };
     fora.pinACadaH = d.pinACadaH;
   }
+  if (d.analisesProfundas !== undefined) {
+    // V15: liga/desliga só com booleano de verdade.
+    if (typeof d.analisesProfundas !== 'boolean') return { erro: 'Análises mais profundas: diga se fica ligado ou desligado.' };
+    fora.analisesProfundas = d.analisesProfundas;
+  }
   if (!Object.keys(fora).length) return { erro: 'Nada para salvar.' };
   return fora;
 }
@@ -141,6 +152,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
   resumoEntrega: { coluna: 'resumo_entrega', valor: (v) => sql`${v}` },
   responderAudio: { coluna: 'responder_audio', valor: (v) => sql`${v}` },
   pinACadaH: { coluna: 'pin_a_cada_h', valor: (v) => sql`${v}::int` },
+  analisesProfundas: { coluna: 'analises_profundas', valor: (v) => sql`${v}::boolean` },
 };
 
 /**
@@ -148,6 +160,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
  * lê as da anterior. Nunca devolver o padrão de um campo que está salvo (o "perguntar" dos documentos, o perfil).
  */
 const LEITURAS = [
+  sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho"`,
@@ -188,6 +201,7 @@ export class MisterConversaConfigService {
         resumoEntrega: (FORMAS_DE_ENTREGA_DO_RESUMO as readonly unknown[]).includes(l.resumoEntrega) ? l.resumoEntrega : CONVERSA_PADRAO.resumoEntrega,
         responderAudio: l.responderAudio === true,
         pinACadaH: (HORAS_DO_PIN as readonly unknown[]).includes(Number(l.pinACadaH)) ? (Number(l.pinACadaH) as HorasDoPin) : null,
+        analisesProfundas: l.analisesProfundas === true,
       };
     } catch (e: any) {
       // Sem a 440 (a migration ainda não entrou, ou o servidor da loja): o padrão, que não muda nada.

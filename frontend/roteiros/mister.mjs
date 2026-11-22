@@ -712,7 +712,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const soEle = [gerente({ colaboradorId: 'c2', nome: 'Carlos Lima', loja: 'Loja Centro', voce: true })];
     const { ctx, page, erros, S } = await abrir(1280, 900, { token: GERENTE, caminho: '/mister?parte=ia', pessoas: soEle, souPresidente: false });
     await page.waitForSelector('text=Quem fala com o Mister', { timeout: 20000 });
-    ok((await page.locator('[aria-label="Partes do Mister"]').count()) === 0, 'gerente: sem a faixa de partes (não há "IA e uso" para ele, nem pelo link)');
+    ok((await page.locator('[aria-label="Partes do Mister"] button').allInnerTexts()).join('|') === 'Pessoas|Regras', 'gerente: só as partes "Pessoas" e "Regras" (não há "IA e uso" para ele, nem pelo link)');
     ok(/Ligue o seu WhatsApp pelo seu celular/.test(await page.locator('main').innerText()), 'gerente: o texto é o dele (ligar o próprio WhatsApp)');
     const linhasDele = await page.locator('main table tbody tr').allInnerTexts();
     ok(linhasDele.length === 1 && /Carlos Lima \(você\)/.test(linhasDele[0].replace(/\s+/g, ' ')) && /gerente · Loja Centro/.test(linhasDele[0]), `gerente: só a própria linha (${linhasDele.length})`);
@@ -741,8 +741,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.waitForSelector('text=Quem fala com o Mister', { timeout: 20000 });
     const partes = page.locator('[aria-label="Partes do Mister"] button');
     ok(
-      (await partes.allInnerTexts()).join('|') === 'Resumo|Pessoas|IA e uso|Avisos e relatórios|Documentos|Histórico|Jeito e memória' && (await partes.nth(1).getAttribute('aria-pressed')) === 'true',
-      'presidente: as partes "Resumo", "Pessoas", "IA e uso", "Avisos e relatórios", "Documentos", "Histórico" e "Jeito e memória" (versão 4), com o link abrindo em Pessoas',
+      (await partes.allInnerTexts()).join('|') === 'Resumo|Pessoas|Regras|IA e uso|Avisos e relatórios|Documentos|Histórico|Jeito e memória' && (await partes.nth(1).getAttribute('aria-pressed')) === 'true',
+      'presidente: as partes "Resumo", "Pessoas", "Regras", "IA e uso", "Avisos e relatórios", "Documentos", "Histórico" e "Jeito e memória", com o link abrindo em Pessoas',
     );
     ok(S.pedidos.length === 0, 'em Pessoas, a parte da IA não é lida');
     ok(/O número do Mister é \+55 21 90000-0000/.test(await page.locator('main').innerText()), 'o número do Mister, formatado, para salvar nos contatos');
@@ -751,7 +751,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(/Ana Souza \(você\) presidente · todas as lojas ligado final 4321 · desde 02\/11 Avisos · Consulta · Autorização Desligar/.test(linhas[0]), `a linha do presidente (${linhas[0]})`);
     ok(/Carlos Lima gerente · Loja Centro ligado final 8890 · desde 05\/11 Avisos · Consulta Desligar/.test(linhas[1]), `a linha do gerente ligado (${linhas[1]})`);
     ok(/avisos parados final 1177/.test(linhas[2]) && /Respondeu PARAR AVISOS/.test(linhas[2]), 'quem respondeu PARAR AVISOS aparece com os avisos parados');
-    ok(/não ligado Só a própria pessoa liga, entrando com o usuário dela\. Avisos · Consulta$/.test(linhas[3].trim()), `quem não ligou: a frase e nenhum botão (${linhas[3]})`);
+    ok(/não ligado Só a própria pessoa liga, entrando com o usuário dela\. Avisos · Consulta Perdi o celular$/.test(linhas[3].trim()), `quem não ligou: a frase e só o "Perdi o celular" (${linhas[3]})`);
     ok((await page.locator('main button:has-text("Editar o que pode")').count()) === 0, 'sem "Editar o que pode" (o perfil de permissões fica para o fim do projeto)');
     ok(!/\d{10,}/.test(linhas.join(' ')), 'nenhum telefone inteiro na lista');
     // desligar o WhatsApp de outra pessoa: pede confirmação; "Cancelar" não chama
@@ -1054,7 +1054,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/20 ajustes em 8 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os três relatórios e o 'Como mandar o resumo' (M5e) e a conversa (M3a e o 'Responder em áudio', M5c)");
+    ok(/21 ajustes em 9 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os três relatórios e o 'Como mandar o resumo' (M5e) , a conversa (M3a e o 'Responder em áudio', M5c) e as análises (V7e)");
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
     ok(t0.includes('O de fichas novas só conta: não usa a IA.'), 'relatórios: a nota diz que o das fichas novas não usa a IA');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
@@ -1205,6 +1205,21 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     m = await medir(page);
     ok(m.length === 0, `${w}px: a gaveta dos valores do alerta de gasto inteira na tela (${m.join(' | ')})`);
     if (w === 375) await page.screenshot({ path: foto('375-avisos-gaveta-valores.png') });
+    // Versão 7, V7e: o ajuste das análises e a gaveta "Ver como funciona", inteiros na tela.
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[role="dialog"]', { state: 'detached' });
+    const ajusteDasAnalises = page.locator('div:has(> div > h3:text-is("Análises"))').first();
+    await ajusteDasAnalises.scrollIntoViewIfNeeded();
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: o ajuste "Análises mais profundas" sem barra lateral (${m.join(' | ')})`);
+    const larguraDoPreco = await page.locator('[data-preco-das-analises]').evaluate((el) => Math.round(el.getBoundingClientRect().width));
+    ok(larguraDoPreco >= 180, `${w}px: o preço das análises não fica espremido (${larguraDoPreco} px)`);
+    if (w === 375) await ajusteDasAnalises.screenshot({ path: foto('375-analises.png') });
+    await page.click('button:text-is("Ver como funciona")');
+    await page.waitForSelector('[role="dialog"] >> text=O que não muda');
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: a gaveta "Análises mais profundas" inteira na tela (${m.join(' | ')})`);
+    if (w === 375) await page.screenshot({ path: foto('375-analises-gaveta.png') });
     ok(erros.length === 0, `${w}px: Avisos sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
@@ -1214,7 +1229,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t = await page.locator('main').innerText();
-    ok(/20 ajustes em 8 grupos/.test(t), "conversa: o grupo Conversa entra com dois ajustes (o do boleto e o 'Responder em áudio', M5c), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, e Relatórios com o 'Como mandar o resumo' (M5e)");
+    ok(/21 ajustes em 9 grupos/.test(t), "conversa: o grupo Conversa entra com dois ajustes (o do boleto e o 'Responder em áudio', M5c), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, Relatórios com o 'Como mandar o resumo' (M5e) e Análises com o ajuste da V7e");
     ok(/Documentos e dinheiro[\s\S]*Boleto perto de vencer[\s\S]*Já paguei/.test(t), 'boleto: o aviso novo no grupo "Documentos e dinheiro", com o "Já paguei"');
     ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
     const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');
@@ -1246,6 +1261,28 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
     ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ responderAudio: true }), `voz: ligar manda só ele (${JSON.stringify(S.salvamentosConv.at(-1))})`);
     ok((await voz.getAttribute('aria-checked')) === 'true', 'voz: fica ligado depois de salvar');
+    // Versão 7, V7e: "Análises mais profundas" nasce desligada, com o preço ao lado; ligar manda SÓ ela.
+    ok(/Análises mais profundas[\s\S]*De cerca de US\$ 0,001 para cerca de US\$ 0,01 a US\$ 0,08 por análise/.test(t), 'análises: o ajuste traz o preço ao lado');
+    const analises = page.locator('button[role="switch"][aria-label*="Análises mais profundas"]');
+    ok((await analises.getAttribute('aria-checked')) === 'false', 'análises: nasce desligada');
+    await analises.click();
+    // Ligar pede a confirmação com o preço; "Cancelar" não manda nada.
+    const antesDaConfirmacao = S.salvamentosConv.length;
+    await page.click('button:has-text("Salvar alterações")');
+    await page.waitForSelector('[role="dialog"] >> text=Ligar e salvar?');
+    ok(/passa a gastar a chave de IA[\s\S]*US\$ 0,08/.test(await page.locator('[role="dialog"]').innerText()), 'análises: a confirmação diz o preço');
+    await page.click('[role="dialog"] button:text-is("Cancelar")');
+    await page.waitForSelector('[role="dialog"]', { state: 'detached' });
+    ok(S.salvamentosConv.length === antesDaConfirmacao, 'análises: "Cancelar" não salva');
+    await page.click('button:has-text("Salvar alterações")');
+    await page.waitForSelector('[role="dialog"] >> text=Ligar e salvar?');
+    {
+      const m = await medir(page);
+      ok(m.length === 0, `análises: a confirmação inteira na tela (${m.join(' | ')})`);
+    }
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('[role="dialog"] button:text-is("Ligar e salvar")')]);
+    ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ analisesProfundas: true }), `análises: ligar manda só ela (${JSON.stringify(S.salvamentosConv.at(-1))})`);
+    ok((await analises.getAttribute('aria-checked')) === 'true', 'análises: fica ligada depois de salvar');
     // M3a parte 4: "Quando avisar do boleto" — o padrão (3 dias antes e no dia) e "só no dia", salvo pela mesma barra.
     const quando = page.locator('select:has(option:text-is("só no dia"))');
     ok((await quando.inputValue()) === '3', 'boleto: o padrão é "3 dias antes e no dia"');

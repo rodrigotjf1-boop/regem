@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister versão 7, V7e: análises de venda (22/11; migs 490 e 491, só nuvem).** Só na nuvem: vai no `.zip` sem efeito na loja (o
+  Mister não roda no servidor da loja, e a loja pula as duas migrations).
+
 - **Mister versão 7, V7c: conversa natural e várias ações num botão (22/11; ERR-569; SEM migration).** Só na nuvem: vai no `.zip` sem
   efeito na loja (o Mister não roda no servidor da loja).
 

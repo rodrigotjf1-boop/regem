@@ -99,6 +99,7 @@ import { TarefaInstanciaService } from '../tarefa/tarefa-instancia.service';
 import { TarefaDefService } from '../tarefa/tarefa-def.service';
 import { ProdutoService } from '../produto/produto.service';
 import { TEXTOS_DAS_ACOES } from './mister-acoes';
+import { mesesCompletos, ultimosDiasDaSemana } from './mister-analises';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -511,7 +512,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -4192,6 +4193,13 @@ export function testesDoMisterComPostgres(): void {
             agrupar: true,
           },
         },
+        c64: { foco: 'semana', periodo: 'semana_passada' },
+        c65: { foco: 'pico', diaDaSemana: 'sexta' },
+        c66: { foco: 'fases_do_mes' },
+        c67: { foco: 'perdas' },
+        c68: { foco: 'perdas', periodo: 'ultimos_30_dias' },
+        c69: { foco: 'semana', periodo: 'semana_passada' },
+        c70: { foco: 'semana', periodo: 'semana_passada' },
         c54: { acao: 'criar_imagem', proporcao: '9:16', pedidoDaImagem: "Cartaz vertical da terça do smash. Foto de um smash duplo com batata, fundo escuro, luz quente. Texto exato: \"TERÇA DO SMASH\" e \"Smash duplo + batata · R$ 29,90\"." },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
@@ -4245,18 +4253,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 63 de 63, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 70 de 70, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(63);
+        expect(r.total).toBe(70);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 63, acertos: 63, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 70, acertos: 70, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 63, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 63, acertos: 63, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 70, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 70, acertos: 70, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4276,7 +4284,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 62 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 69 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -7388,7 +7396,7 @@ export function testesDoMisterComPostgres(): void {
 
       it('o ajuste da empresa: "pergunta antes" segura o boleto que lançaria sozinho; desligado, a foto segue como antes; o salvar confere', async () => {
         // Versão 4 (mig 447): o jeito vem junto, no padrão (nada muda). M4d (mig 452): o "fica de olho" nasce desligado.
-        const SEM_JEITO = { perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null };
+        const SEM_JEITO = { analisesProfundas: false, perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null };
         expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'sozinho', ...SEM_JEITO });
         await expect(conversa.salvar(usuario('ana'), { documentosModo: 'sempre' })).rejects.toBeInstanceOf(BadRequestException);
         await expect(conversa.salvar(usuario('ana'), { documentosLigado: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
@@ -7442,12 +7450,12 @@ export function testesDoMisterComPostgres(): void {
         await expect(conversa.salvar(usuario('ana'), { avisosEscritos: 'loja' })).rejects.toBeInstanceOf(BadRequestException);
         // O jeito vira uma linha só, com os espaços apertados; os grupos saem na ordem da tela, sem repetir.
         const r = await conversa.salvar(usuario('ana'), { perfil: 'descontraido', jeito: '  Fale como sócio,\n sem formalidade.  ', avisosEscritos: ['fiscal', 'loja', 'loja'] });
-        expect(r.conversa).toEqual({ documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
+        expect(r.conversa).toEqual({ analisesProfundas: false, documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         expect(auditados.filter((a) => a.acao === 'mister_conversa_alterada').at(-1)).toMatchObject({ detalhe: { antes: { perfil: 'hoje', jeito: null }, depois: { perfil: 'descontraido' } } });
         // Salvar só o perfil não apaga o jeito, os grupos nem o ajuste dos documentos.
         await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' });
         await conversa.salvar(usuario('ana'), { perfil: 'objetivo' });
-        expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
+        expect(await conversa.daEmpresa(A)).toEqual({ analisesProfundas: false, documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         // M4d (mig 452): o "fica de olho" liga e desliga só com booleano (V15), sem mexer no resto.
         await expect(conversa.salvar(usuario('ana'), { ficaDeOlho: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
         expect((await conversa.salvar(usuario('ana'), { ficaDeOlho: true })).conversa).toMatchObject({ ficaDeOlho: true, perfil: 'objetivo', avisosEscritos: ['loja', 'fiscal'] });
@@ -9692,6 +9700,391 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from pedido_externo where tenant_id = $1 and display_id like 'P6F-%'`, [A]);
           if (antes) await q(`update cardapio_config set horarios = $2 where id = $1`, [antes.id, antes.horarios === null ? null : JSON.stringify(antes.horarios)]);
           else await q(`delete from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
+        }
+      });
+    });
+
+    // ───────────── versão 7, V7e: as análises de venda (a conta oficial, as permissões, as perdas, o modelo e o padrão) ─────────────
+    describe('as análises de venda (versão 7, V7e)', () => {
+      const relatorios = new RelatoriosService(db, { custoEfetivoMapa: async () => ({}) } as any);
+      const hoje = hojeISO();
+      const SP = (dia: string, hhmm: string) => `${dia} ${hhmm}:00`;
+      const venda = async (dia: string, hhmm: string, total: number, o: { pct?: number; loja?: string | null; itens?: Array<[string, number]>; tenant?: string; status?: string; motivo?: string } = {}) => {
+        const cancelada = o.status === 'cancelada';
+        const [{ id }] = await q(
+          `insert into comanda (tenant_id, unidade_id, status, total, taxa_servico_pct, forma, aberta_em, fechada_em, cancelada_em, motivo_cancelamento)
+           values ($1, $2, $3, $4, $5, 'dinheiro', ($6::timestamp at time zone 'America/Sao_Paulo') - interval '10 minutes',
+                   case when $7::boolean then null else ($6::timestamp at time zone 'America/Sao_Paulo') end,
+                   case when $7::boolean then ($6::timestamp at time zone 'America/Sao_Paulo') end, $8) returning id::text as id`,
+          [o.tenant ?? A, o.loja === undefined ? lojaDeA : o.loja, o.status ?? 'fechada', total, o.pct ?? 0, SP(dia, hhmm), cancelada, o.motivo ?? null],
+        );
+        for (const [descricao, quantidade] of o.itens ?? [])
+          await q(`insert into comanda_item (tenant_id, comanda_id, descricao, quantidade, preco_unitario) values ($1, $2, $3, $4, 10)`, [o.tenant ?? A, id, descricao, quantidade]);
+        return id as string;
+      };
+      const pedido = (dia: string, hhmm: string, bruto: number, o: { status?: string; comanda?: string | null; taxa?: number; motivo?: string; loja?: string | null; canal?: string } = {}) =>
+        q(
+          `insert into pedido_externo (tenant_id, unidade_id, canal, status, total, valor_bruto, taxa_entrega, taxa_entrega_dono, comanda_id, motivo_cancelamento, criado_em, cancelado_em)
+           values ($1, $2, $3, $4, $5, $5, $6, 'loja', $7, $8, ($9::timestamp at time zone 'America/Sao_Paulo'),
+                   case when $4 = 'cancelado' then ($9::timestamp at time zone 'America/Sao_Paulo') end)`,
+          [A, o.loja === undefined ? lojaDeA : o.loja, o.canal ?? 'ifood', o.status ?? 'entregue', bruto, o.taxa ?? 0, o.comanda ?? null, o.motivo ?? null, SP(dia, hhmm)],
+        );
+      const limpar = async () => {
+        for (const t of ['desperdicio', 'movimento_estoque', 'contagem_item', 'contagem_execucao', 'contagem_lista', 'item_estoque_unidade', 'item_estoque', 'pedido_externo', 'comanda_item', 'comanda', 'mister_padrao'])
+          await q(`delete from ${t} where tenant_id = any($1::uuid[])`, [[A, B]]);
+      };
+      const presidente = async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        return { tel, e: (await ferramentas.escopo(A, pessoa.ana, tel))! };
+      };
+      afterEach(limpar);
+
+      it('o total da semana, das fases e do pico é o de vendas_do_periodo: taxa de serviço, taxa de entrega, canal e sem o cancelado', async () => {
+        const { e } = await presidente();
+        const de = somarDias(hoje, -13);
+        const ate = somarDias(hoje, -7);
+        await venda(de, '20:10', 33.33, { pct: 10 }); // o total leva a taxa de serviço, que não é faturamento
+        await venda(somarDias(de, 1), '23:50', 19.99);
+        await venda(somarDias(de, 2), '00:30', 10.05); // de madrugada: em UTC cairia em outro dia sem o fuso
+        const c = await venda(ate, '21:00', 50.55);
+        await pedido(ate, '21:00', 50.55, { comanda: c, taxa: 7 });
+        const canceladaPeloCanal = await venda(ate, '21:30', 80);
+        await pedido(ate, '21:30', 80, { status: 'cancelado', comanda: canceladaPeloCanal, motivo: 'cancelado pelo ifood' });
+        await venda(somarDias(de, -3), '20:00', 15.15); // o período anterior
+
+        const oficial = await ferramentas.executar(e, 'vendas_do_periodo', { de, ate, comparar: true });
+        const semana = await ferramentas.executar(e, 'analisar_vendas', { foco: 'semana', de, ate });
+        expect(semana.ok).toBe(true);
+        expect(semana.dados).toMatchObject({
+          faturamento: oficial.dados.faturamento,
+          pedidos: oficial.dados.numeroDeVendas,
+          ticketMedio: oficial.dados.ticketMedio,
+          anterior: { faturamento: (oficial.dados.comparacao as any).faturamento, pedidos: (oficial.dados.comparacao as any).numeroDeVendas },
+        });
+        expect(oficial.dados.numeroDeVendas).toBe(4);
+        const dias = semana.dados.porDiaDaSemana as any[];
+        expect(dias.reduce((s, d) => s + d.pedidos, 0)).toBe(4);
+        expect(Math.round(dias.reduce((s, d) => s + d.faturamento, 0) * 100)).toBe(Math.round(Number(oficial.dados.faturamento) * 100));
+
+        // O pico de um dia: a conta oficial das 06:00 às 05:59 do dia seguinte.
+        const pico = await ferramentas.executar(e, 'analisar_vendas', { foco: 'pico', dia: ate });
+        const daNoite: any = await relatorios.vendasOficiais(A, `${ate} 06:00:00`, `${somarDias(ate, 1)} 05:59:59`, true, null);
+        expect(pico.dados.totalDoDia).toEqual({ pedidos: daNoite.resumo.vendas, faturamento: daNoite.resumo.faturado });
+
+        // As fases: os três meses completos, com o total oficial.
+        const meses = mesesCompletos(hoje);
+        await venda(meses[0].de, '20:00', 41.41);
+        await venda(`${meses[1].de.slice(0, 8)}15`, '19:00', 22.22, { pct: 10 });
+        await venda(meses[2].ate, '22:00', 12.34);
+        const dasFases = await ferramentas.executar(e, 'vendas_do_periodo', { de: meses[0].de, ate: meses[2].ate });
+        const fases = await ferramentas.executar(e, 'analisar_vendas', { foco: 'fases_do_mes' });
+        expect(fases.dados.totalDosMeses).toEqual({ pedidos: dasFases.dados.numeroDeVendas, faturamento: dasFases.dados.faturamento });
+        expect(fases.dados.mesesOlhados).toBe(`${meses[0].nome}, ${meses[1].nome} e ${meses[2].nome}`);
+        expect(fases.dados.comoContei).toContain('só os dias em que a loja vendeu');
+      });
+
+      it('o pico da semana: os itens da faixa e os pares "em X de Y pedidos", sem o pedido cancelado', async () => {
+        const { e } = await presidente();
+        const sexta = ultimosDiasDaSemana(5, 1, hoje)[0];
+        for (let i = 0; i < 3; i++) await venda(sexta, `20:1${i}`, 40, { itens: [['Smash duplo', 1], ['Batata rústica', 1]] });
+        for (let i = 0; i < 2; i++) await venda(sexta, `20:3${i}`, 30, { itens: [['Smash duplo', 2], ['Refrigerante', 1]] });
+        await venda(sexta, '15:00', 10, { itens: [['Café', 1]] }); // fora da faixa
+        const doCanal = await venda(sexta, '23:59', 25, { itens: [['Smash duplo', 1]] });
+        await pedido(sexta, '20:40', 25, { comanda: doCanal }); // vale pela hora em que o pedido chegou
+        const cancelado = await venda(sexta, '20:45', 99, { itens: [['Lagosta', 9]] });
+        await pedido(sexta, '20:45', 99, { status: 'cancelado', comanda: cancelado, motivo: 'engano' });
+        const r = await ferramentas.executar(e, 'analisar_vendas', { foco: 'pico', diaDaSemana: 'sexta', semanas: 2 });
+        expect(r.ok).toBe(true);
+        expect(r.dados.faixaDePico).toMatchObject({ de: '20h', ate: '21h', pedidos: 6 });
+        expect(r.dados.pedidosComItens).toBe(6);
+        const itens = r.dados.itensQueMaisSaem as any[];
+        expect(itens[0]).toEqual({ item: 'Smash duplo', quantidade: 8, emPedidos: 6, de: 6 });
+        expect(itens.map((i) => i.item)).not.toContain('Lagosta');
+        expect(itens.map((i) => i.item)).not.toContain('Café');
+        expect(r.dados.saemJuntos).toEqual([
+          { itens: 'Batata rústica + Smash duplo', juntos: 3, de: 6, frase: 'em 3 de 6 pedidos', partePct: 50 },
+          { itens: 'Refrigerante + Smash duplo', juntos: 2, de: 6, frase: 'em 2 de 6 pedidos', partePct: 33 },
+        ]);
+        // Só uma das sextas teve venda: diz que é pouco.
+        expect((r.dados.avisos as string[]).join(' ')).toContain('pouco para falar em padrão');
+      });
+
+      it('perdas: a causa, a quantidade e o valor; nome de funcionário nunca sai; o teste fica à parte; bate com a consulta de cancelamentos', async () => {
+        const { e } = await presidente();
+        const dia = somarDias(hoje, -2);
+        await pedido(dia, '21:00', 50, { status: 'cancelado', motivo: 'fora da area de entrega (autorizado por Rosangela Prado)' });
+        await pedido(dia, '21:10', 30, { status: 'cancelado', motivo: 'cancelado pelo ifood' });
+        await pedido(dia, '21:20', 20, { status: 'cancelado', motivo: 'Rosangela' });
+        await pedido(dia, '10:00', 11, { status: 'cancelado', motivo: 'teste' });
+        await venda(dia, '19:00', 40, { status: 'cancelada', motivo: 'pediu duas vezes' });
+        await venda(dia, '19:30', 25, { status: 'cancelada', motivo: 'TESTE (autorizado por Rosangela)' });
+        const r = await ferramentas.executar(e, 'analisar_vendas', { foco: 'perdas', de: dia, ate: dia });
+        expect(r.ok).toBe(true);
+        expect(JSON.stringify(r.dados)).not.toContain('Rosangela');
+        expect(JSON.stringify(r.dados)).not.toContain('autorizado');
+        const c = r.dados.cancelamentos as any;
+        expect(c.naoEntrou).toEqual({ pedidos: 4, valor: 140 });
+        expect(c.pedidosDeTeste).toMatchObject({ pedidos: 2, valor: 36 });
+        expect(Object.fromEntries(c.porCausa.map((x: any) => [x.causa, x.pedidos]))).toEqual({
+          'fora da área de entrega': 1,
+          'pedido repetido': 1,
+          'sem motivo informado pelo canal': 1,
+          'outros motivos': 1,
+        });
+        // O total + o teste = o que a consulta `cancelamentos` conta.
+        const consulta = await ferramentas.executar(e, 'cancelamentos', { de: dia, ate: dia });
+        const pc = consulta.dados.pedidosDosCanais as any;
+        const vc = consulta.dados.vendasCanceladasNaLoja as any;
+        expect(c.naoEntrou.pedidos + c.pedidosDeTeste.pedidos).toBe(pc.cancelados + vc.canceladas);
+        expect(c.naoEntrou.valor + c.pedidosDeTeste.valor).toBeCloseTo(Number(pc.valor) + Number(vc.valor), 2);
+        // Nada de desperdício nem contagem: diz o que falta lançar, sem "R$ 0".
+        const m = r.dados.mercadoriaPerdida as any;
+        expect(m.valorPerdido).toBeNull();
+        expect(m.oQueFalta.join(' ')).toContain('Estoque › aba "Desperdício"');
+        expect(m.oQueFalta.join(' ')).toContain('Estoque › aba "Contagem"');
+      });
+
+      it('perdas: desperdício com e sem custo, a diferença de contagem pelo ajuste lançado, e nenhum texto livre do registro', async () => {
+        const { e } = await presidente();
+        const dia = somarDias(hoje, -3);
+        const item = async (nome: string, custo: number) => (await q(`insert into item_estoque (tenant_id, nome, unidade_medida, custo_medio) values ($1, $2, 'kg', $3) returning id::text as id`, [A, nome, custo]))[0].id as string;
+        const tomate = await item('Tomate', 8);
+        const alface = await item('Alface', 0);
+        const queijo = await item('Muçarela', 40);
+        const bacon = await item('Bacon', 30);
+        const desp = (it: string | null, qtd: number, custo: number | null, descricao: string, motivo = 'Validade') =>
+          q(`insert into desperdicio (tenant_id, unidade_id, item_id, descricao, quantidade, unidade_medida, custo_unitario, motivo, data) values ($1, $2, $3, $4, $5, 'kg', $6, $7, $8)`, [A, lojaDeA, it, descricao, qtd, custo, motivo, dia]);
+        await desp(tomate, 2, 8, 'jogado fora pelo Marcelo');
+        await desp(alface, 1, null, 'alface do Marcelo');
+        await desp(null, 3, null, 'o Marcelo deixou cair');
+        await desp(null, 2, 5, 'Cancelamento · pedido · 2× X-Burger', 'Cancelamento');
+        const [{ id: lista }] = await q(`insert into contagem_lista (tenant_id, unidade_id, nome, recorrencia) values ($1, $2, 'Câmara', 'diaria') returning id::text as id`, [A, lojaDeA]);
+        const [{ id: exec }] = await q(`insert into contagem_execucao (tenant_id, lista_id, data, status, concluida_em) values ($1, $2, $3, 'concluida', now()) returning id::text as id`, [A, lista, dia]);
+        const contar = async (it: string, saldo: number, contado: number, ajuste: number | null) => {
+          const [{ id }] = await q(`insert into contagem_item (tenant_id, execucao_id, item_id, saldo_sistema, contado) values ($1, $2, $3, $4, $5) returning id::text as id`, [A, exec, it, saldo, contado]);
+          if (ajuste !== null) await q(`insert into movimento_estoque (tenant_id, item_id, unidade_id, tipo, quantidade, motivo, ref_tipo, ref_id, data) values ($1, $2, $3, 'ajuste', $4, 'contagem', 'contagem_item', $5, $6)`, [A, it, lojaDeA, ajuste, id, dia]);
+        };
+        await contar(queijo, 10, 6, -3.5); // vale o ajuste lançado (-3,5), não contado - saldo (-4)
+        await contar(bacon, 5, 7, null); // sem ajuste: a diferença contra a abertura (sobrou 2)
+        const r = await ferramentas.executar(e, 'analisar_vendas', { foco: 'perdas', de: dia, ate: dia });
+        expect(JSON.stringify(r.dados)).not.toContain('Marcelo');
+        const m = r.dados.mercadoriaPerdida as any;
+        expect(m.desperdicio).toMatchObject({ registros: 4, registrosSemCusto: 2, valor: 26 });
+        expect(m.desperdicio.itens.map((x: any) => x.item)).toEqual(expect.arrayContaining(['Tomate', 'Alface', 'registro sem item ligado', 'Comida perdida em cancelamentos']));
+        expect(m.contagem).toMatchObject({ itensContados: 2, itensComDiferenca: 2, valorQueFaltou: 140 });
+        expect(m.contagem.faltou).toEqual([{ item: 'Muçarela', quantidade: 3.5, unidade: 'kg', valor: 140 }]);
+        expect(m.contagem.sobrou).toMatchObject({ itens: 1, valor: 60 });
+        expect(m.valorPerdido).toBe(166);
+        expect(m.oQueFalta.join(' ')).toContain('2 registro(s) de desperdício sem custo');
+      });
+
+      it('a permissão, os valores e a loja: quem não vê valores não recebe R$; sem a tela, recusa; outra loja e outra empresa não entram', async () => {
+        const { e } = await presidente();
+        const dia = somarDias(hoje, -2);
+        const [{ id: praia }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja Praia') returning id::text as id`, [A]);
+        try {
+          await venda(dia, '20:00', 100, { itens: [['Smash', 1]] });
+          await venda(dia, '20:05', 700, { loja: praia, itens: [['Lagosta', 1]] });
+          await pedido(dia, '20:06', 60, { status: 'cancelado', motivo: 'engano' });
+          await pedido(dia, '20:07', 900, { status: 'cancelado', motivo: 'engano', loja: praia });
+          const [{ id: outraLoja }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja B') returning id::text as id`, [B]);
+          await venda(dia, '20:00', 5000, { tenant: B, loja: outraLoja, itens: [['Pizza', 1]] });
+          const gerente = (permissoes: any, verValores: boolean) => ({ ...e, nivel: 'gerente' as const, lojaUnica: false, presa: lojaDeA, lojas: [{ id: lojaDeA, nome: 'Loja Centro' }], permissoes, verValores });
+          const semValores = gerente({ relatorios_vendas: true, delivery: true, estoque: { ver: true } }, false);
+          for (const en of [{ foco: 'semana', de: dia, ate: dia }, { foco: 'pico', dia }, { foco: 'fases_do_mes' }, { foco: 'perdas', de: dia, ate: dia }]) {
+            const r = await ferramentas.executar(semValores, 'analisar_vendas', en);
+            expect(r.ok).toBe(true);
+            expect(r.dados.aviso).toContain('não mostra valores em reais');
+            const texto = JSON.stringify(r.dados);
+            expect(texto).not.toMatch(/"(faturamento|ticketMedio|vendaPorDia|valor|valorPerdido|valorQueFaltou)":\d/);
+            expect(texto).not.toContain('Lagosta');
+            expect(texto).not.toContain('Pizza');
+          }
+          // O gráfico também: em pedidos, sem R$; o da mercadoria é em reais e recusa.
+          process.env.MISTER_MIDIA = '1';
+          await venda(dia, '21:10', 50);
+          const g = await ferramentas.executar(semValores, 'mostrar_grafico', { tipo: 'pico', dia });
+          expect(g.graficos).toHaveLength(1);
+          expect(JSON.stringify(g.graficos)).not.toContain('R$');
+          expect(JSON.stringify(g.dados)).not.toContain('R$');
+          expect((await ferramentas.executar(semValores, 'mostrar_grafico', { tipo: 'mercadoria_perdida' })).ok).toBe(false);
+          // A loja do gerente: só a dela.
+          const daLoja = await ferramentas.executar(gerente({ relatorios_vendas: true, delivery: true }, true), 'analisar_vendas', { foco: 'semana', de: dia, ate: dia });
+          expect(daLoja.dados).toMatchObject({ faturamento: 150, pedidos: 2 });
+          const perdasDaLoja = await ferramentas.executar(gerente({ delivery: true }, true), 'analisar_vendas', { foco: 'perdas', de: dia, ate: dia });
+          expect((perdasDaLoja.dados.cancelamentos as any).naoEntrou).toEqual({ pedidos: 1, valor: 60 });
+          expect((perdasDaLoja.dados.mercadoriaPerdida as any).aviso).toContain('não dá acesso');
+          // O presidente, sem escolher, vê as duas lojas; nunca a outra empresa.
+          expect((await ferramentas.executar({ ...e, lojaUnica: false }, 'analisar_vendas', { foco: 'semana', de: dia, ate: dia })).dados).toMatchObject({ faturamento: 850, pedidos: 3 });
+          // Sem a tela de relatórios, a análise de vendas recusa; sem nenhuma das telas, as perdas também.
+          expect((await ferramentas.executar(gerente({}, true), 'analisar_vendas', { foco: 'semana' })).dados.erro).toContain('não dá acesso');
+          expect((await ferramentas.executar(gerente({}, true), 'analisar_vendas', { foco: 'perdas' })).dados.erro).toContain('não dá acesso');
+          expect((await ferramentas.executar(e, 'analisar_vendas', { foco: 'xis' })).dados.erro).toContain('foco');
+          expect((await ferramentas.executar(e, 'analisar_vendas', { foco: 'pico', diaDaSemana: 'feriado' })).dados.erro).toContain('dia da semana');
+        } finally {
+          delete process.env.MISTER_MIDIA;
+          await limpar();
+          await q(`delete from unidade where tenant_id = $1 and nome = 'Loja Praia'`, [A]);
+          await q(`delete from unidade where tenant_id = $1 and nome = 'Loja B'`, [B]);
+        }
+      });
+
+      it('sem venda nenhuma: diz o que falta, sem número inventado; os gráficos das análises saem com a imagem ligada', async () => {
+        const { e } = await presidente();
+        const vazia = await ferramentas.executar(e, 'analisar_vendas', { foco: 'semana' });
+        expect(vazia.dados).toMatchObject({ semDados: true, pedidos: 0 });
+        expect((vazia.dados.oQueFalta as string[])[0]).toContain('Não há venda registrada');
+        const dia = somarDias(hoje, -2);
+        await venda(dia, '19:30', 30);
+        await venda(dia, '20:30', 50);
+        await venda(dia, '20:40', 60);
+        await venda(dia, '21:30', 40);
+        await pedido(dia, '21:00', 70, { status: 'cancelado', motivo: 'atraso' });
+        await pedido(dia, '21:10', 20, { status: 'cancelado', motivo: 'engano' });
+        process.env.MISTER_MIDIA = '1';
+        try {
+          const pico = await ferramentas.executar(e, 'mostrar_grafico', { tipo: 'pico', dia });
+          expect(pico.graficos?.[0]).toMatchObject({ forma: 'colunas' });
+          expect(pico.graficos?.[0].faixa?.length).toBeGreaterThan(0);
+          const fases = await ferramentas.executar(e, 'mostrar_grafico', { tipo: 'fases_do_mes' });
+          expect(fases.ok).toBe(true);
+          const canc = await ferramentas.executar(e, 'mostrar_grafico', { tipo: 'cancelamentos_por_causa', de: dia, ate: dia });
+          expect(canc.graficos?.[0].titulo).toBe('Cancelamentos: R$ 90,00 não entraram');
+          const merc = await ferramentas.executar(e, 'mostrar_grafico', { tipo: 'mercadoria_perdida', de: dia, ate: dia });
+          expect(merc.graficos).toBeUndefined();
+          expect(String(merc.dados.grafico)).toContain('Não há o que mostrar');
+        } finally {
+          delete process.env.MISTER_MIDIA;
+        }
+      });
+
+      it('"Análises mais profundas": nasce desligada; ligada, só a resposta depois da análise usa o modelo maior, e o medidor grava cada modelo', async () => {
+        comIa();
+        const conversaCfg = new MisterConversaConfigService(db, auditoria);
+        const comAjustes = new MisterAgenteService(fila, ferramentas, ia, numero, undefined, conversaCfg);
+        const tel = telefone();
+        await ligar('ana', tel);
+        await q(`delete from mister_conversa_config where tenant_id = $1`, [A]);
+        try {
+          expect((await conversaCfg.daEmpresa(A)).analisesProfundas).toBe(false);
+          await perguntar(tel, 'como foi a semana?');
+          ia.roteiro = [usar('analisar_vendas', { foco: 'semana' }), falar('Sem venda na semana.')];
+          await comAjustes.esvaziar();
+          expect(ia.pedidos.map((p) => p.model)).toEqual(['claude-haiku-5-5', 'claude-haiku-5-5']);
+
+          const salvo = await conversaCfg.salvar(usuario('ana'), { analisesProfundas: true });
+          expect(salvo.conversa.analisesProfundas).toBe(true);
+          await expect(conversaCfg.salvar(usuario('ana'), { analisesProfundas: 'sim' })).rejects.toThrow('Análises mais profundas');
+          // Sem venda: a análise não traz dados e a resposta fica no modelo de sempre.
+          ia.pedidos.length = 0;
+          await perguntar(tel, 'e a semana?');
+          ia.roteiro = [usar('analisar_vendas', { foco: 'semana' }), falar('Ainda sem venda.')];
+          await comAjustes.esvaziar();
+          expect(ia.pedidos.map((p) => p.model)).toEqual(['claude-haiku-5-5', 'claude-haiku-5-5']);
+
+          // Com venda: a primeira volta no modelo de sempre, a resposta no maior.
+          await venda(somarDias(hoje, -7), '20:00', 80);
+          ia.pedidos.length = 0;
+          await q(`delete from ia_uso_dia where tenant_id = $1`, [A]);
+          await perguntar(tel, 'como foi a semana passada?');
+          ia.roteiro = [usar('analisar_vendas', { foco: 'semana', de: somarDias(hoje, -7), ate: somarDias(hoje, -7) }), falar('Foi boa.')];
+          await comAjustes.esvaziar();
+          expect(ia.pedidos.map((p) => p.model)).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5']);
+          const uso = await q(`select modelo, chamadas from ia_uso_dia where tenant_id = $1 and recurso = 'mister_perguntas' order by modelo`, [A]);
+          expect(uso).toEqual([
+            { modelo: 'claude-haiku-5-5', chamadas: 1 },
+            { modelo: 'claude-sonnet-5-5', chamadas: 1 },
+          ]);
+          const [ultima] = await q(`select modelo from mister_pergunta where colaborador_id = $1 and situacao = 'respondida' order by criado_em desc limit 1`, [pessoa.ana]);
+          expect(ultima.modelo).toBe('claude-sonnet-5-5');
+
+          // Outra pergunta, sem análise: nada de modelo maior.
+          ia.pedidos.length = 0;
+          await perguntar(tel, 'quanto vendi?');
+          ia.roteiro = [usar('vendas_do_periodo', {}), falar('Vendeu.')];
+          await comAjustes.esvaziar();
+          expect(ia.pedidos.map((p) => p.model)).toEqual(['claude-haiku-5-5', 'claude-haiku-5-5']);
+        } finally {
+          await q(`delete from mister_conversa_config where tenant_id = $1`, [A]);
+        }
+      });
+
+      it('o padrão do descarte: 3 das últimas 5 semanas, uma vez, "Deixa assim" cala por 30 dias e nenhum outro botão vale', async () => {
+        const regrasDoPadrao = new MisterRegrasService(db, ferramentas, new DashboardService(db), numero, entrada, auditoria);
+        const padroes = new MisterPadroesService(db, ferramentas, regrasDoPadrao, numero, undefined, entrada, auditoria);
+        const tel = telefone();
+        await ligar('ana', tel);
+        const [{ id: tomate }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida, custo_medio) values ($1, 'Tomate', 'kg', 8) returning id::text as id`, [A]);
+        const [{ id: alface }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida, custo_medio) values ($1, 'Alface', 'kg', 8) returning id::text as id`, [A]);
+        const desp = (it: string, data: string, qtd = 16, custo: number | null = 7.75) =>
+          q(`insert into desperdicio (tenant_id, unidade_id, item_id, descricao, quantidade, unidade_medida, custo_unitario, motivo, data) values ($1, $2, $3, 'descartado pelo Marcelo', $4, 'kg', $5, 'Validade', $6)`, [A, lojaDeA, it, qtd, custo, data]);
+        const semana = (n: number) => somarDias(hoje, -7 * n);
+        for (const n of [1, 2, 4, 5]) await desp(tomate, semana(n));
+        // Duas semanas só: não é padrão.
+        for (const n of [1, 2]) await desp(alface, somarDias(semana(n), -1));
+        // Antes da 491 (vai pelo SQL Editor): o tipo novo não é procurado, nada quebra e a vez da pessoa no dia não se gasta.
+        const restricao = (tipos: string, comoFica = '') =>
+          q(`alter table mister_padrao drop constraint if exists ck_mister_padrao_tipo, add constraint ck_mister_padrao_tipo check (tipo in (${tipos})) ${comoFica}`);
+        const ANTIGOS = `'impressora_antes_do_fechamento', 'avisos_sem_resposta', 'atrasos_na_faixa'`;
+        await restricao(ANTIGOS, 'not valid');
+        try {
+          numero.pedidos.length = 0;
+          expect(await padroes.volta([A])).toMatchObject({ enviados: 0 });
+          expect(numero.enviadas.filter((m) => m.para === tel)).toEqual([]);
+          expect(await q(`select 1 from mister_padrao where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana])).toEqual([]);
+        } finally {
+          await restricao(`${ANTIGOS}, 'descarte_no_dia_da_semana'`);
+        }
+        numero.pedidos.length = 0;
+        const r = await padroes.volta([A]);
+        expect(r.enviados).toBe(1);
+        const [msg] = numero.enviadas.filter((m) => m.para === tel);
+        expect(msg.texto).toContain('Percebi um padrão: Tomate');
+        expect(msg.texto).toContain('em 4 das últimas 5');
+        expect(msg.texto).toContain('cerca de 16 kg por vez, R$ 124,00 por vez');
+        expect(msg.texto).toContain('Minha sugestão:');
+        expect(msg.texto).not.toContain('Marcelo');
+        expect(msg.texto).not.toContain('Alface');
+        expect(msg.botoes.map((b) => b.titulo)).toEqual(['Deixa assim']);
+        const [linha] = await q(`select id::text as id, tipo, situacao, dados from mister_padrao where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]);
+        expect(linha).toMatchObject({ tipo: 'descarte_no_dia_da_semana', situacao: 'enviado', dados: { item: 'Tomate', semanas: 4 } });
+        expect(JSON.stringify(linha.dados)).not.toContain('Marcelo');
+        const quem = { telefone: tel, vinculos: [{ tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente' as const, empresa: NOME_A }], wamid: null };
+        // Um botão de outra ação com o id dela não faz nada e não toma a sugestão.
+        numero.pedidos.length = 0;
+        await padroes.tocou(`pad:regra:${linha.id}`, quem);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DOS_PADROES.naoDisponivel]);
+        expect((await q(`select situacao from mister_padrao where id = $1`, [linha.id]))[0].situacao).toBe('enviado');
+        expect(await q(`select 1 from mister_regra where tenant_id = $1`, [A])).toEqual([]);
+        // "Deixa assim": 30 dias sem falar disso, e a volta do dia seguinte não repete.
+        numero.pedidos.length = 0;
+        await padroes.tocou(`pad:nao:${linha.id}`, quem);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DOS_PADROES.calado]);
+        const [calado] = await q(`select situacao, proxima_em from mister_padrao where id = $1`, [linha.id]);
+        expect(calado.situacao).toBe('calado');
+        expect((new Date(calado.proxima_em).getTime() - Date.now()) / 86_400_000).toBeGreaterThan(29.9);
+        await q(`update mister_padrao set enviado_em = enviado_em - interval '1 day' where id = $1`, [linha.id]);
+        numero.pedidos.length = 0;
+        expect((await padroes.volta([A])).enviados).toBe(0);
+        expect(numero.enviadas.filter((m) => m.para === tel)).toEqual([]);
+
+        // Quem não vê valores recebe a mesma sugestão, sem o R$.
+        await q(`delete from mister_padrao where tenant_id = $1`, [A]);
+        const telCarlos = telefone();
+        await ligar('carlos', telCarlos, A, 'gerente');
+        const antes = (await q(`select perfil_acesso_id from colaborador where id = $1`, [pessoa.carlos]))[0].perfil_acesso_id;
+        const [{ id: perfil }] = await q(`insert into perfil_acesso (tenant_id, nome, nivel, permissoes) values ($1, $2, 'gerente', $3::jsonb) returning id::text as id`, [A, `Sem valores ${MARCA}`, JSON.stringify({ estoque: { ver: true } })]);
+        await q(`update colaborador set perfil_acesso_id = $2 where id = $1`, [pessoa.carlos, perfil]);
+        try {
+          numero.pedidos.length = 0;
+          await padroes.volta([A]);
+          const [doCarlos] = numero.enviadas.filter((m) => m.para === telCarlos);
+          expect(doCarlos.texto).toContain('cerca de 16 kg por vez');
+          expect(doCarlos.texto).not.toContain('R$');
+        } finally {
+          await q(`update colaborador set perfil_acesso_id = $2 where id = $1`, [pessoa.carlos, antes]);
+          await q(`delete from perfil_acesso where id = $1`, [perfil]);
         }
       });
     });

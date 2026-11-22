@@ -2229,7 +2229,7 @@ quem fala, "até risada se a ocasião assim se apresentar". Protótipo: `mockups
 | V7a · Números únicos | O Mister usa a conta do Painel (`vendasOficiais`); a medida do atraso do Anota Aí | no ar (#1259, ERR-564) |
 | V7b · Dinheiro sem duplicar | Pagar o entregador, conta recorrente e resultado do pinpad | mesclado (#1260, #1261, ERR-565, ERR-566) |
 | V7c · Conversa natural | Plano em uma frase, ajuste na conversa, várias tarefas, conferir antes de dizer "pronto" | entregue (ERR-569); falta a avaliação com a IA real (63 casos) |
-| V7e · BI | Semana, pico e itens do pico, fases do mês, perdas e cancelamentos, padrões | a fazer |
+| V7e · BI | Semana, pico e itens do pico, fases do mês, perdas e cancelamentos, padrões | entregue (mig 490 aplicada); a 491 vai pelo SQL Editor; falta a avaliação com a IA real (70 casos) |
 | V7f · KPIs financeiros | Margem, CMV, inadimplência, prazo; saldo, folha e custo informados na conversa | a fazer |
 | V7d · Voz | A voz com tom e a risada, pelo DMS Graph, nascendo desligada | a fazer |
 
@@ -2260,6 +2260,21 @@ receber lançadas, então inadimplência e prazo de pagamento ficam sem número 
 - O dia da conferência de uma regra começa às 06:00, e a noite que passa da meia-noite conta como um dia só.
 - Diferenças do protótipo: o botão da regra continua "Confirmar", recado no mural e imagem não entram no plano, e a sugestão na
   reclamação vem em texto, sem botões.
+
+**Como a V7e ficou (22/11):**
+
+- A ferramenta `analisar_vendas` tem quatro focos: semana, pico, fases do mês e perdas. A venda vem das mesmas linhas da conta oficial.
+- O dia do pico vai das 06:00 às 05:59, e a faixa é definida por pedidos, para dar a mesma resposta a quem não vê valores.
+- O motivo de cancelamento é texto livre e traz nome de funcionário: ele é classificado no servidor e só a causa vai à IA. Pedido de
+  teste fica fora do total, e "cancelado pelo canal" conta como sem motivo informado.
+- Sem desperdício ou contagem lançados, o Mister diz o que falta lançar, nunca "R$ 0 de perda".
+- "Análises mais profundas" nasce desligada. Ligada, só a resposta depois de uma análise com dados usa o Sonnet 5.5; se ele falhar, o
+  modelo de sempre responde. Custo estimado: de US$ 0,001 para US$ 0,01 a 0,08 por análise (o protótipo dizia até US$ 0,02, que só
+  vale com o cache quente).
+- O padrão do descarte (3 das últimas 5 semanas, no mesmo dia) depende da mig 491 e de `MISTER_PADROES=1`. Sem a 491, ele não é
+  procurado e os outros padrões seguem.
+- Diferenças do protótipo: sem o botão "Preparar o pedido" e sem "comprado × usado", porque o Regem não sabe quanto do item se usa até
+  aquele dia; os gráficos das análises saem sem os botões de PDF e link.
 
 **Ainda depende de teste real:** a voz nova em português, a risada, a leitura do tom com barulho de cozinha, o custo e o tempo de
 resposta das análises no pico.
