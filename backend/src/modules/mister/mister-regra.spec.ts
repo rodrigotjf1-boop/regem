@@ -6,6 +6,7 @@ import {
   Regra,
   avaliarRegra,
   chaveDaRegra,
+  comOQueDeixaDeChegar,
   conferirRegra,
   descreverRegra,
   lerBotaoDaRegra,
@@ -156,6 +157,14 @@ describe('a regra que junta os pedidos parados fica no lugar do aviso um a um (E
     { campo: 'situacao', op, valor },
     { campo: 'min_desde_aceite', op: '>=', valor: 20 },
   ];
+
+  it('a resposta que resumiu a proposta ganha a frase do que deixa de chegar; a que já fala disso não repete', () => {
+    const frase = 'O aviso "pedido parado (em preparo)" deixa de chegar no seu WhatsApp enquanto a regra estiver ligada.';
+    const resultados = [{ regras: [] }, { oQueVouFazer: 'x', dizerAntesDoConfirmar: frase }];
+    expect(comOQueDeixaDeChegar('Montei a regra.', resultados)).toBe(`Montei a regra.\n\n${frase}`);
+    expect(comOQueDeixaDeChegar('Montei. Os avisos deixam de chegar.', resultados)).toBe('Montei. Os avisos deixam de chegar.');
+    expect(comOQueDeixaDeChegar('Vendeu bem hoje.', [{ total: 10 }])).toBe('Vendeu bem hoje.');
+  });
 
   it('sem dizer nada, cala só a etapa da regra e diz isso antes do Confirmar', () => {
     const r = ok(semSubstitui);
