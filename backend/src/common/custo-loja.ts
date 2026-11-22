@@ -75,6 +75,27 @@ export async function custosMediosNaLoja(
   return m;
 }
 
+/** O custo médio de um item numa loja (sem loja: o do cadastro). 0 = sem custo médio. */
+export type CustoMedioDoItem = (itemId: string, unidadeId: string | null) => number;
+
+// O custo médio de TODOS os itens da empresa, em duas consultas (nunca uma por item), para a conta das fichas: a tela e o Mister
+// leem por aqui. A mesma herança do `custoMedioNaLoja`: a linha da loja, quando existe com valor; senão, o cadastro.
+export async function lerCustosMedios(db: any, tenantId: string): Promise<CustoMedioDoItem> {
+  const [cadastro, porLoja] = await Promise.all([
+    db.execute(sql`select id::text as id, custo_medio as c from item_estoque where tenant_id = ${tenantId}::uuid and custo_medio > 0`),
+    db.execute(sql`
+      select item_id::text as item, unidade_id::text as loja, custo_medio as c
+        from item_estoque_unidade
+       where tenant_id = ${tenantId}::uuid and deleted_at is null and custo_medio is not null`),
+  ]);
+  const doCadastro = new Map<string, number>(rows(cadastro).map((i) => [String(i.id), Number(i.c)]));
+  const daLoja = new Map<string, number>(rows(porLoja).map((i) => [`${i.item}|${i.loja}`, Number(i.c)]));
+  return (itemId, unidadeId) => {
+    const proprio = unidadeId ? daLoja.get(`${itemId}|${unidadeId}`) : undefined;
+    return proprio !== undefined ? proprio : (doCadastro.get(itemId) ?? 0);
+  };
+}
+
 // Custo médio para gravar numa SAÍDA (venda, desperdício, produção). A loja é a do
 // movimento: a explícita, ou a que o gatilho da mig 253 vai resolver pela origem — a MESMA
 // função, chamada antes do INSERT, para o custo gravado e a loja gravada nunca divergirem.

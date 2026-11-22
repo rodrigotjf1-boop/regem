@@ -1444,7 +1444,7 @@ export class EntregadorService implements OnModuleInit {
       const nomeEnt = (nomeRow.rows ?? nomeRow)[0]?.nome ?? 'Entregador';
       // Pedidos a acertar (guarda os ids p/ marcar exatamente estes).
       const sel: any = await tx.execute(sql`
-        select id, coalesce(taxa_entrega, 0) as taxa
+        select id, unidade_id, coalesce(taxa_entrega, 0) as taxa
         from pedido_externo
         where tenant_id = ${tenantId} and entregador_id = ${colaboradorId}
           and status = 'concluido' and entregador_fechamento_id is null
@@ -1459,11 +1459,16 @@ export class EntregadorService implements OnModuleInit {
 
       // Caixa de entregas aberto (a sangria sai daqui). `for share`: ele não fecha no meio do pagamento.
       const cx: any = await tx.execute(sql`
-        select id from caixa_sessao
+        select id, unidade_id from caixa_sessao
         where tenant_id = ${tenantId} and status = 'aberta' and origem = 'delivery' limit 1 for share`);
-      const sessaoId = (cx.rows ?? cx)[0]?.id ?? null;
+      const sessao = (cx.rows ?? cx)[0];
+      const sessaoId = sessao?.id ?? null;
       if (!sessaoId)
         throw new BadRequestException('Abra o caixa de entregas para registrar o pagamento (sangria).');
+      // A loja do lançamento: a da sessão. O caixa de entregas nasce SEM loja (é um por empresa, `abrirSessao`): aí vale a loja dos
+      // pedidos pagos, se forem todos de uma só. De lojas diferentes (ou sem loja) fica sem loja: não se atribui por palpite.
+      const lojasDosPedidos = [...new Set(pedidos.map((p: any) => p.unidade_id).filter(Boolean))] as string[];
+      const lojaDoLancamento: string | null = sessao.unidade_id ?? (lojasDosPedidos.length === 1 ? lojasDosPedidos[0] : null);
 
       const rotulos: Record<string, string> = {
         diaria_taxas: 'diária + taxas',
@@ -1486,8 +1491,8 @@ export class EntregadorService implements OnModuleInit {
 
       // 2) Sangria no caixa de entregas (saída em dinheiro).
       const lc: any = await tx.execute(sql`
-        insert into lancamento_caixa (tenant_id, tipo, valor, categoria, forma, descricao, sessao_id, criado_por_id, data)
-        values (${tenantId}, 'saida', ${(v.total / 100).toFixed(2)}, 'pagamento_entregador', 'dinheiro',
+        insert into lancamento_caixa (tenant_id, unidade_id, tipo, valor, categoria, forma, descricao, sessao_id, criado_por_id, data)
+        values (${tenantId}, ${lojaDoLancamento}, 'saida', ${(v.total / 100).toFixed(2)}, 'pagamento_entregador', 'dinheiro',
                 ${descr}, ${sessaoId}, ${atorId}, ${hojeISO()})
         returning id`);
       const lancamentoId = (lc.rows ?? lc)[0].id;

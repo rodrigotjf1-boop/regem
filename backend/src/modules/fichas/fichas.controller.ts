@@ -14,6 +14,7 @@ import { Roles } from '../../auth/roles.decorator';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { podeAcessar } from '../../auth/permissoes';
 import { FichasService } from './fichas.service';
@@ -36,9 +37,10 @@ export class FichasController {
     return user.categoria === 'presidente' || podeAcessar(user.permissoes, 'fichas');
   }
 
+  // O custo de cada linha ligada ao estoque é o custo médio de hoje NA LOJA em uso (`@UnidadeAtual`).
   @Get()
-  async list(@CurrentUser() user: AuthUser) {
-    const fichas = await this.service.list(user.tenantId);
+  async list(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null = null) {
+    const fichas = await this.service.list(user.tenantId, atual);
     return this.veCusto(user) ? fichas : fichas.map(fichaSemCusto);
   }
 
@@ -58,16 +60,16 @@ export class FichasController {
   }
 
   @Get(':id')
-  async getOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    const ficha = await this.service.getOne(user.tenantId, id);
+  async getOne(@CurrentUser() user: AuthUser, @Param('id') id: string, @UnidadeAtual() atual: string | null = null) {
+    const ficha = await this.service.getOne(user.tenantId, id, atual);
     return this.veCusto(user) ? ficha : fichaSemCusto(ficha);
   }
 
   @Post()
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('fichas')
-  create(@CurrentUser() user: AuthUser, @Body() dto: CreateFichaDto) {
-    return this.service.create(user.tenantId, dto);
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateFichaDto, @UnidadeAtual() atual: string | null = null) {
+    return this.service.create(user.tenantId, dto, atual);
   }
 
   @Patch(':id')
@@ -77,8 +79,9 @@ export class FichasController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: UpdateFichaDto,
+    @UnidadeAtual() atual: string | null = null,
   ) {
-    return this.service.update(user.tenantId, id, dto);
+    return this.service.update(user.tenantId, id, dto, atual);
   }
 
   @Delete(':id')
@@ -95,8 +98,9 @@ export class FichasController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: CreateIngredienteDto,
+    @UnidadeAtual() atual: string | null = null,
   ) {
-    return this.service.addIngrediente(user.tenantId, id, dto);
+    return this.service.addIngrediente(user.tenantId, id, dto, atual);
   }
 
   @Delete('ingredientes/:id')

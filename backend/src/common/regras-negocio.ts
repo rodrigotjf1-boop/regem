@@ -120,6 +120,18 @@ export type FichaCusto = {
 };
 
 /**
+ * O custo de UMA linha de ficha, a regra única da tela e do Mister: a linha ligada a um item do estoque usa o custo médio atual dele
+ * (quem chama resolve o da loja, se houver; senão, o do cadastro); sem custo médio, ou sem item, vale o valor gravado na linha. Zero
+ * é "sem custo". `ficha_ingrediente.custo_unitario` é a cópia de quando a ficha foi salva e nada aqui a regrava.
+ */
+export function custoDaLinhaDaFicha(custoGravado: unknown, custoMedioDoItem?: number | null): number {
+  const medio = Number(custoMedioDoItem);
+  if (medio > 0) return medio;
+  const gravado = Number(custoGravado);
+  return gravado > 0 ? gravado : 0;
+}
+
+/**
  * Custo total (do lote inteiro = rendimento) de uma ficha, resolvendo sub-fichas
  * recursivamente: uma sub-ficha entra pelo seu custo/porção (custoTotal ÷ rendimento).
  * Guarda de ciclo: uma ficha já visitada na cadeia contribui 0 (safety net —
@@ -165,6 +177,42 @@ export function custoTotalFicha(
   // A sub-receita já entrou acima com a margem DELA; esta vale sobre o total desta ficha.
   const margem = Number(ficha.margemPerda) || 0;
   return margem > 0 ? total * (1 + margem / 100) : total;
+}
+
+/**
+ * Todo ingrediente que entra nesta venda tem custo (também na sub-receita)? `custoTotalFicha` soma a linha sem custo como zero: a
+ * ficha pela metade daria um custo baixo e uma margem falsa. Quem mostra lucro ou manda custo para fora confere aqui antes.
+ */
+export function fichaComCustoCompleto(
+  fichaId: string,
+  mapa: Record<string, FichaCusto>,
+  canal: CanalDaFicha = 'nenhum',
+  mesmaEmbalagem = false,
+  visitados: Set<string> = new Set(),
+): boolean {
+  if (visitados.has(fichaId)) return false;
+  const ficha = mapa[fichaId];
+  if (!ficha) return false;
+  const proximos = new Set(visitados);
+  proximos.add(fichaId);
+  let entraram = 0;
+  for (const ing of ficha.ingredientes) {
+    if (!linhaEntra(ing, canal, mesmaEmbalagem)) continue;
+    if (!(Number(ing.quantidade) > 0)) continue;
+    entraram++;
+    if (!(Number(ing.fatorCorrecao) > 0)) return false;
+    if (ing.subFichaId) {
+      if (!fichaComCustoCompleto(ing.subFichaId, mapa, canal, mesmaEmbalagem, proximos)) return false;
+      continue;
+    }
+    // Feito na loja: se a ficha dele já tem algum custo, ela decide. Sem nenhum, vale o que está gravado na linha.
+    if (ing.fichaDoItemId && custoTotalFicha(ing.fichaDoItemId, mapa, 'nenhum', false, proximos) > 0) {
+      if (!fichaComCustoCompleto(ing.fichaDoItemId, mapa, 'nenhum', false, proximos)) return false;
+      continue;
+    }
+    if (!(Number(ing.custoUnitario) > 0)) return false;
+  }
+  return entraram > 0;
 }
 
 /**

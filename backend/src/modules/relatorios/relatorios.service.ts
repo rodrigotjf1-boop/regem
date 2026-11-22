@@ -264,7 +264,7 @@ export class RelatoriosService {
     const total = rows.reduce((s, r) => s + Number(r.faturamento), 0) || 1;
     // Custo efetivo por produto (override → ficha → item de estoque) — só p/ quem vê
     // financeiro (evita expor custo/lucro e a explosão de ficha a perfis sem permissão).
-    const custoMapa = verFin ? await this.produtoSvc.custoEfetivoMapa(tenantId) : {};
+    const custoMapa = verFin ? await this.produtoSvc.custoEfetivoMapa(tenantId, atual) : {};
     let acum = 0;
     return {
       periodo: { inicio: ini, fim: f },

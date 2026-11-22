@@ -1185,6 +1185,20 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       [...document.querySelectorAll('main span')].filter((s) => /^Uma impressora deixou|^Problemas técnicos do servidor/.test(s.textContent ?? '') && s.getBoundingClientRect().width < 180).map((s) => Math.round(s.getBoundingClientRect().width)),
     );
     ok(espremido.length === 0, `${w}px: Avisos — a descrição não fica espremida (${espremido.join(', ')} px)`);
+    // O selo de frase longa quebra a linha: inteiro dentro do bloco dele, em toda largura.
+    const seloDaNota = await page.evaluate(() => {
+      const el = [...document.querySelectorAll('main span')].find((s) => s.className.includes('font-bold') && (s.textContent ?? '').trim() === 'a leitura da nota do fornecedor vem numa próxima entrega');
+      if (!el) return 'não achei o selo';
+      const r = el.getBoundingClientRect();
+      const pai = el.parentElement.getBoundingClientRect();
+      return r.left >= pai.left - 1 && r.right <= pai.right + 1 && el.scrollWidth <= el.clientWidth + 1 ? '' : `selo de ${Math.round(r.width)} px num bloco de ${Math.round(pai.width)} px`;
+    });
+    ok(seloDaNota === '', `${w}px: o selo "a leitura da nota" inteiro, com a linha quebrada (${seloDaNota})`);
+    if (w === 375) {
+      const blocoDoSelo = page.locator('main span.block:has(> span:text-is("a leitura da nota do fornecedor vem numa próxima entrega"))').first();
+      await blocoDoSelo.scrollIntoViewIfNeeded();
+      await blocoDoSelo.screenshot({ path: foto('375-selo-da-nota.png') });
+    }
     if (w === 375 || w === 1440) await page.screenshot({ path: foto(`${w}-avisos.png`), fullPage: true });
     if (w === 320 || w === 375 || w === 1440) {
       // O cartão dos relatórios (V45: a página inteira não rola o Shell — a foto é do cartão, depois de rolar até ele).

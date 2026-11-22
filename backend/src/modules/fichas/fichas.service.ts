@@ -13,8 +13,8 @@ import { gravarEntitlement } from '../../common/gravar-entitlement';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { arredondarEstoque, arredondarInformado, CASAS_INFORMADO, chaveUnidade, fatorParaEstoque, type Conversao } from '../../common/conversao-unidade';
 import { conferirConversoes, unidadeOuPadrao } from '../estoque/unidades';
-import { custoTotalFicha, fichaAlcancavel, type FichaCusto } from '../../common/regras-negocio';
-import { carregarFichas, custoPorUnidadeDaFicha, dependenciasDasFichas, mesmaEmbalagemDaEmpresa, rendeEm, type Rendimento } from './fichas-carga';
+import { custoDaLinhaDaFicha, custoTotalFicha, fichaAlcancavel, fichaComCustoCompleto, type FichaCusto } from '../../common/regras-negocio';
+import { carregarEstruturaDasFichas, carregarFichas, custoPorUnidadeDaFicha, dependenciasDasFichas, mesmaEmbalagemDaEmpresa, rendeEm, type Rendimento } from './fichas-carga';
 import { CreateFichaDto } from './dto/create-ficha.dto';
 import { CreateIngredienteDto } from './dto/create-ingrediente.dto';
 import { UpdateFichaDto } from './dto/update-ficha.dto';
@@ -132,7 +132,7 @@ export class FichasService {
     return this.embalagemConfig(tenantId);
   }
 
-  async create(tenantId: string, dto: CreateFichaDto) {
+  async create(tenantId: string, dto: CreateFichaDto, unidadeAtual: string | null = null) {
     this.conferirUnidadesLivres(dto.ingredientes);
     this.conferirCanais(dto.ingredientes);
     const [f] = await this.db
@@ -162,7 +162,7 @@ export class FichasService {
         .map((i) => i.subFichaId)
         .filter((x): x is string => !!x);
       if (subs.length) {
-        const { fichas } = await this.carregarTudo(tenantId);
+        const { fichas } = await carregarEstruturaDasFichas(this.db, tenantId);
         const validos = new Set(fichas.map((x) => x.id));
         for (const s of subs) {
           if (!validos.has(s)) {
@@ -190,13 +190,13 @@ export class FichasService {
         })),
       );
     }
-    return this.getOne(tenantId, f.id);
+    return this.getOne(tenantId, f.id, unidadeAtual);
   }
 
-  // Carrega todas as fichas do tenant + ingredientes → mapa p/ custo recursivo, e os produtos do
-  // estoque feitos na loja (a mesma carga que o cadastro do estoque usa — `fichas-carga.ts`).
-  private carregarTudo(tenantId: string) {
-    return carregarFichas(this.db, tenantId);
+  // Carrega todas as fichas do tenant + ingredientes → mapa p/ custo recursivo (com o custo médio de
+  // hoje NESTA loja), e os produtos do estoque feitos na loja (a mesma carga do cadastro do estoque).
+  private carregarTudo(tenantId: string, unidadeAtual: string | null = null) {
+    return carregarFichas(this.db, tenantId, unidadeAtual);
   }
 
   // Unidade de estoque e conversões dos produtos ligados às linhas (para converter a quantidade), e o
@@ -293,6 +293,7 @@ export class FichasService {
     mapa: Record<string, FichaCusto>,
     fichaDoItem: Map<string, string>,
     fichas: any[],
+    custoMedio: (itemId: string) => number,
   ) {
     const unidades = await this.unidadesDosItens(tenantId, ings.map((i) => (i.subFichaId ? null : i.itemId)));
     const subs = new Map(fichas.map((f) => [f.id as string, rendeEm(f)]));
@@ -305,10 +306,13 @@ export class FichasService {
       // unidade do rendimento dela, agora.
       const fichaDoItemId = !i.subFichaId && i.itemId ? fichaDoItem.get(i.itemId) ?? null : null;
       const pelaFicha = i.subFichaId ? custoPorUnidadeDaFicha(i.subFichaId, mapa) : fichaDoItemId ? custoPorUnidadeDaFicha(fichaDoItemId, mapa) : 0;
-      const custoNoEstoque = pelaFicha > 0 ? pelaFicha : Number(i.custoUnitario);
+      // A linha ligada ao estoque mostra o custo com que a ficha é somada: o custo médio de hoje. O gravado fica no banco, intacto.
+      const medio = !i.subFichaId && i.itemId ? custoMedio(i.itemId) : 0;
+      const calculado = pelaFicha > 0 ? pelaFicha : medio > 0 ? custoDaLinhaDaFicha(i.custoUnitario, medio) : 0;
+      const custoNoEstoque = calculado > 0 ? calculado : Number(i.custoUnitario);
       return {
         ...i,
-        ...(pelaFicha > 0 ? { custoUnitario: String(arredondarInformado(pelaFicha)) } : {}),
+        ...(calculado > 0 ? { custoUnitario: String(arredondarInformado(calculado)) } : {}),
         ...(fator === 1
           ? {}
           : {
@@ -329,22 +333,25 @@ export class FichasService {
   // (catálogo) p/ derivar o custo de um produto ligado a uma ficha.
   async custoPorPorcao(
     tenantId: string,
-  ): Promise<Record<string, { balcao: number; delivery: number }>> {
-    const { fichas, mapa, mesmaEmbalagem } = await this.carregarTudo(tenantId);
-    const out: Record<string, { balcao: number; delivery: number }> = {};
+    unidadeAtual: string | null = null,
+  ): Promise<Record<string, { balcao: number; delivery: number; balcaoCompleto: boolean; deliveryCompleto: boolean }>> {
+    const { fichas, mapa, mesmaEmbalagem } = await this.carregarTudo(tenantId, unidadeAtual);
+    const out: Record<string, { balcao: number; delivery: number; balcaoCompleto: boolean; deliveryCompleto: boolean }> = {};
     for (const f of fichas) {
       const rend = Number(f.rendimento) || 1;
       out[f.id] = {
         balcao: custoTotalFicha(f.id, mapa, 'balcao', mesmaEmbalagem) / rend,
         delivery: custoTotalFicha(f.id, mapa, 'delivery', mesmaEmbalagem) / rend,
+        balcaoCompleto: fichaComCustoCompleto(f.id, mapa, 'balcao', mesmaEmbalagem),
+        deliveryCompleto: fichaComCustoCompleto(f.id, mapa, 'delivery', mesmaEmbalagem),
       };
     }
     return out;
   }
 
-  async list(tenantId: string) {
-    const { fichas, ings, mapa, nome, feitos, fichaDoItem, mesmaEmbalagem } = await this.carregarTudo(tenantId);
-    const linhas = await this.enriquecer(tenantId, ings, nome, mapa, fichaDoItem, fichas);
+  async list(tenantId: string, unidadeAtual: string | null = null) {
+    const { fichas, ings, mapa, nome, feitos, fichaDoItem, mesmaEmbalagem, custoMedio } = await this.carregarTudo(tenantId, unidadeAtual);
+    const linhas = await this.enriquecer(tenantId, ings, nome, mapa, fichaDoItem, fichas, custoMedio);
     return fichas.map((f) => {
       const fi = linhas
         .filter((i) => i.fichaId === f.id)
@@ -361,8 +368,8 @@ export class FichasService {
     });
   }
 
-  async getOne(tenantId: string, id: string) {
-    const { fichas, ings, mapa, nome, feitos, fichaDoItem, mesmaEmbalagem } = await this.carregarTudo(tenantId);
+  async getOne(tenantId: string, id: string, unidadeAtual: string | null = null) {
+    const { fichas, ings, mapa, nome, feitos, fichaDoItem, mesmaEmbalagem, custoMedio } = await this.carregarTudo(tenantId, unidadeAtual);
     const f = fichas.find((x) => x.id === id);
     if (!f) throw new NotFoundException('Ficha não encontrada');
     const fi = ings
@@ -372,13 +379,13 @@ export class FichasService {
     const custoDelivery = custoTotalFicha(id, mapa, 'delivery', mesmaEmbalagem);
     return {
       ...f,
-      ingredientes: await this.enriquecer(tenantId, fi, nome, mapa, fichaDoItem, fichas),
+      ingredientes: await this.enriquecer(tenantId, fi, nome, mapa, fichaDoItem, fichas, custoMedio),
       produtosFeitos: feitos.filter((p) => p.fichaId === id).map((p) => ({ id: p.itemId, nome: p.nome })),
       ...computarDois(f, custoBalcao, custoDelivery),
     };
   }
 
-  async update(tenantId: string, id: string, dto: UpdateFichaDto) {
+  async update(tenantId: string, id: string, dto: UpdateFichaDto, unidadeAtual: string | null = null) {
     await this.getOne(tenantId, id);
     this.conferirUnidadesLivres(dto.ingredientes);
     this.conferirCanais(dto.ingredientes);
@@ -464,7 +471,7 @@ export class FichasService {
           })),
         );
     }
-    return { ...(await this.getOne(tenantId, id)), subReceitasAjustadas };
+    return { ...(await this.getOne(tenantId, id, unidadeAtual)), subReceitasAjustadas };
   }
 
   // A linha de outra ficha que usa ESTA como sub-receita guarda a quantidade na unidade em que esta
@@ -531,7 +538,7 @@ export class FichasService {
   // desta — o custo de uma entraria no da outra, em círculo.
   private async validarProdutosFeitos(tenantId: string, fichaId: string, itemIds: string[]) {
     if (!itemIds.length) return;
-    const { ings, feitos, fichaDoItem, nome } = await this.carregarTudo(tenantId);
+    const { ings, feitos, fichaDoItem, nome } = await carregarEstruturaDasFichas(this.db, tenantId);
     const dependencias = dependenciasDasFichas(ings, fichaDoItem);
     for (const itemId of new Set(itemIds)) {
       const feitaPor = fichaDoItem.get(itemId);
@@ -553,7 +560,7 @@ export class FichasService {
     if (subFichaId === fichaId) {
       throw new BadRequestException('Uma ficha não pode ser sub-receita dela mesma.');
     }
-    const { fichas, ings, fichaDoItem } = await this.carregarTudo(tenantId);
+    const { fichas, ings, fichaDoItem } = await carregarEstruturaDasFichas(this.db, tenantId);
     if (!fichas.some((f) => f.id === subFichaId)) {
       throw new BadRequestException('Sub-ficha inválida para este tenant.');
     }
@@ -571,6 +578,7 @@ export class FichasService {
     tenantId: string,
     fichaId: string,
     dto: CreateIngredienteDto,
+    unidadeAtual: string | null = null,
   ) {
     await this.getOne(tenantId, fichaId);
     this.conferirCanais([dto]);
@@ -591,7 +599,7 @@ export class FichasService {
       somenteBalcao: dto.somenteBalcao ?? false,
       ordem: dto.ordem ?? 0,
     });
-    return this.getOne(tenantId, fichaId);
+    return this.getOne(tenantId, fichaId, unidadeAtual);
   }
 
   async removeIngrediente(tenantId: string, id: string) {

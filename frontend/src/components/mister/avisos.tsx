@@ -575,7 +575,7 @@ export function AvisosDoMister() {
                   </span>
                   <span className="mt-1 block text-xs">Por enquanto, só o presidente manda. Cada foto usa a IA e soma no &quot;Uso da IA&quot;.</span>
                   <span className="mt-1 block">
-                    <Selo tom="info">a leitura da nota do fornecedor vem numa próxima entrega</Selo>
+                    <Selo tom="info" quebrar>a leitura da nota do fornecedor vem numa próxima entrega</Selo>
                   </span>
                 </>
               ),

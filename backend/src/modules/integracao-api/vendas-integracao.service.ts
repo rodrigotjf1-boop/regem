@@ -310,12 +310,15 @@ export class VendasIntegracaoService {
     if (!ctx.escopos.includes('custos.ler')) return null;
     if (!(await this.autorizadorVeValores(ctx))) return null;
     const agora = Date.now();
-    const c = this.custos.get(ctx.tenantId);
+    // O custo da ficha é o da loja do token (empresa de uma loja só, ou token da empresa: o do cadastro). O cache é por loja.
+    const loja = ctx.lojaUnica ? null : (ctx.unidadeId ?? null);
+    const chave = `${ctx.tenantId}|${loja ?? ''}`;
+    const c = this.custos.get(chave);
     if (c && agora - c.em < TTL_CUSTO_MS) return c.mapa;
     const produtos = this.moduleRef.get(ProdutoService, { strict: false });
-    const mapa = Object.freeze(await produtos.custoEfetivoMapa(ctx.tenantId)) as Record<string, number>;
+    const mapa = Object.freeze(await produtos.custoEfetivoMapa(ctx.tenantId, loja)) as Record<string, number>;
     if (this.custos.size > MAX_CACHE) this.custos.clear();
-    this.custos.set(ctx.tenantId, { em: agora, mapa });
+    this.custos.set(chave, { em: agora, mapa });
     return mapa;
   }
 
