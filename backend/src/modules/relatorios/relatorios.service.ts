@@ -191,6 +191,8 @@ export class RelatoriosService {
         vendas,
         faturado: m(faturado),
         gorjeta: m(gorjeta),
+        // O que passou pelo caixa, pelas comandas: não é a soma do faturado com a gorjeta, porque a entrega do canal fica fora dele.
+        recebido: r.resumo.recebido,
         ticketMedio: m(vendas ? Math.round(faturado / vendas) : 0),
         canceladas: r.resumo.canceladas,
       },
