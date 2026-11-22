@@ -29,6 +29,7 @@ import {
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { proximaData } from '../../common/regras-negocio';
+import { uuidDeChave } from '../../common/id-deterministico';
 import { sqlUnidade, condUnidade } from '../../common/filtro-unidade';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { CreateTituloDto } from './dto/create-titulo.dto';
@@ -246,22 +247,27 @@ export class FinanceiroService {
         criadoPorId: atorId,
       });
 
-      // Recorrência: gera o próximo título em aberto.
+      // Recorrência: gera o próximo título em aberto. O id nasce deste título e do vencimento: pagar, estornar e pagar de
+      // novo acha a próxima que já existe, em vez de criar outra (ERR-566).
       const prox = proximaData(t.vencimento, t.recorrencia);
       if (prox) {
-        await tx.insert(tituloFinanceiro).values({
-          tenantId,
-          unidadeId: t.unidadeId,
-          tipo: t.tipo,
-          descricao: t.descricao,
-          categoria: t.categoria,
-          fornecedorId: t.fornecedorId,
-          valor: t.valor,
-          vencimento: prox,
-          recorrencia: t.recorrencia,
-          origem: 'manual',
-          criadoPorId: atorId,
-        });
+        await tx
+          .insert(tituloFinanceiro)
+          .values({
+            id: uuidDeChave('titulo-recorrente', t.id, prox),
+            tenantId,
+            unidadeId: t.unidadeId,
+            tipo: t.tipo,
+            descricao: t.descricao,
+            categoria: t.categoria,
+            fornecedorId: t.fornecedorId,
+            valor: t.valor,
+            vencimento: prox,
+            recorrencia: t.recorrencia,
+            origem: 'manual',
+            criadoPorId: atorId,
+          })
+          .onConflictDoNothing({ target: tituloFinanceiro.id });
       }
 
       await this.auditoria.registrar({
