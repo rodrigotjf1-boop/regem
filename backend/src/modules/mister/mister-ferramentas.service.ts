@@ -28,6 +28,7 @@ import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.servic
 import { RelatoriosService } from '../relatorios/relatorios.service';
 import { VendasService } from '../vendas/vendas.service';
 import { pessoaVale } from './mister-vinculo.service';
+import { consultarNoticias } from './mister-noticias';
 import { estadoDaSessao } from './mister-sessao';
 import {
   PedidoDoRelatorio,
@@ -585,6 +586,8 @@ export class MisterFerramentasService {
         return this.indicadoresFinanceiros(e, en, loja);
       case 'clima_e_eventos':
         return this.climaEEventos(en, e, loja);
+      case 'noticias_do_ramo':
+        return consultarNoticias(this.db, e, en);
       case 'pedidos_em_andamento':
         return this.pedidosEmAndamento(e, loja);
       case 'estoque_em_alerta':

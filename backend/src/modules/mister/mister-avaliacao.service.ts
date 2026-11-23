@@ -121,6 +121,7 @@ export class MisterAvaliacaoService {
       {
         modelo,
         instrucoes,
+        todasAsFerramentas: true,
         recurso: RECURSO_DA_AVALIACAO,
         conversa: conversaDaAvaliacao(perfil),
         pedir: async (p: PedidoDeIa) => {

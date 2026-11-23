@@ -247,6 +247,8 @@ describe('Mister — o que o modelo recebe', () => {
       // Versão 7, V7f: os indicadores financeiros.
       'indicadores_financeiros',
       'clima_e_eventos',
+      // Fase N3 das Notícias do ramo (fora da conversa até `MISTER_NOTICIAS_RAMO=1`).
+      'noticias_do_ramo',
       'insumo_vendido',
       'pedidos_em_andamento',
       'estoque_em_alerta',

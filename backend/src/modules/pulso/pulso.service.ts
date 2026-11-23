@@ -9,6 +9,7 @@ import { ClienteDmsId, ClienteIntegracao, ErroPorta } from '../../dms/integracao
 import {
   ConfigPulso,
   DIAS_DE_BOLETIM,
+  DIAS_DO_BOLETIM_RECONFERIDOS,
   DIAS_DE_CLIMA,
   LIMITE_POR_PAGINA,
   PAGINAS_POR_VOLTA,
@@ -113,7 +114,10 @@ export class PulsoService {
     if (cfg) await this.lerBoletimDoRamo(cfg);
   }
 
-  /** Guarda a cópia do boletim de hoje, uma para todas as lojas. Devolve se a cópia mudou. */
+  /**
+   * Guarda a cópia do boletim, uma para todas as lojas: hoje e os 2 dias anteriores, porque a notícia tirada no console do
+   * Pulso pode ser de um boletim de ontem. Devolve se alguma cópia mudou.
+   */
   async lerBoletimDoRamo(cfg: ConfigPulso, buscar?: Buscar): Promise<boolean> {
     try {
       const [vez] = this.rows(await this.db.execute(sql`
@@ -122,20 +126,28 @@ export class PulsoService {
         returning id`));
       if (!vez) return false;
       const hoje = hojeISO();
-      const r = await this.porta(cfg, buscar).pedir('GET', '/ramo/boletim', { consulta: { ramo: RAMO_DO_REGEM, data: hoje } });
-      if (r.status === 404) return false; // o boletim de hoje ainda não saiu: a próxima volta pega
-      if (r.status !== 200) throw new ErroPorta(r.status, r.problema || 'resposta-inesperada');
-      const boletim = lerBoletimDaPorta(r.corpo);
-      if (!boletim || boletim.dia !== hoje) throw new ErroPorta(r.status, 'boletim-invalido');
-      const gravou = this.rows(await this.db.execute(sql`
-        insert into pulso_boletim (ramo, dia, corpo)
-        values (${RAMO_DO_REGEM}, ${hoje}::date, ${JSON.stringify(boletim)}::jsonb)
-        on conflict (ramo, dia) do update set corpo = excluded.corpo, lido_em = clock_timestamp()
-        where pulso_boletim.corpo is distinct from excluded.corpo
-        returning dia`));
+      const porta = this.porta(cfg, buscar);
+      let mudou = false;
+      for (let atras = 0; atras < DIAS_DO_BOLETIM_RECONFERIDOS; atras++) {
+        const dia = somarDias(hoje, -atras);
+        const r = await porta.pedir('GET', '/ramo/boletim', { consulta: { ramo: RAMO_DO_REGEM, data: dia } });
+        if (r.status === 404) continue; // o boletim desse dia não existe (o de hoje ainda não saiu): a próxima volta pega
+        if (r.status !== 200) throw new ErroPorta(r.status, r.problema || 'resposta-inesperada');
+        const boletim = lerBoletimDaPorta(r.corpo);
+        if (!boletim || boletim.dia !== dia) throw new ErroPorta(r.status, 'boletim-invalido');
+        const gravou = this.rows(await this.db.execute(sql`
+          insert into pulso_boletim (ramo, dia, corpo)
+          values (${RAMO_DO_REGEM}, ${dia}::date, ${JSON.stringify(boletim)}::jsonb)
+          on conflict (ramo, dia) do update set corpo = excluded.corpo, lido_em = clock_timestamp()
+          where pulso_boletim.corpo is distinct from excluded.corpo
+          returning dia`));
+        if (gravou.length) {
+          mudou = true;
+          this.log.log(`Pulso — boletim do ramo de ${dia} guardado`);
+        }
+      }
       await this.db.execute(sql`delete from pulso_boletim where dia < ${somarDias(hoje, -DIAS_DE_BOLETIM)}::date`);
-      if (gravou.length) this.log.log(`Pulso — boletim do ramo de ${hoje} guardado`);
-      return gravou.length > 0;
+      return mudou;
     } catch (e: any) {
       await this.anotarErro('boletim', e);
       return false;
