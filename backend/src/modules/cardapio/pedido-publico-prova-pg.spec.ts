@@ -170,6 +170,48 @@ descrever('pedido público do cardápio: credencial só com prova e quantidade c
     });
   });
 
+  describe('S1-02 — o cashback só sai de quem provou quem é', () => {
+    const comSaldo = (l: Loja, telefone: string) =>
+      q(`insert into cashback_saldo (tenant_id, telefone, tipo, saldo) values ($1,$2,'valor',20)`, [l.t, telefone]);
+    const saldo = async (l: Loja, telefone: string) =>
+      Number((await q(`select saldo from cashback_saldo where tenant_id = $1 and telefone = $2 and tipo = 'valor'`, [l.t, telefone]))[0]?.saldo);
+
+    it('digitar o telefone de quem tem saldo não dá desconto nem gasta o saldo', async () => {
+      const l = await loja();
+      await comSaldo(l, '5521987650001');
+      const r = await pedir(l, { telefone: '5521987650001' });
+      expect(r).toMatchObject({ total: 30, desconto: 0 });
+      expect(await saldo(l, '5521987650001')).toBe(20);
+    });
+
+    it('com a credencial do dono: usa o saldo DELE, mesmo com outro telefone digitado', async () => {
+      const l = await loja();
+      await comSaldo(l, '21987650001');
+      await comSaldo(l, '5521999990000');
+      const r = await pedir(l, { telefone: '5521999990000', clienteToken: assinarCliente(l.dono, l.t) });
+      expect(r).toMatchObject({ total: 10, desconto: 20 });
+      expect(await saldo(l, '21987650001')).toBe(0);
+      expect(await saldo(l, '5521999990000')).toBe(20);
+    });
+
+    it('a credencial de outro cliente não gasta o saldo do telefone digitado', async () => {
+      const l = await loja();
+      await comSaldo(l, '5521987650001');
+      const [outro] = await q(`insert into cliente (tenant_id, nome, telefone) values ($1,'Outro','21900000077') returning id`, [l.t]);
+      const r = await pedir(l, { telefone: '5521987650001', clienteToken: assinarCliente(outro.id, l.t) });
+      expect(r).toMatchObject({ total: 30, desconto: 0 });
+      expect(await saldo(l, '5521987650001')).toBe(20);
+    });
+
+    it('o robô do WhatsApp (o número da conversa prova): usa o saldo', async () => {
+      const l = await loja();
+      await comSaldo(l, '5521987650001');
+      const r = await pedir(l, { telefone: '5521987650001', usarCashback: true }, { telefoneVerificado: true });
+      expect(r).toMatchObject({ total: 10, desconto: 20 });
+      expect(await saldo(l, '5521987650001')).toBe(0);
+    });
+  });
+
   describe('R3-H02 — a quantidade de cada item: inteiro de 1 a 9.999', () => {
     it.each([
       ['negativa', -1],

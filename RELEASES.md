@@ -16,6 +16,9 @@
   pede o boletim à nuvem chegam com o próximo `.zip`; até lá, o item não aparece no servidor da loja. Não mexe no `sync-daemon`: a tabela
   nova não tem `tenant_id`, não existe na loja e a coluna nova é de `pulso_estado`, que já é `SO_NUVEM`.
 
+- **O cashback só sai de quem provou quem é (23/11; ERR-586; SEM migration).** Vale na nuvem assim que sobe (o cardápio e o robô rodam lá):
+  sem a conta confirmada ou o número da conversa, o pedido não usa saldo nem vale.
+
 - **Separação entre empresas nas integrações (23/11; ERR-585; SEM migration).** Na nuvem vale assim que sobe: entregador só da empresa do
   pedido, instância da Evolution ligada só pelo suporte, loja da 99 e número oficial em uma empresa só, aviso da 99 sem assinatura só com a
   confirmação dela. O despacho do servidor da loja recebe a conferência do entregador com o próximo `.zip`.
