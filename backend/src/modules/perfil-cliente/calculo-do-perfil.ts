@@ -79,6 +79,20 @@ const R = REGRAS_DO_PERFIL;
 export const faixa = (hora: SQL) => sql`case when ${hora} < 4 then 'madrugada' when ${hora} < 11 then 'manha'
   when ${hora} < 15 then 'almoco' when ${hora} < 18 then 'tarde' when ${hora} < 21 then 'inicio_noite' else 'noite' end`;
 
+/**
+ * A forma de pagamento em palavras, a partir do texto do pedido já em minúsculas. Cada canal grava o mesmo método com um
+ * nome (`card`, `credit_card`, `money`, `vr`…): os códigos seguem `common/formas-pagamento-normaliza.ts`, com crédito e
+ * débito juntos em "Cartão". `entrega` é a opção "Pagar na entrega" do cardápio; num pedido de retirada, "Na retirada".
+ */
+export const sqlFormaDoPerfil = (pag: SQL, tipo: SQL) => sql`case
+  when ${pag} like '%pix%' then 'Pix'
+  when ${pag} ~ '(dinheiro|esp[eé]cie|(^|[^a-z])(money|cash)([^a-z]|$))' then 'Dinheiro'
+  when ${pag} ~ '(vale|refei[cç]|meal.?voucher|food.?voucher|ticket|sodexo|alelo|(^|[^a-z])(vr|va)([^a-z]|$))' then 'Vale-refeição'
+  when ${pag} ~ '(cart[aã]o|cr[eé]dito|d[eé]bito|(^|[^a-z])(card|credit|debit|creditcard|debitcard|pos)([^a-z]|$))' then 'Cartão'
+  when ${pag} ~ '(online|carteira|wallet|prepaid|pr[eé].?pago)' then 'Pago online'
+  when ${pag} = 'entrega' then case when ${tipo} = 'retirada' then 'Na retirada' else 'Na entrega' end
+  else 'Outro' end`;
+
 /** O código RFM ('333') → o segmento, pela tabela acima (um `case` só, gerado). */
 const segmentoSql = (codigo: SQL) =>
   sql.join(
@@ -149,9 +163,7 @@ base as (
          count(*) filter (where agendamento is not null)::int as agendados,
          count(*) filter (where tipo = 'retirada')::int as retiradas,
          count(*) filter (where extract(isodow from dia_op) in (5, 6, 7))::int as fds,
-         mode() within group (order by case when pag like '%pix%' then 'Pix' when pag like '%dinheiro%' then 'Dinheiro'
-           when pag like '%cart%' or pag like '%credito%' or pag like '%crédito%' or pag like '%debito%' or pag like '%débito%' then 'Cartão'
-           when pag like '%vale%' then 'Vale-refeição' when pag like '%online%' then 'Pago online' else 'Outro' end) as pagamento
+         mode() within group (order by ${sqlFormaDoPerfil(sql.raw('pag'), sql.raw('tipo'))}) as pagamento
     from ped group by cliente_id
 ),
 pri as (
