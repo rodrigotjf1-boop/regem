@@ -2397,7 +2397,8 @@ exportação OFX do banco da loja e se o dinheiro do iFood Pago aparece na API F
 | E2 · Comparação com as vendas | no ar (#1287) |
 | E3 · Véspera, linha "Amanhã" e regra pela conversa | no ar (#1289, mig 498) e a regra pela agenda neste PR |
 | E4 · Boletim do ramo | feita por outra frente: Notícias do ramo N1 a N3 (#1278, #1283, #1288) |
-| R1 a R5 · Banco e repasses | a fazer |
+| R1 · Extrato do banco | feita neste PR (mig 499, só nuvem) |
+| R2 a R5 · Caixa, repasses, planilhas, giro | a fazer |
 
 **Como E1 a E3 ficaram:**
 
@@ -2411,3 +2412,25 @@ exportação OFX do banco da loja e se o dinheiro do iFood Pago aparece na API F
 - A regra pela conversa usa a fonte `agenda`, no mesmo motor das outras regras.
 - Diferenças do protótipo: o alerta oficial do INMET ainda não entra, porque o Regem não lê essa rota do Pulso; o boletim do ramo
   continua no grupo Relatórios, onde a fase N2 o colocou.
+
+**Como a R1 ficou (Financeiro › Banco e repasses, mig 499):**
+
+- Cinco tabelas só da nuvem, com RLS e sem política: `banco_empresa` (o sal), `banco_conta` (só o banco e os 4 últimos dígitos),
+  `banco_importacao`, `banco_lancamento` (só a descrição mascarada) e `banco_regra` (resumo da descrição → tipo). Só o presidente, na
+  rota. O arquivo não é guardado: vai ao servidor no passo 2 (só lê) e de novo no passo 3 (grava numa transação).
+- Uma conta por loja nesta etapa. Trocar a conta da loja ainda não tem tela. "Todas as lojas" numa empresa de várias pede para
+  escolher a loja antes de importar.
+- A chave do lançamento é FITID, data e valor. Sem FITID confiável (vazio, repetido no arquivo ou só a numeração das linhas), é data,
+  valor, descrição e a ordem entre as linhas iguais do dia. Linha que só informa saldo e linha de valor zero não entram.
+- "A conferir" vale só para ENTRADA cuja descrição cita iFood, iFood Pago/Anota Aí, 99 ou operadora de cartão. A saída fica "Só no
+  banco", mesmo citando a plataforma.
+- O buraco é um trecho de 5 dias ou mais sem lançamento em que a loja vendeu ao menos um dia (`comanda` fechada da loja). Fica gravado
+  na importação; quem o usa na conta do caixa é a R2. O Banco fica "Em dia" com extrato de até 7 dias e "Extrato antigo" depois.
+- A máscara vale em toda linha: só passa o que está na lista de termos de banco. Empresa (LTDA, EPP, CIA, S/A) mantém a primeira
+  palavra; firma individual (ME, MEI, EIRELI) fica só com as iniciais, porque o nome dela costuma ser o da pessoa.
+- Valor com um separador e 3 dígitos depois (`12.500`) é recusado e contado na tela: o OFX não usa separador de milhar, e adivinhar
+  erraria em mil vezes.
+- Diferenças do protótipo: as fontes sem dado dizem "Ainda não ligado", sem o botão de enviar; o passo 3 não promete casar com os
+  repasses, que só existe na R3/R4; o aviso quando o saldo não fecha é novo; "Falta dizer" é um selo, pelo contraste; o período
+  ganhou mês anterior, "Todo o extrato" e "Outro período" com o seletor de data.
+- **Falta conferir com um arquivo real:** a exportação OFX do banco da loja e como a descrição vem nela.

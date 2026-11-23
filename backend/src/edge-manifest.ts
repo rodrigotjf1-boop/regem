@@ -30,6 +30,7 @@ export const CLOUD_ONLY_MODULES = [
   'MisterAgenteModule', // o agente de IA do Mister: responde às perguntas da fila (tabela só-nuvem, mig 418)
   'GraphModule', // o DMS Graph: a ligação da empresa (segredo cifrado) e a leitura da foto do cliente (tabelas só-nuvem, mig 450)
   'PulsoModule', // a base de eventos e o clima: só a nuvem lê o Pulso (tabelas só-nuvem, mig 470)
+  'BancoRepassesModule', // Financeiro › Banco e repasses: o extrato do banco, só do presidente (tabelas só-nuvem, mig 499)
 ] as const;
 
 // Operacional — roda LOCAL (fonte da verdade da loja). Entra no bundle do edge.

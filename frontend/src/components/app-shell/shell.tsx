@@ -37,6 +37,7 @@ import {
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
+  Landmark,
   Plug,
   Settings,
   ShieldCheck,
@@ -155,6 +156,8 @@ const NAV: NavNode[] = [
       // As contas a pagar e a receber (a tela já existia sem item no menu — decisão 12 da versão 3 do Mister, 17/11/2026:
       // o "Ver nas contas a pagar" do boleto lançado por foto abre aqui). Mesma permissão da API (`financeiro`).
       { href: '/financeiro', label: 'Contas a pagar', icon: Banknote, perm: 'financeiro', soGestao: true },
+      // O extrato do banco (R1 da versão 8 do Mister, mig 499): só o presidente (V8-2, o servidor recusa) e só na nuvem.
+      { href: '/financeiro/banco', label: 'Banco e repasses', icon: Landmark, perm: 'financeiro', soPres: true, soNuvem: true },
       { href: '/formas-pagamento', label: 'Formas de pagamento', icon: CreditCard, perm: 'formas_pagamento' },
       { href: '/notas', label: 'Notas fiscais', icon: ReceiptText, perm: 'fiscal' },
       { href: '/tef', label: 'TEF / maquininha', icon: CreditCard, perm: 'tef' },
