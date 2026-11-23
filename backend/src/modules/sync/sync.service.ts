@@ -652,6 +652,9 @@ export class SyncService {
       for (const l of linhas) {
         const daqui: any = nuvem.get(String(l.id));
         if (daqui?.nivel === 'presidente') recusar('registro do presidente');
+        // Perfil ou função de OUTRA empresa passava pela chave estrangeira e dava o nível dela no login (S3-04).
+        else if (l.perfil_acesso_id && !perfis.has(String(l.perfil_acesso_id))) recusar('perfil de outra empresa');
+        else if (l.funcao_id && !funcoes.has(String(l.funcao_id))) recusar('função de outra empresa');
         else if (nivelDa(l) === 'presidente') recusar('colaborador com nível de presidente');
         else if (daqui && daqui.status !== 'ativo' && String(l.status ?? 'ativo') === 'ativo') recusar('bloqueado ou desligado na nuvem');
         else passam.push({ ...l, pode_nuvem: daqui ? !!daqui.pode_nuvem : false }); // o acesso pela nuvem é daqui
@@ -774,7 +777,8 @@ export class SyncService {
           lote.tabela === 'equipamento' && colunas.has('revogado_em')
             ? sql` and not (equipamento.revogado_em is not null and excluded.revogado_em is null
                       and excluded.pareamento_codigo is null
-                      and (excluded.pareado_em is null or excluded.pareado_em <= equipamento.revogado_em))`
+                      and (excluded.pareado_em is null or excluded.pareado_em <= equipamento.revogado_em))
+                and not (equipamento.revogado_em is not null and not equipamento.ativo and excluded.ativo and excluded.revogado_em is not null)`
             : sql``;
         // CARTÃO DO KDS em estado final não reabre (auditoria do KDS, 20/10/2026): a cópia "mais nova" da loja com o
         // cartão ainda na fila (a cozinha tocou nele antes de o fechamento descer) não desfaz o entregue nem o

@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Acessos do servidor da loja (23/11; ERR-583; SEM migration).** Na nuvem vale assim que sobe: conta excluída ou bloqueada não instala,
+  o token do servidor pela tela é só do presidente, o `push` recusa perfil de outra empresa e token revogado não autentica. A mesma regra
+  chega ao servidor da loja com o próximo `.zip`.
+
 - **O aceite da loja não perde pela data (23/11; ERR-582; SEM migration).** Só na nuvem (`push` do sync): vale assim que sobe, sem depender
   do `.zip` e sem mexer no `sync-daemon`.
 

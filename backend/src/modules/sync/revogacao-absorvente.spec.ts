@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
 import { SyncService } from './sync.service';
+import { EquipamentoService } from '../equipamento/equipamento.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -72,6 +73,18 @@ descrever('revogação absorvente — a nuvem recebendo da loja (push)', () => {
     expect(r.ativo).toBe(false);
     expect(r.revogado_em).not.toBeNull();
     expect(r.segredo_hash).toBeNull();
+  });
+
+  it('S3-06: a cópia "ativa" que mantém a revogação não religa, e token revogado nunca autentica', async () => {
+    const revogadoEm = minutos(-60);
+    const id = await terminal({ revogadoEm, pareadoEm: minutos(-120) });
+    await enviar(daLoja(id, { ativo: true, revogado_em: revogadoEm.toISOString() }));
+    expect((await ler(id)).ativo).toBe(false);
+    const equip = new EquipamentoService(drizzle(pool, { schema }) as any, { registrar: async () => undefined } as any);
+    expect(await equip.validarToken('tok-' + id)).toBeNull();
+    // Mesmo com a linha já marcada como ativa por uma versão antiga, a revogação vale.
+    await q(`update equipamento set ativo = true where id = $1`, [id]);
+    expect(await equip.validarToken('tok-' + id)).toBeNull();
   });
 
   it('pareado de novo DEPOIS da revogação (Trocar máquina) → a cópia da loja vale', async () => {

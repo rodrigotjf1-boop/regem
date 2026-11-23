@@ -167,6 +167,27 @@ descrever('código da trava no assistente do instalador (ERR-124)', () => {
     expect(r2.situacao).toBe('codigo');
   });
 
+  it('S3-02: conta excluída, bloqueada ou desligada não instala nem move o servidor', async () => {
+    const e = await empresaComServidor({ trava: false });
+    const dados = { email: e.email, senha: SENHA, fingerprint: 'fp-conta-fora' };
+    for (const fora of [`deleted_at = now()`, `status = 'bloqueado'`, `status = 'desligado'`]) {
+      await q(`update colaborador set ${fora} where email = $1`, [e.email]);
+      await expect(svc.verificarInstalacao(dados)).rejects.toThrow(UnauthorizedException);
+      await expect(svc.instalarSelfService(dados)).rejects.toThrow(UnauthorizedException);
+      await expect(svc.reautorizarSolicitar(dados)).rejects.toThrow(UnauthorizedException);
+      await q(`update colaborador set deleted_at = null, status = 'ativo' where email = $1`, [e.email]);
+    }
+    expect(await pedidosDe(e.t)).toHaveLength(0);
+    expect((await ativacaoDe(e.t)).device_fingerprint).toBe(e.fpAntiga);
+  });
+
+  it('S3-02: o nível que vale é o do perfil, da própria empresa', async () => {
+    const e = await empresaComServidor({ trava: false });
+    const [caixa] = await q(`insert into perfil_acesso (tenant_id, nome, nivel) values ($1,'Caixa','execucao') returning id`, [e.t]);
+    await q(`update colaborador set perfil_acesso_id = $1 where email = $2`, [caixa.id, e.email]);
+    await expect(svc.verificarInstalacao({ email: e.email, senha: SENHA, fingerprint: 'fp-nivel' })).rejects.toThrow(ForbiddenException);
+  });
+
   it('loja de outra empresa não passa', async () => {
     const e = await empresaComServidor({ trava: false });
     const outra = await empresaComServidor({ trava: false });

@@ -19,6 +19,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   ativacao,
   colaborador,
+  perfilAcesso,
   edgeHeartbeat,
   empresa,
   equipamento,
@@ -410,20 +411,7 @@ export class LicencaService {
       throw new BadRequestException('E-mail, senha e device são obrigatórios.');
     }
     // 1) Autentica a conta C&O.
-    const [u] = await this.db
-      .select({
-        id: colaborador.id,
-        tenantId: colaborador.tenantId,
-        senhaHash: colaborador.senhaHash,
-        categoria: funcao.categoria,
-      })
-      .from(colaborador)
-      .leftJoin(funcao, eq(colaborador.funcaoId, funcao.id))
-      .where(eq(colaborador.email, email))
-      .limit(1);
-    if (!u?.senhaHash || !(await bcrypt.compare(dto.senha, u.senhaHash))) {
-      throw new UnauthorizedException('E-mail ou senha inválidos.');
-    }
+    const u = await this.contaDaInstalacao(email, dto.senha);
     if (!['presidente', 'gerente'].includes(u.categoria ?? '')) {
       throw new ForbiddenException('Apenas o C&O ou gerente pode ativar o servidor local.');
     }
@@ -637,6 +625,16 @@ export class LicencaService {
 
   // Autentica a conta C&O (mesmo critério do instalar) — a senha é a 1ª camada; o código é a 2ª.
   private async autenticarCO(email: string, senha: string) {
+    const u = await this.contaDaInstalacao(email.trim(), senha);
+    if (!['presidente', 'gerente'].includes(u.categoria ?? '')) {
+      throw new ForbiddenException('Apenas o C&O ou gerente pode re-autorizar.');
+    }
+    return u;
+  }
+
+  // A conta que instala ou move o servidor da loja: a MESMA régua do login (S3-02). Excluída ou bloqueada não entra, com a
+  // mesma resposta de senha errada, e o nível é o do perfil, com a função como reserva, sempre da própria empresa.
+  private async contaDaInstalacao(email: string, senha: string) {
     const [u] = await this.db
       .select({
         id: colaborador.id,
@@ -644,18 +642,17 @@ export class LicencaService {
         tenantId: colaborador.tenantId,
         senhaHash: colaborador.senhaHash,
         categoria: funcao.categoria,
+        nivelDoPerfil: perfilAcesso.nivel,
       })
       .from(colaborador)
-      .leftJoin(funcao, eq(colaborador.funcaoId, funcao.id))
-      .where(eq(colaborador.email, email.trim()))
+      .leftJoin(funcao, and(eq(colaborador.funcaoId, funcao.id), eq(funcao.tenantId, colaborador.tenantId)))
+      .leftJoin(perfilAcesso, and(eq(colaborador.perfilAcessoId, perfilAcesso.id), eq(perfilAcesso.tenantId, colaborador.tenantId)))
+      .where(and(eq(colaborador.email, email), isNull(colaborador.deletedAt), eq(colaborador.status, 'ativo')))
       .limit(1);
     if (!u?.senhaHash || !(await bcrypt.compare(senha, u.senhaHash))) {
       throw new UnauthorizedException('E-mail ou senha inválidos.');
     }
-    if (!['presidente', 'gerente'].includes(u.categoria ?? '')) {
-      throw new ForbiddenException('Apenas o C&O ou gerente pode re-autorizar.');
-    }
-    return u;
+    return { id: u.id, nome: u.nome, tenantId: u.tenantId, categoria: (u.nivelDoPerfil ?? u.categoria ?? null) as string | null };
   }
 
   // Etapa 1: cria o pedido. E-mail → gera + envia o código (e ALERTA o dono da tentativa);

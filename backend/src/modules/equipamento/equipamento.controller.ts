@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -58,6 +59,10 @@ export class EquipamentoController {
   @Roles('presidente', 'gerente')
   @RequirePerm('servidor')
   criar(@CurrentUser() user: AuthUser, @Body() dto: CreateEquipamentoDto) {
+    // O token do servidor da loja lê e grava a empresa inteira: pela tela, só o presidente o cria. O gerente instala pelo
+    // provisionamento, que confere a conta e não devolve o token a uma sessão do navegador (S3-03).
+    if (dto.tipo === 'servidor_local' && user.categoria !== 'presidente')
+      throw new ForbiddenException('Só o presidente cadastra um servidor da loja.');
     return this.service.criar(
       user.tenantId,
       user.colaboradorId,
