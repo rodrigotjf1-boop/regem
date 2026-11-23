@@ -1191,8 +1191,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c81', pergunta: 'Como a loja vende em dia de jogo?', consultas: ['clima_e_eventos'], numeros: ['18,1|18'], contem: ['5 dias|cinco dias'] },
   { id: 'c82', pergunta: 'E quando chove, vende mais?', consultas: ['clima_e_eventos'], numeros: ['60'], contem: ['previsão'] },
   // Fase N3: as notícias do ramo. O que está no Congresso não é lei, e o efeito na loja é com o contador.
-  { id: 'c83', pergunta: 'Teve novidade de imposto essa semana?', consultas: ['noticias_do_ramo'], contem: ['CBS', 'MEI', 'não é lei|em discussão', 'contador'] },
-  { id: 'c84', pergunta: 'Quais as tendências do setor de restaurantes?', consultas: ['noticias_do_ramo'], contem: ['cardápio menor', 'iFood'] },
+  { id: 'c83', pergunta: 'Teve novidade de imposto essa semana?', consultas: ['noticias_do_ramo'], contem: ['CBS', 'MEI', 'não é lei|em discussão', 'contador', 'Notícias do ramo'] },
+  { id: 'c84', pergunta: 'Quais as tendências do setor de restaurantes?', consultas: ['noticias_do_ramo'], contem: ['cardápio menor', 'iFood', 'Notícias do ramo'] },
   // Versão 8, E3: a regra pela conversa, com a fonte agenda.
   { id: 'c85', pergunta: 'Me avisa um dia antes de cada jogo do Botafogo, às 18h.', consultas: ['regras'], contem: ['Botafogo|botafogo', 'Confirmar'] },
   // Versão 8, R2: o caixa pelo extrato do banco.

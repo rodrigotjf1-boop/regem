@@ -25,7 +25,7 @@ export const DIAS_DAS_NOTICIAS_PADRAO = 7;
 export const DIAS_DAS_NOTICIAS_MAX = 30;
 export const NOTICIAS_NA_RESPOSTA = 12;
 export const CUIDADO_DAS_NOTICIAS =
-  'Repita o que a notícia diz, com a fonte. O que tem "emDiscussao" ainda não é lei. Não diga o efeito na loja nem o que a pessoa deve pagar: para isso, oriente falar com o contador.';
+  'Repita o que a notícia diz, com a fonte. O que tem "emDiscussao" ainda não é lei. Não diga o efeito na loja nem o que a pessoa deve pagar: para isso, oriente falar com o contador. Não escreva link: termine dizendo que os links estão em Relatórios › Notícias do ramo.';
 
 const DE_NOVIDADE = new Set(['tendencias', 'tecnologia', 'plataformas']);
 const diaCurto = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
@@ -78,8 +78,8 @@ export function montarNoticias(copias: BoletimDoRamo[], p: { assunto: AssuntoDas
       publicadaEm: n.publicadoEm,
       emDiscussao: n.emDiscussao,
       ...(n.aviso ? { aviso: n.aviso } : {}),
+      // Sem o link: o filtro de saída do Mister tira todo link da resposta. A pessoa acha a matéria na tela do Regem.
       fonte: n.credito,
-      link: n.link,
     })),
     ...(comIndicadores && copias[0]?.indicadores?.length ? { indicadores: copias[0].indicadores.map(indicadorNaResposta) } : {}),
     ...(doAssunto.length ? {} : { semNoticias: 'Nenhuma notícia desse assunto no período. Diga isso, sem inventar.' }),
