@@ -7,8 +7,11 @@ import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.servi
 import { hojeISO } from '../../common/data';
 import { FERRAMENTA_OUVIR, MOTIVO_ARGUMENTO_RECUSADO } from '../graph/graph.regras';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
+import { ListaLida, NOTA_DA_LISTA_INCOMPLETA, instrucoesDaListaLida, lerListaLida, notaDaListaLida, pareceListaDeCompras } from './mister-lista';
 import {
   AUDIO_MAX_SEGUNDOS,
+  MAX_TOKENS_DA_LISTA_LIDA,
+  PRAZO_DA_LISTA_LIDA_MS,
   type EstiloDaVoz,
   PRAZO_DA_VOZ_MS,
   TonsNaMemoria,
@@ -184,7 +187,8 @@ export class MisterMidiaService implements OnModuleInit {
         await this.falar(quem.telefone, TEXTOS_DA_MIDIA.naoViu);
         return 'tratada';
       }
-      return { pergunta: perguntaComFoto(visto, midia.legenda, via), documento: visto.financeiro };
+      const notaDaLista = await this.notaDaLista(quem, arquivo.buffer, mime, visto, midia.legenda);
+      return { pergunta: perguntaComFoto(visto, midia.legenda, via, notaDaLista), documento: visto.financeiro };
     } catch (e: any) {
       const motivo = e instanceof FalhaDaIa ? `IA: ${e.motivo}` : String(e?.code ?? e?.name ?? e?.message ?? e).slice(0, 120);
       this.logger.warn(`foto do Mister não lida (${motivo})`);
@@ -271,10 +275,7 @@ export class MisterMidiaService implements OnModuleInit {
       return null;
     }
     if (!(await this.ia.temAcesso(tenantId))) return null;
-    const bloco =
-      mime === 'application/pdf'
-        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } }
-        : { type: 'image', source: { type: 'base64', media_type: mime, data: buffer.toString('base64') } };
+    const bloco = this.blocoDoArquivo(buffer, mime);
     // O `prazoMs` vale por tentativa do provedor: o relógio daqui garante o prazo TOTAL (V106).
     const r = await dentroDoPrazo(
       this.ia.pedir(tenantId, {
@@ -295,6 +296,48 @@ export class MisterMidiaService implements OnModuleInit {
     const visto = lerOQueAIaViu(r.texto);
     if (!visto) this.logger.warn('a leitura da foto do Mister voltou fora do formato');
     return visto;
+  }
+
+  private blocoDoArquivo(buffer: Buffer, mime: string) {
+    return mime === 'application/pdf'
+      ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } }
+      : { type: 'image', source: { type: 'base64', media_type: mime, data: buffer.toString('base64') } };
+  }
+
+  /** O prazo de copiar as linhas da lista (os testes encurtam). */
+  prazoDaListaMs = PRAZO_DA_LISTA_LIDA_MS;
+
+  /**
+   * ERR-584: o resumo da foto cabe em 600 letras e não serve para fazer pedido. Se o arquivo parece uma lista, as linhas são
+   * lidas à parte e guardadas. Devolve o que o agente precisa saber, ou null. Falhar aqui nunca impede a resposta da foto.
+   */
+  private async notaDaLista(quem: QuemMandou, buffer: Buffer, mime: string, visto: OQueViu, legenda: unknown): Promise<string | null> {
+    if (visto.financeiro || !pareceListaDeCompras(visto.resumo, visto.descricao, legenda)) return null;
+    const lida = await this.lerLinhasDaLista(quem.tenantId, buffer, mime).catch((e: any) => {
+      this.logger.warn(`as linhas da lista não foram lidas (${e instanceof FalhaDaIa ? `IA: ${e.motivo}` : String(e?.code ?? e?.name ?? e?.message ?? e).slice(0, 120)})`);
+      return null;
+    });
+    if (lida && !lida.total) return null; // A leitura diz que não é uma lista de produtos.
+    if (lida?.pedidos.length && this.entrada && (await this.entrada.guardarListaLida(quem, lida))) return notaDaListaLida(lida);
+    return visto.descricao.endsWith('…') ? NOTA_DA_LISTA_INCOMPLETA : null;
+  }
+
+  private async lerLinhasDaLista(tenantId: string, buffer: Buffer, mime: string): Promise<ListaLida | null> {
+    if (!(await this.ia.temAcesso(tenantId))) return null;
+    const prazo = this.prazoDaListaMs;
+    const r = await dentroDoPrazo(
+      this.ia.pedir(tenantId, {
+        recurso: RECURSO_DA_FOTO_DO_MISTER,
+        modelo: this.modelo(),
+        maxTokens: MAX_TOKENS_DA_LISTA_LIDA,
+        system: instrucoesDaListaLida(),
+        messages: [{ role: 'user', content: [this.blocoDoArquivo(buffer, mime), { type: 'text', text: 'Copie todas as linhas de produto no formato pedido.' }] }],
+        prazoMs: prazo,
+      }),
+      prazo,
+    );
+    if (!r || r.recusou) return null;
+    return lerListaLida(r.texto);
   }
 
   private async falar(telefone: string, texto: string): Promise<void> {

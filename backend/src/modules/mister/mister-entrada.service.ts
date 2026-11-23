@@ -13,6 +13,7 @@ import { ToqueNoModelo, toqueNoModelo } from './mister-modelos';
 import { TEXTOS_DA_PROPOSTA } from './mister-procedimentos';
 import { TEXTOS_DA_MIDIA } from './mister-midia.regras';
 import { hashDoRemetente } from './mister-aparelho';
+import type { ListaLida } from './mister-lista';
 import {
   CODIGOS_ERRADOS_JANELA_MIN,
   CODIGOS_ERRADOS_MAX,
@@ -155,7 +156,9 @@ export type Desfecho =
   | 'proposta_nao_achada'
   | 'documento'
   | 'midia_nao_lida'
-  | 'calado';
+  | 'calado'
+  /** Gravado pela rotina: a mensagem parou no meio e a lista de compras seguiu dali (ERR-584). */
+  | 'retomada_lista';
 
 interface Vinculo {
   id: string;
@@ -202,6 +205,14 @@ export class MisterEntradaService {
   private textoDaLista: TratarTextoDoDocumento | null = null;
   registrarTextoDaLista(tratar: TratarTextoDoDocumento): void {
     this.textoDaLista = tratar;
+  }
+  /** ERR-584: quem guarda as linhas de uma lista lida de foto ou PDF. A mídia entrega aqui; a lista mora em outro serviço. */
+  private listaLida: ((quem: QuemMandou, lida: ListaLida) => Promise<boolean>) | null = null;
+  registrarListaLida(guardar: (quem: QuemMandou, lida: ListaLida) => Promise<boolean>): void {
+    this.listaLida = guardar;
+  }
+  async guardarListaLida(quem: QuemMandou, lida: ListaLida): Promise<boolean> {
+    return (await this.listaLida?.(quem, lida)) ?? false;
   }
   /** Versão 5, M5a: quem lê a foto pelo DMS Graph (o serviço da mídia, no módulo do agente). */
   private midia: TratarMidia | null = null;

@@ -13,7 +13,6 @@ import {
   lerComoLancar,
   conferirNota,
   custosQueMudaram,
-  fatorDoTexto,
   instrucoesDaNota,
   lerLeituraDaNota,
   proximaPendencia,
@@ -30,6 +29,7 @@ import { RecebimentoService } from '../recebimento/recebimento.service';
 import { QuemMandou, QuemTocou } from './mister-entrada.service';
 import { MisterNumeroService } from './mister-numero.service';
 import { Resposta } from './mister.regras';
+import { lerRespostaDoFator } from './resposta-do-fator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -295,8 +295,6 @@ export class MisterNotasService {
 
   /** O texto que responde "1 CX tem quantos kg?". Só a nota desta pessoa esperando um fator, dos últimos 30 minutos. */
   async responderFator(quem: QuemMandou, texto: string): Promise<boolean> {
-    const fator = fatorDoTexto(texto);
-    if (fator == null) return false;
     const resultado = await this.db.transaction(async (tx: any) => {
       const [d] = linhas(
         await tx.execute(sql`
@@ -310,6 +308,10 @@ export class MisterNotasService {
       const indice = Number(String(d?.motivo ?? '').split(':')[1]);
       const it = nota?.itens?.[indice];
       if (!d || !nota || !it || it.estado !== 'fator') return null;
+      // ERR-584: a frase só vira fator quando diz de qual unidade é o número. O resto segue como conversa.
+      const r = lerRespostaDoFator(texto, it.unidade, it.unidadeDoEstoque);
+      if (r.tipo !== 'numero' && r.tipo !== 'confirmar') return null;
+      const fator = r.fator;
       Object.assign(it, { fator, estado: 'ligado' });
       await this.lembrar(tx, quem.tenantId, nota.emitenteCnpj, it, quem.colaboradorId);
       const pend = proximaPendencia(nota);

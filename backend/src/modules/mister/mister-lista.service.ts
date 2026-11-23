@@ -1,7 +1,8 @@
 import { BadRequestException, Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
 import { Conversao } from '../../common/conversao-unidade';
-import { fatorDoTexto } from '../../common/nota-por-foto';
+import { ehServidorLocal } from '../../common/modo';
 import { pode } from '../../auth/permissoes';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -13,11 +14,16 @@ import { MidiaDoMister, MisterEntradaService, QuemMandou, QuemTocou } from './mi
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
 import {
   InsumoDaLista,
+  LEITURA_VALE_H,
   LISTA_VALE_H,
   LinhaDaLista,
+  ListaLida,
   PREFIXO_DA_LISTA,
   PedidoDaLinha,
   TEXTOS_DA_LISTA,
+  aplicarFator,
+  duvidaDoFator,
+  ehParteDaLeitura,
   lerBotaoDaLista,
   lerPedidos,
   ligarAoInsumo,
@@ -29,14 +35,25 @@ import {
   proximaPendencia,
   quantidadeNoEstoque,
   resumoDaLista,
+  textoDaLeitura,
 } from './mister-lista';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
+import { lerRespostaDoFator, simOuNao } from './resposta-do-fator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const MAX_INSUMOS = 3000;
-type Mensagem = { texto: string; botoes?: { id: string; titulo: string }[] };
+/** A mensagem que ficou sem conclusão: depois deste tempo o processo já não está nela, e até este ainda vale retomar. */
+const RETOMA_DEPOIS_S = 120;
+const RETOMA_ATE_MIN = 30;
+type Mensagem = { texto: string; botoes?: { id: string; titulo: string }[]; antes?: string[] };
+
+/** A mensagem na ordem de envio: a lista grande antes, e o texto com os botões por último. */
+const emMensagens = (m: Mensagem): { texto: string; botoes?: { id: string; titulo: string }[] }[] => [
+  ...(m.antes ?? []).map((texto) => ({ texto })),
+  m.botoes?.length ? { texto: m.texto, botoes: m.botoes } : { texto: m.texto },
+];
 
 /**
  * A LISTA DE COMPRAS PELA CONVERSA (versão 6, M6g; mig 475; protótipo `mockups/regem-mister-v6.html`, "Ações e
@@ -49,6 +66,7 @@ type Mensagem = { texto: string; botoes?: { id: string; titulo: string }[] };
 @Injectable()
 export class MisterListaService implements OnModuleInit {
   private readonly logger = new Logger('MisterLista');
+  private retomando = false;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
@@ -65,6 +83,7 @@ export class MisterListaService implements OnModuleInit {
     this.entrada?.registrarBotao(PREFIXO_DA_LISTA, (botaoId, quem) => this.tocou(botaoId, quem));
     this.entrada?.registrarPlanilha((quem, midia, wamid) => this.planilha(quem, midia, wamid));
     this.entrada?.registrarTextoDaLista((quem, texto) => this.texto(quem, texto));
+    this.entrada?.registrarListaLida((quem, lida) => this.guardarLida(quem, lida));
   }
 
   // ───────────────────────────── quem pode ─────────────────────────────
@@ -91,6 +110,8 @@ export class MisterListaService implements OnModuleInit {
     let pedidos: PedidoDaLinha[];
     let origem: 'conversa' | 'minimo';
     let prontas: LinhaDaLista[] | null = null;
+    let lida: { id: string; lista: ListaLida } | null = null;
+    let parcial: string | null = null;
     if (en.acao === 'do_minimo') {
       origem = 'minimo';
       const sug: any[] = await this.compras.sugerir(e.tenantId, loja);
@@ -112,14 +133,25 @@ export class MisterListaService implements OnModuleInit {
         } satisfies LinhaDaLista;
       });
       pedidos = [];
+    } else if (en.acao === 'da_leitura') {
+      // As linhas guardadas do arquivo: a IA não copia nenhuma (ERR-584).
+      origem = 'conversa';
+      lida = await this.ultimaLida(e);
+      if (!lida) return recusa(TEXTOS_DA_LISTA.semLeitura);
+      pedidos = lida.lista.pedidos;
+      if (!pedidos.length) return recusa(TEXTOS_DA_LISTA.semLinhas);
     } else if (en.acao === 'montar') {
       origem = 'conversa';
       pedidos = lerPedidos(en.itens);
       if (!pedidos.length) return recusa(TEXTOS_DA_LISTA.semLinhas);
+      // Um pedaço do arquivo lido pode ser o que a pessoa quis: fica como pediu, e ela sabe que há mais.
+      const guardada = await this.ultimaLida(e).catch(() => null);
+      if (guardada && ehParteDaLeitura(pedidos, guardada.lista.pedidos)) parcial = TEXTOS_DA_LISTA.parcial(pedidos.length, guardada.lista.total);
     } else {
-      return recusa('acao precisa ser montar ou do_minimo.');
+      return recusa('acao precisa ser montar, da_leitura ou do_minimo.');
     }
     const r = await this.abrir(e, loja, origem, prontas ?? (await this.montar(e.tenantId, loja, pedidos)));
+    if (lida) await this.db.execute(sql`update mister_lista_compra set situacao = 'descartada', atualizada_em = clock_timestamp() where id = ${lida.id}::uuid and situacao = 'lida'`);
     return {
       ok: true,
       dados: {
@@ -127,10 +159,105 @@ export class MisterListaService implements OnModuleInit {
         linhas: r.linhas.length,
         ligadas: r.linhas.filter((l) => l.estado === 'ligado').length,
         perguntas: r.linhas.filter((l) => l.estado !== 'ligado').length,
-        orientacao: 'Diga em uma frase quantas linhas entraram e que as dúvidas vêm a seguir, com botões. Não repita a lista.',
+        ...(lida ? { linhasNoArquivo: lida.lista.total } : {}),
+        orientacao: lida
+          ? 'A contagem do arquivo já vai numa mensagem própria: não repita. Diga em uma frase que as dúvidas vêm a seguir, com botões. Não repita a lista.'
+          : 'Diga em uma frase quantas linhas entraram e que as dúvidas vêm a seguir, com botões. Não repita a lista.',
       },
-      mensagens: [r.mensagem],
+      mensagens: [...(lida ? [{ texto: textoDaLeitura(lida.lista) }] : []), ...(parcial ? [{ texto: parcial }] : []), ...emMensagens(r.mensagem)],
     };
+  }
+
+  // ───────────────────────────── a lista lida de um arquivo ─────────────────────────────
+
+  /** Guarda as linhas lidas do arquivo (a anterior da pessoa sai). Devolve se guardou: sem isso, a conversa avisa que não leu tudo. */
+  async guardarLida(quem: QuemMandou, l: ListaLida): Promise<boolean> {
+    try {
+      await this.db.transaction(async (tx: any) => {
+        await tx.execute(sql`
+          update mister_lista_compra set situacao = 'descartada', atualizada_em = clock_timestamp()
+           where tenant_id = ${quem.tenantId}::uuid and colaborador_id = ${quem.colaboradorId}::uuid and situacao = 'lida'`);
+        await tx.execute(sql`
+          insert into mister_lista_compra (tenant_id, unidade_id, colaborador_id, origem, situacao, itens, leitura, vence_em)
+          values (${quem.tenantId}::uuid, ${quem.unidadeId}::uuid, ${quem.colaboradorId}::uuid, 'conversa', 'lida', ${JSON.stringify(l.pedidos)}::jsonb,
+                  ${JSON.stringify({ total: l.total, semQuantidade: l.semQuantidade })}::jsonb, clock_timestamp() + make_interval(hours => ${LEITURA_VALE_H}::int))`);
+      });
+      return true;
+    } catch (err: any) {
+      this.logger.error(`a lista lida do arquivo não foi guardada — ${err?.message ?? err}`, err?.stack);
+      return false;
+    }
+  }
+
+  private async ultimaLida(e: EscopoDoMister): Promise<{ id: string; lista: ListaLida } | null> {
+    const [l] = linhas(
+      await this.db.execute(sql`
+        select id::text as id, itens, leitura from mister_lista_compra
+         where tenant_id = ${e.tenantId}::uuid and colaborador_id = ${e.colaboradorId}::uuid and situacao = 'lida' and vence_em > clock_timestamp()
+         order by criada_em desc limit 1`),
+    );
+    if (!l) return null;
+    const pedidos = lerPedidos(l.itens);
+    return {
+      id: String(l.id),
+      lista: {
+        total: Number(l.leitura?.total) || pedidos.length,
+        pedidos,
+        semQuantidade: Array.isArray(l.leitura?.semQuantidade) ? l.leitura.semQuantidade.map(String) : [],
+      },
+    };
+  }
+
+  // ───────────────────────────── a mensagem interrompida ─────────────────────────────
+
+  /**
+   * A mensagem que ficou sem desfecho (o processo reiniciou no meio, ERR-584) não volta: a Meta não reenvia e o texto não fica
+   * guardado. Quem tem lista aberta recebe a próxima pergunta, e a lista anda. O pedido pela metade nunca é refeito aqui.
+   */
+  @Cron('*/30 * * * * *')
+  async retomarInterrompidas(): Promise<number> {
+    if (ehServidorLocal() || this.retomando) return 0;
+    this.retomando = true;
+    let retomadas = 0;
+    try {
+      const janela = sql`m.recebida_em > clock_timestamp() - make_interval(mins => ${RETOMA_ATE_MIN}::int)
+                     and m.recebida_em < clock_timestamp() - make_interval(secs => ${RETOMA_DEPOIS_S}::int)`;
+      const abertas = linhas(
+        await this.db.execute(sql`
+          select distinct on (m.telefone) m.telefone, l.id::text as "listaId", l.situacao, l.tenant_id::text as "tenantId"
+            from mister_mensagem m
+            join mister_vinculo v on v.telefone = m.telefone and v.ligado_em is not null
+            join mister_lista_compra l on l.tenant_id = v.tenant_id and l.colaborador_id = v.colaborador_id
+             and l.atualizada_em > m.recebida_em - make_interval(mins => ${RETOMA_ATE_MIN}::int)
+             and ((l.situacao in ('montando', 'confirmar') and l.vence_em > clock_timestamp())
+                  or (l.situacao = 'criada' and l.compra_lista_id is null))
+           where m.desfecho is null and ${janela}
+           order by m.telefone, l.atualizada_em desc
+           limit 50`),
+      );
+      for (const a of abertas) {
+        // A gravação condicional escolhe uma réplica só.
+        const pegou = linhas(
+          await this.db.execute(sql`
+            update mister_mensagem m set desfecho = 'retomada_lista', tenant_id = coalesce(m.tenant_id, ${a.tenantId}::uuid)
+             where m.telefone = ${a.telefone} and m.desfecho is null and ${janela}
+            returning m.wamid`),
+        );
+        if (!pegou.length) continue;
+        retomadas++;
+        if (a.situacao === 'criada') {
+          await this.falar(a.telefone, { texto: TEXTOS_DA_LISTA.talvezCriada });
+          continue;
+        }
+        await this.falar(a.telefone, { texto: TEXTOS_DA_LISTA.retomada });
+        await this.falar(a.telefone, await this.seguir(a.listaId));
+      }
+    } catch (err: any) {
+      this.logger.warn(`a retomada das listas interrompidas falhou — ${err?.message ?? err}`);
+    } finally {
+      this.retomando = false;
+    }
+    return retomadas;
   }
 
   // ───────────────────────────── a planilha ─────────────────────────────
@@ -238,8 +365,17 @@ export class MisterListaService implements OnModuleInit {
           return true;
         }
         Object.assign(ln, { marca, estado: 'ligado' });
+      } else if (b.tipo === 'fator') {
+        if (ln.estado !== 'fator' || (b.acao === 'sim' && ln.fatorProposto == null)) {
+          fim = { texto: TEXTOS_DA_LISTA.jaRespondido };
+          return true;
+        }
+        if (b.acao === 'mesma') aplicarFator(ln, 1);
+        else if (b.acao === 'sim') aplicarFator(ln, ln.fatorProposto as number);
+        else ln.fatorProposto = null;
       } else {
-        if (ln.estado !== 'item') {
+        // "Deixar de fora" também vale na pergunta da unidade.
+        if (ln.estado !== 'item' && !(ln.estado === 'fator' && b.escolha === 'f')) {
           fim = { texto: TEXTOS_DA_LISTA.jaRespondido };
           return true;
         }
@@ -289,33 +425,52 @@ export class MisterListaService implements OnModuleInit {
 
   /** O texto que responde a lista que espera: o fator ("1 caixa tem quantos kg?") ou a marca escrita. */
   async texto(quem: QuemMandou, t: string): Promise<boolean> {
-    const [l] = linhas(
-      await this.db.execute(sql`
-        select id::text as id, itens from mister_lista_compra
-         where tenant_id = ${quem.tenantId}::uuid and colaborador_id = ${quem.colaboradorId}::uuid and situacao = 'montando'
-           and vence_em > clock_timestamp()
-         order by atualizada_em desc limit 1`),
-    );
-    const itens: LinhaDaLista[] = Array.isArray(l?.itens) ? l.itens : [];
-    const pend = proximaPendencia(itens);
-    if (!l || !pend || pend.tipo === 'item') return false;
-    const ln = itens[pend.indice];
-    if (pend.tipo === 'fator') {
-      const fator = fatorDoTexto(t);
-      if (fator == null) return false;
-      Object.assign(ln, { fator, estado: ln.marcas.length >= 2 && !ln.marca ? 'marca' : 'ligado' });
-    } else {
-      const marca = marcaDoTexto(ln.marcas, t);
-      if (!marca) return false;
-      Object.assign(ln, { marca, estado: 'ligado' });
-    }
-    const [mudou] = linhas(
-      await this.db.execute(sql`
-        update mister_lista_compra set itens = ${JSON.stringify(itens)}::jsonb, atualizada_em = clock_timestamp()
-         where id = ${l.id}::uuid and situacao = 'montando' returning id`),
-    );
-    if (!mudou) return false;
-    await this.falar(quem.telefone, await this.seguir(l.id));
+    let listaId = '';
+    let fim: Mensagem | null = null;
+    const tratou = await this.db.transaction(async (tx: any) => {
+      const [l] = linhas(
+        await tx.execute(sql`
+          select id::text as id, itens from mister_lista_compra
+           where tenant_id = ${quem.tenantId}::uuid and colaborador_id = ${quem.colaboradorId}::uuid and situacao = 'montando'
+             and vence_em > clock_timestamp()
+           order by atualizada_em desc limit 1
+           for update`),
+      );
+      const itens: LinhaDaLista[] = Array.isArray(l?.itens) ? l.itens : [];
+      const pend = proximaPendencia(itens);
+      if (!l || !pend || pend.tipo === 'item') return false;
+      const ln = itens[pend.indice];
+      if (pend.tipo === 'fator') {
+        // A conta mostrada espera o "certo"; o resto é lido como resposta nova (ERR-584).
+        const resposta = ln.fatorProposto != null ? simOuNao(t) : null;
+        if (resposta === 'sim') aplicarFator(ln, ln.fatorProposto as number);
+        else if (resposta === 'nao') ln.fatorProposto = null;
+        else {
+          const r = lerRespostaDoFator(t, ln.unidade, ln.unidadeDoEstoque);
+          if (r.tipo === 'outro') return false;
+          if (r.tipo === 'duvida') {
+            fim = duvidaDoFator(l.id, pend.indice, ln);
+            return true;
+          }
+          if (r.tipo === 'numero') aplicarFator(ln, r.fator);
+          else ln.fatorProposto = r.fator;
+        }
+      } else {
+        const marca = marcaDoTexto(ln.marcas, t);
+        if (!marca) return false;
+        Object.assign(ln, { marca, estado: 'ligado' });
+      }
+      const [mudou] = linhas(
+        await tx.execute(sql`
+          update mister_lista_compra set itens = ${JSON.stringify(itens)}::jsonb, atualizada_em = clock_timestamp()
+           where id = ${l.id}::uuid and situacao = 'montando' returning id`),
+      );
+      if (!mudou) return false;
+      listaId = String(l.id);
+      return true;
+    });
+    if (!tratou) return false;
+    await this.falar(quem.telefone, fim ?? (await this.seguir(listaId)));
     return true;
   }
 
@@ -456,7 +611,7 @@ export class MisterListaService implements OnModuleInit {
 
   private async falar(telefone: string, m: Mensagem): Promise<void> {
     try {
-      await this.numero.enviar(telefone, m.botoes?.length ? { texto: m.texto, botoes: m.botoes } : { texto: m.texto });
+      for (const parte of emMensagens(m)) await this.numero.enviar(telefone, parte);
     } catch (e: any) {
       this.logger.warn(`a mensagem da lista de compras não saiu — ${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)}`);
     }
