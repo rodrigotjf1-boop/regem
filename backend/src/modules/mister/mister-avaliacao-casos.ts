@@ -9,7 +9,7 @@ import {
   blocoDaConversa,
   ehConsulta,
   ehFerramenta,
-  filtrarSaida,
+  valoresSemConta,
 } from './mister-agente.regras';
 import { diferencaEmReais } from './mister-agente.regras';
 import type { ResultadoDaFerramenta } from './mister-ferramentas.service';
@@ -141,7 +141,7 @@ const ROTULO: Record<Periodo, string> = {
   hoje: 'hoje, 13/11/2026',
   ontem: 'ontem, 12/11/2026',
   esta_semana: 'esta semana, de 09/11 a 13/11/2026',
-  semana_passada: 'semana passada, de 02/11 a 06/11/2026',
+  semana_passada: 'semana passada, de 02/11 a 08/11/2026',
   este_mes: 'este mês, de 01/11 a 13/11/2026',
   mes_passado: 'mês passado, outubro de 2026',
 };
@@ -149,7 +149,7 @@ const VENDAS: Record<Periodo, { vendas: number; faturado: number; ticket: number
   hoje: { vendas: 87, faturado: 4321.45, ticket: 49.67, gorjeta: 118.35, canceladas: 1 },
   ontem: { vendas: 102, faturado: 5110.85, ticket: 50.11, gorjeta: 140.25, canceladas: 3 },
   esta_semana: { vendas: 498, faturado: 24876.45, ticket: 49.95, gorjeta: 655.15, canceladas: 9 },
-  semana_passada: { vendas: 455, faturado: 22410.15, ticket: 49.25, gorjeta: 590.45, canceladas: 7 },
+  semana_passada: { vendas: 812, faturado: 38420.35, ticket: 47.32, gorjeta: 590.45, canceladas: 7 },
   este_mes: { vendas: 1290, faturado: 64410.35, ticket: 49.93, gorjeta: 1702.65, canceladas: 21 },
   mes_passado: { vendas: 2870, faturado: 141220.65, ticket: 49.21, gorjeta: 3712.35, canceladas: 44 },
 };
@@ -170,6 +170,9 @@ const POR_HORA: Partial<Record<Periodo, Array<[number, number, number]>>> = {
 
 /** O período pedido à ferramenta, como a loja de teste entende (o que ela não tem vira "este mês"). */
 function periodoPedido(en: Record<string, unknown>): Periodo {
+  // O dia pedido: pelo `dia` (o gráfico por hora) ou pelas datas de um dia só.
+  if (en.periodo === undefined && !en.de && !en.ate && en.dia) return diaPedido(en);
+  if (en.periodo === undefined && en.de === '2026-11-12' && (en.ate === undefined || en.ate === '2026-11-12')) return 'ontem';
   const p = String(en.periodo ?? '').trim();
   if (p === 'ultimos_7_dias') return 'esta_semana';
   if (p === 'ultimos_30_dias') return 'este_mes';
@@ -561,7 +564,7 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
             foco,
             alcance: 'a empresa inteira',
             fonte: 'extrato do banco',
-            saldo: { valor: 38420, em: '22/11', origem: 'do extrato do banco' },
+            saldo: { valor: 38420, em: '12/11', origem: 'do extrato do banco' },
             mesesNoBanco: encolhe
               ? [{ mes: 'agosto', entrou: 10000, saiu: 16500, sobrouOuFaltou: -6500 }, { mes: 'setembro', entrou: 10000, saiu: 15700, sobrouOuFaltou: -5700 }, { mes: 'outubro', entrou: 10000, saiu: 16550, sobrouOuFaltou: -6550 }]
               : [{ mes: 'agosto', entrou: 12140, saiu: 10000, sobrouOuFaltou: 2140 }, { mes: 'setembro', entrou: 11380, saiu: 10000, sobrouOuFaltou: 1380 }, { mes: 'outubro', entrou: 13010, saiu: 10000, sobrouOuFaltou: 3010 }],
@@ -1177,7 +1180,7 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c70', pergunta: 'Vale fazer uma promoção no dia mais fraco da semana? Olha a semana passada.', consultas: ['analisar_vendas'], contem: ['segunda', 'Minha sugestão'] },
   // Versão 7, V7f: os indicadores. A c71 é o caso real de hoje: nenhum custo lançado, e a resposta diz o que falta e onde (V7-10).
   { id: 'c71', pergunta: 'Como está a minha margem?', consultas: ['indicadores_financeiros'], contem: ['custo', 'Recebimento'] },
-  { id: 'c72', pergunta: 'Qual foi a margem e o CMV de setembro de 2026?', consultas: ['indicadores_financeiros'], numeros: ['65,8', '34,2', '92'], contem: ['custo de hoje'] },
+  { id: 'c72', pergunta: 'Qual foi a margem e o CMV de setembro de 2026?', consultas: ['indicadores_financeiros'], numeros: ['65,8', '34,2', '92'], contem: ['custo de hoje|de hoje do cadastro'] },
   { id: 'c73', pergunta: 'Quem está me devendo?', consultas: ['indicadores_financeiros'], numeros: ['1.180,45', '14', '41'], contem: ['Contas a pagar'] },
   { id: 'c74', pergunta: 'Em quanto tempo eu pago os fornecedores?', consultas: ['indicadores_financeiros'], numeros: ['18'] },
   { id: 'c75', pergunta: 'Quanto tempo de caixa eu tenho?', consultas: ['indicadores_financeiros'], contem: ['saldo', 'folha'] },
@@ -1196,7 +1199,7 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 8, E3: a regra pela conversa, com a fonte agenda.
   { id: 'c85', pergunta: 'Me avisa um dia antes de cada jogo do Botafogo, às 18h.', consultas: ['regras'], contem: ['Botafogo|botafogo', 'Confirmar'] },
   // Versão 8, R2: o caixa pelo extrato do banco.
-  { id: 'c86', pergunta: 'Pelo extrato, quanto tempo de caixa eu tenho?', perfil: { nivel: 'presidente', verValores: true, extrato: 'encolhendo' }, consultas: ['indicadores_financeiros'], numeros: ['38.420', '6.250', '6,1'], contem: ['22/11'] },
+  { id: 'c86', pergunta: 'Pelo extrato, quanto tempo de caixa eu tenho?', perfil: { nivel: 'presidente', verValores: true, extrato: 'encolhendo' }, consultas: ['indicadores_financeiros'], numeros: ['38.420', '6.250', '6,1'], contem: ['12/11'] },
   { id: 'c87', pergunta: 'Pelo extrato, a loja está queimando caixa?', perfil: { nivel: 'presidente', verValores: true, extrato: 'gerando' }, consultas: ['indicadores_financeiros'], numeros: ['2.176,67'], contem: ['gerando|crescendo|sobr'] },
 ];
 
@@ -1253,8 +1256,8 @@ export function conferirCaso(caso: CasoDaAvaliacao, fim: FimDaPergunta, ms = 0):
     else if (!temas.some((t) => (caso.anotar as string[]).includes(t))) falhas.push(`anotou o tema "${temas[0]}" (esperado: ${caso.anotar.join(' ou ')})`);
   }
   if (caso.semConsulta && ferramentas.some((f) => ehConsulta(f.nome))) falhas.push('consultou dado sem precisar');
-  // Para todas: nenhum valor em reais que as consultas não trouxeram (o filtro de saída de verdade).
+  // Para todas: nenhum valor em reais que as consultas não trouxeram, a não ser a conta certa sobre os valores da própria resposta.
   const resultados = 'resultados' in fim ? fim.resultados : [];
-  if (filtrarSaida(texto, resultados).notas.includes('valor_sem_origem')) falhas.push('disse um valor em reais que nenhuma consulta trouxe');
+  if (valoresSemConta(texto, resultados).length) falhas.push('disse um valor em reais que nenhuma consulta trouxe');
   return { id: caso.id, pergunta: caso.pergunta, ok: falhas.length === 0, falhas, consultas, ms, ...(falhas.length ? { resposta: String(texto ?? '').slice(0, RESPOSTA_ERRADA_MAX) } : {}) };
 }
