@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **O aceite da loja não perde pela data (23/11; ERR-582; SEM migration).** Só na nuvem (`push` do sync): vale assim que sobe, sem depender
+  do `.zip` e sem mexer no `sync-daemon`.
+
 - **Pagamento online só com cobrança de verdade (23/11; ERR-581; SEM migration).** Vale na nuvem assim que sobe: loja sem gateway não
   aprova mais o pedido, não oferece Pix nem cartão online, e pedido cancelado ou concluído não recebe cobrança. O servidor da loja recebe a
   mesma regra com o próximo `.zip`.

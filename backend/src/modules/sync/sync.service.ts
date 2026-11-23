@@ -815,6 +815,23 @@ export class SyncService {
           ? sql` or (excluded.status = 'cancelado' and pedido_externo.status not in ('cancelado', 'concluido'))
                  or (excluded.status = 'concluido' and pedido_externo.status = 'cancelado')`
           : sql``;
+        // O ACEITE DA LOJA NÃO PERDE PELA DATA (ERR-582): com o relógio da loja alguns segundos atrás, o aceite saía "mais
+        // velho" que a linha daqui, a nuvem o descartava e o pedido seguia "novo" até o resgate criar uma SEGUNDA venda.
+        // Quem já tem a venda vence o "novo" sem venda; da cópia mais velha, o que veio vazio não apaga o que está aqui.
+        const aceiteDaLoja =
+          ehPedidoDeCanal && colunas.has('comanda_id')
+            ? sql`pedido_externo.status = 'novo' and pedido_externo.comanda_id is null and excluded.status <> 'novo' and excluded.comanda_id is not null`
+            : null;
+        const aceiteDaLojaVence = aceiteDaLoja ? sql` or (${aceiteDaLoja})` : sql``;
+        const valorDoPush = (c: string) => {
+          const daLoja = sql`excluded.${sql.identifier(c)}`;
+          if (!aceiteDaLoja) return daLoja;
+          const daqui = sql`pedido_externo.${sql.identifier(c)}`;
+          const maisVelho = sql`${aceiteDaLoja} and pedido_externo.${sql.identifier(lwwCol)} >= excluded.${sql.identifier(lwwCol)}`;
+          return c === lwwCol
+            ? sql`case when ${maisVelho} then ${daqui} else ${daLoja} end`
+            : sql`case when ${maisVelho} then coalesce(${daLoja}, ${daqui}) else ${daLoja} end`;
+        };
         // CADASTRO EXCLUÍDO AQUI NÃO RESSUSCITA (fase 3B): a cópia da loja sem `deleted_at` — mexida antes de a exclusão
         // descer, ou com o relógio adiantado — não desfaz a exclusão lógica feita na nuvem. Restaurar é daqui.
         const naoRessuscita =
@@ -866,11 +883,11 @@ export class SyncService {
         const conflito =
           (modo === 'lww' || colunas.has('updated_at')) && setCols.length && colunas.has(lwwCol)
             ? sql`on conflict (id) do update set ${sql.join(
-                setCols.map((c) => sql`${sql.identifier(c)} = excluded.${sql.identifier(c)}`),
+                setCols.map((c) => sql`${sql.identifier(c)} = ${valorDoPush(c)}`),
                 sql`, `,
               )}
               where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
-                and (${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${resolvidoVence}${decisaoVence}${cienteVence}${canceladoDoCartaoVence}${finalDoPedidoVence}${encerradaVence})${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${finalDoPedidoNaoSai}${naoRessuscita}${naoReabreChamado}${naoVoltaAPedida}${naoDesfazCiente}${naoReabreOrdem}`
+                and (${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${resolvidoVence}${decisaoVence}${cienteVence}${canceladoDoCartaoVence}${finalDoPedidoVence}${aceiteDaLojaVence}${encerradaVence})${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${finalDoPedidoNaoSai}${naoRessuscita}${naoReabreChamado}${naoVoltaAPedida}${naoDesfazCiente}${naoReabreOrdem}`
             : sql`on conflict (id) do nothing`;
         const linhaVals = (linha: any) =>
           sql`(${sql.join([tenantId, ...cols.map((c) => coagir(linha[c]))].map((v) => sql`${v}`), sql`, `)})`;
