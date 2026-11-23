@@ -67,6 +67,7 @@ import { MisterFerramentasService, SESSAO_PEDE_PIN } from './mister-ferramentas.
 import { GraphFotoService } from '../graph/graph-foto.service';
 import { MisterMidiaService } from './mister-midia.service';
 import { TEXTOS_DA_MIDIA, chaveDaFala, primeiroDoMesQueVem } from './mister-midia.regras';
+import { linhasDoAndamento } from './mister-andamento';
 import { MisterFilaService } from './mister-fila.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterResumoArquivoService, TEXTOS_DO_RESUMO_EM_ARQUIVO } from './mister-resumo-arquivo.service';
@@ -7989,9 +7990,25 @@ export function testesDoMisterComPostgres(): void {
           numero.pedidos.length = 0;
           expect(await tocar(telAna, `doc:ni:${d.id}:0:f`)).toBe('respondeu_proposta');
           expect(numero.enviadas.map((m) => m.texto)).toEqual(['Este item já foi respondido.']);
-          // O fator pelo texto.
+          // ERR-588: a conversa enxerga a nota parada e a pergunta em aberto, sem depender da memória das perguntas.
+          const emAndamento = await fila.andamento(A, pessoa.ana);
+          expect(linhasDoAndamento(emAndamento.documentos, emAndamento.listas, true).join('\n')).toContain('tem quantos pacote?');
+          expect(linhasDoAndamento(emAndamento.documentos, emAndamento.listas, false).join('\n')).not.toContain('R$');
+          // A resposta que não diz quantos pergunta de novo, sem gravar.
           numero.pedidos.length = 0;
-          expect(await mandar(telAna, '2 pacotes')).toBe('documento');
+          expect(await mandar(telAna, 'tem 8 unidades')).toBe('documento');
+          expect(numero.enviadas.at(-1)!.texto).toContain('Não consegui saber quantos pacote');
+          // A frase mostra a conta; "não" volta à pergunta; o "sim" vale, e só então o fator fica guardado.
+          numero.pedidos.length = 0;
+          expect(await mandar(telAna, '1 KG tem 2 pacotes')).toBe('documento');
+          expect(numero.enviadas.at(-1)!.texto).toContain('= 2 pacote. Certo? Responda sim ou não.');
+          expect(await q(`select fator::float as fator from mister_de_para where tenant_id = $1 and chave = 'cod:2001'`, [A])).toEqual([{ fator: null }]);
+          numero.pedidos.length = 0;
+          expect(await mandar(telAna, 'não')).toBe('documento');
+          expect(numero.enviadas.at(-1)!.texto).toContain('1 KG tem quantos pacote?');
+          expect(await mandar(telAna, '1 KG tem 2 pacotes')).toBe('documento');
+          numero.pedidos.length = 0;
+          expect(await mandar(telAna, 'sim')).toBe('documento');
           // 3º item: o detergente não tem insumo parecido — "Cadastrar novo" ou "Fora do estoque".
           expect(numero.enviadas.at(-1)!.texto).toBe('Não achei o "DETERGENTE NEUTRO" (10 UN) no seu estoque. Cadastro um novo, ou ele não entra no estoque?');
           expect(numero.enviadas.at(-1)!.botoes.map((b) => b.titulo)).toEqual(['Cadastrar novo', 'Fora do estoque']);

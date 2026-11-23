@@ -291,6 +291,8 @@ export interface ItemNoMister extends ItemDaNota {
   insumoNome: string | null;
   unidadeDoEstoque: string | null;
   fator: number | null;
+  /** A conta dita numa frase, à espera do "sim": o fator fica guardado para as próximas notas do fornecedor (ERR-588). */
+  fatorProposto?: number | null;
   estado: 'ligado' | 'fora' | 'item' | 'fator';
   sugestoes: { id: string; nome: string }[];
 }
@@ -377,6 +379,11 @@ export const FRASES_DA_NOTA = {
   perguntaFator: (it: ItemNoMister): string =>
     `Na nota, o "${it.descricao}" vem em ${it.unidade ?? 'unidade'}, e o "${it.insumoNome}" do estoque é contado em ${it.unidadeDoEstoque}. ` +
     `1 ${it.unidade ?? 'unidade'} tem quantos ${it.unidadeDoEstoque}? Responda só o número.`,
+  /** A frase virou uma conta: mostra antes de valer (ERR-588). */
+  confirmarFator: (it: ItemNoMister, fator: number): string =>
+    `Então 1 ${it.unidade ?? 'unidade'} de "${it.descricao}" = ${qtd(fator)} ${it.unidadeDoEstoque}. Certo? Responda sim ou não.`,
+  duvidaDoFator: (it: ItemNoMister): string =>
+    `Não consegui saber quantos ${it.unidadeDoEstoque} tem 1 ${it.unidade ?? 'unidade'} de "${it.descricao}". Me diga assim: 1 ${it.unidadeDoEstoque} tem 8 ${it.unidade ?? 'unidades'}, ou só o número.`,
   /** O resumo antes de lançar (conversa 12): cada item, para onde vai, e a pergunta. */
   resumo: (n: NotaNoMister): string => {
     const linhas = destinosDosItens(n).map((d) => `• ${d.descricao}, ${d.quanto} → ${d.destino}`);

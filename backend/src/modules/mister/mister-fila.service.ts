@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { FUSO_SQL } from '../../common/fuso-sql';
 import { MotivoSemResposta, NivelDoMister, NotaDaSaida, TETOS, TrocaDaMemoria } from './mister-agente.regras';
+import { lerAndamento } from './mister-andamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -207,6 +208,11 @@ export class MisterFilaService {
       hora: String(l.hora ?? ''),
       consultas: (Array.isArray(l.ferramentas) ? l.ferramentas : []).filter((f: any) => f?.ok === true).map((f: any) => String(f?.nome ?? '')),
     }));
+  }
+
+  /** ERR-588: os documentos e as listas desta pessoa nas últimas horas, que não passam pela fila de perguntas. */
+  andamento(tenantId: string, colaboradorId: string) {
+    return lerAndamento(this.db, tenantId, colaboradorId);
   }
 
   /**

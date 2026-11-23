@@ -11,6 +11,7 @@ import { MisterInstrucoesService } from './mister-instrucoes.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { MisterMemoriaService } from './mister-memoria.service';
 import { linhasDaMemoria } from './mister-memoria';
+import { linhasDoAndamento } from './mister-andamento';
 import type { PropostaPendente } from './mister-propostas.service';
 import { PedidoDoRelatorio, botaoDoPdf, linkDoRelatorio } from './insumo-vendido';
 import { enviarPdfDoInsumo } from './mister-anexos.service';
@@ -92,6 +93,17 @@ export class MisterAgenteService implements OnModuleInit {
     } catch (e: any) {
       this.logger.warn(`mister: a memória não foi lida, a resposta vai sem ela — ${e?.message ?? e}`);
       return { memoria: [] };
+    }
+  }
+
+  /** ERR-588: o que está em andamento (documentos e listas). A leitura que falha não segura a resposta: vai sem o bloco. */
+  private async andamentoDaConversa(escopo: EscopoDoMister): Promise<{ andamento: string[] }> {
+    try {
+      const a = await this.fila.andamento(escopo.tenantId, escopo.colaboradorId);
+      return { andamento: linhasDoAndamento(a.documentos, a.listas, escopo.verValores && !escopo.pinPendente) };
+    } catch (e: any) {
+      this.logger.warn(`mister: o trabalho em andamento não foi lido, a resposta vai sem ele — ${e?.message ?? e}`);
+      return { andamento: [] };
     }
   }
 
@@ -365,7 +377,7 @@ export class MisterAgenteService implements OnModuleInit {
         modeloDaAnalise: analisesProfundas && !opcoes.recurso ? modeloDasAnalises() : null,
         instrucoes,
         recurso: opcoes.recurso,
-        conversa: blocoDaConversa({ ...this.ferramentas.conversa(escopo), ...jeito, ...(await this.memoriaDaConversa(escopo)) }),
+        conversa: blocoDaConversa({ ...this.ferramentas.conversa(escopo), ...jeito, ...(await this.memoriaDaConversa(escopo)), ...(await this.andamentoDaConversa(escopo)) }),
         pedir: (p) => this.ia.pedir(escopo.tenantId, p),
         executar: (nome, entrada) => this.vagas.com(() => this.ferramentas.executar(escopo, nome, entrada)),
         // Na ordem do pedido (as consultas juntas terminam em qualquer ordem): os anexos e as imagens saem na ordem pedida.
