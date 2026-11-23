@@ -512,7 +512,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -8295,11 +8295,32 @@ export function testesDoMisterComPostgres(): void {
 
       it('o Graph não lê: a IA da empresa lê no lugar (recurso `mister_foto`, a imagem na chamada), e a pergunta segue', async () => {
         graph.resposta = null;
-        ia.roteiro = [falar('RESUMO: Uma lista escrita à mão com 4 itens.\nTIPO: outro\nDESCRICAO: pão brioche 10 pct\ncheddar 4 kg')];
+        // A foto é uma lista: a primeira leitura descreve, e a segunda copia todas as linhas (ERR-584).
+        ia.roteiro = [
+          falar('RESUMO: Uma lista escrita à mão com 4 itens.\nTIPO: outro\nDESCRICAO: pão brioche 10 pct\ncheddar 4 kg'),
+          falar('{"total": 2, "itens": [{"texto": "pão brioche", "quantidade": 10, "unidade": "pct"}, {"texto": "cheddar", "quantidade": 4, "unidade": "kg"}]}'),
+        ];
+        // Quem guarda as linhas é o serviço da lista (com o banco, na parte da lista de compras): aqui importa o que chega a ele.
+        const guardadas: any[] = [];
+        entrada.registrarListaLida(async (_quem, lida) => {
+          guardadas.push(lida);
+          return true;
+        });
         const id = novaMidia('image/png');
         const antes = (await perguntasDe('ana')).length;
         expect(await foto(telAna, id)).toBe('pergunta');
-        expect(ia.pedidos).toHaveLength(1);
+        expect(ia.pedidos).toHaveLength(2);
+        expect(ia.pedidos[1].max_tokens).toBe(3500);
+        expect(guardadas).toEqual([
+          {
+            total: 2,
+            pedidos: [
+              { texto: 'pão brioche', quantidade: 10, unidade: 'pct' },
+              { texto: 'cheddar', quantidade: 4, unidade: 'kg' },
+            ],
+            semQuantidade: [],
+          },
+        ]);
         expect(ia.pedidos[0].model).toBe('claude-haiku-5-5');
         expect(ia.pedidos[0].messages[0].content[0]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: Buffer.from(`midia-${id}`).toString('base64') } });
         expect(await q(`select recurso from ia_uso_dia where tenant_id = $1 and recurso = 'mister_foto'`, [A])).toHaveLength(1);
@@ -8307,6 +8328,7 @@ export function testesDoMisterComPostgres(): void {
         expect(p.pergunta.split('\n')[0]).toBe('⟦foto⟧ Uma lista escrita à mão com 4 itens');
         expect(p.pergunta).toContain('lido pela IA da empresa');
         expect(p.pergunta).toContain('pão brioche 10 pct / cheddar 4 kg');
+        expect(p.pergunta).toContain('LISTA LIDA DO ARQUIVO: 2 de 2 linhas guardadas');
         expect(p.pergunta).toContain('A pessoa mandou a foto sem escrever nada.');
       });
 
@@ -9078,7 +9100,7 @@ export function testesDoMisterComPostgres(): void {
         // a marca
         numero.pedidos.length = 0;
         expect(await tocar(tel, `lc:${l.id}:0:m0`)).toBe('respondeu_proposta');
-        expect(textos()).toEqual(['Você pediu 2 caixas de "tomate", e o "Tomate" é contado em kg. 1 caixas tem quantos kg? Responda só o número.']);
+        expect(textos()).toEqual(['Você pediu 2 caixas de "tomate", e o "Tomate" é contado em kg. 1 caixa tem quantos kg? Responda com o número.']);
         // o fator por texto
         numero.pedidos.length = 0;
         expect(await mandar(tel, '20')).toBe('documento');
@@ -9095,7 +9117,7 @@ export function testesDoMisterComPostgres(): void {
         expect(textos()).toEqual(['Esta lista já foi respondida.']);
         numero.pedidos.length = 0;
         expect(await tocar(tel, `lc:${l.id}:fo:0`)).toBe('respondeu_proposta');
-        expect(textos()).toEqual(['🛒 Lista de compras · Distribuidora Sul\n• Bacon em tiras, 10 kg (Sadia)\n• Tomate, 40 kg\nFica de fora: guardanapo.\n\nCrio o pedido em Estoque › Pedidos?']);
+        expect(textos()).toEqual(['🛒 Lista de compras · Distribuidora Sul\n• Bacon em tiras, 10 kg (Sadia)\n• Tomate, 40 kg (pediu 2 caixas)\nFica de fora: guardanapo.\n\nCrio o pedido em Estoque › Pedidos?']);
         expect(await q(`select count(*)::int as n from compra_lista where tenant_id = $1`, [A])).toEqual([{ n: 0 }]);
         // "Criar o pedido": pelo serviço da tela (a marca conferida por ele), uma vez
         numero.pedidos.length = 0;
@@ -9143,6 +9165,121 @@ export function testesDoMisterComPostgres(): void {
         expect((await ferramentas.executar(semPermissao, 'lista_de_compras', { acao: 'montar', itens: [{ texto: 'tomate', quantidade: 1 }] })).dados).toEqual({
           erro: 'Montar a lista de compras pelo Mister é para quem pode criar pedidos no Estoque.',
         });
+      });
+
+      it('ERR-584: a frase do dono não vira 840: a dúvida pergunta de novo, a conta aparece e o "sim" fecha em 70', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'montar', itens: [{ texto: 'tomate', quantidade: 70, unidade: 'pacotes' }] });
+        const l = await ultima();
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, 'tem 12 unidades')).toBe('documento');
+        expect(textos()).toEqual(['Não consegui saber quantos kg tem 1 pacote de "Tomate". Responda com o número ou toque em "É a mesma unidade".']);
+        expect((await ultima()).itens[0]).toMatchObject({ fator: null, estado: 'fator' });
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, 'Pacote e kg sao sinônimos e tem 12 unidades cada')).toBe('documento');
+        expect(textos()).toEqual(['Então 70 pacotes de "tomate" = 70 kg. Certo?']);
+        expect((await ultima()).itens[0]).toMatchObject({ fator: null, fatorProposto: 1, estado: 'fator' });
+        // "Não" volta à pergunta, sem a conta.
+        numero.pedidos.length = 0;
+        expect(await tocar(tel, `lc:${l.id}:0:fn`)).toBe('respondeu_proposta');
+        expect(textos()[0]).toContain('1 pacote tem quantos kg?');
+        // O "sim" sem conta na mesa não vale.
+        numero.pedidos.length = 0;
+        expect(await tocar(tel, `lc:${l.id}:0:fs`)).toBe('respondeu_proposta');
+        expect(textos()).toEqual(['Esta lista já foi respondida.']);
+        // O botão da mesma unidade fecha, e o resumo mostra 70.
+        numero.pedidos.length = 0;
+        expect(await tocar(tel, `lc:${l.id}:0:fm`)).toBe('respondeu_proposta');
+        expect(textos()[0]).toContain('• Tomate, 70 kg');
+        expect((await ultima()).itens[0]).toMatchObject({ fator: 1, estado: 'ligado' });
+        await q(`update mister_lista_compra set situacao = 'descartada' where id = $1`, [l.id]);
+      });
+
+      it('ERR-584: "Deixar de fora" vale na pergunta da unidade', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        await ferramentas.executar(await escopo('ana'), 'lista_de_compras', {
+          acao: 'montar',
+          itens: [
+            { texto: 'tomate', quantidade: 70, unidade: 'pacotes' },
+            { texto: 'tomate', quantidade: 1, unidade: 'kg' },
+          ],
+        });
+        const l = await ultima();
+        expect(await tocar(tel, `lc:${l.id}:0:f`)).toBe('respondeu_proposta');
+        expect((await ultima()).itens[0]).toMatchObject({ estado: 'fora' });
+        await q(`update mister_lista_compra set situacao = 'descartada' where id = $1`, [l.id]);
+      });
+
+      it('ERR-584: a mensagem que parou no meio: a lista segue sozinha, uma vez; recente ou antiga demais fica', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        await ferramentas.executar(await escopo('ana'), 'lista_de_compras', {
+          acao: 'montar',
+          itens: [
+            { texto: 'bacon em tiras sadia', quantidade: 10, unidade: 'kg' },
+            { texto: 'tomate', quantidade: 2, unidade: 'kg' },
+          ],
+        });
+        const l = await ultima();
+        const parada = wamid();
+        const recente = wamid();
+        const antiga = wamid();
+        await q(`insert into mister_mensagem (wamid, telefone, recebida_em) values ($1, $4, now() - interval '3 minutes'), ($2, $4, now() - interval '20 seconds'), ($3, $4, now() - interval '40 minutes')`, [
+          parada,
+          recente,
+          antiga,
+          tel,
+        ]);
+        numero.pedidos.length = 0;
+        expect(await lista.retomarInterrompidas()).toBe(1);
+        expect(textos()).toEqual(['Sua última mensagem não terminou de ser processada aqui. Sigo de onde parou:', 'Para qual fornecedor é o pedido?']);
+        expect(await q(`select desfecho from mister_mensagem where wamid = any($1::text[]) order by recebida_em`, [[antiga, parada, recente]])).toEqual([
+          { desfecho: null },
+          { desfecho: 'retomada_lista' },
+          { desfecho: null },
+        ]);
+        // Não repete, nem em duas réplicas juntas.
+        numero.pedidos.length = 0;
+        expect(await lista.retomarInterrompidas()).toBe(0);
+        expect(textos()).toEqual([]);
+        // O pedido que pode já ter sido criado nunca é refeito: a pessoa confere.
+        const pedidosAntes = await q(`select count(*)::int as n from compra_lista where tenant_id = $1`, [A]);
+        await q(`update mister_lista_compra set situacao = 'criada' where id = $1`, [l.id]);
+        await q(`update mister_mensagem set recebida_em = now() - interval '3 minutes' where wamid = $1`, [recente]);
+        numero.pedidos.length = 0;
+        expect(await lista.retomarInterrompidas()).toBe(1);
+        expect(textos()).toEqual(['Sua última mensagem não terminou de ser processada aqui, e não sei se o pedido foi criado. Confira em Estoque › Pedidos antes de pedir de novo.']);
+        expect(await q(`select count(*)::int as n from compra_lista where tenant_id = $1`, [A])).toEqual(pedidosAntes);
+        await q(`delete from mister_mensagem where wamid = any($1::text[])`, [[antiga, parada, recente]]);
+        await q(`update mister_lista_compra set situacao = 'descartada' where id = $1`, [l.id]);
+      });
+
+      it('ERR-584: o arquivo inteiro: da_leitura monta com todas as linhas, e um pedaço avisa que há mais', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const quem: any = { telefone: tel, tenantId: A, colaboradorId: pessoa.ana, unidadeId: lojaDeA, nivel: 'presidente', nome: 'Ana' };
+        const pedidos = [
+          { texto: 'Tomate', quantidade: 2, unidade: 'kg' },
+          { texto: 'Bacon em tiras', quantidade: 1, unidade: 'kg' },
+        ];
+        expect(await lista.guardarLida(quem, { total: 3, pedidos, semQuantidade: ['Sal'] })).toBe(true);
+        // Só um pedaço: fica como a pessoa pediu, e ela sabe que o arquivo tem mais.
+        const parte = await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'montar', itens: [pedidos[0]] });
+        expect(parte.mensagens![0].texto).toBe('Montei com a linha pedida. O arquivo tem 3: se quiser todas, diga "usa a lista inteira".');
+        // A lista inteira, sem a IA copiar nada.
+        const r = await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'da_leitura' });
+        expect(r).toMatchObject({ ok: true, dados: { montada: true, linhas: 2, linhasNoArquivo: 3 } });
+        expect(r.mensagens![0]).toEqual({ texto: 'Li 2 de 3 linhas do arquivo. Sem quantidade, ficaram de fora: Sal.' });
+        expect((await ultima()).itens.map((x: any) => x.texto)).toEqual(['Tomate', 'Bacon em tiras']);
+        expect(await q(`select count(*)::int as n from mister_lista_compra where tenant_id = $1 and colaborador_id = $2 and situacao = 'lida'`, [A, pessoa.ana])).toEqual([{ n: 0 }]);
+        // A leitura é usada uma vez; a vencida também não vale.
+        expect((await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'da_leitura' })).dados).toMatchObject({ erro: expect.stringContaining('Não tenho uma lista lida') });
+        await lista.guardarLida(quem, { total: 1, pedidos: [pedidos[0]], semQuantidade: [] });
+        await q(`update mister_lista_compra set vence_em = now() - interval '1 minute' where tenant_id = $1 and colaborador_id = $2 and situacao = 'lida'`, [A, pessoa.ana]);
+        expect((await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'da_leitura' })).dados).toMatchObject({ erro: expect.stringContaining('Não tenho uma lista lida') });
+        await q(`update mister_lista_compra set situacao = 'descartada' where tenant_id = $1 and situacao in ('lida', 'montando', 'confirmar')`, [A]);
       });
     });
 

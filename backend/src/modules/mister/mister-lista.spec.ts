@@ -1,17 +1,24 @@
 import {
   InsumoDaLista,
   LinhaDaLista,
+  aplicarFator,
+  duvidaDoFator,
+  ehParteDaLeitura,
   lerBotaoDaLista,
+  lerListaLida,
   lerPedidos,
   ligarAoInsumo,
   marcaDoTexto,
+  marcaNoTexto,
   montarLinha,
+  pareceListaDeCompras,
   pedidosDaPlanilha,
   perguntaDaLinha,
   perguntaDoFornecedor,
   proximaPendencia,
   quantidadeNoEstoque,
   resumoDaLista,
+  textoDaLeitura,
 } from './mister-lista';
 
 // A LISTA DE COMPRAS PELA CONVERSA (versão 6, M6g) — só o que é puro: as linhas, a ligação ao insumo, as pendências, os
@@ -123,7 +130,47 @@ describe('os botões e as frases', () => {
     ]);
     expect(perguntaDaLinha(L, 0, linha({ texto: 'guardanapo' })).texto).toBe('Não achei "guardanapo" (5) no seu estoque. Cadastro um novo, ou deixo de fora da lista?');
     const fator = perguntaDaLinha(L, 0, linha({ texto: 'tomate', quantidade: 2, unidade: 'caixas', itemNome: 'Tomate', unidadeDoEstoque: 'kg', estado: 'fator' }));
-    expect(fator).toEqual({ texto: 'Você pediu 2 caixas de "tomate", e o "Tomate" é contado em kg. 1 caixas tem quantos kg? Responda só o número.', botoes: [] });
+    expect(fator.texto).toBe('Você pediu 2 caixas de "tomate", e o "Tomate" é contado em kg. 1 caixa tem quantos kg? Responda com o número.');
+    expect(fator.botoes.map((b) => b.titulo)).toEqual(['É a mesma unidade', 'Deixar de fora']);
+    expect(fator.botoes.map((b) => lerBotaoDaLista(b.id))).toEqual([
+      { listaId: L, tipo: 'fator', indice: 0, acao: 'mesma' },
+      { listaId: L, tipo: 'item', indice: 0, escolha: 'f' },
+    ]);
+  });
+  it('ERR-584: a frase vira a conta para conferir, e a dúvida pergunta de novo', () => {
+    const coca = linha({ texto: 'Coca-Cola lata', quantidade: 70, unidade: 'pacotes', itemNome: 'Coca lata', unidadeDoEstoque: 'fardo', estado: 'fator', fatorProposto: 1 });
+    const p = perguntaDaLinha(L, 4, coca);
+    expect(p.texto).toBe('Então 70 pacotes de "Coca-Cola lata" = 70 fardos. Certo?');
+    expect(p.botoes.map((b) => lerBotaoDaLista(b.id))).toEqual([
+      { listaId: L, tipo: 'fator', indice: 4, acao: 'sim' },
+      { listaId: L, tipo: 'fator', indice: 4, acao: 'nao' },
+    ]);
+    for (const b of p.botoes) expect(b.titulo.length).toBeLessThanOrEqual(20);
+    expect(duvidaDoFator(L, 4, coca).texto).toBe('Não consegui saber quantos fardos tem 1 pacote de "Coca lata". Responda com o número ou toque em "É a mesma unidade".');
+    aplicarFator(coca, 1);
+    expect(coca).toMatchObject({ fator: 1, fatorProposto: null, estado: 'ligado' });
+    const comMarca = linha({ estado: 'fator', marcas: ['A', 'B'], fatorProposto: 2 });
+    aplicarFator(comMarca, 2);
+    expect(comMarca.estado).toBe('marca');
+  });
+  it('ERR-584: a marca escrita no produto não é perguntada; duas marcas escritas, ou um pedaço de palavra, perguntam', () => {
+    const marcas = ['Frimesa', 'Aurora'];
+    expect(marcaNoTexto(marcas, 'Bacon fatiado Frimesa')).toBe('Frimesa');
+    expect(marcaNoTexto(marcas, 'bacon AURORA 1kg')).toBe('Aurora');
+    expect(marcaNoTexto(marcas, 'bacon Frimesa ou Aurora')).toBeNull();
+    expect(marcaNoTexto(['Sul'], 'Sulfite')).toBeNull();
+    const l = montarLinha({ texto: 'bacon em tiras seara', quantidade: 2, unidade: 'kg' }, insumos, new Map());
+    expect(l).toMatchObject({ itemId: 'b1', marca: 'Seara', estado: 'ligado' });
+  });
+  it('ERR-584: a lista grande vai inteira antes do botão, porque o texto com botões é cortado em 1024 letras', () => {
+    const muitas = Array.from({ length: 36 }, (_, i) =>
+      linha({ estado: 'ligado', itemId: `i${i}`, itemNome: `Insumo com um nome comprido número ${i}`, unidadeDoEstoque: 'caixa', quantidade: 3, fator: 1 }),
+    );
+    const r = resumoDaLista(L, muitas, null);
+    expect(r.antes!.join('\n').match(/•/g)).toHaveLength(36);
+    expect(r.texto).toBe('36 itens na lista acima. Crio o pedido em Estoque › Pedidos?');
+    expect(r.botoes.map((b) => b.titulo)).toEqual(['Criar o pedido', 'Cancelar']);
+    for (const parte of r.antes!) expect(parte.length).toBeLessThanOrEqual(4096);
   });
   it('o resumo: cada insumo com a quantidade do pedido e a marca, o que fica de fora e o "Criar o pedido"', () => {
     const r = resumoDaLista(
@@ -135,8 +182,47 @@ describe('os botões e as frases', () => {
       ],
       'Distribuidora Sul',
     );
-    expect(r.texto).toBe('🛒 Lista de compras · Distribuidora Sul\n• Bacon em tiras, 10 kg (Sadia)\n• Tomate, 40 kg\nFica de fora: guardanapo.\n\nCrio o pedido em Estoque › Pedidos?');
+    expect(r.texto).toBe('🛒 Lista de compras · Distribuidora Sul\n• Bacon em tiras, 10 kg (Sadia)\n• Tomate, 40 kg (pediu 2 caixas)\nFica de fora: guardanapo.\n\nCrio o pedido em Estoque › Pedidos?');
     expect(r.botoes.map((b) => b.titulo)).toEqual(['Criar o pedido', 'Cancelar']);
+  });
+});
+
+describe('a lista lida de um arquivo (ERR-584)', () => {
+  it('lê as linhas; a sem quantidade é contada à parte; o texto fora do formato não vira lista', () => {
+    const r = lerListaLida('{"total": 4, "itens": [{"texto": "Bacon", "quantidade": 27, "unidade": "kg"}, {"texto": "Sal", "quantidade": null}, {"texto": "Tomate", "quantidade": 2, "unidade": null}]}');
+    expect(r).toEqual({
+      total: 4,
+      pedidos: [
+        { texto: 'Bacon', quantidade: 27, unidade: 'kg' },
+        { texto: 'Tomate', quantidade: 2, unidade: null },
+      ],
+      semQuantidade: ['Sal'],
+    });
+    expect(textoDaLeitura(r!)).toBe('Li 2 de 4 linhas do arquivo. Sem quantidade, ficaram de fora: Sal. Falta 1 linha: confira no arquivo e me mande à parte.');
+    expect(lerListaLida('{"total": 36, "itens": [{"texto": "cor')).toBeNull();
+    expect(lerListaLida('não é json')).toBeNull();
+    expect(lerListaLida('{"total": 0, "itens": []}')).toEqual({ total: 0, pedidos: [], semQuantidade: [] });
+  });
+  it('a contagem certa, e o total nunca fica abaixo do que veio', () => {
+    const r = lerListaLida(JSON.stringify({ total: 1, itens: [{ texto: 'A', quantidade: 1 }, { texto: 'B', quantidade: 2 }] }))!;
+    expect(r.total).toBe(2);
+    expect(textoDaLeitura(r)).toBe('Li 2 de 2 linhas do arquivo.');
+  });
+  it('dado pessoal escrito na linha não fica guardado', () => {
+    const r = lerListaLida(JSON.stringify({ total: 1, itens: [{ texto: 'Bacon ligar 21987654321', quantidade: 1 }] }))!;
+    expect(r.pedidos[0].texto).not.toContain('21987654321');
+  });
+  it('o que parece lista e o que não parece', () => {
+    expect(pareceListaDeCompras('Lista de compras em PDF', '')).toBe(true);
+    expect(pareceListaDeCompras('Pedido de compra do fornecedor')).toBe(true);
+    expect(pareceListaDeCompras('Tabela', 'Colunas: Produto, Qtd, Unidade')).toBe(true);
+    expect(pareceListaDeCompras('Freezer com caixas', 'está cheio?')).toBe(false);
+  });
+  it('a parte da lista lida é reconhecida; a lista inteira ou outra coisa, não', () => {
+    const lidos = ['Bacon', 'Tomate', 'Sal', 'Óleo'].map((texto) => ({ texto, quantidade: 1, unidade: null }));
+    expect(ehParteDaLeitura(lidos.slice(0, 2), lidos)).toBe(true);
+    expect(ehParteDaLeitura(lidos, lidos)).toBe(false);
+    expect(ehParteDaLeitura([{ texto: 'Farinha', quantidade: 1, unidade: null }], lidos)).toBe(false);
   });
 });
 

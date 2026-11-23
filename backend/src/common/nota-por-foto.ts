@@ -353,14 +353,6 @@ export function chaveDoDePara(item: Pick<ItemDaNota, 'codigo' | 'descricao'>): s
   return cod ? `cod:${cod}`.slice(0, 80) : `desc:${palavrasDaDescricao(item.descricao).join(' ')}`.slice(0, 120);
 }
 
-/** "40" / "2,5" / "1.5" → número positivo (a resposta ao "1 CX tem quantos kg?"); fora disso, null. */
-export function fatorDoTexto(texto: unknown): number | null {
-  const m = /(\d+(?:[.,]\d+)?)/.exec(String(texto ?? ''));
-  if (!m) return null;
-  const n = Number(m[1].replace(',', '.'));
-  return Number.isFinite(n) && n > 0 && n < 100000 ? n : null;
-}
-
 const reaisDe = (c: number) => (c / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const qtd = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 const dataCurta = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;

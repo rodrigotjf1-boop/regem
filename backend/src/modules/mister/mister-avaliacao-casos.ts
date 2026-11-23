@@ -395,7 +395,8 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
     case 'lista_de_compras': {
       // Versão 6, M6g: a mesma leitura das linhas da de verdade; na avaliação nenhuma lista é guardada nem pedida.
       if (en.acao === 'do_minimo') return ok({ vazia: true, mensagem: 'Nada está abaixo do mínimo no estoque agora: não há o que pôr na lista.' });
-      if (en.acao !== 'montar') return recusa('acao precisa ser montar ou do_minimo.');
+      if (en.acao === 'da_leitura') return recusa('Não tenho uma lista lida nas últimas 2 horas: peça para a pessoa mandar o arquivo de novo.');
+      if (en.acao !== 'montar') return recusa('acao precisa ser montar, da_leitura ou do_minimo.');
       const pedidos = lerPedidos(en.itens);
       if (!pedidos.length) return recusa('Não entendi as linhas da lista: mande cada produto com a quantidade (ex.: "10 kg de bacon, 5 caixas de tomate").');
       return ok({

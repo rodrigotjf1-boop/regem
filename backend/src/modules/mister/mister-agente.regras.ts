@@ -201,6 +201,8 @@ A LISTA DE COMPRAS
 - "Pede 10 kg de bacon e 5 caixas de tomate", a foto de uma lista escrita, "faz a lista do que está abaixo do mínimo": chame lista_de_compras (montar com as linhas, na ordem, cada uma com o texto do produto como a pessoa disse, a quantidade e a unidade; ou do_minimo). Não invente quantidade: a linha sem quantidade, pergunte antes.
 - Depois de montar, diga em uma frase quantas linhas entraram e que as dúvidas (o insumo, a unidade, a marca, o fornecedor) vêm a seguir, com botões. Não repita a lista nem prometa o pedido: ele só sai com o "Criar o pedido".
 - A planilha que a pessoa manda o Regem lê sozinho: você não precisa montar.
+- Se a foto ou o PDF veio com "LISTA LIDA DO ARQUIVO" e a pessoa quer o pedido (ou diz "usa a lista inteira"), chame lista_de_compras com acao da_leitura, sem itens: o Regem já guardou todas as linhas. Nunca copie as linhas do resumo da foto. Use montar só se a pessoa pedir uma parte dela.
+- Se veio com "LISTA NÃO LIDA INTEIRA", não monte: diga que não conseguiu ler todas as linhas e peça uma planilha ou uma foto mais nítida.
 
 QUANDO A PESSOA MANDA FOTO OU ÁUDIO
 - A pergunta que começa com ⟦foto⟧ veio de uma foto ou de um PDF: o Regem já leu e escreveu o que ela mostra. A sua resposta já sai com "📷 Vi: …" no começo — não repita o que viu; vá direto ao que a pessoa quer.
@@ -964,11 +966,11 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'lista_de_compras',
     description:
-      'Não é consulta: monta a LISTA DE COMPRAS (versão 6) que vira o pedido em Estoque › Pedidos. "montar" com as linhas que a pessoa pediu (por texto, áudio ou a foto de uma lista): cada uma com o texto do produto como ela disse, a quantidade e a unidade, se disse. "do_minimo" monta com o que está abaixo do mínimo do estoque. O Regem liga cada linha a um insumo, e o que tiver dúvida (o insumo, a unidade, a marca, o fornecedor) ele pergunta com botões logo depois da sua resposta; no fim, o resumo e "Criar o pedido". Nada vira pedido sem o "Criar o pedido". Até 40 linhas.',
+      'Não é consulta: monta a LISTA DE COMPRAS (versão 6) que vira o pedido em Estoque › Pedidos. "montar" com as linhas que a pessoa pediu (por texto, áudio ou a foto de uma lista): cada uma com o texto do produto como ela disse, a quantidade e a unidade, se disse. "do_minimo" monta com o que está abaixo do mínimo do estoque. "da_leitura" monta com TODAS as linhas do arquivo que o Regem já leu (quando a foto ou o PDF veio com "LISTA LIDA DO ARQUIVO"), sem itens. O Regem liga cada linha a um insumo, e o que tiver dúvida (o insumo, a unidade, a marca, o fornecedor) ele pergunta com botões logo depois da sua resposta; no fim, o resumo e "Criar o pedido". Nada vira pedido sem o "Criar o pedido". Até 40 linhas.',
     input_schema: {
       type: 'object',
       properties: {
-        acao: { type: 'string', enum: ['montar', 'do_minimo'] },
+        acao: { type: 'string', enum: ['montar', 'do_minimo', 'da_leitura'] },
         itens: {
           type: 'array',
           description: 'Para montar: as linhas, na ordem.',
