@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import {
   RAMO_DO_REGEM,
   corpoDosInteresses,
+  lerBoletimDaPorta,
   lerClima,
   lerConfigPulso,
   lerMudancas,
@@ -76,5 +77,83 @@ describe('o Regem lê o Pulso — as regras', () => {
     expect(c).toEqual({ municipios: ['3304557', '3550308'], temas: [], ramos: [RAMO_DO_REGEM] });
     expect(Object.keys(c).sort()).toEqual(['municipios', 'ramos', 'temas']);
     expect(resumoDosInteresses(c)).toBe(resumoDosInteresses(corpoDosInteresses(['3550308', '3304557'])));
+  });
+});
+
+describe('o boletim do ramo lido da porta', () => {
+  const noticia = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    titulo: `Notícia ${id}`,
+    link: `https://www.gov.br/receitafederal/${id}`,
+    categoria: 'impostos',
+    categoria_nome: 'Impostos e fiscal',
+    publicado_em: '2026-11-20T14:05:00.000Z',
+    motivo: 'Impostos e fiscal · Brasil',
+    em_discussao: false,
+    aviso: null,
+    fonte: { id: 'receita_federal', nome: 'Receita Federal (RSS)', credito: 'Fonte: Receita Federal (gov.br, CC BY-ND 3.0)' },
+    ...extra,
+  });
+
+  it('sem o dia certo, não há boletim', () => {
+    for (const c of [null, 'x', {}, { dia: 'ontem' }, { dia: 20261123 }]) expect(lerBoletimDaPorta(c)).toBeNull();
+  });
+
+  it('o item torto fica de fora: link que não é https, sem crédito, sem título ou sem data', () => {
+    const b = lerBoletimDaPorta({
+      dia: '2026-11-23',
+      destaques: [
+        noticia('1'),
+        noticia('2', { link: 'javascript:alert(1)' }),
+        noticia('3', { link: 'http://exemplo.com/a' }),
+        noticia('4', { link: 'https://usuario:senha@exemplo.com/a' }),
+        noticia('5', { fonte: { id: 'x' } }),
+        noticia('6', { titulo: '  ' }),
+        noticia('7', { publicado_em: 'ontem' }),
+      ],
+    });
+    expect(b?.destaques.map((n) => n.id)).toEqual(['1']);
+    expect(b?.destaques[0]).toEqual({
+      id: '1',
+      titulo: 'Notícia 1',
+      link: 'https://www.gov.br/receitafederal/1',
+      categoria: 'impostos',
+      categoriaNome: 'Impostos e fiscal',
+      publicadoEm: '2026-11-20T14:05:00.000Z',
+      emDiscussao: false,
+      aviso: null,
+      credito: 'Fonte: Receita Federal (gov.br, CC BY-ND 3.0)',
+    });
+  });
+
+  it('projeto no Congresso nunca sai sem o aviso, mesmo se a porta não mandar a frase', () => {
+    const b = lerBoletimDaPorta({ dia: '2026-11-23', destaques: [noticia('1', { em_discussao: true, aviso: null })] });
+    expect(b?.destaques[0].aviso).toBe('Em discussão no Congresso: ainda não é lei.');
+  });
+
+  it('os blocos têm teto; o boletim antigo, sem novidades, vem com a lista vazia', () => {
+    const muitas = (p: string, n: number) => Array.from({ length: n }, (_, i) => noticia(`${p}${i}`));
+    const b = lerBoletimDaPorta({ dia: '2026-11-23', destaques: muitas('d', 9), novidades: muitas('n', 9), mais: muitas('m', 40) });
+    expect([b?.destaques.length, b?.novidades.length, b?.mais.length]).toEqual([5, 3, 20]);
+    expect(lerBoletimDaPorta({ dia: '2026-11-23', destaques: [noticia('1')], mais: [] })?.novidades).toEqual([]);
+  });
+
+  it('a frase de "nada importante" só vale sem nenhuma notícia em destaque nem novidade', () => {
+    const mensagem = 'Hoje não saiu nada importante para o ramo.';
+    expect(lerBoletimDaPorta({ dia: '2026-11-23', mensagem })?.mensagem).toBe(mensagem);
+    expect(lerBoletimDaPorta({ dia: '2026-11-23', mensagem, novidades: [noticia('1')] })?.mensagem).toBeNull();
+  });
+
+  it('os indicadores: valor que não é número fica de fora; o acumulado é opcional', () => {
+    const fonte = { id: 'ibge_ipca', nome: 'IBGE (IPCA)', credito: 'Fonte: IBGE' };
+    const b = lerBoletimDaPorta({
+      dia: '2026-11-23',
+      indicadores: [
+        { id: 'ipca_geral', nome: 'IPCA', valor: 0.14, unidade: '% no mês', referencia: '2026-10', detalhes: { acumulado_12_meses: 4.63 }, mudou: false, fonte },
+        { id: 'selic', nome: 'Selic', valor: 13.75, unidade: '% ao ano', referencia: '2026-11-23', detalhes: {}, mudou: true, fonte: { id: 'bcb', credito: 'Fonte: Banco Central do Brasil' } },
+        { id: 'torto', nome: 'Torto', valor: '0,14', unidade: '%', referencia: '2026-10', fonte },
+      ],
+    });
+    expect(b?.indicadores.map((i) => [i.id, i.acumulado12Meses, i.mudou])).toEqual([['ipca_geral', 4.63, false], ['selic', null, true]]);
   });
 });

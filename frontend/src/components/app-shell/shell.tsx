@@ -33,6 +33,7 @@ import {
   Menu,
   MessageCircle,
   MonitorSmartphone,
+  Newspaper,
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
@@ -201,6 +202,8 @@ const NAV: NavNode[] = [
       { href: '/vendas/remocoes', label: 'Cancelamentos de itens', icon: FileText, perm: 'cancelamentos' },
       // Os Números do atendimento (item 8 da Central): placar, reclamações por motivo e produto, quanto custou.
       { href: '/atendimento/numeros', label: 'Atendimento', icon: Headset, perm: 'pedidos', soGestao: true },
+      // O boletim do Pulso (mig 494): a permissão diz quem vê; a "chave" `noticias_ramo` de /modulos/meus, o ramo que tem boletim.
+      { href: '/noticias-do-ramo', label: 'Notícias do ramo', icon: Newspaper, perm: 'noticias_ramo', modulo: 'noticias_ramo' },
     ],
   },
   { href: '/auditoria', label: 'Auditoria', icon: History, perm: 'auditoria' },

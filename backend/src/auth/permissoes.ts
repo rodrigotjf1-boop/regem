@@ -85,6 +85,7 @@ export interface Permissoes {
   turnos?: boolean; // turnos / fechamentos de caixa
   relatorios_vendas?: boolean;
   cancelamentos?: boolean; // cancelamentos de itens de mesa (retiradas)
+  noticias_ramo?: boolean; // Notícias do ramo (mig 494): o presidente sempre; os outros perfis só se ele liberar
   // Diretoria
   auditoria?: boolean;
   visao_co?: boolean;
@@ -125,7 +126,7 @@ export const PACOTE_SUPORTE_TOTAL: Permissoes = {
   impressoras: true, kds: true, direcionamento_impressao: true, cupom_layout: true,
   config_ramo: true, planos: true, acessos: true, servidor: true,
   // Relatórios
-  turnos: true, relatorios_vendas: true, cancelamentos: true,
+  turnos: true, relatorios_vendas: true, cancelamentos: true, noticias_ramo: true,
   // Diretoria (visao_co segue barrada pela categoria='suporte' — flag aqui é inócua)
   auditoria: true, visao_co: true,
   // CRUD fino
@@ -254,6 +255,7 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'turnos', rotulo: 'Turnos / caixa', grupo: 'Relatórios', tipo: 'bool' },
   { chave: 'relatorios_vendas', rotulo: 'Relatórios de vendas', grupo: 'Relatórios', tipo: 'bool' },
   { chave: 'cancelamentos', rotulo: 'Cancelamentos de itens', grupo: 'Relatórios', tipo: 'bool' },
+  { chave: 'noticias_ramo', rotulo: 'Notícias do ramo', grupo: 'Relatórios', tipo: 'bool' },
   { chave: 'auditoria', rotulo: 'Auditoria', grupo: 'Diretoria', tipo: 'bool' },
   { chave: 'visao_co', rotulo: 'Visão C&O', grupo: 'Diretoria', tipo: 'bool' },
 ];

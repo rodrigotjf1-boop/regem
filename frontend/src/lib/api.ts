@@ -340,6 +340,7 @@ const ROTAS_MENU: { href: string; perm: string }[] = [
   { href: '/unidades', perm: 'unidades' },
   { href: '/caixa/fechamentos', perm: 'turnos' },
   { href: '/relatorios', perm: 'relatorios_vendas' },
+  { href: '/noticias-do-ramo', perm: 'noticias_ramo' },
   { href: '/auditoria', perm: 'auditoria' },
   { href: '/diretoria', perm: 'visao_co' },
 ];
@@ -2653,6 +2654,8 @@ export const api = {
   // Módulos ativos para MIM (plano contratado ∩ liga/desliga do presidente).
   // O menu usa isto para não oferecer o que a loja não tem.
   modulosMeus: () => req('/modulos/meus'),
+  // Relatórios › Notícias do ramo (mig 494): a cópia do boletim do Pulso; no servidor da loja, pedida à nuvem.
+  noticiasDoRamo: (dia?: string) => req(`/noticias-do-ramo${dia ? `?dia=${encodeURIComponent(dia)}` : ''}`),
   // Acerto de contas do sub-PDV de salão (mig 143): a fila do caixa responsável.
   acertos: () => req('/vendas/acertos'),
   baixarAcerto: (id: string, body?: { recebidoCentavos?: number; observacao?: string }) =>

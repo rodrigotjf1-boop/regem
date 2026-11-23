@@ -102,6 +102,7 @@ import { LicencaModule } from './modules/licenca/licenca.module';
 import { VigiaModule } from './modules/vigia/vigia.module';
 import { MisterAgenteModule } from './modules/mister/mister-agente.module';
 import { AvisosNaTelaModule } from './modules/mister/avisos-na-tela.module';
+import { NoticiasRamoModule } from './modules/noticias-ramo/noticias-ramo.module';
 import { AvaliacaoPedidoModule } from './modules/avaliacao-pedido/avaliacao-pedido.module';
 import { AuthModule } from './auth/auth.module';
 
@@ -202,6 +203,7 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
     ProducaoPedidoModule,
     TelaSenhasModule, // a TV de senhas (Cozinha em estações, entrega 4; mig 337)
     AvisosNaTelaModule, // os avisos do Mister na tela da loja (F1.4): nos dois lados — no servidor da loja, pede à nuvem
+    NoticiasRamoModule, // Relatórios › Notícias do ramo (mig 494): nos dois lados — no servidor da loja, pede à nuvem
     AvaliacaoPedidoModule, // a nota do pedido (mig 453): a página do pedido só na nuvem; Delivery › Avaliações pede à nuvem
     ImpressaoModule,
     FiscalModule,
