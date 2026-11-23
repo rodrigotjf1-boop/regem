@@ -161,6 +161,8 @@ import {
 import { GUIA_DE_USO, SecaoDoGuia, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { canceladoComVendaDePe, concluidoSemPagamento, pixSemEstorno, vendaComNotaComProblema, vendaDesfeitaComNota } from './mister-conciliacao';
 import { primeiroNome } from './mister.regras';
+import { montarAgenda, periodoDaAgenda } from './mister-clima-eventos';
+import { lerCalendarioDaLoja, lerCidadeDaLoja, lerClimaDaCidade, lerEventosDaBase } from './mister-clima-eventos.leitura';
 import {
   ParteDoVencimento,
   ServidorLido,
@@ -580,6 +582,8 @@ export class MisterFerramentasService {
         return this.analisarVendas(e, en, loja);
       case 'indicadores_financeiros':
         return this.indicadoresFinanceiros(e, en, loja);
+      case 'clima_e_eventos':
+        return this.climaEEventos(en, e, loja);
       case 'pedidos_em_andamento':
         return this.pedidosEmAndamento(e, loja);
       case 'estoque_em_alerta':
@@ -2293,6 +2297,22 @@ export class MisterFerramentasService {
         ...(temCancelamento || temMercadoria ? {} : { semDados: true }),
       },
     };
+  }
+
+  // ───────────────────────────── versão 8, E1: clima e eventos ─────────────────────────────
+
+  /** `clima_e_eventos`: o calendário da loja, a base de eventos e as duas previsões da cidade. Fatos públicos: sem valor da loja. */
+  private async climaEEventos(en: Record<string, unknown>, e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const hoje = hojeISO();
+    const p = periodoDaAgenda(en as { dia?: unknown; dias?: unknown }, hoje);
+    if ('erro' in p) return recusa(p.erro);
+    const cidade = await lerCidadeDaLoja(this.db, e.tenantId, loja.atual);
+    const [daBase, daLoja, clima] = await Promise.all([
+      lerEventosDaBase(this.db, p.de, p.ate),
+      lerCalendarioDaLoja(this.db, e.tenantId, loja.atual, p.de, p.ate),
+      lerClimaDaCidade(this.db, cidade.municipio, p.de, p.ate),
+    ]);
+    return { ok: true, dados: montarAgenda({ ...p, hoje, loja: loja.nome, cidade, daBase, daLoja, clima }) };
   }
 
   // ───────────────────────────── versão 7, V7f: os indicadores financeiros ─────────────────────────────

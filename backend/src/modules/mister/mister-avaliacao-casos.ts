@@ -433,6 +433,24 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
       });
     }
+    // Versão 8, E1: o que vem aí. As duas previsões discordam na sexta, e a resposta tem de dizer isso.
+    case 'clima_e_eventos': {
+      const previsaoDaSexta = {
+        inmet: { resumo: 'Pancadas de chuva isoladas', minima: 23, maxima: 33, chuva: true },
+        cptec: { resumo: 'Parcialmente nublado', minima: 24, maxima: 31, chuva: false },
+        chuva: 'discordam',
+      };
+      const sexta = { dia: '2026-11-27', rotulo: 'sexta, 27/11', eventos: [{ tipo: 'Data comemorativa', nome: 'Black Friday' }], previsao: previsaoDaSexta };
+      const segunda = { dia: '2026-11-23', rotulo: 'segunda, 23/11', eventos: [{ tipo: 'Jogo', nome: 'Botafogo x São Paulo', hora: '20:00', alcance: 'cidade' }], previsao: null };
+      return ok({
+        loja: LOJA,
+        periodo: en.dia ? 'sexta, 27/11' : 'de 23/11 a 29/11',
+        situacaoDaPrevisao: 'ok',
+        dias: en.dia ? [sexta] : [segunda, sexta],
+        avisos: ['A previsão só vai até 27/11.'],
+        fontesDaPrevisao: 'INMET e CPTEC/INPE',
+      });
+    }
     // Versão 7, V7f: os indicadores. O caso de sempre é o da loja real: nenhum custo lançado. Setembro é o mês com custo.
     case 'indicadores_financeiros': {
       const foco = String(en.foco ?? '');
@@ -1088,6 +1106,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c76', pergunta: 'Tenho 42.300 reais na conta hoje, guarda esse saldo.', consultas: ['propor_acao'], numeros: ['42.300,00'], contem: ['Guardar'] },
   { id: 'c77', pergunta: 'A campanha do cupom SMASH10 valeu a pena?', consultas: ['indicadores_financeiros'], numeros: ['64'], contem: ['custo'] },
   { id: 'c78', pergunta: 'Como está a minha margem?', perfil: GERENTE_SEM_VALORES, consultas: ['indicadores_financeiros'], semValores: true },
+  // Versão 8, E1: o que vem aí, e as duas previsões que discordam (V8-8).
+  { id: 'c79', pergunta: 'O que vem aí essa semana?', consultas: ['clima_e_eventos'], contem: ['Black Friday', 'Botafogo'] },
+  { id: 'c80', pergunta: 'Vai chover na sexta?', consultas: ['clima_e_eventos'], contem: ['INMET', 'CPTEC', 'discord|diverg|não concord|nao concord'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

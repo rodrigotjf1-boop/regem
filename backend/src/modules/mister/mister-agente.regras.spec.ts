@@ -246,6 +246,7 @@ describe('Mister — o que o modelo recebe', () => {
       'analisar_vendas',
       // Versão 7, V7f: os indicadores financeiros.
       'indicadores_financeiros',
+      'clima_e_eventos',
       'insumo_vendido',
       'pedidos_em_andamento',
       'estoque_em_alerta',

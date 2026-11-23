@@ -4262,18 +4262,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 78 de 78, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 80 de 80, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(78);
+        expect(r.total).toBe(80);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 78, acertos: 78, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 80, acertos: 80, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 78, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 78, acertos: 78, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 80, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 80, acertos: 80, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4293,7 +4293,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 77 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 79 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -11596,6 +11596,22 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from tarefa_instancia where tenant_id = $1 and tarefa_def_id in (select id from tarefa_def where tenant_id = $1 and titulo like 'M6J %')`, [A]);
           await q(`delete from tarefa_def where tenant_id = $1 and titulo like 'M6J %'`, [A]);
         }
+      });
+
+      it('versão 8, E1: clima_e_eventos responde pela porta do Mister, para um dia ou vários, e recusa o dia passado', async () => {
+        const e = (await ferramentas.escopoDaTela(A, pessoa.ana))!;
+        const dia = somarDias(hojeISO(), 1);
+        const r: any = await ferramentas.executar(e, 'clima_e_eventos', { dia });
+        expect(r.ok).toBe(true);
+        expect(r.dados.dias).toHaveLength(1);
+        expect(r.dados.dias[0].dia).toBe(dia);
+        expect(['ok', 'sem_cidade', 'sem_leitura', 'varias_cidades']).toContain(r.dados.situacaoDaPrevisao);
+        const varios: any = await ferramentas.executar(e, 'clima_e_eventos', { dias: 16 });
+        expect(varios.ok).toBe(true);
+        expect(await ferramentas.executar(e, 'clima_e_eventos', { dia: somarDias(hojeISO(), -1) })).toEqual({
+          ok: false,
+          dados: { erro: 'Esta consulta olha de hoje para a frente.' },
+        });
       });
 
       // ───────────── versão 7, V7f: os indicadores financeiros (a conta oficial, o custo, as permissões e o dado informado) ─────────────
