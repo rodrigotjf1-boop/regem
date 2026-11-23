@@ -5,7 +5,8 @@ import { Pool, type PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { hojeISO } from '../../common/data';
 import { somarDias } from '../perfil-cliente/calendario-regra';
-import { lerConfigPulso } from './pulso.regras';
+import { NoticiasRamoService } from '../noticias-ramo/noticias-ramo.service';
+import { DIAS_DE_BOLETIM, lerConfigPulso } from './pulso.regras';
 import { PulsoService } from './pulso.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -16,6 +17,7 @@ const descrever = URL_PG ? describe : describe.skip;
 if (!URL_PG) console.warn('pulso-pg.spec: sem TEST_PG_URL — PULADO');
 
 const MIG_470 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '470_pulso_eventos_e_clima.sql');
+const MIG_494 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '494_pulso_boletim_do_ramo.sql');
 const ligacaoDeTeste = () => {
   const corpo = randomBytes(32).toString('base64url');
   return `dms_lg_pulso_${corpo}_${createHash('sha256').update(corpo, 'utf8').digest('base64url').slice(0, 6)}`;
@@ -30,7 +32,7 @@ const CFG = lerConfigPulso({
 });
 
 /** O DMS ID e o Pulso de mentira: anota cada chamada (método, caminho, consulta, cabeçalhos, corpo). */
-function pulsoFalso(resp: { mudancas?: any[]; clima?: (m: string) => any; status?: number } = {}) {
+function pulsoFalso(resp: { mudancas?: any[]; clima?: (m: string) => any; status?: number; boletim?: () => any } = {}) {
   const chamadas: any[] = [];
   let pagina = 0;
   const buscar = (async (alvo: any, init: any = {}) => {
@@ -49,6 +51,7 @@ function pulsoFalso(resp: { mudancas?: any[]; clima?: (m: string) => any; status
     if (u.pathname === '/v1/eventos/mudancas') return json(200, (resp.mudancas ?? [])[pagina++] ?? { eventos: [], proxima_versao: Number(u.searchParams.get('desde_versao')), tem_mais: false });
     if (u.pathname === '/v1/interesses') return json(200, { municipios: JSON.parse(String(init.body)).municipios, temas: [], ramos: ['bares_restaurantes'], municipios_pendentes: [], municipios_recusados: [] });
     if (u.pathname === '/v1/clima') return json(200, resp.clima ? resp.clima(u.searchParams.get('municipio') as string) : { dias: [] });
+    if (u.pathname === '/v1/ramo/boletim' && resp.boletim) return json(200, resp.boletim());
     return json(404, {});
   }) as unknown as typeof fetch;
   return { buscar, chamadas };
@@ -83,6 +86,7 @@ descrever('o Regem lê o Pulso (Postgres)', () => {
   beforeAll(async () => {
     await admin.query(`create schema ${SCHEMA}`);
     await pool.query(readFileSync(MIG_470, 'utf8'));
+    await pool.query(readFileSync(MIG_494, 'utf8'));
   }, 60_000);
   afterAll(async () => {
     await pool.end();
@@ -214,4 +218,92 @@ descrever('o Regem lê o Pulso (Postgres)', () => {
       // A mesma volta de novo: a vez está reservada (20 h).
       expect(await svc.lerClimaDosMunicipios(CFG, pulsoFalso().buscar)).toBe(0);
     }));
+
+  describe('o boletim do ramo', () => {
+    const noticia = (id: string) => ({
+      id,
+      titulo: `Notícia ${id}`,
+      link: `https://mercadoeconsumo.com.br/foodservice/${id}/`,
+      categoria: 'tendencias',
+      categoria_nome: 'Tendências do ramo',
+      publicado_em: '2026-11-21T12:40:00.000Z',
+      em_discussao: false,
+      aviso: null,
+      fonte: { id: 'mercado_consumo', nome: 'Mercado&Consumo', credito: 'Fonte: Mercado&Consumo' },
+    });
+    const boletimDe = (dia: string, novidades: any[]) => ({ ramo: 'bares_restaurantes', dia, mensagem: null, indicadores: [], destaques: [], novidades, mais: [] });
+    const liberar = () => q(`update pulso_estado set boletim_lido_em = null, erro = null, erro_em = null`);
+    beforeEach(async () => {
+      await q(`delete from pulso_boletim`);
+      await liberar();
+    });
+
+    it('guarda uma cópia por dia; sem mudança não regrava; a notícia tirada no Pulso some; a volta seguinte respeita a reserva', async () => {
+      const svc = new PulsoService(drizzle(pool as any) as any);
+      const hoje = hojeISO();
+      let corpo = boletimDe(hoje, [noticia('1'), noticia('2')]);
+      const f = pulsoFalso({ boletim: () => corpo });
+      expect(await svc.lerBoletimDoRamo(CFG, f.buscar)).toBe(true);
+      expect(f.chamadas.find((c) => c.caminho === '/v1/ramo/boletim').consulta).toEqual({ ramo: 'bares_restaurantes', data: hoje });
+      let linhas = await q(`select to_char(dia, 'YYYY-MM-DD') as dia, corpo from pulso_boletim`);
+      expect(linhas).toHaveLength(1);
+      expect(linhas[0].dia).toBe(hoje);
+      expect(linhas[0].corpo.novidades.map((n: any) => n.id)).toEqual(['1', '2']);
+      // A reserva de 50 minutos: duas réplicas não chamam o Pulso duas vezes.
+      const outra = pulsoFalso({ boletim: () => corpo });
+      expect(await svc.lerBoletimDoRamo(CFG, outra.buscar)).toBe(false);
+      expect(outra.chamadas).toHaveLength(0);
+      await liberar();
+      expect(await svc.lerBoletimDoRamo(CFG, f.buscar)).toBe(false); // o mesmo boletim não regrava
+      await liberar();
+      corpo = boletimDe(hoje, [noticia('2')]);
+      expect(await svc.lerBoletimDoRamo(CFG, f.buscar)).toBe(true);
+      linhas = await q(`select corpo from pulso_boletim`);
+      expect(linhas[0].corpo.novidades.map((n: any) => n.id)).toEqual(['2']);
+    });
+
+    it('ainda não saiu (404) não é erro; boletim de outro dia e falha da porta não gravam e ficam anotados', async () => {
+      const svc = new PulsoService(drizzle(pool as any) as any);
+      expect(await svc.lerBoletimDoRamo(CFG, pulsoFalso().buscar)).toBe(false);
+      expect(await q(`select erro from pulso_estado`)).toEqual([{ erro: null }]);
+      await liberar();
+      expect(await svc.lerBoletimDoRamo(CFG, pulsoFalso({ boletim: () => boletimDe('2026-01-01', [noticia('1')]) }).buscar)).toBe(false);
+      expect((await q(`select erro from pulso_estado`))[0].erro).toMatch(/boletim: .*boletim-invalido|boletim-invalido/);
+      await liberar();
+      expect(await svc.lerBoletimDoRamo(CFG, pulsoFalso({ status: 403 }).buscar)).toBe(false);
+      expect((await q(`select erro from pulso_estado`))[0].erro).toMatch(/^boletim/);
+      expect(await q(`select 1 from pulso_boletim`)).toEqual([]);
+    });
+
+    it(`a cópia fica ${DIAS_DE_BOLETIM} dias: a mais velha sai quando entra a de hoje`, async () => {
+      const svc = new PulsoService(drizzle(pool as any) as any);
+      const hoje = hojeISO();
+      const velha = somarDias(hoje, -(DIAS_DE_BOLETIM + 1));
+      const limite = somarDias(hoje, -DIAS_DE_BOLETIM);
+      for (const d of [velha, limite]) await q(`insert into pulso_boletim (ramo, dia, corpo) values ('bares_restaurantes', $1::date, '{}')`, [d]);
+      await svc.lerBoletimDoRamo(CFG, pulsoFalso({ boletim: () => boletimDe(hoje, []) }).buscar);
+      const dias = (await q(`select to_char(dia, 'YYYY-MM-DD') as dia from pulso_boletim order by dia`)).map((l) => l.dia);
+      expect(dias).toEqual([limite, hoje]);
+    });
+
+    it('a tela lê a cópia: o mais recente, um dia pedido, dia sem boletim e nenhum boletim; outro ramo não lê', () =>
+      naTransacao(async (c, tq) => {
+        const noticias = new NoticiasRamoService(drizzle(c as any) as any);
+        const t = (await tq(`insert into empresa (nome) values ('teste notícias') returning id`))[0].id as string;
+        await tq(`delete from pulso_boletim`);
+        expect(await noticias.daTela(t)).toEqual({ semNuvem: false, dia: null, dias: [], boletim: null });
+        const insere = (d: string) => tq(`insert into pulso_boletim (ramo, dia, corpo) values ('bares_restaurantes', $1::date, $2::jsonb)`, [d, JSON.stringify(boletimDe(d, []))]);
+        await insere('2026-11-22');
+        await insere('2026-11-23');
+        const r = await noticias.daTela(t);
+        expect(r.dia).toBe('2026-11-23');
+        expect(r.dias).toEqual(['2026-11-23', '2026-11-22']);
+        expect((r.boletim as any).dia).toBe('2026-11-23');
+        expect(((await noticias.daTela(t, '2026-11-22')).boletim as any).dia).toBe('2026-11-22');
+        expect(await noticias.daTela(t, '2026-11-01')).toEqual({ semNuvem: false, dia: '2026-11-01', dias: ['2026-11-23', '2026-11-22'], boletim: null });
+        expect(((await noticias.paraOServidorDaLoja(t)).boletim as any).dia).toBe('2026-11-23');
+        await tq(`update empresa set ramo = 'varejo' where id = $1`, [t]);
+        await expect(noticias.daTela(t)).rejects.toThrow('Não há boletim');
+      }));
+  });
 });

@@ -1,9 +1,10 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { moduloAtivacao, unidade } from '../../db/schema';
+import { empresa, moduloAtivacao, unidade } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuthUser } from '../../auth/auth-user';
+import { RAMO_DA_EMPRESA_COM_BOLETIM } from '../pulso/pulso.regras';
 
 // Módulos ativáveis do produto. `padrao` = estado quando nada foi configurado (sem `padrao`, o módulo nasce LIGADO).
 export const MODULOS: { chave: string; label: string; emoji: string; padrao?: boolean }[] = [
@@ -139,6 +140,9 @@ export class ModuloService {
   async meus(user: AuthUser) {
     const out: Record<string, boolean> = {};
     for (const m of MODULOS) out[m.chave] = await this.ativo(user.tenantId, user.unidadeId ?? null, m.chave);
+    // Notícias do ramo não é módulo contratado: o item do menu só existe para o ramo que tem boletim (o servidor confere).
+    const [e] = await this.db.select({ ramo: empresa.ramo }).from(empresa).where(eq(empresa.id, user.tenantId));
+    out.noticias_ramo = e?.ramo === RAMO_DA_EMPRESA_COM_BOLETIM;
     return out;
   }
 

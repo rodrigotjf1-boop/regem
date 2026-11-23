@@ -165,7 +165,7 @@ export class WhatsappService {
     const donos = await this.db
       .select({ tenantId: cardapioConfig.tenantId })
       .from(cardapioConfig)
-      .where(eq(cardapioConfig.evolutionInstancia, instancia));
+      .where(or(eq(cardapioConfig.evolutionInstancia, instancia), eq(cardapioConfig.marketingInstancia, instancia)));
     if (donos.some((d) => d.tenantId !== tenantId))
       throw new BadRequestException('Esta conexão de WhatsApp já pertence a outra loja.');
   }
@@ -446,6 +446,8 @@ export class WhatsappService {
   async vincular(tenantId: string, nome: string) {
     const instancia = String(nome ?? '').trim();
     if (!instancia) throw new BadRequestException('Informe o nome da instância do Evolution.');
+    // O nome entra no caminho da chamada à Evolution: com "../" ele apontava para a instância de outra loja (S2-01).
+    if (/[/\\?#%]|\.\./.test(instancia)) throw new BadRequestException('Nome de instância inválido.');
     await this.garantirInstanciaLivre(tenantId, instancia);
     const [cfg] = await this.db
       .select()

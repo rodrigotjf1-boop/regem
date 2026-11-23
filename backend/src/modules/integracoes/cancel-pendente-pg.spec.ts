@@ -205,7 +205,7 @@ descrever('a configuração da integração: cada escritor grava só a sua chave
       await marcarCancelPendente(db, id, 'ped-99', { reasonId: 1010 }); // o poller grava no meio
       return { shop_name: 'Loja da esquina', shop_addr: 'Rua A, 1' };
     };
-    await svc.tratarBind('{"bindStatus":"bind","appShopIDList":["shop-1"]}');
+    await svc.tratarBind('{"bindStatus":"bind","appShopIDList":["shop-1"]}', true);
     let c = await config(id);
     expect(c).toMatchObject({ pendingBind: { appShopId: 'shop-1', nome: 'Loja da esquina', addr: 'Rua A, 1' }, bindPending: null, situacaoDaLoja: { aberta: true } });
     expect(c.pendingCancels['ped-99']).toEqual({ reasonId: 1010, attempts: 1 });

@@ -3108,14 +3108,23 @@ export class WhatsappCloudService {
       throw new BadRequestException('Informe o WABA ID (a conta do WhatsApp Business na Meta), só com números.');
     const lido = await this.verificarNumero(phone);
 
-    // O Principal decide de qual loja é a mensagem que chega (lojaPorPhoneId): o mesmo número em duas lojas, não.
-    if (papel === 'principal') {
-      const [outra] = await this.db
-        .select({ nome: cardapioConfig.nomePublico })
-        .from(cardapioConfig)
-        .where(and(eq(cardapioConfig.waCloudPhoneId, phone), ne(cardapioConfig.tenantId, tenantId)));
-      if (outra) throw new BadRequestException(`Esse número já é o Principal de outra loja (${outra.nome ?? 'sem nome'}).`);
+    // O número decide de qual loja é a mensagem que chega e por quem a campanha sai: em duas empresas, não, em nenhum papel
+    // (S2-05: como marketing, outra loja enviava pelo número e travava o SAIR de quem é dono dele).
+    const [outra] = await this.db
+      .select({ nome: cardapioConfig.nomePublico })
+      .from(cardapioConfig)
+      .where(and(eq(cardapioConfig.waCloudPhoneId, phone), ne(cardapioConfig.tenantId, tenantId)));
+    if (outra) throw new BadRequestException(`Esse número já é o Principal de outra loja (${outra.nome ?? 'sem nome'}).`);
+    let noutraEmpresa: unknown[] = [];
+    try {
+      noutraEmpresa = await this.db
+        .select({ tenantId: whatsappNumero.tenantId })
+        .from(whatsappNumero)
+        .where(and(eq(whatsappNumero.phoneId, phone), ne(whatsappNumero.tenantId, tenantId)));
+    } catch (e: any) {
+      if (e?.code !== '42P01' && e?.cause?.code !== '42P01') throw e;
     }
+    if (noutraEmpresa.length) throw new BadRequestException('Esse número já está ligado a outra loja.');
 
     const auth = { Authorization: `Bearer ${this.token()}` };
     const lista = await fetch(`${GRAPH}/${waba}/phone_numbers?fields=id`, { headers: auth }).catch(() => null);

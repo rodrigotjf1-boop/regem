@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notícias do ramo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PROTÓTIPO "NOTÍCIAS DO RAMO" (versão 2, 22/11/2026), para aprovação do dono.
+   A tela em Relatórios, o relatório "Boletim do ramo" no Mister, as conversas no celular e as decisões.
+   Versão 2: o bloco "Novidades e tendências" (pedido do dono). As notícias com o selo "Exemplo" são inventadas;
+   as outras e os indicadores são os do boletim real de 22/11/2026; a loja e as conversas são inventadas. */
+:root{
+  --bg:#EDF0F4; --card:#FFFFFF; --ink:#0F2230; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E2A340; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --gold-linha:#F0D8A8; --navy:#0F2230;
+  --ok:#0E7C66; --ok-bg:#E8F6F1; --warn:#9A4B1C; --warn-bg:#FCEDE4; --warn-linha:#EBC7B0; --warn-ink:#6F3410;
+  --info:#2C6699; --info-bg:#E6F0F8; --info-linha:#BFD6EA; --info-ink:#1D4C77; --crit:#B93232; --crit-bg:#FBE9E9;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF; --wa-hora:#5E6E7A; --wa-link:#0B5CAD; --cel-borda:#1B2A36;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A; --lado-txt:#C9D5DF; --d-azul:#7CC0F5; --branco:#FFFFFF;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px;line-height:1.25} h3{font-size:16px;line-height:1.3}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select{font:inherit;color:inherit}
+a{color:var(--info);text-underline-offset:2px}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pular{position:absolute;left:8px;top:-60px;background:var(--gold);color:var(--on-gold);padding:8px 12px;border-radius:8px;font-weight:700;z-index:99}
+.pular:focus{top:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:var(--branco)}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+.pagina{padding:20px;max-width:1240px;margin-inline:auto}
+.cab{margin-bottom:16px} .cab .sub{max-width:76ch;margin-top:4px}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;max-width:100%;overflow-wrap:anywhere}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)}
+.selo.neutro{background:var(--neutro-bg);color:var(--neutro)} .selo.ok{background:var(--ok-bg);color:var(--ok)}
+.selo.novo{background:var(--gold-bg);color:var(--gold-ink);border:1px solid var(--gold-linha)}
+.btn{background:var(--card);border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.ctls{border:1px dashed var(--line-2);background:var(--gold-bg);border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:var(--card);border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:var(--branco)}
+.fase{font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--gold-ink)}
+
+/* app da loja */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:70vh;border:1px solid var(--line);border-radius:12px;overflow:clip;background:var(--bg)}
+.lado{background:var(--navy);color:var(--lado-txt);padding:16px 12px;font-size:14px}
+.marca{font-family:var(--display);font-weight:800;color:var(--branco);font-size:18px;padding:4px 8px 14px;letter-spacing:.02em}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:7px 10px;border-radius:8px}
+.lado li.grupo{font-weight:600;color:var(--branco);margin-top:4px}
+.lado li.filho{padding-left:22px}
+.lado li.atual{background:rgba(226,163,64,.18);color:var(--branco);box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:loja}
+.topo{background:var(--card);border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.onde-app{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.corpo-app{padding:20px}
+
+/* a tela */
+.tit-linha{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:flex-start;justify-content:space-between;margin-bottom:16px}
+.tit-linha > div{flex:1 1 320px;min-width:0}
+.tit-linha p{max-width:68ch;margin-top:4px}
+.conta{font:600 14px var(--mono);color:var(--ink-2);white-space:nowrap}
+.boletim-cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.campo-dia{display:flex;align-items:center;gap:6px;font-size:13.5px;color:var(--ink-2)}
+.campo-dia input,.busca input,.aj-ctrl input,.aj-ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 10px;min-height:40px;background:var(--card);max-width:100%;min-width:0}
+.indicadores{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:18px}
+.ind{background:var(--card);padding:12px 16px;min-width:0}
+.ind .nome{font:600 11.5px var(--display);letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2)}
+.ind .valor{display:block;font:700 24px/1.25 var(--mono);font-variant-numeric:tabular-nums;margin-top:2px}
+.ind .det{display:block;font-size:13px;color:var(--ink-2)}
+.ind .cred{display:block;font-size:12px;color:var(--ink-2);margin-top:2px}
+.filtros{display:grid;gap:10px;margin-bottom:14px}
+.situacoes{display:flex;flex-wrap:wrap;gap:6px}
+.sit{background:var(--card);border:1px solid var(--line-2);padding:5px 12px;border-radius:999px;cursor:pointer;min-height:36px;font-weight:600;color:var(--ink-2)}
+.sit b{font:700 12.5px var(--mono);margin-left:3px}
+.sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:var(--branco)}
+.busca{display:block;max-width:420px} .busca input{width:100%}
+.secao-t{font:700 12.5px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin:0 0 6px}
+.lista{list-style:none;margin:0 0 18px;padding:0;background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
+.noticia{display:grid;grid-template-columns:30px minmax(0,1fr);gap:2px 8px;padding:13px 16px;border-top:1px solid var(--line)}
+.noticia:first-child{border-top:0}
+.noticia .pos{font:700 15px/1.45 var(--mono);color:var(--gold-ink)}
+.noticia h3{font:600 15.5px/1.4 var(--body);text-wrap:pretty;overflow-wrap:anywhere}
+.noticia h3 a{color:var(--ink);text-decoration-color:var(--line-2)}
+.noticia h3 a:hover{color:var(--info);text-decoration-color:currentColor}
+.noticia .meta{grid-column:2;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin-top:4px;font-size:13px;color:var(--ink-2);min-width:0}
+.noticia .aviso{grid-column:2;margin-top:4px;font-size:13px;font-weight:600;color:var(--warn)}
+.rodape-tela{font-size:12.5px;color:var(--ink-2);max-width:82ch}
+.estado{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:30px 20px;text-align:center;margin-bottom:18px}
+.estado h2{margin-bottom:4px} .estado .acoes{justify-content:center;margin-top:12px}
+.esq{height:14px;border-radius:6px;background:linear-gradient(90deg,var(--neutro-bg),var(--line),var(--neutro-bg));background-size:200% 100%;animation:brilho 1.3s linear infinite;margin-bottom:10px}
+.esq.alto{height:64px;border-radius:10px} .esq.m{width:62%}
+@keyframes brilho{to{background-position:-200% 0}}
+
+/* ajustes do Mister */
+.grupo-aj{font:700 12.5px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin:0 0 4px}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line)}
+.aj.novo{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.aj .t{font-weight:600;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center} .aj .d{font-size:13.5px;color:var(--ink-2);display:block}
+.aj .vai{font-size:12.5px;color:var(--ink-2);display:block;margin-top:2px}
+.aj-ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;min-width:0}
+.aj-ctrl [disabled]{opacity:.62}
+.aj-extra{grid-column:1 / -1;display:grid;gap:4px;padding-top:8px;border-top:1px dashed var(--gold-linha)}
+.aj-extra label{font-weight:600;font-size:13.5px}
+.aj-extra select{width:100%;max-width:520px;border:1px solid var(--line-2);border-radius:8px;padding:6px 10px;min-height:42px;background:var(--card)}
+.liga{position:relative;width:52px;height:30px;border-radius:999px;border:1px solid var(--line-2);background:var(--neutro-bg);cursor:pointer;flex:none;padding:0}
+.liga::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--branco);box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.liga[aria-checked="true"]{background:var(--ok);border-color:var(--ok)} .liga[aria-checked="true"]::after{left:25px}
+.liga[disabled]{cursor:not-allowed}
+@container loja (max-width: 620px){ .aj{grid-template-columns:minmax(0,1fr)} .aj-ctrl{justify-content:flex-start} .corpo-app{padding:14px} }
+.barra-salvar{position:sticky;bottom:0;background:var(--navy);color:var(--branco);border-radius:12px 12px 0 0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;z-index:5;margin-top:12px}
+.barra-salvar .btn{border-color:var(--proto-linha);background:transparent;color:var(--branco)} .barra-salvar .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.barra-salvar :focus-visible{outline-color:var(--d-azul)}
+
+/* celular */
+.celulares{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:24px 18px;align-items:start}
+.caso h2{font-size:16px;margin-bottom:2px} .caso > .sub{font-size:13.5px;margin-bottom:8px}
+.cel{border:8px solid var(--cel-borda);border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:370px}
+.cel-topo{background:var(--c-wa);color:var(--branco);padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:var(--branco);color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:150px;align-content:start}
+.bolha{max-width:92%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.42;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere;min-width:0}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:var(--wa-hora);margin-top:2px}
+.bolha p{margin:0 0 6px} .bolha .lk{color:var(--wa-link)} .bolha .fonte{font-size:12.5px;color:var(--ink-2)}
+.botao-wa{display:block;background:var(--card);border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;text-align:center;color:var(--wa-link);font-weight:600;font-size:13.5px;margin-top:6px}
+.toque{justify-self:end;font-size:12px;color:var(--wa-hora);background:rgba(255,255,255,.7);border-radius:999px;padding:2px 10px}
+.nada{justify-self:center;align-self:center;text-align:center;font-size:13px;color:var(--ink-2);background:rgba(255,255,255,.7);border-radius:10px;padding:8px 12px;margin-top:34px}
+
+/* notas */
+.decisoes{list-style:none;margin:0;padding:0;display:grid;gap:0}
+.decisoes li{display:grid;grid-template-columns:44px minmax(0,1fr);gap:2px 8px;padding:12px 0;border-top:1px solid var(--line)}
+.decisoes li:first-child{border-top:0}
+.decisoes .n{font:700 13px/1.6 var(--mono);color:var(--gold-ink)}
+.decisoes b{display:block}
+.decisoes .alt{display:block;font-size:13.5px;color:var(--ink-2);margin-top:2px}
+.fases{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:12px}
+.fase-c{border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+.fase-c h3{margin:2px 0 4px}
+.fase-c ul{margin:0;padding-left:18px;font-size:14px}
+.trilhas{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px}
+.trilha{border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+.trilha.escolhida{border-color:var(--gold);background:var(--gold-bg)}
+.trilha h3{margin:4px 0}
+
+.toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--navy);color:var(--branco);padding:10px 16px;border-radius:10px;font-size:14px;z-index:40;width:max-content;max-width:calc(100vw - 32px);box-shadow:0 6px 20px rgba(15,34,48,.3)}
+
+@media (max-width: 900px){
+  .app{grid-template-columns:minmax(0,1fr)} .lado{display:none}
+}
+@media (max-width: 480px){
+  .pagina{padding:12px} h1{font-size:23px} .cartao{padding:14px} .topo{padding:10px 14px}
+  .noticia{padding:12px;grid-template-columns:24px minmax(0,1fr)}
+}
+@media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
+</style>
+</head>
+<body>
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="proto">
+  <span class="titulo">Protótipo · Notícias do ramo</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button type="button" class="aba" data-vista="tela" aria-pressed="true">A tela</button>
+    <button type="button" class="aba" data-vista="mister" aria-pressed="false">Mister › Relatórios</button>
+    <button type="button" class="aba" data-vista="celular" aria-pressed="false">No celular</button>
+    <button type="button" class="aba" data-vista="notas" aria-pressed="false">Decisões e fases</button>
+  </nav>
+  <span class="nota">Versão 2 para aprovação. O selo "Exemplo" marca o que é inventado; as outras notícias e os indicadores são os reais de 22/11/2026.</span>
+</header>
+
+<main id="conteudo">
+
+<!-- 1 · A TELA -->
+<section class="vista ativa" id="v-tela" aria-label="A tela Notícias do ramo">
+  <div class="pagina">
+    <div class="ctls" role="group" aria-label="Situação da tela, só no protótipo">
+      <span>Ver a tela:</span>
+      <button type="button" class="ctl" data-estado="ok" aria-pressed="true">Com notícias</button>
+      <button type="button" class="ctl" data-estado="vazio" aria-pressed="false">Dia sem novidade</button>
+      <button type="button" class="ctl" data-estado="carregando" aria-pressed="false">Carregando</button>
+      <button type="button" class="ctl" data-estado="erro" aria-pressed="false">Não consegui ler</button>
+      <button type="button" class="ctl" data-estado="semnet" aria-pressed="false">Loja sem internet</button>
+    </div>
+    <div class="app">
+      <nav class="lado" aria-label="Menu do Regem" data-atual="noticias"></nav>
+      <div class="principal">
+        <div class="topo">
+          <span class="onde-app">Relatórios › Notícias do ramo</span>
+          <span class="peq sub">Burger da Praça · Rio de Janeiro</span>
+        </div>
+        <div class="corpo-app">
+          <div class="tit-linha">
+            <div>
+              <h1 id="h-tela" tabindex="-1">Notícias do ramo <span class="conta" id="conta"></span></h1>
+              <p class="sub">O que mudou em impostos, trabalho e custos, e as novidades e tendências do setor de bares e restaurantes. O boletim sai todo dia às 8h.</p>
+            </div>
+            <button type="button" class="btn" id="ir-mister">Receber no WhatsApp</button>
+          </div>
+
+          <div class="boletim-cab" id="b-cab">
+            <h2 id="b-titulo">Boletim de dom, 22/11/2026</h2>
+            <label class="campo-dia" for="dia">Dia
+              <input type="date" id="dia" value="2026-11-22" min="2026-11-01" max="2026-11-22">
+            </label>
+          </div>
+
+          <div class="indicadores" id="b-ind" role="group" aria-label="Indicadores do dia"></div>
+
+          <div class="filtros" id="b-filtros">
+            <div class="situacoes" id="situacoes" role="group" aria-label="Filtrar por assunto"></div>
+            <label class="busca" for="busca"><span class="sr">Buscar notícia</span>
+              <input type="search" id="busca" placeholder="Buscar no boletim" autocomplete="off">
+            </label>
+          </div>
+
+          <div id="b-lista" aria-live="polite"></div>
+
+          <div class="estado" id="b-vazio" hidden>
+            <h2 id="vazio-t">Hoje não saiu nada importante para o ramo.</h2>
+            <p class="sub" id="vazio-d">Os indicadores continuam valendo. O próximo boletim sai amanhã às 8h.</p>
+            <div class="acoes" id="vazio-acao" hidden><button type="button" class="btn" id="ver-recente">Ver o mais recente</button></div>
+          </div>
+          <div class="estado" id="b-erro" role="alert" hidden>
+            <h2>Não consegui carregar o boletim.</h2>
+            <p class="sub">Nada se perdeu. Tente de novo em instantes.</p>
+            <div class="acoes"><button type="button" class="btn pri" data-tentar>Tentar de novo</button></div>
+          </div>
+          <div class="estado" id="b-semnet" role="alert" hidden>
+            <h2>Esta loja está sem internet.</h2>
+            <p class="sub">O boletim vem da nuvem e volta quando a internet voltar. As vendas da loja continuam normalmente.</p>
+            <div class="acoes"><button type="button" class="btn pri" data-tentar>Tentar de novo</button></div>
+          </div>
+          <div id="b-carregando" role="status" aria-label="Carregando o boletim" hidden>
+            <div class="esq alto"></div><div class="esq"></div><div class="esq m"></div><div class="esq"></div><div class="esq m"></div>
+          </div>
+
+          <p class="rodape-tela" id="b-rodape">De cada notícia vêm só o título, a fonte e o link: o texto completo fica no site de quem publicou. O que vem do Congresso leva o aviso até virar lei. Isto não é orientação fiscal ou jurídica: na dúvida, fale com seu contador.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 · MISTER -->
+<section class="vista" id="v-mister" aria-label="O relatório no Mister">
+  <div class="pagina">
+    <div class="app">
+      <nav class="lado" aria-label="Menu do Regem" data-atual="mister"></nav>
+      <div class="principal">
+        <div class="topo">
+          <span class="onde-app">Mister › Avisos e relatórios</span>
+          <span class="peq sub">Burger da Praça · Rio de Janeiro</span>
+        </div>
+        <div class="corpo-app">
+          <div class="cab">
+            <h1>Avisos e relatórios</h1>
+            <p class="sub">Só a linha "Boletim do ramo" é nova. As outras aparecem para mostrar onde ela entra.</p>
+          </div>
+          <div class="cartao">
+            <h2 class="grupo-aj">Relatórios</h2>
+            <p class="sub peq">O boletim do ramo não usa a IA e não gasta a chave da empresa.</p>
+
+            <div class="aj">
+              <div><span class="t">Resumo do dia</span><span class="d">Pedidos, vendas, tempo médio, cancelamentos e o que saiu do lugar.</span></div>
+              <div class="aj-ctrl"><input type="time" value="23:30" disabled aria-label="Horário do resumo do dia"><button type="button" class="liga" role="switch" aria-checked="true" disabled aria-label="Resumo do dia"></button></div>
+            </div>
+            <div class="aj">
+              <div><span class="t">Resumo da semana</span><span class="d">Os 7 dias até a véspera contra os 7 anteriores.</span></div>
+              <div class="aj-ctrl"><select disabled aria-label="Dia do resumo da semana"><option>Segunda</option></select><input type="time" value="09:00" disabled aria-label="Horário do resumo da semana"><button type="button" class="liga" role="switch" aria-checked="false" disabled aria-label="Resumo da semana"></button></div>
+            </div>
+            <div class="aj">
+              <div><span class="t">Fichas novas de candidatos</span><span class="d">As fichas que chegaram na Página de vagas desde o último resumo. Só nos dias em que chegou ficha.</span></div>
+              <div class="aj-ctrl"><input type="time" value="09:00" disabled aria-label="Horário das fichas novas"><button type="button" class="liga" role="switch" aria-checked="false" disabled aria-label="Fichas novas de candidatos"></button></div>
+            </div>
+
+            <div class="aj novo">
+              <div>
+                <span class="t">Boletim do ramo <span class="selo novo">Novo</span></span>
+                <span class="d">Os indicadores, até 3 destaques e até 2 novidades do setor, com a fonte e o link de cada um. Só nos dias com novidade.</span>
+                <span class="vai">Vai para: o presidente e quem tem a permissão Notícias do ramo, se ligou o próprio WhatsApp em Pessoas.</span>
+              </div>
+              <div class="aj-ctrl">
+                <label class="sr" for="bol-hora">Horário do boletim do ramo</label>
+                <input type="time" id="bol-hora" value="08:30" min="08:15" required>
+                <button type="button" class="liga" id="bol-liga" role="switch" aria-checked="false" aria-label="Boletim do ramo"></button>
+              </div>
+              <div class="aj-extra" id="bol-extra" hidden>
+                <label for="bol-fora">Quem não falou com o Mister nas últimas 24 horas</label>
+                <select id="bol-fora">
+                  <option value="nao">Sem convite · R$ 0</option>
+                  <option value="convite">Com convite · R$ 0,035</option>
+                </select>
+                <span class="peq sub" id="bol-custo">Lê na tela, sem custo. O WhatsApp só permite mensagem livre dentro das 24 horas.</span>
+              </div>
+            </div>
+
+            <div class="barra-salvar" id="barra" hidden>
+              <span id="barra-t" role="status"></span>
+              <span class="acoes"><button type="button" class="btn" id="descartar">Descartar</button><button type="button" class="btn pri" id="salvar">Salvar ajustes</button></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 · CELULAR -->
+<section class="vista" id="v-celular" aria-label="As conversas no celular">
+  <div class="pagina">
+    <div class="cab">
+      <h1>No celular</h1>
+      <p class="sub">O boletim é montado pelo sistema, sem IA: o título vai igual ao da fonte, com o crédito e o link.</p>
+    </div>
+    <div class="celulares">
+
+      <article class="caso">
+        <h2>1. Dentro das 24 horas</h2>
+        <p class="sub">A pessoa falou com o Mister ontem à noite. Custo: R$ 0.</p>
+        <div class="cel">
+          <div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div>
+          <div class="conv">
+            <div class="bolha dele">
+              <p><b>Boletim do ramo · dom, 22/11</b></p>
+              <p>IPCA fora de casa: <b>0,36%</b> no mês (out/26, IBGE)<br>Selic: <b>13,75%</b> ao ano (Banco Central)</p>
+              <p><b>1.</b> Receita Federal amplia acesso ao Ambiente de Produção Restrita do Piloto da CBS<br><span class="fonte">Fonte: Receita Federal (gov.br, CC BY-ND 3.0)</span><br><span class="lk">gov.br/receitafederal/…</span></p>
+              <p><b>2.</b> Receita Federal, CGIBS e CFC vão orientar mais de 25 mil profissionais da contabilidade sobre destaque de CBS/IBS em documentos fiscais<br><span class="fonte">Fonte: Receita Federal (gov.br, CC BY-ND 3.0)</span><br><span class="lk">gov.br/receitafederal/…</span></p>
+              <p><b>3.</b> Durigan defende novo imposto no Senado<br><i>Em discussão no Congresso: ainda não é lei.</i><br><span class="fonte">Fonte: Agência Senado</span><br><span class="lk">senado.leg.br/noticias/…</span></p>
+              <p><b>Novidades e tendências</b></p>
+              <p>Hamburguerias apostam em cardápio menor para reduzir desperdício <span class="selo novo">Exemplo</span><br><span class="fonte">Fonte do setor (a definir)</span><br><span class="lk">site-da-fonte/…</span></p>
+              <p>Pedido por QR Code na mesa cresce entre bares de bairro <span class="selo novo">Exemplo</span><br><span class="fonte">Fonte do setor (a definir)</span><br><span class="lk">site-da-fonte/…</span></p>
+              <p>Mais 4 notícias no Regem:<br><span class="lk">app.dmsregem.com/noticias-do-ramo</span></p>
+              <span class="hora">08:30</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="caso">
+        <h2>2. Dia sem novidade</h2>
+        <p class="sub">O boletim saiu vazio. O Mister fica calado.</p>
+        <div class="cel">
+          <div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div>
+          <div class="conv"><div class="nada">Nenhuma mensagem neste dia.</div></div>
+        </div>
+      </article>
+
+      <article class="caso">
+        <h2>3. Fora das 24 horas, com convite</h2>
+        <p class="sub">Só se a empresa escolher. Usa o modelo já aprovado pela Meta. Custo: cerca de R$ 0,035.</p>
+        <div class="cel">
+          <div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div>
+          <div class="conv">
+            <div class="bolha dele">Seu boletim do ramo está pronto (Burger da Praça). Toque no botão para receber.<span class="botao-wa">Ver resumo</span><span class="hora">08:30</span></div>
+            <span class="toque">tocou em "Ver resumo"</span>
+            <div class="bolha dele"><b>Boletim do ramo · dom, 22/11</b><br>O mesmo boletim da conversa 1.<span class="hora">09:12</span></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="caso">
+        <h2>4. Perguntar ao Mister</h2>
+        <p class="sub"><span class="fase">Fase N3</span> · Esta usa a IA da empresa e soma no "Uso da IA".</p>
+        <div class="cel">
+          <div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">teve novidade de imposto essa semana?<span class="hora">10:04</span></div>
+            <div class="bolha dele">
+              <p>Sim, 4 notícias nos últimos dias.</p>
+              <p><b>Da Receita Federal:</b> ampliou o acesso ao Ambiente de Produção Restrita do Piloto da CBS e vai orientar profissionais da contabilidade sobre o destaque de CBS/IBS em documentos fiscais.</p>
+              <p><b>Em discussão no Congresso, ainda não é lei:</b> um novo imposto defendido no Senado e o aumento do limite de faturamento do MEI.</p>
+              <p>Para saber o efeito na sua loja, fale com seu contador. Os links estão em Relatórios › Notícias do ramo.</p>
+              <span class="hora">10:04</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- 4 · DECISÕES -->
+<section class="vista" id="v-notas" aria-label="Decisões e fases">
+  <div class="pagina">
+    <div class="cab">
+      <h1>Decisões e fases</h1>
+      <p class="sub">Cada linha traz a recomendada. Se você aprovar sem comentar, é assim que entra.</p>
+    </div>
+
+    <div class="cartao">
+      <h2>Decisões</h2>
+      <ol class="decisoes">
+        <li><span class="n">N1</span><div><b>O item fica em Relatórios › Notícias do ramo.</b><span class="alt">É informação para decidir, como os outros relatórios. Não entra no Dashboard, para não disputar espaço com a operação.</span></div></li>
+        <li><span class="n">N2</span><div><b>Quem vê: o presidente, e o gerente só se o presidente liberar.</b><span class="alt">Permissão nova "Notícias do ramo", em Configurações › Acessos & perfis, no grupo Relatórios. O servidor confere: sem ela, a rota recusa.</span></div></li>
+        <li><span class="n">N3</span><div><b>Aparece só para empresa de bares e restaurantes.</b><span class="alt">O Pulso só tem boletim desse ramo. Empresa de outro ramo não vê o item.</span></div></li>
+        <li><span class="n">N4</span><div><b>O Regem lê o boletim uma vez por dia e guarda uma cópia para todas as lojas.</b><span class="alt">São fatos públicos, sem dado de loja. Muitas lojas abrindo a tela não geram chamadas ao Pulso. Fica guardado por 90 dias.</span></div></li>
+        <li><span class="n">N5</span><div><b>A loja com servidor local pede o boletim à nuvem.</b><span class="alt">Sem internet, a tela diz isso e oferece "Tentar de novo". Não mostra boletim velho como se fosse o de hoje.</span></div></li>
+        <li><span class="n">N6</span><div><b>O relatório no Mister nasce desligado, às 08:30, sem IA.</b><span class="alt">Até 3 destaques e 2 novidades do setor, uma mensagem por pessoa e por dia, e nada nos dias sem novidade.</span></div></li>
+        <li><span class="n">N7</span><div><b>Fora das 24 horas, o padrão é não gastar.</b><span class="alt">Quem não falou com o Mister lê na tela. O convite é opção da empresa: cerca de R$ 0,035 por pessoa e por dia, ou R$ 2,10 por mês para 2 pessoas (valor da tabela do Regem de 18/11). Pela conexão por QR Code não há janela, e o boletim vai direto.</span></div></li>
+        <li><span class="n">N8</span><div><b>Não vai junto do Resumo do dia.</b><span class="alt">O resumo sai à noite, e a notícia serve para planejar de manhã. Juntar também misturaria texto da IA com título de fonte.</span></div></li>
+        <li><span class="n">N9</span><div><b>O Regem não reescreve nem interpreta a notícia.</b><span class="alt">O título vai igual, com crédito e link, como pedem os termos das fontes. "Em discussão" fica visível até virar lei. Só a pergunta da conversa 4 resume, e ela sempre manda falar com o contador.</span></div></li>
+        <li><span class="n">N10</span><div><b>Novidades e tendências têm bloco próprio.</b><span class="alt">Na pontuação de hoje, imposto e governo ocupam os destaques e tendência quase nunca chega lá. Com bloco próprio, as duas coisas não disputam o mesmo espaço. Entram tendências, tecnologia e plataformas de delivery.</span></div></li>
+        <li><span class="n">N11</span><div><b>Entram fontes do setor, só com termo e robots lidos.</b><span class="alt">As fontes de hoje são de governo e do Congresso. A Abrasel não tem feed e o Sebrae veda a distribuição comercial, então é preciso achar outras. Até entrar fonte nova, o bloco não aparece.</span></div></li>
+      </ol>
+    </div>
+
+    <div class="cartao">
+      <h2>Como entra</h2>
+      <div class="fases">
+        <div class="fase-c"><span class="fase">Fase P3d · no Pulso</span><h3>Novidades do setor</h3><ul><li>Achar as fontes e ler termo e robots</li><li>Palavras novas e bloco próprio no boletim</li><li>Mudança só aditiva na porta</li></ul></div>
+        <div class="fase-c"><span class="fase">Fase N1</span><h3>A tela</h3><ul><li>1 migration: a cópia do boletim, só na nuvem</li><li>A leitura diária do Pulso</li><li>A permissão, a rota e a tela</li></ul></div>
+        <div class="fase-c"><span class="fase">Fase N2</span><h3>O relatório no WhatsApp</h3><ul><li>1 migration: a escolha do convite</li><li>A linha em Avisos e relatórios</li><li>Sem modelo novo na Meta</li></ul></div>
+        <div class="fase-c"><span class="fase">Fase N3</span><h3>Perguntar ao Mister</h3><ul><li>Uma consulta nova do Mister</li><li>Entra na avaliação de perguntas antes de ligar</li><li>Sem migration</li></ul></div>
+      </div>
+    </div>
+
+    <div class="cartao">
+      <h2>Três caminhos que olhei</h2>
+      <p class="sub peq">Referências vistas em busca em 22/11/2026, sem testar os produtos.</p>
+      <div class="trilhas">
+        <div class="trilha"><span class="selo neutro">Tradicional</span><h3>Lista com filtros</h3><p class="peq">Como o Estoque. Boa para procurar, ruim para ler em dois minutos. Da <a href="https://www.metorik.com/features/digests" target="_blank" rel="noopener">Metorik</a> veio a ideia de abrir cada item no contexto e escolher o horário.</p></div>
+        <div class="trilha escolhida"><span class="selo novo">Recomendado</span><h3>Boletim curto, com filtros embaixo</h3><p class="peq">Indicadores, até 5 destaques, as novidades do setor e o resto em lista. O teto de destaques vem do <a href="https://help.baremetrics.com/en/articles/15935656-revenue-pulse-daily-briefing" target="_blank" rel="noopener">Revenue Pulse da Baremetrics</a>, que limita a primeira página.</p></div>
+        <div class="trilha"><span class="selo neutro">Inovador</span><h3>A IA escreve o resumo</h3><p class="peq">Como o <a href="https://www.pattern.com/blog/how-pis-daily-brief-keeps-ecommerce-teams-ahead" target="_blank" rel="noopener">Daily Brief da Pattern</a>. Fica de fora agora: tem custo e pode errar ao interpretar lei e imposto.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+const CATEGORIAS = { impostos: 'Impostos e fiscal', trabalho: 'Trabalho', economia: 'Economia e custos', tendencias: 'Tendências do ramo', tecnologia: 'Tecnologia para o ramo', plataformas: 'Plataformas de delivery' };
+const DE_NOVIDADE = ['tendencias', 'tecnologia', 'plataformas'];
+const SETOR = 'Fonte do setor (a definir)';
+const RECEITA = 'Fonte: Receita Federal (gov.br, CC BY-ND 3.0)';
+const NOTICIAS = [
+  { t: 'Receita Federal amplia acesso ao Ambiente de Produção Restrita do Piloto da CBS', c: 'impostos', f: RECEITA, q: '20/11 11:05', d: false, destaque: true },
+  { t: 'Receita Federal, CGIBS e CFC vão orientar mais de 25 mil profissionais da contabilidade sobre destaque de CBS/IBS em documentos fiscais', c: 'impostos', f: RECEITA, q: '19/11 16:56', d: false, destaque: true },
+  { t: 'Durigan defende novo imposto no Senado', c: 'impostos', f: 'Fonte: Agência Senado', q: '19/11 17:02', d: true, destaque: true },
+  { t: 'Comissão especial pode votar parecer sobre ampliação do limite de faturamento para o MEI', c: 'impostos', f: 'Fonte: Agência Câmara', q: '19/11 15:07', d: true, destaque: true },
+  { t: 'Empresários pedem mais tempo para adaptação à escala 5x2 com 42 horas semanais', c: 'trabalho', f: 'Fonte: Agência Câmara', q: '19/11 16:11', d: true, destaque: true },
+  { t: 'Câmara deve votar ajuste fiscal; proposta do governo pretende economizar R$ 70 bilhões', c: 'economia', f: 'Fonte: Agência Câmara', q: '19/11 14:57', d: true, destaque: false },
+  { t: 'Hamburguerias apostam em cardápio menor para reduzir desperdício', c: 'tendencias', f: SETOR, q: '21/11 09:40', d: false, destaque: false, exemplo: true },
+  { t: 'Pedido por QR Code na mesa cresce entre bares de bairro', c: 'tecnologia', f: SETOR, q: '21/11 08:15', d: false, destaque: false, exemplo: true },
+  { t: 'Plataforma de entrega muda a regra de cupom para restaurantes', c: 'plataformas', f: SETOR, q: '20/11 18:30', d: false, destaque: false, exemplo: true },
+];
+const INDICADORES = [
+  { n: 'IPCA da alimentação fora de casa', v: '0,36%', det: 'no mês · 10/2026 · 12 meses: 5,68%', f: 'Fonte: IBGE' },
+  { n: 'IPCA (inflação geral)', v: '0,14%', det: 'no mês · 10/2026 · 12 meses: 4,63%', f: 'Fonte: IBGE' },
+  { n: 'Selic (meta)', v: '13,75%', det: 'ao ano · 22/11', f: 'Fonte: Banco Central do Brasil' },
+];
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; };
+const sem = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+let toastTempo;
+function avisar(texto) {
+  const t = $('#toast'); t.textContent = texto; t.hidden = false;
+  clearTimeout(toastTempo); toastTempo = setTimeout(() => { t.hidden = true; }, 3200);
+}
+
+/* menu */
+const MENU = [
+  ['Dashboard'], ['Vendas'], ['Delivery'], ['Estoque'],
+  ['Relatórios', 'grupo'], ['Turnos', 'filho'], ['Relatórios de vendas', 'filho'], ['Cancelamentos de itens', 'filho'], ['Atendimento', 'filho'], ['Notícias do ramo', 'filho', 'noticias'],
+  ['Auditoria'], ['Mister', '', 'mister'], ['Visão C&O'],
+];
+$$('.lado').forEach((nav) => {
+  nav.append(el('div', 'marca', 'Regem'));
+  const ul = el('ul');
+  MENU.forEach(([nome, cls, id]) => {
+    const li = el('li', cls || '', nome);
+    if (id && id === nav.dataset.atual) { li.classList.add('atual'); li.setAttribute('aria-current', 'page'); }
+    ul.append(li);
+  });
+  nav.append(ul);
+});
+
+/* partes do protótipo */
+function verParte(id) {
+  $$('.aba').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.vista === id)));
+  $$('.vista').forEach((v) => v.classList.toggle('ativa', v.id === `v-${id}`));
+  window.scrollTo(0, 0);
+}
+$$('.aba').forEach((b) => b.addEventListener('click', () => verParte(b.dataset.vista)));
+$('#ir-mister').addEventListener('click', () => verParte('mister'));
+
+/* indicadores */
+INDICADORES.forEach((i) => {
+  const c = el('div', 'ind');
+  c.append(el('span', 'nome', i.n), el('span', 'valor', i.v), el('span', 'det', i.det), el('span', 'cred', i.f));
+  $('#b-ind').append(c);
+});
+
+/* a lista */
+let estado = 'ok', filtro = 'todas', termo = '';
+const ehNovidade = (n) => DE_NOVIDADE.includes(n.c);
+const casa = (n, f) => f === 'todas' || (f === 'discussao' ? n.d : f === 'novidades' ? ehNovidade(n) : n.c === f);
+const contar = (f) => NOTICIAS.filter((n) => casa(n, f)).length;
+const passa = (n) => casa(n, filtro) && (!termo || sem(`${n.t} ${n.f} ${CATEGORIAS[n.c]}`).includes(termo));
+
+function desenharSituacoes() {
+  const caixa = $('#situacoes'); caixa.replaceChildren();
+  [['todas', 'Todas'], ['impostos', CATEGORIAS.impostos], ['trabalho', CATEGORIAS.trabalho], ['economia', CATEGORIAS.economia], ['novidades', 'Novidades e tendências'], ['discussao', 'Em discussão']].forEach(([id, nome]) => {
+    const b = el('button', 'sit', nome); b.type = 'button';
+    b.setAttribute('aria-pressed', String(filtro === id));
+    b.append(el('b', '', String(contar(id))));
+    b.addEventListener('click', () => { filtro = id; desenharSituacoes(); desenharLista(); });
+    caixa.append(b);
+  });
+}
+function itemDaLista(n, pos) {
+  const li = el('li', 'noticia');
+  li.append(el('span', 'pos', pos ? String(pos) : '·'));
+  const h = el('h3'); const a = el('a', '', n.t); a.href = '#';
+  a.setAttribute('aria-label', `${n.t} (abre no site da fonte)`);
+  a.addEventListener('click', (e) => { e.preventDefault(); avisar('No app, abre a matéria no site da fonte, em outra aba.'); });
+  h.append(a); li.append(h);
+  const m = el('div', 'meta');
+  m.append(el('span', 'selo neutro', CATEGORIAS[n.c]));
+  if (n.exemplo) m.append(el('span', 'selo novo', 'Exemplo'));
+  m.append(el('span', '', `${n.f} · ${n.q}`));
+  li.append(m);
+  if (n.d) li.append(el('div', 'aviso', 'Em discussão no Congresso: ainda não é lei.'));
+  return li;
+}
+function desenharLista() {
+  const area = $('#b-lista'); area.replaceChildren();
+  const achadas = NOTICIAS.filter(passa);
+  $('#conta').textContent = achadas.length === NOTICIAS.length ? `· ${NOTICIAS.length} notícias` : `· ${achadas.length} de ${NOTICIAS.length}`;
+  if (!achadas.length) {
+    const v = el('div', 'estado');
+    v.append(el('h2', '', 'Nenhuma notícia com esse filtro.'));
+    const ac = el('div', 'acoes'); const b = el('button', 'btn', 'Limpar filtros'); b.type = 'button';
+    b.addEventListener('click', () => { filtro = 'todas'; termo = ''; $('#busca').value = ''; desenharSituacoes(); desenharLista(); });
+    ac.append(b); v.append(ac); area.append(v); return;
+  }
+  const blocos = [['Em destaque', achadas.filter((n) => n.destaque), true], ['Novidades e tendências', achadas.filter(ehNovidade), false], ['Mais notícias', achadas.filter((n) => !n.destaque && !ehNovidade(n)), false]];
+  blocos.forEach(([titulo, itens, numerar]) => {
+    if (!itens.length) return;
+    area.append(el('h2', 'secao-t', `${titulo} · ${itens.length}`));
+    const ul = el('ul', 'lista');
+    itens.forEach((n, i) => ul.append(itemDaLista(n, numerar ? i + 1 : 0)));
+    area.append(ul);
+  });
+}
+$('#busca').addEventListener('input', (e) => { termo = sem(e.target.value.trim()); desenharLista(); });
+
+/* as situações da tela */
+function aplicarEstado(novo) {
+  estado = novo;
+  $$('.ctl[data-estado]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.estado === (novo === 'semdia' ? 'vazio' : novo))));
+  const comBoletim = novo === 'ok';
+  const comInd = novo === 'ok' || novo === 'vazio';
+  $('#b-cab').hidden = !(comInd || novo === 'semdia');
+  $('#b-ind').hidden = !comInd;
+  $('#b-filtros').hidden = !comBoletim;
+  $('#b-lista').hidden = !comBoletim;
+  $('#b-vazio').hidden = !(novo === 'vazio' || novo === 'semdia');
+  $('#b-erro').hidden = novo !== 'erro';
+  $('#b-semnet').hidden = novo !== 'semnet';
+  $('#b-carregando').hidden = novo !== 'carregando';
+  $('#b-rodape').hidden = !comBoletim;
+  $('#vazio-acao').hidden = novo !== 'semdia';
+  if (novo === 'vazio') { $('#vazio-t').textContent = 'Hoje não saiu nada importante para o ramo.'; $('#vazio-d').textContent = 'Os indicadores continuam valendo. O próximo boletim sai amanhã às 8h.'; }
+  if (novo === 'semdia') { $('#vazio-t').textContent = 'Não há boletim neste dia.'; $('#vazio-d').textContent = 'O primeiro boletim é de 22/11/2026.'; }
+  $('#b-titulo').textContent = novo === 'semdia' ? 'Sem boletim' : 'Boletim de dom, 22/11/2026';
+  $('#conta').textContent = comBoletim ? $('#conta').textContent : '';
+  if (comBoletim) desenharLista();
+}
+function voltarAoMaisRecente() { $('#dia').value = '2026-11-22'; aplicarEstado('ok'); }
+$$('.ctl[data-estado]').forEach((b) => b.addEventListener('click', () => { $('#dia').value = '2026-11-22'; aplicarEstado(b.dataset.estado); }));
+$$('[data-tentar]').forEach((b) => b.addEventListener('click', () => { aplicarEstado('carregando'); setTimeout(() => aplicarEstado('ok'), 700); }));
+$('#ver-recente').addEventListener('click', voltarAoMaisRecente);
+$('#dia').addEventListener('change', (e) => (e.target.value === '2026-11-22' ? aplicarEstado('ok') : aplicarEstado('semdia')));
+
+/* o ajuste do Mister */
+const salvo = { ligado: false, hora: '08:30', fora: 'nao' };
+const atual = { ...salvo };
+const CUSTO = {
+  nao: 'Lê na tela, sem custo. O WhatsApp só permite mensagem livre dentro das 24 horas.',
+  convite: 'Cerca de R$ 0,035 por pessoa, por dia em que houver boletim. O boletim chega quando a pessoa tocar em "Ver resumo".',
+};
+function desenharAjuste() {
+  $('#bol-liga').setAttribute('aria-checked', String(atual.ligado));
+  $('#bol-hora').value = atual.hora;
+  $('#bol-fora').value = atual.fora;
+  $('#bol-extra').hidden = !atual.ligado;
+  $('#bol-custo').textContent = CUSTO[atual.fora];
+  const n = ['ligado', 'hora', 'fora'].filter((k) => atual[k] !== salvo[k]).length;
+  $('#barra').hidden = !n;
+  $('#barra-t').textContent = n === 1 ? '1 alteração ainda não salva' : `${n} alterações ainda não salvas`;
+}
+$('#bol-liga').addEventListener('click', () => { atual.ligado = !atual.ligado; desenharAjuste(); });
+$('#bol-hora').addEventListener('change', (e) => {
+  if (!e.target.value || e.target.value < '08:15') { e.target.value = atual.hora; avisar('Escolha um horário a partir de 08:15: o boletim fica pronto às 8h.'); return; }
+  atual.hora = e.target.value; desenharAjuste();
+});
+$('#bol-fora').addEventListener('change', (e) => { atual.fora = e.target.value; desenharAjuste(); });
+$('#descartar').addEventListener('click', () => { Object.assign(atual, salvo); desenharAjuste(); avisar('Alterações descartadas.'); });
+$('#salvar').addEventListener('click', () => { Object.assign(salvo, atual); desenharAjuste(); avisar('Relatórios do Mister salvos.'); });
+
+desenharSituacoes();
+desenharLista();
+desenharAjuste();
+</script>
+</body>
+</html>

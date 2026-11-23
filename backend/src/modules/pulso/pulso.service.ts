@@ -8,11 +8,14 @@ import { somarDias } from '../perfil-cliente/calendario-regra';
 import { ClienteDmsId, ClienteIntegracao, ErroPorta } from '../../dms/integracao-dms';
 import {
   ConfigPulso,
+  DIAS_DE_BOLETIM,
   DIAS_DE_CLIMA,
   LIMITE_POR_PAGINA,
   PAGINAS_POR_VOLTA,
   PERMISSOES_DO_PULSO,
+  RAMO_DO_REGEM,
   corpoDosInteresses,
+  lerBoletimDaPorta,
   lerClima,
   lerConfigPulso,
   lerMudancas,
@@ -98,6 +101,44 @@ export class PulsoService {
     if (ehServidorLocal()) return; // só a nuvem lê o Pulso
     const cfg = await this.configDaRotina('clima');
     if (cfg) await this.lerClimaDosMunicipios(cfg);
+  }
+
+  // O boletim do Pulso fica pronto às 07:50. Depois das 8h, confere de hora em hora: pega o do dia e também a notícia que a
+  // DMS tirou do boletim no console do Pulso. Só grava quando mudou.
+  @Cron('0 5 8-23 * * *', { timeZone: 'America/Sao_Paulo' })
+  async rotinaBoletim(): Promise<void> {
+    if (ehServidorLocal()) return; // só a nuvem lê o Pulso
+    const cfg = await this.configDaRotina('boletim');
+    if (cfg) await this.lerBoletimDoRamo(cfg);
+  }
+
+  /** Guarda a cópia do boletim de hoje, uma para todas as lojas. Devolve se a cópia mudou. */
+  async lerBoletimDoRamo(cfg: ConfigPulso, buscar?: Buscar): Promise<boolean> {
+    try {
+      const [vez] = this.rows(await this.db.execute(sql`
+        update pulso_estado set boletim_lido_em = clock_timestamp()
+         where id = 1 and (boletim_lido_em is null or boletim_lido_em < now() - interval '50 minutes')
+        returning id`));
+      if (!vez) return false;
+      const hoje = hojeISO();
+      const r = await this.porta(cfg, buscar).pedir('GET', '/ramo/boletim', { consulta: { ramo: RAMO_DO_REGEM, data: hoje } });
+      if (r.status === 404) return false; // o boletim de hoje ainda não saiu: a próxima volta pega
+      if (r.status !== 200) throw new ErroPorta(r.status, r.problema || 'resposta-inesperada');
+      const boletim = lerBoletimDaPorta(r.corpo);
+      if (!boletim || boletim.dia !== hoje) throw new ErroPorta(r.status, 'boletim-invalido');
+      const gravou = this.rows(await this.db.execute(sql`
+        insert into pulso_boletim (ramo, dia, corpo)
+        values (${RAMO_DO_REGEM}, ${hoje}::date, ${JSON.stringify(boletim)}::jsonb)
+        on conflict (ramo, dia) do update set corpo = excluded.corpo, lido_em = clock_timestamp()
+        where pulso_boletim.corpo is distinct from excluded.corpo
+        returning dia`));
+      await this.db.execute(sql`delete from pulso_boletim where dia < ${somarDias(hoje, -DIAS_DE_BOLETIM)}::date`);
+      if (gravou.length) this.log.log(`Pulso — boletim do ramo de ${hoje} guardado`);
+      return gravou.length > 0;
+    } catch (e: any) {
+      await this.anotarErro('boletim', e);
+      return false;
+    }
   }
 
   /** A leitura incremental. Devolve quantos eventos gravou (0 = nada novo, outra réplica leu ou falhou). */

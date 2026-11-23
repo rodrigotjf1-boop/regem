@@ -18,7 +18,7 @@ import { validarCredencialRede } from '../../common/erede';
 import { ChaveSegredosAusente } from '../../common/cifra-segredo';
 import { compararVersao } from '../edge/release-selecao';
 import { createHmac, randomBytes, randomUUID } from 'crypto';
-import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { PREFIXO_BALCAO } from '../../common/senha-origem';
@@ -1772,6 +1772,7 @@ export class DeliveryService {
       throw new BadRequestException(
         'Pedido do totem ainda não foi pago: cobre em PDV · Balcão › Retirada / Encomendas, no "Cobrar e entregar".',
       );
+    if (novo === 'despachado') await this.conferirEntregador(tenantId, dados?.entregadorId);
     const patch: any = { status: novo };
     if (novo === 'pronto') patch.prontoEm = new Date();
     if (novo === 'despachado') {
@@ -1877,6 +1878,7 @@ export class DeliveryService {
       throw new BadRequestException('Pedido de retirada não vai para entrega.');
     if (!['confirmado', 'pronto'].includes(ped.status))
       throw new BadRequestException('Só é possível despachar um pedido em produção ou pronto.');
+    await this.conferirEntregador(tenantId, dados?.entregadorId);
     const [row] = await this.db
       .update(pedidoExterno)
       .set({
@@ -4778,6 +4780,14 @@ export class DeliveryService {
     // só deixamos ajustar campos benignos (ex.: cor no kanban) — ativar por fora
     // deixaria a integração invisível na distribuição (sem pedidoIntegracao).
     const fluxoProprio = canal === 'ifood';
+    // A loja da 99 é de UMA empresa: o app é global e o id basta para pegar o token dela (S2-02).
+    if (canal === '99food' && dto.merchantId) {
+      const [outra] = await this.db
+        .select({ id: integracao.id })
+        .from(integracao)
+        .where(and(eq(integracao.canal, canal), eq(integracao.merchantId, String(dto.merchantId)), ne(integracao.tenantId, tenantId)));
+      if (outra) throw new BadRequestException('Esta loja da 99 já está ligada a outra empresa.');
+    }
     const vals: any = {
       ativo: fluxoProprio
         ? atual?.ativo ?? false
@@ -4905,6 +4915,19 @@ export class DeliveryService {
   }
 
   // Entregadores = colaboradores ativos com função cujo nome contém "entregador".
+  // O entregador do pedido é desta empresa: com o id de outra, o rastreio mostrava o GPS ao vivo dele (S3-01).
+  private async conferirEntregador(tenantId: string, id?: string | null) {
+    if (!id) return;
+    const ehUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id));
+    const achados = ehUuid
+      ? await this.db
+          .select({ id: colaborador.id })
+          .from(colaborador)
+          .where(and(eq(colaborador.id, String(id)), eq(colaborador.tenantId, tenantId)))
+      : [];
+    if (!achados.length) throw new BadRequestException('Este entregador não é desta empresa.');
+  }
+
   async listarEntregadores(tenantId: string) {
     return this.db
       .select({
