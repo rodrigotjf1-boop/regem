@@ -53,12 +53,17 @@ export function lerRespostaDoFator(texto: unknown, unidadePedida: string | null 
   if (MESMA_UNIDADE.test(t)) return /\bnao\b/.test(t) ? { tipo: 'duvida' } : { tipo: 'confirmar', fator: 1 };
 
   // "1 pacote tem 12 fardos", "12 pacotes fazem 1 fardo", "cada caixa tem 9 kg".
-  const pares = [...t.matchAll(new RegExp(`(${NUMERO}) ?([a-z]+)`, 'g'))].map((m) => ({ n: numeroDe(m[1]), u: unidadeDe(m[2]) }));
+  // "uma caixa tem 8 sacos": a palavra conta como 1. A nota costuma trazer só "UN": a outra unidade da frase é a que veio nela.
+  const comNumeros = t.replace(/\b(um|uma|cada)\b(?= [a-z])/g, '1');
+  const pares = [...comNumeros.matchAll(new RegExp(`(${NUMERO}) ?([a-z]+)`, 'g'))].map((m) => ({ n: numeroDe(m[1]), u: unidadeDe(m[2]) }));
   const doEstoque = pares.filter((p) => p.u === estoque);
-  const daPedida = pedida === estoque ? [] : pares.filter((p) => p.u === pedida);
+  const generica = pedida === 'unidade';
+  const daPedida = pedida === estoque ? [] : pares.filter((p) => p.u === pedida || (generica && p.u !== estoque && !!normalizarUnidade(p.u)));
   if (estoque && doEstoque.length === 1 && daPedida.length <= 1) {
     const b = doEstoque[0].n;
     const a = daPedida.length ? daPedida[0].n : 1;
+    // "1 caixa tem 8 sacos" com a nota em pacote não diz nada do pacote: não vira "1 pacote = 1 caixa".
+    if (!daPedida.length && b === 1) return { tipo: 'duvida' };
     if (a != null && b != null) {
       const fator = Math.round((b / a) * 1_000_000) / 1_000_000;
       if (fator > 0 && fator < MAX_FATOR) return { tipo: 'confirmar', fator };

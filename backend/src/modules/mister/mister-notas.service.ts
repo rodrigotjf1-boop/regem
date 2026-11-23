@@ -29,7 +29,7 @@ import { RecebimentoService } from '../recebimento/recebimento.service';
 import { QuemMandou, QuemTocou } from './mister-entrada.service';
 import { MisterNumeroService } from './mister-numero.service';
 import { Resposta } from './mister.regras';
-import { lerRespostaDoFator } from './resposta-do-fator';
+import { lerRespostaDoFator, simOuNao } from './resposta-do-fator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -293,14 +293,19 @@ export class MisterNotasService {
     return 'feito';
   }
 
-  /** O texto que responde "1 CX tem quantos kg?". Só a nota desta pessoa esperando um fator, dos últimos 30 minutos. */
+  /**
+   * O texto que responde "1 CX tem quantos kg?". Só a nota desta pessoa esperando um fator, das últimas 4 horas (a mesma janela
+   * do que o Mister lembra). O número puro vale; a frase mostra a conta e espera o "sim", porque o fator fica guardado para as
+   * próximas notas do fornecedor; a dúvida pergunta de novo (ERR-588).
+   */
   async responderFator(quem: QuemMandou, texto: string): Promise<boolean> {
+    let fala: string | null = null;
     const resultado = await this.db.transaction(async (tx: any) => {
       const [d] = linhas(
         await tx.execute(sql`
           select id::text as id, dados, motivo from mister_documento
            where tenant_id = ${quem.tenantId}::uuid and colaborador_id = ${quem.colaboradorId}::uuid and tipo = 'nota'
-             and situacao = 'falta' and motivo like 'fator:%' and atualizado_em > clock_timestamp() - interval '30 minutes'
+             and situacao = 'falta' and motivo like 'fator:%' and atualizado_em > clock_timestamp() - interval '4 hours'
            order by atualizado_em desc limit 1
            for update`),
       );
@@ -308,11 +313,32 @@ export class MisterNotasService {
       const indice = Number(String(d?.motivo ?? '').split(':')[1]);
       const it = nota?.itens?.[indice];
       if (!d || !nota || !it || it.estado !== 'fator') return null;
-      // ERR-584: a frase só vira fator quando diz de qual unidade é o número. O resto segue como conversa.
-      const r = lerRespostaDoFator(texto, it.unidade, it.unidadeDoEstoque);
-      if (r.tipo !== 'numero' && r.tipo !== 'confirmar') return null;
-      const fator = r.fator;
-      Object.assign(it, { fator, estado: 'ligado' });
+      const guardarNota = () =>
+        tx.execute(sql`update mister_documento set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), atualizado_em = clock_timestamp() where id = ${d.id}::uuid`);
+      let fator: number;
+      const resposta = it.fatorProposto != null ? simOuNao(texto) : null;
+      if (resposta === 'sim') fator = it.fatorProposto as number;
+      else if (resposta === 'nao') {
+        it.fatorProposto = null;
+        await guardarNota();
+        fala = FRASES_DA_NOTA.perguntaFator(it);
+        return null;
+      } else {
+        const r = lerRespostaDoFator(texto, it.unidade, it.unidadeDoEstoque);
+        if (r.tipo === 'outro') return null;
+        if (r.tipo === 'duvida') {
+          fala = FRASES_DA_NOTA.duvidaDoFator(it);
+          return null;
+        }
+        if (r.tipo === 'confirmar') {
+          it.fatorProposto = r.fator;
+          await guardarNota();
+          fala = FRASES_DA_NOTA.confirmarFator(it, r.fator);
+          return null;
+        }
+        fator = r.fator;
+      }
+      Object.assign(it, { fator, fatorProposto: null, estado: 'ligado' });
       await this.lembrar(tx, quem.tenantId, nota.emitenteCnpj, it, quem.colaboradorId);
       const pend = proximaPendencia(nota);
       await tx.execute(sql`
@@ -322,6 +348,10 @@ export class MisterNotasService {
          where id = ${d.id}::uuid`);
       return { id: d.id as string, nota };
     });
+    if (fala) {
+      await this.falar(quem.telefone, { texto: fala });
+      return true;
+    }
     if (!resultado) return false;
     await this.seguir(quem.telefone, resultado.id, resultado.nota);
     return true;
