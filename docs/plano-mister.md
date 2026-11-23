@@ -2311,3 +2311,80 @@ receber lançadas, então inadimplência e prazo de pagamento ficam sem número 
 
 **Ainda depende de teste real:** a voz nova em português, a risada, a leitura do tom com barulho de cozinha, o custo e o tempo de
 resposta das análises no pico.
+
+## Versão 8 — clima, eventos, repasses e banco (aprovada em 23/11/2026)
+
+Pedido do dono em 23/11: "vamos de 3 e 4", ou seja, ler os repasses do iFood, da 99 e do cartão (o que libera burn rate, runway e
+giro) e levar clima e eventos ao Mister. Protótipo: `mockups/regem-mister-v8.html`, aprovado com as dez decisões recomendadas.
+
+**O que a pesquisa mudou no desenho.** Nos últimos 30 dias a loja vendeu R$ 177.337: Anota Aí R$ 120.567 (68%), iFood R$ 31.219
+(17,6%), 99 R$ 19.044 (10,7%) e Cardápio Web R$ 6.507 (3,7%). Só o iFood entrega líquido e comissão por API, e a maior parte da venda
+não passa por essa API. O caminho grátis que cobre todos os canais é o **extrato do banco**, por arquivo OFX: mostra o que entrou, o
+que saiu e o saldo.
+
+**De onde vem cada dado (conferido nas documentações oficiais em 23/11):**
+
+| Fonte | O que dá | Como chega | Limite |
+|---|---|---|---|
+| Banco | Entradas, saídas e saldo | Arquivo OFX | A loja exporta; o banco dela ainda não foi conferido |
+| iFood | Líquido, comissão, taxas e dia do repasse por pedido | API Financial (`/v3/sales`, `/v3/financial-events`, `/v3/settlements`) | Exige homologação; o escopo do app de produção não foi confirmado |
+| Anota Aí / iFood Pago | A API diz só `prepaid`; o portal do iFood Pago tem taxa e repasse | Planilha do portal | Sem API documentada. **A conferir:** se esse dinheiro aparece na API Financial do iFood |
+| 99 | Repasses no portal | Excel do 99Food Admin | API financeira não confirmada |
+| Mercado Pago | Liberações e conciliação | `release_report` e `settlement_report` (assíncronos, até 60 dias) | Só o que passou pelo Mercado Pago |
+| Maquininha | Vendas e liquidação | Stone e PagBank por API; Cielo, Rede e Getnet por arquivo | Não sabemos qual a loja usa |
+| Dinheiro | Entradas e sangrias | Caixa do Regem | Já existe |
+| Open Finance | Extrato automático | Contrato com instituição autorizada (Resolução Conjunta nº 1) | Custo e análise jurídica: fora desta versão |
+
+**Etapas:**
+
+| Etapa | O que entrega | Migration prevista |
+|---|---|---|
+| E1 · Clima e eventos na conversa | "O que vem aí?" e "vai chover sexta?", com as duas previsões lado a lado | não |
+| E2 · Comparação com as vendas | A venda em dias de jogo, feriado e chuva contra dias parecidos | não |
+| E3 · Véspera e regras | Aviso da véspera, linha "Amanhã" no resumo, regra pela conversa | a conferir na hora, pelo que os ajustes gravam |
+| E4 · Boletim do ramo | Impostos, custos e plataformas, curto e com a fonte | a conferir na hora |
+| R1 · Extrato do banco | Financeiro › Banco e repasses, importar OFX sem duplicar, classificar lançamentos | sim (só-nuvem, RLS, classificada no `sync-daemon.mjs`) |
+| R2 · Burn rate e runway reais | Os indicadores com a data do último extrato | não |
+| R3 · iFood automático | Repasses por pedido, depois da homologação | sim |
+| R4 · Planilhas | iFood Pago, 99 e maquininha, depois de um arquivo de exemplo real | sim |
+| R5 · Giro e margem líquida | Com os repasses; a margem líquida ainda depende de a loja lançar os custos | não |
+
+Ordem proposta: E1 → E2 → E3 → R1 → R2 → E4 → R3/R4 → R5. E1 a E3 usam dados que o Regem já recebe. R3 e R4 esperam o que só vem de
+fora (homologação e arquivos de exemplo).
+
+**As dez decisões (recomendada primeiro):**
+
+- V8-1: banco por arquivo OFX. Open Finance só por contrato com instituição autorizada, com custo e análise jurídica.
+- V8-2: banco e repasses só o presidente vê, com a recusa no servidor.
+- V8-3: nomes e documentos do extrato ficam mascarados e nunca vão à IA.
+- V8-4: iFood pela API depois da homologação; até lá, sem dado do iFood nesta parte.
+- V8-5: sem arquivo, o Regem diz o que falta e onde baixar. Nunca estima pela tabela de taxas.
+- V8-6: o Regem lê o que a plataforma informa e **não calcula comissão**. Mantém essa parte da decisão de 13/09/2026. Aprovar V8-4 e
+  V8-6 reabre o que ela tirou da fila: a API financeira do iFood e a previsão de repasse. `taxa_entrega` não muda.
+- V8-7: casa repasse e banco sozinho só com valor exato e data próxima. O resto fica "A conferir".
+- V8-8: aviso de chuva só com as duas previsões de acordo ou alerta oficial do INMET.
+- V8-9: avisos de clima e eventos nascem desligados, em texto fixo e sem IA. Para a loja é R$ 0. Fora das 24 horas de conversa, o
+  WhatsApp só entrega modelo aprovado, e a Meta cobra cada mensagem da conta do número do Mister, que é da DMS.
+- V8-10: "em dias assim a loja vende X" só com 4 ou mais dias parecidos.
+
+**O que o levantamento achou e a execução precisa tratar:**
+
+- A rotina de clima só busca o município das empresas com o módulo **Perfil do cliente** ligado (`municipiosDasLojas`). Empresa com
+  Mister e sem esse módulo ficaria sem previsão: a E1 inclui quem tem o Mister.
+- `PulsoModule` não está em `CLOUD_ONLY_MODULES` (`backend/src/edge-manifest.ts`). Entra na E1, com a conferência de que o servidor da
+  loja não chama o Pulso (V1).
+- `chuva_prevista` deu verdadeiro nos 6 dias lidos em 23/11, porque o INMET escreve "pancadas isoladas" quase todo dia. A previsão não
+  traz milímetros nem hora. Daí a V8-8.
+- A rotina de clima faz uma chamada por município sem pausa: precisa de ritmo antes de crescer em número de lojas.
+- `clima_municipio_dia` não é apagada e guarda a previsão da véspera, então o histórico já está se formando. A comparação com chuva só
+  responde com cerca de 60 dias gravados; até lá, o Mister diz que ainda não dá.
+- O boletim do ramo já é lido e guardado em `pulso_boletim` (Notícias do ramo, N1, #1278, mig 494): a E4 usa essa cópia e não chama o
+  Pulso de novo.
+- Os documentos do Regem citam um contrato antigo do Pulso (hoje 1.8.0). Atualizar na E1.
+- A ferramenta nova entra na lista fixa de `mister-agente.regras.ts` e na avaliação de regressão.
+
+**Ainda depende de teste real:** a homologação do iFood, o formato real das planilhas do iFood Pago, da 99 e da maquininha, a
+exportação OFX do banco da loja e se o dinheiro do iFood Pago aparece na API Financial.
+
+**Da parte do dono:** dizer qual banco e qual maquininha a loja usa; mandar um extrato OFX e um arquivo de exemplo do iFood Pago e da
+99. Quem cuida da homologação do iFood é a distribuição.

@@ -1,0 +1,1329 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mister clima e repasses</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PROTÓTIPO DO MISTER, VERSÃO 8 (23/11/2026), para aprovação do dono.
+   Duas frentes: clima e eventos, repasses e banco. Os estilos são os da v7, sem as peças de foto e voz; os novos vêm no fim.
+   Todos os dados são inventados e nada aqui fala com o Regem. */
+:root{
+  --bg:#EDF0F4; --card:#FFFFFF; --ink:#0F2230; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E2A340; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0E7C66; --ok-bg:#E8F6F1; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A; --d-azul:#7CC0F5;
+  /* o gráfico (claro) */
+  --g-fundo:#FFFFFF; --g-ink:#0F2230; --g-ink2:#55697B; --g-grade:#E6ECF1; --g-eixo:#C8D2DC; --g-barra:#2F4A60; --g-ant:#D3DCE4;
+  --g-dest:#C08118; --g-area:rgba(212,149,47,.16); --g-bom:#0E7C66; --g-ruim:#B93232;
+  --g-c1:#2F4A60; --g-c2:#D4952F; --g-c3:#5B8DB8; --g-c4:#3E8E7E; --g-c5:#A9B7C4;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px} h3{font-size:16px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pular{position:absolute;left:8px;top:-60px;background:var(--gold);color:var(--on-gold);padding:8px 12px;border-radius:8px;font-weight:700;z-index:99}
+.pular:focus{top:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+.pagina{padding:20px;max-width:1240px;margin-inline:auto;container-type:inline-size;container-name:principal}
+.cab{margin-bottom:16px} .cab .sub{max-width:76ch;margin-top:4px}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.faixa{border-radius:10px;padding:10px 14px;margin-bottom:14px;border:1px solid}
+.faixa.warn{background:var(--warn-bg);border-color:#EBC7B0;color:#6F3410} .faixa.info{background:var(--info-bg);border-color:#BFD6EA;color:#1D4C77}
+.faixa.ok{background:var(--ok-bg);border-color:#B5DCC8;color:#0B4A33}
+a{color:var(--info);text-underline-offset:2px}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.v5{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:2px;white-space:nowrap}
+.fase{font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--gold-ink)}
+
+/* celular */
+.celulares{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:24px 18px;align-items:start}
+.caso h3{margin-bottom:2px} .caso > .sub{font-size:13.5px;margin-bottom:8px}
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:370px}
+.cel-topo{background:var(--c-wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:150px;align-content:start}
+.bolha{max-width:90%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.42;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere;min-width:0}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha.larga{max-width:96%;width:96%}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#5E6E7A;margin-top:2px}
+.bolha ul{margin:4px 0;padding-left:18px} .bolha li{margin-bottom:2px}
+.entendi{display:block;font-size:13px;color:#43586C;background:#F3F6F8;border-left:3px solid var(--c-wa);border-radius:4px;padding:4px 8px;margin:-1px -3px 6px}
+.botoes-wa{display:grid;gap:4px;margin-top:6px}
+.botoes-wa span{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.botoes-wa.dois{grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr))}
+.toque{justify-self:end;font-size:12px;color:#5E6E7A;background:rgba(255,255,255,.7);border-radius:999px;padding:2px 10px}
+.audio{display:flex;gap:8px;align-items:center;min-width:0;padding:2px 0}
+.audio .play{width:30px;height:30px;border-radius:50%;background:var(--c-wa);color:#fff;display:grid;place-items:center;font-size:11px;flex:none}
+.audio .onda{flex:1;min-width:40px;height:20px;background:repeating-linear-gradient(90deg,#7C8B96 0 2px,transparent 2px 5px);border-radius:2px;opacity:.8}
+.audio small{font:600 11px var(--mono);color:#5E6E7A;flex:none}
+.midia{display:block;border-radius:8px;overflow:hidden;margin:-3px -6px 6px;background:#fff;border:1px solid #D5DDE3}
+.doc-msg{display:flex;gap:10px;align-items:center;background:#F3F6F8;border-radius:8px;padding:8px 10px;margin:-2px -4px 6px;min-width:0}
+.doc-msg .ico{width:32px;height:38px;border-radius:4px;background:var(--crit);color:#fff;display:grid;place-items:center;font:800 10px var(--display);flex:none}
+.doc-msg > span:not(.ico){min-width:0}
+.doc-msg b{display:block;font-size:13px;line-height:1.25;overflow-wrap:anywhere} .doc-msg small{font-size:11.5px;color:#5E6E7A}
+
+/* gráfico */
+.grafico{background:var(--g-fundo);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.g-svg{display:block;width:100%;height:auto}
+.g-svg text{font-family:var(--body)}
+.g-fundo{fill:var(--g-fundo)} .g-faixa{fill:var(--g-dest)}
+.g-tit{font-family:var(--display)!important;font-weight:700;font-size:15.5px;fill:var(--g-ink)}
+.g-sub{font-size:11.5px;fill:var(--g-ink2)}
+.g-kpi{font-family:var(--mono)!important;font-weight:700;font-size:22px;fill:var(--g-ink)}
+.g-delta{font-size:11.5px;font-weight:700} .g-delta.bom{fill:var(--g-bom)} .g-delta.ruim{fill:var(--g-ruim)}
+.g-grade{stroke:var(--g-grade);stroke-width:1} .g-eixo{stroke:var(--g-eixo);stroke-width:1}
+.g-barra{fill:var(--g-barra)} .g-ant{fill:var(--g-ant)} .g-dest{fill:var(--g-dest)}
+.g-val{font-family:var(--mono)!important;font-size:10.5px;font-weight:700;fill:var(--g-ink)}
+.g-rot{font-size:11px;font-weight:600;fill:var(--g-ink)} .g-rot2{font-size:10px;fill:var(--g-ink2)}
+.g-leg{font-size:10.5px;fill:var(--g-ink2)} .g-rod{font-size:10px;fill:var(--g-ink2)}
+.g-area{fill:var(--g-area)} .g-linha{fill:none;stroke:var(--g-dest);stroke-width:2.5;stroke-linejoin:round}
+.g-ponto{fill:var(--g-fundo);stroke:var(--g-dest);stroke-width:2} .g-pico{fill:var(--g-dest)}
+.g-media{stroke:var(--g-ink);stroke-width:1.5;stroke-dasharray:6 4} .g-media-t{font-size:10.5px;font-weight:700;fill:var(--g-ink)}
+.g-c1{fill:var(--g-c1)} .g-c2{fill:var(--g-c2)} .g-c3{fill:var(--g-c3)} .g-c4{fill:var(--g-c4)} .g-c5{fill:var(--g-c5)}
+.g-nome{font-size:11.5px;font-weight:600;fill:var(--g-ink)} .g-num{font-family:var(--mono)!important;font-size:11px;font-weight:700;fill:var(--g-ink)}
+.g-num2{font-family:var(--mono)!important;font-size:10.5px;fill:var(--g-ink2)} .g-trilho{fill:var(--g-grade)}
+
+/* vista dos gráficos */
+.graficos{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr));gap:18px;align-items:start}
+.g-caso h3{margin-bottom:2px} .g-caso > .sub{font-size:13.5px;margin-bottom:8px}
+.onde{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.comparar{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px;align-items:start}
+.lista-melhor{margin:6px 0 0;padding-left:20px} .lista-melhor li{margin-bottom:4px}
+
+/* app da loja */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:70vh;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#EDF0F4}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px;letter-spacing:.02em}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px}
+.lado li.atual{background:rgba(226,163,64,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:loja}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.onde-app{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.corpo-app{padding:18px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.grupo-aj{font:700 12.5px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin:4px 0 2px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}
+.grupo-aj span{font:500 12.5px var(--body);text-transform:none;letter-spacing:0}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line)}
+.aj.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;min-width:0}
+.aj .ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:40px;background:#fff;max-width:100%;min-width:0}
+.liga{position:relative;width:52px;height:30px;border-radius:999px;border:1px solid var(--line-2);background:var(--neutro-bg);cursor:pointer;flex:none;padding:0}
+.liga::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.liga[aria-checked="true"]{background:var(--ok);border-color:var(--ok)} .liga[aria-checked="true"]::after{left:25px}
+.liga[disabled]{opacity:.5;cursor:not-allowed}
+.estado-liga{font-size:13px;color:var(--ink-2);min-width:64px}
+@container loja (max-width: 620px){ .aj{grid-template-columns:minmax(0,1fr)} .aj .ctrl{justify-content:flex-start} }
+.barra-salvar{position:sticky;bottom:0;background:var(--navy);color:#fff;border-radius:12px 12px 0 0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;z-index:5;margin-top:12px}
+.barra-salvar .btn{border-color:#3C5568;background:transparent;color:#fff} .barra-salvar .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.barra-salvar :focus-visible{outline-color:var(--d-azul)}
+.medidor{height:12px;border-radius:999px;background:var(--neutro-bg);overflow:hidden;margin:8px 0}
+.medidor span{display:block;height:100%;background:var(--navy);border-radius:999px}
+.usos{list-style:none;margin:8px 0 0;padding:0}
+.usos li{display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)}
+.usos li:first-child{border-top:0}
+
+/* notas */
+.notas{max-width:1000px}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:6px}
+.decisao{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0 0}
+.decisao h3{font-size:15px;margin-bottom:6px}
+.decisao ol{margin:0;padding-left:20px} .decisao li{margin-bottom:4px}
+.rec{font:700 11px var(--display);background:var(--ok-bg);color:var(--ok);padding:1px 7px;border-radius:999px;letter-spacing:.03em;white-space:nowrap}
+.fases{width:100%;border-collapse:collapse;font-size:14px}
+.fases th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px;border-bottom:2px solid var(--line-2)}
+.fases td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+@container principal (max-width: 700px){
+  .fases thead{display:none} .fases,.fases tbody,.fases tr,.fases td{display:block;width:100%}
+  .fases tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff}
+  .fases td{border:0;padding:3px 0}
+  .fases td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+}
+
+@media (max-width: 900px){
+  .app{grid-template-columns:minmax(0,1fr)} .lado{display:none}
+  .pagina{padding:14px} .topo{padding:10px 14px} .corpo-app{padding:14px}
+  .btn,.parte{min-height:44px}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important} }
+
+
+/* ── peças novas da v6 ── */
+.v6{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:2px;white-space:nowrap}
+.trava{display:block;font-size:13px;color:#6F3410;background:var(--warn-bg);border-left:3px solid var(--warn);border-radius:4px;padding:4px 8px;margin:-1px -3px 6px}
+.regra-pt{display:block;background:#F3F6F8;border-radius:8px;padding:8px 10px;margin:6px -4px 4px;font-size:13.5px}
+.regra-pt b{font-family:var(--display);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#43586C;display:block;margin-bottom:2px}
+.link-wa{display:block;margin-top:6px;background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.lista-num{margin:4px 0;padding-left:20px} .lista-num li{margin-bottom:2px}
+.bolha.com-foto{width:min(270px,84%)}
+.g-mini{display:block;width:100%;height:auto;background:#fff;border-radius:8px;margin:-3px -6px 6px;border:1px solid #D5DDE3}
+
+/* lista no modelo do Estoque */
+.lista-cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;margin-bottom:10px}
+.lista-cab h2{font-size:18px} .lista-cab h2 .mono{font-size:15px;color:var(--ink-2)}
+.situacoes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.sit{background:#fff;border:1px solid var(--line-2);border-radius:999px;padding:5px 12px;min-height:36px;cursor:pointer;font-weight:600;color:var(--ink-2)}
+.sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.sit .mono{margin-left:4px}
+.busca{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.busca input,.busca select{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff;min-width:0;flex:1 1 200px}
+.busca select{flex:0 1 200px}
+.linhas{display:grid;gap:8px}
+.linha{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;align-items:start}
+.linha .t{font-weight:600} .linha .d{font-size:13.5px;color:var(--ink-2)}
+.linha .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.linha .ac{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.btn.peq{min-height:36px;padding:5px 10px;font-size:13.5px}
+.btn.perigo{color:var(--crit);border-color:#E9B8B8}
+@container loja (max-width: 560px){ .linha{grid-template-columns:minmax(0,1fr)} .linha .ac{justify-content:flex-start} }
+.vazio{border:1px dashed var(--line-2);border-radius:10px;padding:18px;text-align:center;color:var(--ink-2)}
+
+/* gaveta e diálogo */
+.fundo{position:fixed;inset:0;background:rgba(11,24,34,.45);z-index:40}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:#fff;z-index:41;display:flex;flex-direction:column;box-shadow:-8px 0 30px rgba(0,0,0,.18)}
+.gaveta-cab{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line)}
+.gaveta-corpo{padding:16px 18px;overflow-y:auto;display:grid;gap:12px;align-content:start;min-height:0;flex:1}
+.gaveta-rod{padding:12px 18px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.campo{display:grid;gap:4px} .campo label,.campo .rot{font-weight:600;font-size:14px}
+.campo input,.campo select,.campo textarea{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff;width:100%;min-width:0}
+.campo .ajuda{font-size:12.5px;color:var(--ink-2)}
+.fechar{background:transparent;border:1px solid var(--line-2);border-radius:10px;min-width:40px;min-height:40px;cursor:pointer;font-size:18px;line-height:1}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(460px,calc(100% - 32px));max-height:calc(100% - 32px);overflow-y:auto;background:#fff;border-radius:14px;z-index:43;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+.fundo.alto{z-index:42}
+.dialogo h2{margin-bottom:8px}
+.dialogo .acoes{justify-content:flex-end;margin-top:14px}
+.lista-ok{margin:6px 0 0;padding-left:20px} .lista-ok li{margin-bottom:4px}
+
+/* console */
+.console .app{background:#0F1B25} .console .lado{background:#07111A}
+.console .principal{background:#EDF0F4}
+.tab-c{width:100%;border-collapse:collapse;font-size:14px;background:#fff;border-radius:10px;overflow:hidden}
+.tab-c th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line-2)}
+.tab-c td{padding:9px 10px;border-bottom:1px solid var(--line);overflow-wrap:anywhere;vertical-align:top}
+@container loja (max-width: 640px){
+  .tab-c thead{display:none} .tab-c,.tab-c tbody,.tab-c tr,.tab-c td{display:block;width:100%}
+  .tab-c tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:8px;background:#fff}
+  .tab-c td{border:0;padding:3px 0}
+  .tab-c td[data-rot]::before{content:attr(data-rot) " · ";font-weight:600;color:var(--ink-2)}
+}
+
+
+/* ── peças novas da v7 ── */
+.v7{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:3px;white-space:nowrap}
+.secao{font-size:18px;margin:22px 0 4px}
+.secao:first-of-type{margin-top:6px}
+.secao-sub{color:var(--ink-2);font-size:14px;margin-bottom:12px;max-width:76ch}
+.bolha .hora{color:#52616C}
+.toque{color:#47555F;background:rgba(255,255,255,.85)}
+.entendi{color:#3C4F60}
+
+/* antes e depois */
+.par{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:22px 18px;align-items:start;margin-bottom:8px}
+.etq{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin-bottom:8px;font-size:13.5px;color:var(--ink-2)}
+.cel.antes .cel-topo{background:#55646F}
+.cel.antes .cel-topo .foto{color:#55646F}
+.robo{display:block;font:500 12.5px/1.45 var(--mono);color:#33434F}
+.mudou-lista{margin:6px 0 0;padding-left:20px}
+.mudou-lista li{margin-bottom:6px}
+.nunca{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:10px}
+.nunca li{border-top:1px solid var(--line);padding-top:10px}
+.nunca li:first-child{border-top:0;padding-top:0}
+.nunca s{display:block;color:var(--crit);text-decoration-thickness:1.5px;font-weight:600}
+.nunca span{font-size:13.5px;color:var(--ink-2)}
+
+/* o Mister conferindo e os passos */
+.pensa{justify-self:start;display:inline-flex;gap:7px;align-items:center;font-size:12.5px;color:#3C4F60;background:rgba(255,255,255,.88);border-radius:999px;padding:3px 11px}
+.pensa::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--gold);flex:none}
+.passos{list-style:none;margin:5px 0;padding:0;display:grid;gap:5px}
+.passos li{display:grid;grid-template-columns:20px minmax(0,1fr);gap:4px;align-items:start}
+.passos .m{font-weight:700;text-align:center;line-height:1.42}
+.passos .m.ok{color:var(--ok)} .passos .m.nao{color:var(--warn)} .passos .m.n{color:#47555F;font-family:var(--mono);font-size:12.5px}
+
+/* números × sugestão */
+.bloco{display:block;border-radius:6px;padding:6px 9px;margin:6px -2px 2px;font-size:13.5px;line-height:1.42}
+.bloco > b:first-child{display:block;font:700 12px var(--display);margin-bottom:2px}
+.mostra{background:#EEF2F6;border-left:3px solid var(--navy)}
+.mostra > b:first-child{color:var(--navy)}
+.sugere{background:var(--gold-bg);border-left:3px solid var(--gold)}
+.sugere > b:first-child{color:var(--gold-ink)}
+.legenda{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px;margin-bottom:16px}
+.legenda .bloco{margin:0;background-clip:padding-box}
+.legenda .mostra{background:#fff;border:1px solid var(--line);border-left:3px solid var(--navy)}
+.legenda .sugere{background:#fff;border:1px solid var(--line);border-left:3px solid var(--gold)}
+
+/* gráfico no balão: desenhado em HTML para a letra não encolher no celular */
+.gb{display:block;background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:9px 10px;margin:6px -3px}
+.gb-t{display:block;font:700 13.5px/1.25 var(--display);color:var(--ink)}
+.gb-s{display:block;font-size:11.5px;color:#52616C;margin:1px 0 7px}
+.gb-lin{display:grid;grid-template-columns:minmax(0,5.6em) minmax(0,1fr) auto;gap:6px;align-items:center;font-size:12px;line-height:1.25;padding:2px 0}
+.gb-lin .r{color:var(--ink);overflow-wrap:break-word}
+.gb-lin .tr{height:11px;display:block;background:#EEF2F6;border-radius:0 4px 4px 0;overflow:hidden}
+.gb-lin .tr i{display:block;height:100%;background:var(--g-barra);border-radius:0 4px 4px 0}
+.gb-lin.dest .r{font-weight:700}
+.gb-lin.dest .tr i{background:var(--g-dest)}
+.gb-lin .v{font:700 11.5px var(--mono);font-variant-numeric:tabular-nums;color:var(--ink);text-align:right;white-space:nowrap}
+
+/* financeiro */
+.k-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin-bottom:8px}
+.k-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;min-width:0;display:flex;flex-direction:column;gap:5px}
+.k-card .nome{font:700 14px var(--display)}
+.k-card .num{font:700 27px/1.1 var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+.k-card .como{font-size:13px;color:var(--ink-2)}
+.k-card .selo{align-self:flex-start;white-space:normal}
+.f-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,215px),1fr));gap:12px;margin-bottom:8px}
+.f-card{background:var(--card);border:1px dashed var(--line-2);border-radius:var(--radius);padding:14px 16px;min-width:0;display:flex;flex-direction:column;gap:6px}
+.f-card .topo-f{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;justify-content:space-between}
+.f-card .nome{font:700 14.5px var(--display)}
+.f-card p{font-size:13.5px;margin:0}
+.f-card .rot{font-weight:700;color:var(--ink)}
+.f-card .ausente{font:700 22px var(--mono);color:var(--ink-2)}
+
+
+/* ajustes */
+.parte[disabled]{cursor:default}
+.busca-aj{display:flex;margin-bottom:12px}
+.busca-aj input{flex:1 1 auto;min-width:0;max-width:420px;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff}
+.aj.largo{grid-template-columns:minmax(0,1fr)}
+.aj.largo .ctrl{justify-content:stretch}
+.aj textarea{font:inherit;color:inherit;width:100%;min-width:0;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;background:#fff;resize:vertical}
+.aj .preco{display:block;font-size:13px;font-weight:600;color:var(--gold-ink);margin-top:3px}
+.ja{font:600 11px var(--display);color:var(--ink-2);background:var(--neutro-bg);border-radius:4px;padding:1px 6px;white-space:nowrap;vertical-align:2px}
+.link-aj{background:transparent;border:0;padding:4px 0;min-height:32px;color:var(--info);font-weight:600;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.bloco-aj{margin-bottom:16px}
+.salvo{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ok);color:#fff;font-weight:600;padding:9px 16px;border-radius:10px;z-index:50;max-width:calc(100% - 32px);box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.conta-g{background:var(--neutro-bg);border-radius:10px;padding:10px 12px;font-size:14px}
+.conta-g b{font-family:var(--mono)}
+.gaveta-sec{display:grid;gap:12px;min-width:0}
+.gaveta h3{font-size:14.5px;margin-bottom:3px}
+.gaveta .lista-ok{font-size:14px}
+.barra-salvar{flex-wrap:wrap}
+
+/* notas */
+.notas{max-width:1040px}
+.dois-lados{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px}
+.dois-lados .cartao{margin-bottom:0}
+.dois-lados{margin-bottom:14px}
+/* a tabela de fases tem 4 colunas: vira cartões antes de espremer */
+@container principal (max-width: 940px){
+  .fases thead{display:none} .fases,.fases tbody,.fases tr,.fases td{display:block;width:100%}
+  .fases tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff}
+  .fases td{border:0;padding:3px 0}
+  .fases td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+}
+.fases td:first-child{font-weight:700}
+@media (max-width:900px){ .link-aj{min-height:44px} .busca-aj input{min-height:44px} }
+
+/* ── peças novas da v8 ── */
+.v8{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:3px;white-space:nowrap}
+.dia-wa{justify-self:center;font-size:12px;font-weight:600;color:#3C4F60;background:rgba(255,255,255,.9);border-radius:6px;padding:2px 10px;text-align:center}
+div.bloco{display:block}
+.bloco ul,.bloco ol{margin:3px 0 0;padding-left:18px}
+.prev{display:block;background:#F3F6F8;border-radius:6px;padding:5px 8px;margin:5px 0 0;font-size:13.5px}
+.prev b{display:block;font:700 11.5px var(--display);color:#3C4F60}
+.prev .mono{font-size:12.5px;white-space:nowrap}
+.conta-wa{display:grid;gap:3px;margin:6px 0;font-size:13.5px}
+.conta-wa .l{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:baseline}
+.conta-wa .v{font:700 12.5px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+.conta-wa .l.tot{border-top:1px solid #C8D2DC;padding-top:4px;font-weight:700}
+.conta-wa .l.sub-l{color:#3C4F60;font-size:12.5px}
+.nota-wa{display:block;font-size:12.5px;line-height:1.4;color:#3C4F60;margin-top:5px}
+.evento{display:block;padding:5px 0;border-top:1px solid #E6EBEF}
+.evento:first-of-type{border-top:0}
+.evento b{display:block}
+.pill-wa{display:inline-block;font:700 11px var(--display);border-radius:999px;padding:1px 7px;white-space:nowrap}
+.pill-wa.vale{background:var(--ok-bg);color:var(--ok)}
+.pill-wa.disc{background:var(--warn-bg);color:var(--warn)}
+.gb-lin.neg .tr i{background:var(--g-ruim)}
+.gb-lin.pos .tr i{background:var(--g-bom)}
+.gb-lin{grid-template-columns:minmax(0,5.2em) minmax(24px,1fr) auto}
+.ctl-caso{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+
+/* a lista de Banco e repasses */
+.tela-troca{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.lado .grupo-menu{padding:8px 10px 2px;color:#fff;font-weight:700}
+.lado li.filho{padding-left:22px;font-size:14px}
+.fontes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,178px),1fr));gap:8px;margin-bottom:12px}
+.fonte{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.fonte.falta{border-color:#E7BFA6;background:#FFFBF8}
+.fonte .nome{font:700 14px var(--display)}
+.fonte .como{font-size:12.5px;color:var(--ink-2)}
+.fonte .selo{align-self:flex-start;white-space:normal}
+.fonte .quando{font-size:12.5px;color:var(--ink-2)}
+.fonte .btn{margin-top:4px;align-self:flex-start}
+.totais{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:8px;margin-bottom:12px}
+.total{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:0}
+.total span{display:block;font-size:12.5px;color:var(--ink-2)}
+.total b{display:block;font:700 16.5px var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.busca select{flex:1 1 170px}
+.tab-l{width:100%;border-collapse:separate;border-spacing:0;font-size:14px;background:#fff;border:1px solid var(--line);border-radius:10px}
+.tab-l th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:9px 10px;border-bottom:2px solid var(--line-2);white-space:nowrap}
+.tab-l td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:break-word}
+.tab-l .c-fonte{white-space:nowrap}
+.tab-l .c-desc{min-width:190px}
+.nq,[data-n]{white-space:nowrap}
+.tab-l tbody tr:last-child td{border-bottom:0}
+.tab-l th.num,.tab-l td.c-valor{text-align:right}
+.tab-l .c-data{white-space:nowrap;font-family:var(--mono);font-size:13px}
+.tab-l .c-valor{font:700 13.5px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tab-l .c-valor.ent{color:var(--ok)}
+.lanc-t{display:block;font-weight:600;font-size:13.5px}
+.lanc-p{display:block;font-size:12.5px;color:var(--ink-2)}
+.tab-l .c-ac{white-space:nowrap}
+.linha-ac{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.sem-tipo{color:var(--warn);font-weight:600}
+.mais{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px 14px;margin-top:12px;color:var(--ink-2);font-size:13.5px}
+.esqueleto{display:grid;gap:8px}
+.esqueleto i{display:block;height:46px;border-radius:10px;background:linear-gradient(90deg,#E4E9EF,#F2F5F8,#E4E9EF);background-size:200% 100%;animation:brilho 1.3s linear infinite}
+@keyframes brilho{to{background-position:-200% 0}}
+@media (prefers-reduced-motion: reduce){ .esqueleto i{animation:none} }
+.vazio .btn{margin-top:10px}
+.vazio b{display:block;color:var(--ink);font-family:var(--display);font-size:16px;margin-bottom:3px}
+.vazio.erro{border-color:#E9B8B8;background:#FFF8F8}
+details.ajuda-sit{margin-bottom:12px;font-size:13.5px}
+details.ajuda-sit summary{cursor:pointer;font-weight:600;color:var(--info);min-height:32px;padding:4px 0}
+details.ajuda-sit dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:8px;margin:6px 0 0}
+details.ajuda-sit dl div{background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--ink-2)}
+/* a tabela vira cartões pelo espaço da lista, nunca pela janela */
+@container loja (max-width: 900px){
+  .tab-l{border:0;background:transparent;display:block}
+  .tab-l thead{display:none}
+  .tab-l tbody{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:8px}
+  .tab-l tr{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"data valor" "desc desc" "tipo tipo" "fonte fonte" "sit ac";gap:3px 10px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;align-items:center;min-width:0}
+  .tab-l td,.tab-l .c-desc{display:block;border:0!important;padding:0;min-width:0}
+  .tab-l .c-fonte{white-space:normal}
+  .tab-l .c-desc{overflow-wrap:anywhere}
+  .tab-l .c-data{grid-area:data;color:var(--ink-2)} .tab-l .c-valor{grid-area:valor;font-size:15px} .tab-l .c-desc{grid-area:desc}
+  .tab-l .c-tipo{grid-area:tipo;font-size:13.5px} .tab-l .c-fonte{grid-area:fonte;font-size:13.5px}
+  .tab-l .c-sit{grid-area:sit;margin-top:4px} .tab-l .c-ac{grid-area:ac;margin-top:4px}
+  .tab-l td[data-rot]::before{content:attr(data-rot) " · ";font-weight:600;color:var(--ink-2)}
+  .tab-l .c-data[data-rot]::before{content:""}
+}
+@container loja (max-width: 340px){
+  .tab-l tr{grid-template-columns:minmax(0,1fr);grid-template-areas:"data" "valor" "desc" "tipo" "fonte" "sit" "ac"}
+  .tab-l .c-valor{text-align:left}
+  .linha-ac{justify-content:flex-start}
+}
+
+/* importar extrato e o lançamento */
+.etapas{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.etapas li{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:2px 10px;border-radius:9px;border:1px solid var(--line-2);background:#fff;color:var(--ink-2);font-size:13px;font-weight:600}
+.etapas li b{font-family:var(--mono);font-size:12px;background:#EEF2F6;border-radius:999px;padding:0 7px;color:var(--ink)}
+.etapas li[aria-current]{background:var(--navy);border-color:var(--navy);color:#fff}
+.etapas li[aria-current] b{background:rgba(255,255,255,.2);color:#fff}
+.etapas li.feito b{background:var(--ok-bg);color:var(--ok)}
+.solta{border:1.5px dashed var(--line-2);border-radius:10px;padding:14px;text-align:center;background:#FAFBFC}
+.solta b{display:block;font-family:var(--display)}
+.solta span{font-size:13px;color:var(--ink-2)}
+.opcoes{border:0;margin:0;padding:0;display:grid;gap:6px;min-width:0}
+.opcoes legend{font-weight:600;font-size:14px;padding:0;margin-bottom:4px}
+.opcao{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start;border:1px solid var(--line-2);border-radius:10px;padding:8px 10px;cursor:pointer;background:#fff}
+.opcao:has(input:checked){border-color:var(--navy);box-shadow:inset 0 0 0 1px var(--navy)}
+.opcao input{width:18px;height:18px;margin:2px 0 0}
+.opcao b{display:block;font-size:13.5px;overflow-wrap:anywhere} .opcao small{display:block;font-size:12.5px;color:var(--ink-2)}
+.kv{display:grid;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.kv div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:7px 11px;border-top:1px solid var(--line);font-size:14px;align-items:baseline}
+.kv div:first-child{border-top:0}
+.kv span{color:var(--ink-2)}
+.kv b{font-family:var(--mono);font-size:13px;text-align:right;overflow-wrap:anywhere}
+.g-valor{font:700 26px/1.1 var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.g-valor.ent{color:var(--ok)}
+.extrato-txt{background:#F3F6F8;border-radius:8px;padding:8px 10px;font:500 12.5px/1.45 var(--mono);overflow-wrap:anywhere;color:#2B3B48}
+.check{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start;cursor:pointer}
+.check input{width:18px;height:18px;margin:2px 0 0}
+.check b{display:block;font-size:14px} .check small{font-size:12.5px;color:var(--ink-2)}
+.faixa.crit{background:var(--crit-bg);border-color:#EBB9B9;color:#7E2020}
+.gaveta .faixa{margin:0}
+.exemplos{display:grid;gap:6px}
+.exemplo{border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:13.5px;display:grid;gap:2px}
+.exemplo .selo{justify-self:start;white-space:normal}
+
+/* de onde vem cada dado */
+.dados{width:100%;border-collapse:collapse;font-size:14px;background:#fff;border-radius:10px}
+.dados th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:9px 10px;border-bottom:2px solid var(--line-2)}
+.dados td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.dados td:first-child{font-weight:700;font-family:var(--display)}
+.dados tr:last-child td{border-bottom:0}
+@container principal (max-width: 860px){
+  .dados,.dados tbody,.dados tr,.dados td{display:block;width:100%}
+  .dados{background:transparent}
+  .dados thead{display:none}
+  .dados tr{background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:8px}
+  .dados td{border:0;padding:3px 0}
+  .dados td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  .dados td:first-child{font-size:16px}
+  .dados td:first-child::before{display:none!important}
+}
+.ind-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr));gap:12px}
+.alerta-13{border-left:3px solid var(--warn);background:var(--warn-bg);border-radius:6px;padding:8px 12px;margin-top:10px;font-size:14px;color:#5F2C0D}
+@media (max-width:900px){ .fonte .btn,.tab-l .btn{min-height:44px} .ctl{min-height:40px} details.ajuda-sit summary{min-height:44px;padding:10px 0} }
+</style>
+</head>
+<body>
+
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+<header class="proto">
+  <span class="titulo">Protótipo · Mister v8</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button class="aba" data-aba="clima" aria-pressed="true">Clima e eventos</button>
+    <button class="aba" data-aba="repasses" aria-pressed="false">Repasses e banco</button>
+    <button class="aba" data-aba="loja" aria-pressed="false">Na loja</button>
+    <button class="aba" data-aba="fontes" aria-pressed="false">De onde vem cada dado</button>
+    <button class="aba" data-aba="notas" aria-pressed="false">Notas e decisões</button>
+  </nav>
+  <span class="nota">Dados inventados. Nada aqui fala com o Regem.</span>
+</header>
+
+<main id="conteudo" tabindex="-1">
+
+<!-- ═════════════════════ CLIMA E EVENTOS ═════════════════════ -->
+<section class="vista ativa" id="v-clima" aria-labelledby="h-clima">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-clima">Clima e eventos <span class="v8">v8</span></h1>
+      <p class="sub">O Mister passa a olhar o calendário e a previsão do tempo da sua cidade. Ele diz o que vem aí, compara com as suas vendas e, se você ligar, avisa na véspera.</p>
+    </div>
+    <div class="legenda">
+  <div class="bloco mostra"><b>O que os números mostram</b>Vem das consultas ao Regem e das fontes de cada dado. É fato, e dá para conferir na tela.</div>
+  <div class="bloco sugere"><b>Minha sugestão</b>É a leitura do Mister. Ele nunca aplica sozinho: oferece e espera o seu toque.</div>
+</div>
+    <div class="faixa info">A previsão traz só o resumo do dia, a máxima e a mínima, por até 4 ou 5 dias. Não tem milímetros nem hora da chuva, e o Mister não fala do que não tem.</div>
+    <div class="celulares"><article class="caso"><h3>"O que vem aí essa semana?"</h3><p class="sub">As datas que importam, com o que costumam mexer na sua loja. <span class="fase">E1</span></p><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div><div class="bolha meu">o que vem aí essa semana?<span class="hora">09:12</span></div><div class="bolha dele larga">Três datas que mexem com a loja:
+      <span class="evento"><b>Quarta, 25/11 · jogo do Porto Azul, 21:30</b>Nos últimos <span data-n="jogo.dias2">8</span> jogos, a loja vendeu <span data-n="jogo.pct2">18%</span> a mais que nos mesmos dias da semana sem jogo.</span>
+      <span class="evento"><b>Sexta, 27/11 · Black Friday</b>Você tem só 1 Black Friday no histórico. É pouco para dizer quanto muda.</span>
+      <span class="evento"><b>Segunda, 30/11 · prazo da 1ª parcela do 13º</b>Data de dinheiro no bolso do cliente. Ainda não tenho dezembros suficientes para comparar.</span>
+      <div class="bloco sugere"><b>Minha sugestão</b>Olhar o estoque de carne e pão para quarta e sexta. Quer que eu confira?</div>
+      <div class="botoes-wa dois"><span>Conferir o estoque</span><span>Deixa assim</span></div><span class="hora">09:12</span></div></div></div></article><article class="caso"><h3>"Vai chover sexta?"</h3><p class="sub">Mostra o que cada previsão diz. Quando discordam, ele fala que discordam. <span class="fase">E1</span></p><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div><div class="bolha meu">vai chover sexta?<span class="hora">09:15</span></div><div class="bolha dele larga">As duas previsões <b>discordam</b> para sexta, 27/11:
+      <span class="prev"><b>INMET</b>Muitas nuvens com pancadas de chuva <span class="mono">27° / 20°</span></span>
+      <span class="prev"><b>CPTEC</b>Parcialmente nublado <span class="mono">29° / 21°</span></span>
+      <span class="nota-wa">Faltam 4 dias e a previsão ainda pode mudar. Olho de novo na quinta. Elas trazem só o resumo do dia e a máxima e a mínima: não sei quanto chove nem em que hora.</span><span class="hora">09:15</span></div></div></div></article><article class="caso"><h3>"Como a loja vende em dia de jogo?"</h3><p class="sub">Compara com os mesmos dias da semana sem jogo e diz quantos dias entraram. <span class="fase">E2</span></p><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div><div class="bolha meu">como a loja vende em dia de jogo?<span class="hora">09:20</span></div><div class="pensa">Conferindo as vendas dos últimos 90 dias</div><div class="bolha dele larga"><span class="gb"><span class="gb-t">Venda média por dia</span><span class="gb-s">Quartas e domingos, últimos 90 dias</span><span class="gb-lin dest"><span class="r">Com jogo</span><span class="tr"><i style="width:100%"></i></span><span class="v"><span data-n="jogo.com">R$ 4.860,00</span></span></span><span class="gb-lin "><span class="r">Sem jogo</span><span class="tr"><i style="width:85%"></i></span><span class="v"><span data-n="jogo.sem">R$ 4.120,00</span></span></span></span>
+      <div class="bloco mostra"><b>O que os números mostram</b>Entraram <b><span data-n="jogo.dias">8</span></b> dias com jogo e <b><span data-n="jogo.diasSem">18</span></b> sem jogo. Com jogo, a loja vendeu <b><span data-n="jogo.dif">R$ 740,00</span></b> a mais por dia, ou <b><span data-n="jogo.pct">18%</span></b>.</div>
+      <div class="bloco sugere"><b>Minha sugestão</b>Reforçar a equipe da noite em dia de jogo. Com 8 dias é um sinal, não uma certeza: pode ter outro motivo junto.</div>
+      <div class="botoes-wa dois"><span>Me avisa antes do jogo</span><span>Deixa assim</span></div><span class="hora">09:20</span></div></div></div></article><article class="caso"><h3>"E quando chove, vende mais?"</h3><p class="sub">Com pouco dado ele diz que ainda não dá, e quando vai dar. <span class="fase">E2</span></p><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div><div class="bolha meu">e quando chove, vende mais?<span class="hora">09:22</span></div><div class="bolha dele larga"><b>Ainda não dá para dizer</b>, e não vou chutar.
+      <div class="bloco mostra"><b>O que os números mostram</b>Comecei a guardar a previsão <b>há poucos dias</b>. Ainda não dá para comparar nada.</div>
+      Preciso de cerca de <b>60 dias</b> guardados para ter dias com e sem chuva. Isso só chega em <b>janeiro</b>.
+      <span class="nota-wa">Uma ressalva: eu guardo a previsão da véspera, não a chuva que caiu. A comparação vai ser com os dias em que a previsão dava chuva.</span>
+      <div class="botoes-wa dois"><span>Me avisa quando der</span></div><span class="hora">09:22</span></div></div></div></article><article class="caso"><h3>O aviso da véspera</h3><p class="sub">Ele manda sozinho, se você ligar. Texto fixo, sem IA, com o "Deixa assim". <span class="fase">E3</span></p><div class="ctl-caso" role="group" aria-label="Quando você falou com o Mister pela última vez"><button class="ctl" data-janela="a" aria-pressed="true">Falou nas últimas 24 h</button><button class="ctl" data-janela="b" aria-pressed="false">Não falou</button></div><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Quinta, 26/11</div><div id="janela-b" style="display:contents" hidden><div class="bolha dele larga">Aviso do Mister para Loja Centro: amanhã é Black Friday e as duas previsões dão chuva. Toque no botão para ver o que fazer.
+      <div class="botoes-wa dois"><span>Ver o que fazer</span></div><span class="hora">18:00</span></div><div class="toque">Ver o que fazer</div></div><div class="bolha dele larga"><b>Amanhã é Black Friday e as duas previsões dão chuva.</b>
+      <span class="prev"><b>INMET</b>Chuva <span class="mono">26° / 20°</span></span>
+      <span class="prev"><b>CPTEC</b>Pancadas de chuva <span class="mono">27° / 20°</span></span>
+      <div class="bloco sugere"><b>Minha sugestão</b>Conferir embalagem de entrega e quantos entregadores você tem para a noite.</div>
+      <div class="botoes-wa dois"><span>Conferir o estoque</span><span>Deixa assim</span></div><span class="hora">18:00</span></div><div class="toque">Deixa assim</div><div class="bolha dele larga">Fechado, não mexo em nada. Bom trabalho amanhã.<span class="hora">18:04</span></div></div></div></article><article class="caso"><h3>A linha "Amanhã" no resumo</h3><p class="sub">Uma linha no fim do resumo do dia, só quando há algo para dizer. <span class="fase">E3</span></p><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Quinta, 26/11</div><div class="bolha dele larga"><b>Resumo de hoje</b>
+      <div class="conta-wa"><div class="l "><span>Venda</span><span class="v"><span data-n="resumo.venda">R$ 5.284,90</span></span></div><div class="l "><span>Pedidos</span><span class="v"><span data-n="resumo.pedidos">118</span></span></div><div class="l "><span>Ticket médio</span><span class="v"><span data-n="resumo.ticket">R$ 44,79</span></span></div></div>
+      <span class="evento"><b>Amanhã</b>Black Friday. As duas previsões dão chuva, máxima de 26° a 27°.</span><span class="hora">23:40</span></div></div></div></article><article class="caso"><h3>Regra pela conversa</h3><p class="sub">"Me avisa um dia antes de jogo do meu time" vira regra, com o seu toque. <span class="fase">E3</span></p><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div><div class="bolha meu">me avisa um dia antes de jogo do meu time<span class="hora">10:02</span></div><div class="bolha dele larga">Qual é o seu time?<span class="hora">10:02</span></div><div class="bolha meu">porto azul<span class="hora">10:03</span></div><div class="bolha dele larga">Combinado: <b>um dia antes de cada jogo do Porto Azul</b>, às <b>18:00</b>, te mando o dia, a hora e o adversário. Fica assim?
+      <div class="botoes-wa dois"><span>Aplicar</span><span>Mudar</span></div><span class="hora">10:03</span></div><div class="toque">Aplicar</div><div class="pensa">Aplicando e conferindo</div><div class="bolha dele larga">Pronto, conferi e a regra está ligada. O primeiro aviso sai <b>terça, 24/11, às 18:00</b>, para o jogo de quarta. É texto fixo: não gasta a sua chave de IA.<span class="hora">10:03</span></div></div></div></article><article class="caso"><h3>O boletim do ramo</h3><p class="sub">Curto, com o link da fonte. O que está em discussão nunca aparece como lei. <span class="fase">E4</span></p><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div><div class="bolha dele larga"><b>Boletim do ramo · semana de 23/11</b>
+      <span class="evento"><span class="pill-wa vale">Vale agora</span> <b>Impostos</b>Saiu o calendário de entrega das declarações de 2027 para quem está no Simples.</span>
+      <span class="evento"><span class="pill-wa vale">Vale agora</span> <b>Custos</b>O índice oficial de preços mostrou alta de 3,2% na carne no mês.</span>
+      <span class="evento"><span class="pill-wa vale">Vale agora</span> <b>Plataformas</b>O iFood publicou novas regras de cancelamento para lojas, a partir de 01/12.</span>
+      <span class="evento"><span class="pill-wa disc">Em discussão, não é lei</span> <b>Taxa das plataformas</b>Um projeto sobre o limite da taxa está na Câmara. Por enquanto, nada muda.</span>
+      <span class="link-wa">Ver as fontes oficiais</span><span class="hora">08:30</span></div></div></div></article></div>
+  </div>
+</section>
+
+<!-- ═════════════════════ REPASSES E BANCO ═════════════════════ -->
+<section class="vista" id="v-repasses" aria-labelledby="h-repasses">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-repasses">Repasses e banco <span class="v8">v8</span></h1>
+      <p class="sub">Com o extrato do banco e o que cada plataforma informa, o Mister passa a responder quanto entrou, quanto saiu e quanto tempo de caixa você tem. Tudo isso é só do presidente.</p>
+    </div>
+    <div class="legenda">
+  <div class="bloco mostra"><b>O que os números mostram</b>Vem das consultas ao Regem e das fontes de cada dado. É fato, e dá para conferir na tela.</div>
+  <div class="bloco sugere"><b>Minha sugestão</b>É a leitura do Mister. Ele nunca aplica sozinho: oferece e espera o seu toque.</div>
+</div>
+    <div class="celulares"><article class="caso"><h3>"Quanto o iFood me pagou essa semana?"</h3><p class="sub">Bruto, comissão, taxas, líquido e o dia do depósito, como o iFood informa. <span class="fase">R3</span></p><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div><div class="bolha meu">quanto o ifood me pagou essa semana?<span class="hora">10:40</span></div><div class="bolha dele larga">Essa semana ainda não caiu: o próximo é <b>quarta, 25/11</b>, de <b><span data-n="ifood.proximo">R$ 8.104,55</span></b>. O último foi <b>quarta passada, 18/11</b>:
+      <div class="conta-wa"><div class="l "><span>Vendas de 09 a 15/11 (187 pedidos)</span><span class="v"><span data-n="ifood.bruto">R$ 10.842,50</span></span></div><div class="l "><span>Comissão</span><span class="v">−<span data-n="ifood.comissao">R$ 1.626,38</span></span></div><div class="l "><span>Taxa de pagamento online</span><span class="v">−<span data-n="ifood.taxa">R$ 270,92</span></span></div><div class="l "><span>Promoções pagas pela loja</span><span class="v">−<span data-n="ifood.promocoes">R$ 514,00</span></span></div><div class="l tot"><span>Caiu na conta em 18/11</span><span class="v"><span data-n="ifood.liquido">R$ 8.431,20</span></span></div></div>
+      <span class="nota-wa">Esses valores são os que o iFood informa. Eu não calculo comissão. O depósito já apareceu no seu extrato.</span><span class="hora">10:40</span></div></div></div></article><article class="caso"><h3>"Quanto entrou na conta este mês?"</h3><p class="sub">Pelo extrato do banco, separando o que é venda do que não é. <span class="fase">R1</span></p><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div><div class="bolha meu">quanto entrou na conta este mês?<span class="hora">10:45</span></div><div class="bolha dele larga">Até o último extrato, de <b>22/11</b>:
+      <span class="gb"><span class="gb-t">Venda que entrou, por origem</span><span class="gb-s">De 01 a 22/11</span><span class="gb-lin dest"><span class="r">iFood</span><span class="tr"><i style="width:100%"></i></span><span class="v"><span data-n="mes.ifood">R$ 24.608,15</span></span></span><span class="gb-lin "><span class="r">Maquininha</span><span class="tr"><i style="width:98%"></i></span><span class="v"><span data-n="mes.maquininha">R$ 24.085,00</span></span></span><span class="gb-lin "><span class="r">99</span><span class="tr"><i style="width:18%"></i></span><span class="v"><span data-n="mes.n99">R$ 4.455,30</span></span></span><span class="gb-lin "><span class="r">Dinheiro</span><span class="tr"><i style="width:16%"></i></span><span class="v"><span data-n="mes.caixa">R$ 3.970,00</span></span></span><span class="gb-lin "><span class="r">Pix</span><span class="tr"><i style="width:10%"></i></span><span class="v"><span data-n="mes.pix">R$ 2.503,25</span></span></span><span class="gb-lin "><span class="r">iFood Pago</span><span class="tr"><i style="width:9%"></i></span><span class="v"><span data-n="mes.ifoodPago">R$ 2.333,75</span></span></span></span>
+      <div class="conta-wa"><div class="l "><span>Venda</span><span class="v"><span data-n="mes.venda">R$ 61.955,45</span></span></div><div class="l "><span>Não é venda</span><span class="v"><span data-n="mes.naoVenda">R$ 3.228,58</span></span></div><div class="l tot"><span>Entrou</span><span class="v"><span data-n="mes.entrou">R$ 65.184,03</span></span></div><div class="l "><span>Saiu</span><span class="v">−<span data-n="mes.saiu">R$ 62.000,65</span></span></div><div class="l tot"><span>Sobrou até agora</span><span class="v"><span data-n="mes.sobrou">R$ 3.183,38</span></span></div></div>
+      <div class="bloco mostra"><b>O que os números mostram</b>O que não é venda: <span data-n="mes.transf">R$ 3.000,00</span> de outra conta sua, <span data-n="mes.devol">R$ 186,40</span> de devolução de fornecedor e <span data-n="mes.rend">R$ 42,18</span> de rendimento.</div>
+      <b>Atenção a essa sobra:</b> sem os <span data-n="mes.transf2">R$ 3.000,00</span> da sua outra conta e sem os <span data-n="mes.fora">R$ 320,00</span> que você marcou como não sendo da loja, a loja ficou em <b><span data-n="mes.daLoja">R$ 503,38</span></b>.
+      <span class="nota-wa">O mês ainda não fechou: o que vence até o dia 30 não está aqui.</span><span class="hora">10:45</span></div></div></div></article><article class="caso"><h3>"Quanto tempo de caixa eu tenho?"</h3><p class="sub">Com o extrato, a conta é de verdade e vem com a data. Se a loja gera caixa, ele diz isso. <span class="fase">R2</span></p><div class="ctl-caso" role="group" aria-label="Situação da loja neste exemplo"><button class="ctl" data-caixa="a" aria-pressed="true">Gastando mais do que entra</button><button class="ctl" data-caixa="b" aria-pressed="false">Gerando caixa</button></div><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div><div id="caixa-a" style="display:contents">
+  <div class="bolha meu">quanto tempo de caixa eu tenho?<span class="hora">11:05</span></div>
+  <div class="bolha dele larga">Pelo último extrato, de <b>22/11</b>, você tem <b><span data-n="mes.saldo">R$ 38.420,00</span></b> na conta.
+    <span class="gb"><span class="gb-t">O que sobrou ou faltou por mês</span><span class="gb-s">Entradas menos saídas no banco</span><span class="gb-lin neg"><span class="r">Agosto</span><span class="tr"><i style="width:99%"></i></span><span class="v"><span data-n="caixa.ago">−R$ 6.500,00</span></span></span><span class="gb-lin neg"><span class="r">Setembro</span><span class="tr"><i style="width:87%"></i></span><span class="v"><span data-n="caixa.set">−R$ 5.700,00</span></span></span><span class="gb-lin neg"><span class="r">Outubro</span><span class="tr"><i style="width:100%"></i></span><span class="v"><span data-n="caixa.out">−R$ 6.550,00</span></span></span></span>
+    <div class="bloco mostra"><b>O que os números mostram</b>Nos últimos 3 meses o caixa encolheu, em média, <b><span data-n="caixa.burn">R$ 6.250,00</span></b> por mês. Nesse ritmo, ele dura <b>cerca de <span data-n="caixa.runway">6,1</span> meses</b>.</div>
+    <span class="nota-wa">Fora da conta: transferências entre as suas contas e o que você marcou como não sendo da loja.</span>
+    <div class="bloco sugere"><b>Minha sugestão</b>O 13º de dezembro ainda não saiu, então não está nessa conta. Vale separar antes.</div><span class="hora">11:05</span></div></div><div id="caixa-b" style="display:contents" hidden>
+  <div class="bolha meu">quanto tempo de caixa eu tenho?<span class="hora">11:05</span></div>
+  <div class="bolha dele larga">Pelo último extrato, de <b>22/11</b>, você tem <b><span data-n="mes.saldo2">R$ 38.420,00</span></b> na conta.
+    <span class="gb"><span class="gb-t">O que sobrou ou faltou por mês</span><span class="gb-s">Entradas menos saídas no banco</span><span class="gb-lin pos"><span class="r">Agosto</span><span class="tr"><i style="width:71%"></i></span><span class="v"><span data-n="caixaB.ago">+R$ 2.140,00</span></span></span><span class="gb-lin pos"><span class="r">Setembro</span><span class="tr"><i style="width:46%"></i></span><span class="v"><span data-n="caixaB.set">+R$ 1.380,00</span></span></span><span class="gb-lin pos"><span class="r">Outubro</span><span class="tr"><i style="width:100%"></i></span><span class="v"><span data-n="caixaB.out">+R$ 3.010,00</span></span></span></span>
+    <div class="bloco mostra"><b>O que os números mostram</b>A loja está <b>gerando caixa</b>: sobraram, em média, <b><span data-n="caixaB.media">R$ 2.176,67</span></b> por mês nos últimos 3 meses.</div>
+    Por isso não faz sentido falar em quanto tempo o caixa dura: ele está crescendo.
+    <span class="nota-wa">Fora da conta: transferências entre as suas contas e o que você marcou como não sendo da loja.</span><span class="hora">11:05</span></div></div></div></div></article><article class="caso"><h3>"O repasse da 99 caiu?"</h3><p class="sub">Diz o que viu e o que não viu, sem acusar ninguém. <span class="fase">R4</span></p><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div><div class="bolha meu">o repasse da 99 caiu?<span class="hora">11:10</span></div><div class="bolha dele larga"><b>Ainda não apareceu</b> no seu banco.
+      <div class="bloco mostra"><b>O que os números mostram</b>A planilha da 99 que você enviou em 21/11 diz <b><span data-n="r99.esperado">R$ 2.271,80</span></b> para <b>sexta, 20/11</b>. O extrato vai até <b>domingo, 22/11</b> e não tem esse valor.</div>
+      Pode ter caído com outra data ou outro valor, ou ainda estar a caminho. Daqui eu não sei dizer o motivo.
+      <div class="bloco sugere"><b>Minha sugestão</b>Olhar o portal da 99 e me mandar o extrato de hoje. Eu confiro de novo.</div>
+      <div class="botoes-wa dois"><span>Mandar extrato</span><span>Me avisa quando cair</span></div><span class="hora">11:10</span></div></div></div></article><article class="caso"><h3>"Quanto o Anota Aí me custa?"</h3><p class="sub">Sem o arquivo do iFood Pago, ele diz o que falta e onde baixar. Nunca estima pela tabela. <span class="fase">R4</span></p><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div><div class="bolha meu">quanto o anota aí me custa?<span class="hora">11:14</span></div><div class="bolha dele larga"><b>Ainda não consigo dizer</b>, e não vou estimar pela tabela de taxas.
+      <div class="bloco mostra"><b>O que os números mostram</b>O Anota Aí me diz quais pedidos foram pagos online: <b>64 em novembro</b>. No banco caíram <b>2 depósitos</b> do iFood Pago, somando <b><span data-n="mes.ifoodPago2">R$ 2.333,75</span></b>. Os dois não cobrem o mesmo período, então não dá para tirar um do outro.</div>
+      <b>O que falta:</b> a taxa e o repasse de cada pedido, que ficam no portal do iFood Pago.
+      <ol class="passos">
+        <li><span class="m n">1</span><span>Entre no portal do iFood Pago</span></li>
+        <li><span class="m n">2</span><span>Exporte a planilha de repasses do mês</span></li>
+        <li><span class="m n">3</span><span>Mande aqui ou em Financeiro › Banco e repasses</span></li>
+      </ol><span class="hora">11:14</span></div></div></div></article><article class="caso"><h3>O gerente pergunta do banco</h3><p class="sub">Saldo, extrato e repasses são só do presidente. A resposta não revela nenhum valor. <span class="fase">R1</span></p><div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual · você é gerente</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div><div class="bolha meu">quanto tem no banco?<span class="hora">14:30</span></div><div class="bolha dele larga">Banco e repasses ficam só com o presidente, então esse valor eu não te passo. Posso te mostrar a venda de hoje ou a do mês.
+      <div class="botoes-wa dois"><span>Venda de hoje</span><span>Venda do mês</span></div><span class="hora">14:30</span></div></div></div></article></div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NA LOJA ═════════════════════ -->
+<section class="vista" id="v-loja" aria-labelledby="h-loja">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-loja">Na loja <span class="v8">v8</span></h1>
+      <p class="sub">As duas telas novas, só do presidente: <b>Financeiro › Banco e repasses</b> e o grupo <b>Clima e eventos</b> em <b>Mister › Avisos e relatórios</b>.</p>
+    </div>
+    <div class="ctls">
+      <span class="tela-troca" role="group" aria-label="Qual tela ver"><b>Tela:</b>
+        <button class="ctl" data-tela="banco" aria-pressed="true">Banco e repasses</button>
+        <button class="ctl" data-tela="avisos" aria-pressed="false">Avisos e relatórios</button>
+      </span>
+      <span class="tela-troca" role="group" aria-label="Estado da tela"><b>Ver como:</b>
+        <button class="ctl" data-estado="dados" aria-pressed="true">Com dados</button>
+        <button class="ctl" data-estado="carregando" aria-pressed="false">Carregando</button>
+        <button class="ctl" data-estado="vazio" aria-pressed="false">Vazia</button>
+        <button class="ctl" data-estado="erro" aria-pressed="false">Com erro</button>
+      </span>
+    </div>
+    <div class="app">
+      <nav class="lado" aria-label="Menu do aplicativo">
+        <div class="marca">Regem</div>
+        <ul>
+          <li>Painel</li><li>Delivery</li><li>Estoque</li>
+          <li class="grupo-menu">Financeiro</li>
+          <li class="filho">Contas a pagar</li>
+          <li class="filho atual" id="m-banco">Banco e repasses</li>
+          <li class="filho">Formas de pagamento</li>
+          <li class="filho">Notas fiscais</li>
+          <li class="filho">TEF / maquininha</li>
+          <li class="filho">Configuração</li>
+          <li>Pessoas</li><li>Relatórios</li>
+          <li id="m-mister">Mister</li>
+          <li>Configurações</li>
+        </ul>
+      </nav>
+      <div class="principal">
+        <div class="topo"><span class="onde-app" id="onde-app">Financeiro › Banco e repasses</span><span class="peq sub">Presidente</span></div>
+        <div class="corpo-app">
+
+          <!-- BANCO E REPASSES -->
+          <div id="tela-banco">
+            <div class="lista-cab">
+              <h2>Banco e repasses <span class="mono" id="b-conta" role="status"></span></h2>
+              <button class="btn pri" data-importar="banco">Importar extrato</button>
+            </div>
+            <div class="fontes" id="b-fontes" role="group" aria-label="Fontes dos dados">
+              <div class="fonte" data-fonte="banco">
+  <span class="nome">Banco</span><span class="como">Arquivo do extrato</span>
+  <span class="selo ok">Em dia</span><span class="quando">Lido até 22/11</span>
+  
+</div>
+              <div class="fonte" data-fonte="ifood">
+  <span class="nome">iFood</span><span class="como">Automático</span>
+  <span class="selo ok">Em dia</span><span class="quando">Lido hoje, 06:10</span>
+  
+</div>
+              <div class="fonte falta" data-fonte="pago">
+  <span class="nome">iFood Pago / Anota Aí</span><span class="como">Arquivo do portal</span>
+  <span class="selo warn">Falta o arquivo</span><span class="quando">Nunca enviado</span>
+  <button class="btn peq" data-importar="pago">Enviar planilha</button>
+</div>
+              <div class="fonte" data-fonte="n99">
+  <span class="nome">99</span><span class="como">Arquivo do portal</span>
+  <span class="selo ok">Em dia</span><span class="quando">Lido em 21/11</span>
+  <button class="btn peq" data-importar="n99">Enviar planilha</button>
+</div>
+              <div class="fonte" data-fonte="maq">
+  <span class="nome">Maquininha</span><span class="como">Arquivo da operadora</span>
+  <span class="selo ok">Em dia</span><span class="quando">Lido em 21/11</span>
+  <button class="btn peq" data-importar="maq">Enviar arquivo</button>
+</div>
+            </div>
+
+            <div id="b-dados">
+              <div class="totais" id="b-totais"></div>
+              <div class="situacoes" id="b-sits" role="group" aria-label="Filtrar por situação"></div>
+              <details class="ajuda-sit"><summary>O que quer dizer cada situação</summary><dl>
+                <div><dt>Casado</dt><dd>O valor do banco bateu, exato e em data próxima, com o que a outra fonte informou.</dd></div>
+                <div><dt>A conferir</dt><dd>Quase bateu, ou falta o arquivo para confirmar. Precisa do seu olho.</dd></div>
+                <div><dt>Só no banco</dt><dd>Está no extrato e não tem par em nenhuma outra fonte.</dd></div>
+                <div><dt>Esperado</dt><dd>A plataforma informou que vem. Ainda não apareceu no banco.</dd></div>
+                <div><dt>Não é da loja</dt><dd>Você marcou. Fica fora das contas da loja.</dd></div>
+              </dl></details>
+              <div class="busca">
+                <label class="sr" for="b-busca">Buscar lançamento</label>
+                <input id="b-busca" type="search" placeholder="Buscar por descrição ou tipo" autocomplete="off">
+                <label class="sr" for="b-periodo">Período</label>
+                <select id="b-periodo"><option value="nov">Novembro inteiro</option><option value="s16">De 16 a 22/11</option><option value="s09">De 09 a 15/11</option><option value="s01">De 01 a 08/11</option></select>
+                <label class="sr" for="b-fonte">Fonte</label>
+                <select id="b-fonte"><option value="">Todas as fontes</option><option>Banco</option><option>iFood</option><option>iFood Pago</option><option>99</option><option>Maquininha</option></select>
+              </div>
+              <div id="b-lista"></div>
+              <div class="mais" id="b-mais"></div>
+            </div>
+            <div id="b-estado" hidden></div>
+          </div>
+
+          <!-- AVISOS E RELATÓRIOS -->
+          <div id="tela-avisos" hidden>
+            <div class="partes" role="group" aria-label="Partes do Mister">
+              <button class="parte" disabled aria-pressed="false">Resumo</button>
+              <button class="parte" disabled aria-pressed="false">Pessoas</button>
+              <button class="parte" disabled aria-pressed="false">Regras</button>
+              <button class="parte" disabled aria-pressed="false">IA e uso</button>
+              <button class="parte" aria-pressed="true">Avisos e relatórios</button>
+              <button class="parte" disabled aria-pressed="false">Documentos</button>
+              <button class="parte" disabled aria-pressed="false">Histórico</button>
+              <button class="parte" disabled aria-pressed="false">Jeito e memória</button>
+            </div>
+            <div id="a-dados">
+              <div class="busca-aj"><label class="sr" for="aj-busca">Buscar ajuste</label><input id="aj-busca" type="search" placeholder="Buscar ajuste" autocomplete="off"></div>
+              <div class="cartao" id="aj-lista">
+                <div class="bloco-aj" data-grupo style="margin-bottom:0">
+                  <p class="grupo-aj">Clima e eventos <span data-conta>· 3 ajustes</span></p>
+                  <div class="aj" data-aj="vespera" data-palavras="avisar na véspera clima eventos aviso">
+  <div><div class="t" id="t-vespera">Avisar na véspera <span class="v8">v8</span></div><div class="d">Às 18:00 do dia anterior, quando vem feriado, data forte, jogo, chuva nas duas previsões ou alerta oficial do INMET.</div><span class="preco">R$ 0: texto fixo, sem IA</span><button class="link-aj" data-gaveta-chuva>Ver a regra da chuva</button></div>
+  <div class="ctrl"><span class="estado-liga" id="e-vespera">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="t-vespera" data-liga="vespera"></button></div>
+</div>
+                  <div class="aj" data-aj="amanha" data-palavras="linha "amanhã" no resumo clima eventos aviso">
+  <div><div class="t" id="t-amanha">Linha "Amanhã" no resumo <span class="v8">v8</span></div><div class="d">Uma linha no fim do resumo do dia. Só aparece quando há algo para dizer, e precisa do resumo do dia ligado.</div><span class="preco">R$ 0: texto fixo, sem IA</span></div>
+  <div class="ctrl"><span class="estado-liga" id="e-amanha">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="t-amanha" data-liga="amanha"></button></div>
+</div>
+                  <div class="aj" data-aj="boletim" data-palavras="boletim do ramo clima eventos aviso">
+  <div><div class="t" id="t-boletim">Boletim do ramo <span class="v8">v8</span></div><div class="d">Segunda de manhã: impostos, custos e plataformas, com o link da fonte. O que está em discussão vem marcado e nunca como lei.</div><span class="preco">R$ 0: texto fixo, sem IA</span></div>
+  <div class="ctrl"><span class="estado-liga" id="e-boletim">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-labelledby="t-boletim" data-liga="boletim"></button></div>
+</div>
+                </div>
+                <div class="vazio" id="aj-vazio" hidden>Nenhum ajuste com essa busca.</div>
+              </div>
+              <div class="faixa info">Se você passar 24 horas sem falar com o Mister, o WhatsApp só entrega um aviso curto com um botão. O texto completo chega quando você toca.</div>
+              <div class="barra-salvar" id="barra" hidden>
+                <span id="barra-txt">1 alteração ainda não salva</span>
+                <span class="acoes"><button class="btn" id="descartar">Descartar</button><button class="btn pri" id="salvar">Salvar</button></span>
+              </div>
+            </div>
+            <div id="a-estado" hidden></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ DE ONDE VEM ═════════════════════ -->
+<section class="vista" id="v-fontes" aria-labelledby="h-fontes">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-fontes">De onde vem cada dado</h1>
+      <p class="sub">Cada número do Mister tem uma origem. Aqui está o que cada fonte entrega, como chega ao Regem e o que precisa de você.</p>
+    </div>
+    <div class="cartao">
+      <h2>As fontes</h2>
+      <table class="dados"><caption class="sr">As fontes de dados</caption>
+        <thead><tr><th>Fonte</th><th>O que dá</th><th>Como chega</th><th>O que precisa de você</th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Fonte">Banco</td><td data-rot="O que dá">O que entrou e saiu, e o saldo.</td><td data-rot="Como chega">Arquivo OFX, que o próprio banco exporta. Grátis.</td><td data-rot="O que precisa de você">Baixar o extrato no banco e enviar ao Regem.</td></tr>
+          <tr><td data-rot="Fonte">iFood</td><td data-rot="O que dá">Líquido, comissão, taxas e dia do repasse, pedido por pedido.</td><td data-rot="Como chega">Automático, depois da homologação do módulo financeiro.</td><td data-rot="O que precisa de você">Nada. A homologação é a DMS que faz.</td></tr>
+          <tr><td data-rot="Fonte">Anota Aí / iFood Pago</td><td data-rot="O que dá">A API só diz se o pedido foi pago online. Taxa e repasse ficam no portal do iFood Pago.</td><td data-rot="Como chega">Planilha que o portal do iFood Pago exporta.</td><td data-rot="O que precisa de você">Baixar a planilha no portal e enviar ao Regem.</td></tr>
+          <tr><td data-rot="Fonte">99</td><td data-rot="O que dá">Os repasses que a 99 informa.</td><td data-rot="Como chega">Não achamos API financeira. O portal exporta planilha.</td><td data-rot="O que precisa de você">Baixar a planilha no portal e enviar ao Regem.</td></tr>
+          <tr><td data-rot="Fonte">Maquininha</td><td data-rot="O que dá">O que a operadora pagou, e quando.</td><td data-rot="Como chega">Depende de qual é. Stone e PagBank têm API; Cielo, Rede e Getnet, arquivo.</td><td data-rot="O que precisa de você">Dizer qual maquininha a loja usa.</td></tr>
+          <tr><td data-rot="Fonte">Mercado Pago</td><td data-rot="O que dá">O que foi liberado na conta, com as taxas, só do que passou por ele.</td><td data-rot="Como chega">Relatório pela API, até 60 dias, depois de a loja já estar ligada ao Mercado Pago.</td><td data-rot="O que precisa de você">Nada, se a loja já usa o Mercado Pago no Regem.</td></tr>
+          <tr><td data-rot="Fonte">Dinheiro</td><td data-rot="O que dá">O que entrou e saiu no caixa da loja.</td><td data-rot="Como chega">Já vem do caixa do Regem.</td><td data-rot="O que precisa de você">Nada.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h2 class="secao">O que cada indicador passa a ter</h2>
+    <div class="ind-grade">
+      <div class="k-card"><span class="nome">Quanto o caixa encolhe e quanto tempo dura</span><span class="selo ok">Com o banco</span><span class="como">Em finanças, <b>burn rate</b> e <b>runway</b>. Saem do extrato: o que entrou, o que saiu e o saldo, sempre com a data do último arquivo.</span></div>
+      <div class="k-card"><span class="nome">Em quantos dias o dinheiro chega</span><span class="selo info">Com iFood e planilhas</span><span class="como">O <b>giro de recebíveis</b>: o tempo entre a venda e o depósito. Precisa do iFood automático e das planilhas de 99, iFood Pago e maquininha.</span></div>
+      <div class="k-card"><span class="nome">O que sobra de cada venda</span><span class="selo warn">Depende da loja</span><span class="como">A <b>margem líquida</b> só fecha com o custo dos insumos, os impostos e as taxas. <b>Ainda depende de a loja lançar os custos.</b> Sem eles, o Mister diz o que falta.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NOTAS ═════════════════════ -->
+<section class="vista" id="v-notas" aria-labelledby="h-notas">
+  <div class="pagina notas">
+    <div class="cab">
+      <h1 id="h-notas">Notas e decisões</h1>
+      <p class="sub">O que muda, o que fica, as fases e o que precisa da sua decisão. Em cada decisão, a recomendada vem primeiro.</p>
+    </div>
+
+    <div class="dois-lados">
+      <div class="cartao">
+        <h2>O que muda</h2>
+        <ul>
+          <li>O Mister conhece o calendário e a previsão da sua cidade.</li>
+          <li>Ele compara dia de jogo e data forte com as suas vendas.</li>
+          <li>Se você ligar, avisa na véspera e põe a linha "Amanhã" no resumo.</li>
+          <li>O extrato do banco entra no Regem, por arquivo.</li>
+          <li>Caixa, repasses e quanto tempo o dinheiro dura passam a ser conta de verdade.</li>
+        </ul>
+      </div>
+      <div class="cartao">
+        <h2>O que não muda</h2>
+        <ul>
+          <li><b>Número só vem de consulta.</b> Sem o dado, ele diz o que falta.</li>
+          <li><b>O Regem não calcula comissão.</b> Lê o que a plataforma informa.</li>
+          <li><b>Nada é aplicado sem o seu toque.</b></li>
+          <li>Nomes e documentos do extrato não vão para a IA.</li>
+          <li>Saldo, extrato e repasses, só o presidente.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="cartao">
+      <h2>Fases</h2>
+      <table class="fases"><caption class="sr">Fases da versão 8</caption>
+        <thead><tr><th>Fase</th><th>O que entra</th><th>Migration</th><th>Depende de</th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Fase">E1 · Clima e eventos na conversa</td><td data-rot="O que entra">O que vem aí, a previsão das duas fontes e quando elas discordam</td><td data-rot="Migration">não prevista (só leitura)</td><td data-rot="Depende de">Pulso ligado e o município da loja em Financeiro › Configuração</td></tr>
+          <tr><td data-rot="Fase">E2 · Comparação com as vendas</td><td data-rot="O que entra">Dia de jogo e data forte contra os mesmos dias da semana</td><td data-rot="Migration">não prevista (só leitura)</td><td data-rot="Depende de">E1 e cerca de 60 dias de clima guardados para falar de chuva</td></tr>
+          <tr><td data-rot="Fase">E3 · Aviso de véspera e regras</td><td data-rot="O que entra">Aviso, linha "Amanhã" e "me avisa antes do jogo"</td><td data-rot="Migration">a conferir, pelo que os ajustes gravam</td><td data-rot="Depende de">E1 e o modelo de mensagem aprovado pela Meta</td></tr>
+          <tr><td data-rot="Fase">E4 · Boletim do ramo</td><td data-rot="O que entra">Impostos, custos e plataformas, com a fonte</td><td data-rot="Migration">a conferir</td><td data-rot="Depende de">Boletim do Pulso e modelo de mensagem aprovado pela Meta</td></tr>
+          <tr><td data-rot="Fase">R1 · Extrato do banco</td><td data-rot="O que entra">Importar OFX, a lista, "Isso é o quê?", máscara de nomes</td><td data-rot="Migration">uma (extrato e lançamentos)</td><td data-rot="Depende de">Um OFX real do banco da loja</td></tr>
+          <tr><td data-rot="Fase">R2 · Caixa de verdade</td><td data-rot="O que entra">Quanto o caixa encolhe e quanto tempo dura, com a data do extrato</td><td data-rot="Migration">não prevista (só leitura)</td><td data-rot="Depende de">R1 com 3 meses de extrato</td></tr>
+          <tr><td data-rot="Fase">R3 · iFood automático</td><td data-rot="O que entra">Bruto, comissão, taxas, líquido e dia do repasse</td><td data-rot="Migration">uma (repasses)</td><td data-rot="Depende de">Homologação do módulo financeiro do iFood</td></tr>
+          <tr><td data-rot="Fase">R4 · Planilhas</td><td data-rot="O que entra">iFood Pago, 99 e maquininha, e o casamento com o banco</td><td data-rot="Migration">uma (arquivos e pares)</td><td data-rot="Depende de">Um arquivo de exemplo de cada</td></tr>
+          <tr><td data-rot="Fase">R5 · Giro e margem líquida</td><td data-rot="O que entra">Em quantos dias o dinheiro chega e o que sobra de cada venda</td><td data-rot="Migration">não prevista</td><td data-rot="Depende de">R3, R4 e os custos lançados pela loja</td></tr>
+        </tbody>
+      </table>
+      <p class="peq sub" style="margin-top:10px"><b>Ordem proposta:</b> E1, E2, E3, R1, R2, E4, R3 e R4, R5. As três primeiras usam dados que o Regem já recebe. R3 e R4 esperam o que só vem de fora: a homologação e os arquivos de exemplo.</p>
+    </div>
+
+    <div class="cartao">
+      <h2>As 10 decisões</h2>
+      <div class="decisao"><h3>V8-1 · Como o banco chega</h3><ol><li>Por arquivo OFX, que o próprio banco exporta, sem custo <span class="rec">recomendada</span></li><li>Open Finance, que só é possível por contrato com instituição autorizada, com custo e análise jurídica</li></ol></div>
+      <div class="decisao"><h3>V8-2 · Quem vê banco e repasses</h3><ol><li>Só o presidente <span class="rec">recomendada</span></li><li>Gerente com permissão</li></ol></div>
+      <div class="decisao"><h3>V8-3 · Nomes e documentos do extrato</h3><ol><li>Mascarados na tela e nunca enviados à IA <span class="rec">recomendada</span></li><li>Mostrar completos para o presidente, sem enviar à IA</li></ol></div>
+      <div class="decisao"><h3>V8-4 · Repasse do iFood</h3><ol><li>Pela API, depois da homologação <span class="rec">recomendada</span></li><li>Só por planilha</li></ol></div>
+      <div class="decisao"><h3>V8-5 · Quando falta o arquivo</h3><ol><li>O Regem diz o que falta e nunca estima pela tabela de taxas <span class="rec">recomendada</span></li><li>Estimar pela tabela, marcando como estimativa</li></ol></div>
+      <div class="decisao"><h3>V8-6 · Comissão</h3><ol><li>O Regem lê o que a plataforma informa e não calcula comissão, mantendo a decisão de 13/09/2026. O que muda é só passar a ler o extrato <span class="rec">recomendada</span></li><li>Calcular a comissão pelo contrato de cada plataforma</li></ol><p class="alerta-13"><b>Para você conferir:</b> a decisão de 13/09/2026 também tirou da fila a API financeira do iFood e a previsão de repasse. A fase R3 traz a API de volta, e a situação "Esperado" mostra só a data e o valor que a própria plataforma informou. Aprovar a V8-4 e a V8-6 é o que reabre esses dois pontos.</p></div>
+      <div class="decisao"><h3>V8-7 · Casar repasse com o banco</h3><ol><li>Sozinho, só com valor exato e data próxima. O resto fica "A conferir" <span class="rec">recomendada</span></li><li>Aceitar diferença pequena de valor</li></ol></div>
+      <div class="decisao"><h3>V8-8 · Aviso de chuva</h3><ol><li>Só quando as duas previsões concordam ou há alerta oficial do INMET, porque "pancadas isoladas" aparece quase todo dia no verão e viraria ruído <span class="rec">recomendada</span></li><li>Avisar quando qualquer uma der chuva</li></ol></div>
+      <div class="decisao"><h3>V8-9 · Avisos de clima e eventos</h3><ol><li>Nascem desligados, com texto fixo e sem IA <span class="rec">recomendada</span></li><li>Nascem ligados</li></ol></div>
+      <div class="decisao"><h3>V8-10 · "Em dias assim a loja vende X"</h3><ol><li>Só com 4 ou mais dias parecidos. Com menos, ele diz que é pouco <span class="rec">recomendada</span></li><li>Mostrar sempre, avisando quantos dias entraram</li></ol></div>
+    </div>
+
+    <div class="cartao">
+      <h2>O que ainda depende de teste real</h2>
+      <ul>
+        <li><b>Homologação do iFood:</b> o módulo financeiro precisa ser aprovado antes da fase R3.</li>
+        <li><b>Formato real das planilhas:</b> precisamos de um arquivo de exemplo do iFood Pago, da 99 e da maquininha.</li>
+        <li><b>Exportação OFX do banco da loja:</b> confirmar que o banco exporta e como vem a descrição.</li>
+        <li><b>iFood Pago na API do iFood:</b> descobrir se esse dinheiro aparece lá ou só no portal.</li>
+        <li><b>Modelos da Meta:</b> fora das 24 horas, o aviso e o boletim só chegam por modelo aprovado. Para a loja continua R$ 0, mas a Meta cobra cada mensagem da conta do número do Mister, que é da DMS. O boletim pode cair na categoria de marketing, que custa mais.</li>
+      </ul>
+    </div>
+
+    <div class="cartao">
+      <h2>O que o Regem ainda não tem</h2>
+      <ul>
+        <li><b>A chuva que caiu.</b> O Regem guarda a previsão da véspera. A comparação "quando chove" vai ser com os dias em que a previsão dava chuva.</li>
+        <li><b>Clima para toda loja.</b> Hoje ele só é lido para quem tem o módulo "Perfil do cliente" ligado e o município preenchido em Financeiro › Configuração. A fase E1 precisa abrir isso para quem usa o Mister.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- gaveta e diálogos -->
+<div class="fundo" id="fundo-g" hidden></div>
+<aside class="gaveta" id="gaveta" role="dialog" aria-modal="true" aria-labelledby="g-titulo" hidden>
+  <div class="gaveta-cab"><div style="min-width:0"><h2 id="g-titulo">Lançamento</h2><p class="peq sub" id="g-estado"></p></div><button class="fechar" data-fechar aria-label="Fechar">×</button></div>
+  <div class="gaveta-corpo" id="g-corpo"></div>
+  <div class="gaveta-rod" id="g-rod"></div>
+</aside>
+
+<div class="fundo alto" id="fundo-d" hidden></div>
+<div class="dialogo" id="d-casar" role="dialog" aria-modal="true" aria-labelledby="d-casar-t" hidden>
+  <h2 id="d-casar-t">Confirmar este par?</h2>
+  <div id="d-casar-corpo"></div>
+  <p class="peq sub" style="margin-top:8px">A diferença fica registrada. Você pode desfazer na gaveta do lançamento.</p>
+  <div class="acoes"><button class="btn" data-fechar>Cancelar</button><button class="btn pri" id="d-casar-ok">Confirmar o par</button></div>
+</div>
+<div class="dialogo" id="d-ligar" role="dialog" aria-modal="true" aria-labelledby="d-ligar-t" hidden>
+  <h2 id="d-ligar-t">Ligar e salvar?</h2>
+  <p>Estes avisos passam a chegar no seu WhatsApp:</p>
+  <ul class="lista-ok" id="d-ligar-lista"></ul>
+  <p class="peq sub" style="margin-top:8px">Custo para a loja: R$ 0, porque é texto fixo, sem IA. Você pode desligar quando quiser, aqui mesmo. A mudança fica na auditoria.</p>
+  <div class="acoes"><button class="btn" data-fechar>Cancelar</button><button class="btn pri" id="d-ligar-ok">Ligar e salvar</button></div>
+</div>
+<div class="salvo" id="salvo" role="status" hidden>Ajustes salvos</div>
+
+<script type="application/json" id="dados-v8">{"lancamentos":[{"id":1,"d":"2026-11-01","desc":"RENDIMENTO DA CONTA","v":4218,"tipo":"Outra entrada da loja","sit":"so","fonte":"Banco","par":""},{"id":2,"d":"2026-11-03","desc":"CRED MAQUININHA · LOTE 1103","v":384210,"tipo":"Venda da maquininha","sit":"casado","fonte":"Maquininha","par":"Bateu com a planilha da maquininha"},{"id":3,"d":"2026-11-03","desc":"TARIFA PACOTE DE SERVICOS","v":-8990,"tipo":"Outra despesa da loja","sit":"so","fonte":"Banco","par":""},{"id":4,"d":"2026-11-03","desc":"BOLETO · DIST ALIM *** LTDA · CNPJ **.***.678/0001-**","v":-481240,"tipo":"Fornecedor","sit":"casado","fonte":"Banco","par":"Bateu com Contas a pagar"},{"id":5,"d":"2026-11-04","desc":"TED RECEBIDA · IFOOD","v":821460,"tipo":"Venda do iFood","sit":"casado","fonte":"iFood","par":"Bateu com o repasse do iFood"},{"id":6,"d":"2026-11-05","desc":"PIX RECEBIDO · CARDAPIO DIGITAL","v":118450,"tipo":"Pix de cliente","sit":"casado","fonte":"Banco","par":"Bateu com os Pix do cardápio"},{"id":7,"d":"2026-11-05","desc":"DEB AUTOMATICO · ALUGUEL","v":-650000,"tipo":"Outra despesa da loja","sit":"casado","fonte":"Banco","par":"Bateu com Contas a pagar"},{"id":8,"d":"2026-11-05","desc":"BOLETO · FRIGORIF *** SA · CNPJ **.***.412/0001-**","v":-328075,"tipo":"Fornecedor","sit":"casado","fonte":"Banco","par":"Bateu com Contas a pagar"},{"id":9,"d":"2026-11-06","desc":"CRED MAQUININHA · LOTE 1106","v":421575,"tipo":"Venda da maquininha","sit":"casado","fonte":"Maquininha","par":"Bateu com a planilha da maquininha"},{"id":10,"d":"2026-11-06","desc":"TED RECEBIDA · 99 TECNOLOGIA","v":214890,"tipo":"Venda da 99","sit":"casado","fonte":"99","par":"Bateu com a planilha da 99"},{"id":11,"d":"2026-11-06","desc":"PAGTO SALARIOS · LOTE 11","v":-1486000,"tipo":"Folha","sit":"casado","fonte":"Banco","par":"Bateu com Contas a pagar"},{"id":12,"d":"2026-11-09","desc":"DEPOSITO EM DINHEIRO","v":185000,"tipo":"Depósito do caixa","sit":"casado","fonte":"Banco","par":"Bateu com a sangria do caixa"},{"id":13,"d":"2026-11-09","desc":"TED RECEBIDA · R*** O*** · CPF ***.456.***-**","v":300000,"tipo":"Transferência entre contas","sit":"so","fonte":"Banco","par":""},{"id":14,"d":"2026-11-10","desc":"CRED MAQUININHA · LOTE 1110","v":361040,"tipo":"Venda da maquininha","sit":"casado","fonte":"Maquininha","par":"Bateu com a planilha da maquininha"},{"id":15,"d":"2026-11-10","desc":"BOLETO · DIST ALIM *** LTDA · CNPJ **.***.678/0001-**","v":-514620,"tipo":"Fornecedor","sit":"casado","fonte":"Banco","par":"Bateu com Contas a pagar"},{"id":16,"d":"2026-11-10","desc":"PIX ENVIADO · R*** O*** · CPF ***.456.***-**","v":-400000,"tipo":"Retirada do dono","sit":"so","fonte":"Banco","par":""},{"id":17,"d":"2026-11-10","desc":"CONTA DE LUZ E AGUA","v":-231847,"tipo":"Outra despesa da loja","sit":"casado","fonte":"Banco","par":"Bateu com Contas a pagar"},{"id":18,"d":"2026-11-11","desc":"TED RECEBIDA · IFOOD","v":796235,"tipo":"Venda do iFood","sit":"casado","fonte":"iFood","par":"Bateu com o repasse do iFood"},{"id":19,"d":"2026-11-12","desc":"CRED IFOOD PAGO","v":109230,"tipo":"Venda do iFood Pago","sit":"conferir","fonte":"iFood Pago","par":"Falta a planilha do iFood Pago para conferir"},{"id":20,"d":"2026-11-12","desc":"PIX RECEBIDO · HORTI *** ME · CNPJ **.***.903/0001-**","v":18640,"tipo":"Outra entrada da loja","sit":"so","fonte":"Banco","par":"Devolução de fornecedor"},{"id":21,"d":"2026-11-12","desc":"BOLETO · EMBAL *** LTDA · CNPJ **.***.255/0001-**","v":-297060,"tipo":"Fornecedor","sit":"casado","fonte":"Banco","par":"Bateu com Contas a pagar"},{"id":22,"d":"2026-11-13","desc":"CRED MAQUININHA · LOTE 1113","v":438820,"tipo":"Venda da maquininha","sit":"conferir","fonte":"Maquininha","par":"A planilha diz R$ 4.391,40","parValor":439140,"parOnde":"planilha da maquininha"},{"id":23,"d":"2026-11-13","desc":"TED RECEBIDA · 99 TECNOLOGIA","v":230640,"tipo":"Venda da 99","sit":"casado","fonte":"99","par":"Bateu com a planilha da 99"},{"id":24,"d":"2026-11-14","desc":"PIX ENVIADO · M*** C*** · CPF ***.781.***-**","v":-64000,"tipo":"","sit":"so","fonte":"Banco","par":""},{"id":25,"d":"2026-11-15","desc":"PIX ENVIADO · L*** A*** · CPF ***.320.***-**","v":-32000,"tipo":"Não é da loja","sit":"fora","fonte":"Banco","par":"Você marcou: fica fora das contas da loja"},{"id":26,"d":"2026-11-16","desc":"DEPOSITO EM DINHEIRO","v":212000,"tipo":"Depósito do caixa","sit":"casado","fonte":"Banco","par":"Bateu com a sangria do caixa"},{"id":27,"d":"2026-11-16","desc":"PIX RECEBIDO · CARDAPIO DIGITAL","v":131875,"tipo":"Pix de cliente","sit":"casado","fonte":"Banco","par":"Bateu com os Pix do cardápio"},{"id":28,"d":"2026-11-17","desc":"CRED MAQUININHA · LOTE 1117","v":392560,"tipo":"Venda da maquininha","sit":"casado","fonte":"Maquininha","par":"Bateu com a planilha da maquininha"},{"id":29,"d":"2026-11-17","desc":"BOLETO · FRIGORIF *** SA · CNPJ **.***.412/0001-**","v":-490530,"tipo":"Fornecedor","sit":"casado","fonte":"Banco","par":"Bateu com Contas a pagar"},{"id":30,"d":"2026-11-18","desc":"TED RECEBIDA · IFOOD","v":843120,"tipo":"Venda do iFood","sit":"casado","fonte":"iFood","par":"Bateu com o repasse do iFood"},{"id":31,"d":"2026-11-19","desc":"CRED IFOOD PAGO","v":124145,"tipo":"Venda do iFood Pago","sit":"conferir","fonte":"iFood Pago","par":"Falta a planilha do iFood Pago para conferir"},{"id":32,"d":"2026-11-19","desc":"BOLETO · HORTI *** ME · CNPJ **.***.903/0001-**","v":-321485,"tipo":"Fornecedor","sit":"conferir","fonte":"Banco","par":"Contas a pagar diz R$ 3.241,85","parValor":-324185,"parOnde":"Contas a pagar"},{"id":33,"d":"2026-11-20","desc":"CRED MAQUININHA · LOTE 1120","v":410295,"tipo":"Venda da maquininha","sit":"casado","fonte":"Maquininha","par":"Bateu com a planilha da maquininha"},{"id":34,"d":"2026-11-20","desc":"PAGTO ADIANTAMENTO · LOTE 20","v":-520000,"tipo":"Folha","sit":"casado","fonte":"Banco","par":"Bateu com Contas a pagar"},{"id":35,"d":"2026-11-20","desc":"DAS SIMPLES NACIONAL","v":-374218,"tipo":"Imposto","sit":"casado","fonte":"Banco","par":"Bateu com Contas a pagar"},{"id":36,"d":"2026-11-20","desc":"REPASSE DA 99 · INFORMADO NA PLANILHA","v":227180,"tipo":"Venda da 99","sit":"esperado","fonte":"99","par":"Não apareceu no extrato até 22/11"},{"id":37,"d":"2026-11-25","desc":"REPASSE DO IFOOD · INFORMADO PELO IFOOD","v":810455,"tipo":"Venda do iFood","sit":"esperado","fonte":"iFood","par":"O iFood informa este depósito para 25/11"}],"importa":{"ja":35,"novos":2,"entra":124030,"sai":41000,"total":37,"saldo":3925030,"semBuraco":14,"comBuraco":23},"saldo":3842000}</script>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const DADOS = JSON.parse($('dados-v8').textContent);
+  const LANC = DADOS.lancamentos.map((x) => ({ ...x }));
+  const IMP = DADOS.importa;
+
+  const brl = (c) => {
+    const a = Math.abs(c);
+    return 'R$ ' + String(Math.floor(a / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + String(a % 100).padStart(2, '0');
+  };
+  const assinado = (c) => (c < 0 ? '−' : '+') + brl(c);
+  const diaCurto = (d) => d.slice(8, 10) + '/' + d.slice(5, 7);
+  const SIT = { casado: ['Casado', 'ok'], conferir: ['A conferir', 'warn'], so: ['Só no banco', 'neutro'], esperado: ['Esperado', 'info'], fora: ['Não é da loja', 'crit'] };
+  const TIPOS = ['Venda do iFood', 'Venda do iFood Pago', 'Venda da 99', 'Venda da maquininha', 'Pix de cliente', 'Depósito do caixa', 'Fornecedor', 'Folha', 'Imposto', 'Retirada do dono', 'Transferência entre contas', 'Outra despesa da loja', 'Outra entrada da loja', 'Não é da loja'];
+  const selo = (s) => `<span class="selo ${SIT[s][1]}">${SIT[s][0]}</span>`;
+
+  // abas do protótipo
+  const abas = [...document.querySelectorAll('.aba')];
+  abas.forEach((b) => b.addEventListener('click', () => {
+    abas.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll('.vista').forEach((v) => v.classList.toggle('ativa', v.id === 'v-' + b.dataset.aba));
+    window.scrollTo(0, 0);
+  }));
+
+  // os dois exemplos do caixa
+  const botoesCaixa = [...document.querySelectorAll('[data-caixa]')];
+  botoesCaixa.forEach((b) => b.addEventListener('click', () => {
+    botoesCaixa.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    $('caixa-a').hidden = b.dataset.caixa !== 'a';
+    $('caixa-b').hidden = b.dataset.caixa !== 'b';
+  }));
+
+  // o aviso da véspera, dentro e fora das 24 horas do WhatsApp
+  const botoesJanela = [...document.querySelectorAll('[data-janela]')];
+  botoesJanela.forEach((b) => b.addEventListener('click', () => {
+    botoesJanela.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    $('janela-b').hidden = b.dataset.janela !== 'b';
+  }));
+
+  // ── a lista ──
+  const POR_VEZ = 12;
+  const filtro = { sit: '', busca: '', periodo: 'nov', fonte: '', ver: POR_VEZ };
+  const PERIODOS = { nov: ['2026-11-01', '2026-11-30'], s16: ['2026-11-16', '2026-11-22'], s09: ['2026-11-09', '2026-11-15'], s01: ['2026-11-01', '2026-11-08'] };
+
+  function semSituacao() {
+    const [de, ate] = PERIODOS[filtro.periodo];
+    const q = filtro.busca.trim().toLowerCase();
+    return LANC.filter((r) => r.d >= de && r.d <= ate
+      && (!filtro.fonte || r.fonte === filtro.fonte)
+      && (!q || (r.desc + ' ' + r.tipo + ' ' + r.par).toLowerCase().includes(q)));
+  }
+
+  function pintarLista() {
+    const base = semSituacao();
+    const lista = filtro.sit ? base.filter((r) => r.sit === filtro.sit) : base;
+    $('b-conta').textContent = `${lista.length} de ${LANC.length} lançamentos`;
+
+    const noBanco = lista.filter((r) => r.sit !== 'esperado');
+    const entrou = noBanco.filter((r) => r.v > 0).reduce((s, r) => s + r.v, 0);
+    const saiu = -noBanco.filter((r) => r.v < 0).reduce((s, r) => s + r.v, 0);
+    const esperado = lista.filter((r) => r.sit === 'esperado').reduce((s, r) => s + r.v, 0);
+    $('b-totais').innerHTML = `
+      <div class="total"><span>Entrou no banco</span><b id="t-entrou">${brl(entrou)}</b></div>
+      <div class="total"><span>Saiu do banco</span><b id="t-saiu">${brl(saiu)}</b></div>
+      <div class="total"><span>Diferença</span><b id="t-dif">${assinado(entrou - saiu)}</b></div>
+      <div class="total"><span>Esperado, ainda não caiu</span><b id="t-esp">${brl(esperado)}</b></div>`;
+
+    const conta = (s) => base.filter((r) => r.sit === s).length;
+    $('b-sits').innerHTML = [['', 'Todos', base.length], ...Object.keys(SIT).map((k) => [k, SIT[k][0], conta(k)])]
+      .map(([k, n, q]) => `<button class="sit" data-sit="${k}" aria-pressed="${filtro.sit === k}">${n} <span class="mono">${q}</span></button>`).join('');
+
+    if (!lista.length) {
+      $('b-lista').innerHTML = `<div class="vazio"><b>Nenhum lançamento com esses filtros</b>Troque o período, a fonte ou a situação.<br><button class="btn" id="b-limpar">Limpar filtros</button></div>`;
+      $('b-mais').innerHTML = '';
+      $('b-limpar').addEventListener('click', limpar);
+      return;
+    }
+    const vis = lista.slice(0, filtro.ver);
+    $('b-lista').innerHTML = `<table class="tab-l"><caption class="sr">Lançamentos do banco e repasses</caption>
+      <thead><tr><th>Data</th><th>Descrição</th><th>Isso é</th><th>Fonte</th><th>Situação</th><th class="num">Valor</th><th><span class="sr">Ações</span></th></tr></thead>
+      <tbody>${vis.map((r) => `<tr>
+        <td class="c-data" data-rot="Data">${diaCurto(r.d)}</td>
+        <td class="c-desc"><span class="lanc-t">${r.desc}</span>${r.par ? `<span class="lanc-p">${r.par}</span>` : ''}</td>
+        <td class="c-tipo" data-rot="Isso é">${r.tipo || '<span class="sem-tipo">Falta dizer</span>'}</td>
+        <td class="c-fonte" data-rot="Fonte">${r.fonte}</td>
+        <td class="c-sit">${selo(r.sit)}</td>
+        <td class="c-valor${r.v > 0 ? ' ent' : ''}">${assinado(r.v)}</td>
+        <td class="c-ac"><div class="linha-ac">${r.sit === 'conferir' && r.parValor ? `<button class="btn peq" data-casar="${r.id}" aria-label="Confirmar o par de ${diaCurto(r.d)}">Confirmar</button>` : ''}<button class="btn peq" data-abrir="${r.id}" aria-label="Abrir o lançamento de ${diaCurto(r.d)}, ${assinado(r.v)}">Abrir</button></div></td>
+      </tr>`).join('')}</tbody></table>`;
+    $('b-mais').innerHTML = lista.length > filtro.ver
+      ? `<span>Mostrando ${vis.length} de ${lista.length}</span><button class="btn" id="b-ver-mais">Mostrar mais ${Math.min(POR_VEZ, lista.length - filtro.ver)}</button>`
+      : (lista.length > POR_VEZ ? `<span>Mostrando todos os ${lista.length}</span>` : '');
+    const m = $('b-ver-mais');
+    if (m) m.addEventListener('click', () => { filtro.ver += POR_VEZ; pintarLista(); });
+  }
+  function limpar() {
+    Object.assign(filtro, { sit: '', busca: '', periodo: 'nov', fonte: '', ver: POR_VEZ });
+    $('b-busca').value = '';
+    $('b-periodo').value = 'nov';
+    $('b-fonte').value = '';
+    pintarLista();
+  }
+  $('b-sits').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sit]');
+    if (!b) return;
+    filtro.sit = b.dataset.sit;
+    filtro.ver = POR_VEZ;
+    pintarLista();
+    const novo = $('b-sits').querySelector(`[data-sit="${filtro.sit}"]`);
+    if (novo) novo.focus();
+  });
+  $('b-busca').addEventListener('input', (e) => { filtro.busca = e.target.value; filtro.ver = POR_VEZ; pintarLista(); });
+  $('b-periodo').addEventListener('change', (e) => { filtro.periodo = e.target.value; filtro.ver = POR_VEZ; pintarLista(); });
+  $('b-fonte').addEventListener('change', (e) => { filtro.fonte = e.target.value; filtro.ver = POR_VEZ; pintarLista(); });
+  $('b-lista').addEventListener('click', (e) => {
+    const a = e.target.closest('[data-abrir]');
+    if (a) { abrirLancamento(Number(a.dataset.abrir), a); return; }
+    const c = e.target.closest('[data-casar]');
+    if (c) abrirCasar(Number(c.dataset.casar), c);
+  });
+
+  // ── telas e estados ──
+  let tela = 'banco';
+  let estado = 'dados';
+  const ESTADOS = {
+    banco: {
+      carregando: '<div class="esqueleto" role="status" aria-label="Carregando os lançamentos"><i></i><i></i><i></i><i></i><i></i></div>',
+      vazio: '<div class="vazio"><b>Nenhum extrato importado ainda</b>Baixe o extrato em OFX no site ou no app do banco e envie aqui. O Regem mostra tudo antes de gravar.<br><button class="btn pri" data-importar="banco">Importar extrato</button></div>',
+      erro: '<div class="vazio erro" role="alert"><b>Não consegui ler os lançamentos</b>Nada se perdeu. Tente de novo em instantes.<br><button class="btn" data-repetir>Tentar de novo</button></div>',
+    },
+    avisos: {
+      carregando: '<div class="esqueleto" role="status" aria-label="Carregando os ajustes"><i></i><i></i><i></i></div>',
+      vazio: '<div class="vazio"><b>Falta a cidade da loja</b>O clima e os eventos dependem do município. Preencha em Financeiro › Configuração e volte aqui.</div>',
+      erro: '<div class="vazio erro" role="alert"><b>Não consegui ler os ajustes</b>Eles continuam como estavam. Tente de novo em instantes.<br><button class="btn" data-repetir>Tentar de novo</button></div>',
+    },
+  };
+  function pintarTela() {
+    $('tela-banco').hidden = tela !== 'banco';
+    $('tela-avisos').hidden = tela !== 'avisos';
+    $('m-banco').classList.toggle('atual', tela === 'banco');
+    $('m-mister').classList.toggle('atual', tela === 'avisos');
+    $('onde-app').textContent = tela === 'banco' ? 'Financeiro › Banco e repasses' : 'Mister › Avisos e relatórios';
+    document.querySelectorAll('[data-tela]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tela === tela)));
+    document.querySelectorAll('[data-estado]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.estado === estado)));
+    const pre = tela === 'banco' ? 'b' : 'a';
+    const outro = tela === 'banco' ? 'a' : 'b';
+    $(outro + '-dados').hidden = false;
+    $(outro + '-estado').hidden = true;
+    $(pre + '-dados').hidden = estado !== 'dados';
+    $(pre + '-estado').hidden = estado === 'dados';
+    $(pre + '-estado').innerHTML = estado === 'dados' ? '' : ESTADOS[tela][estado];
+    $('b-fontes').hidden = tela === 'banco' && estado !== 'dados';
+    if (tela === 'banco') {
+      if (estado === 'dados') pintarLista();
+      else $('b-conta').textContent = estado === 'carregando' ? 'carregando' : '0 lançamentos';
+    }
+    if (tela === 'avisos' && estado === 'dados') pintarAj();
+  }
+  document.querySelectorAll('[data-tela]').forEach((b) => b.addEventListener('click', () => { tela = b.dataset.tela; estado = 'dados'; pintarTela(); }));
+  document.querySelectorAll('[data-estado]').forEach((b) => b.addEventListener('click', () => { estado = b.dataset.estado; pintarTela(); }));
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-repetir]')) { estado = 'dados'; pintarTela(); return; }
+    const im = e.target.closest('[data-importar]');
+    if (im) abrirImportar(im.dataset.importar, im);
+  });
+
+  // ── gaveta e diálogos: a pilha (Esc fecha só o de cima) e o foco preso na peça aberta ──
+  const pilha = [];
+  function abrir(id, origem, foco) {
+    const el = $(id);
+    $(id === 'gaveta' ? 'fundo-g' : 'fundo-d').hidden = false;
+    el.hidden = false;
+    pilha.push({ id, origem });
+    const alvo = foco || el.querySelector('select,input,button');
+    if (alvo) alvo.focus();
+  }
+  function fecharTopo() {
+    const topo = pilha.pop();
+    if (!topo) return;
+    $(topo.id).hidden = true;
+    $(topo.id === 'gaveta' ? 'fundo-g' : 'fundo-d').hidden = true;
+    if (topo.origem && document.contains(topo.origem) && topo.origem.offsetParent !== null) topo.origem.focus();
+  }
+  document.addEventListener('click', (e) => { if (e.target.closest('[data-fechar]')) fecharTopo(); });
+  $('fundo-g').addEventListener('click', fecharTopo);
+  $('fundo-d').addEventListener('click', fecharTopo);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { fecharTopo(); return; }
+    if (e.key !== 'Tab' || !pilha.length) return;
+    const el = $(pilha[pilha.length - 1].id);
+    const itens = [...el.querySelectorAll('button,select,input,textarea,a[href]')].filter((x) => !x.disabled && x.offsetParent !== null);
+    if (!itens.length) return;
+    const primeiro = itens[0];
+    const ultimo = itens[itens.length - 1];
+    if (!el.contains(document.activeElement)) { e.preventDefault(); primeiro.focus(); }
+    else if (e.shiftKey && document.activeElement === primeiro) { e.preventDefault(); ultimo.focus(); }
+    else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primeiro.focus(); }
+  });
+  function aviso(txt) {
+    const s = $('salvo');
+    s.textContent = txt;
+    s.hidden = false;
+    clearTimeout(aviso.t);
+    aviso.t = setTimeout(() => { s.hidden = true; }, 3200);
+  }
+
+  // ── gaveta de um lançamento ──
+  let lancAberto = null;
+  function abrirLancamento(id, origem) {
+    const r = LANC.find((x) => x.id === id);
+    lancAberto = r;
+    $('g-titulo').textContent = r.v > 0 ? 'Entrada de ' + diaCurto(r.d) : 'Saída de ' + diaCurto(r.d);
+    $('g-estado').innerHTML = selo(r.sit);
+    const esperado = r.sit === 'esperado';
+    const dif = r.parValor ? Math.abs(r.parValor - r.v) : 0;
+    $('g-corpo').innerHTML = `
+      <div class="g-valor${r.v > 0 ? ' ent' : ''}">${assinado(r.v)}</div>
+      <div class="kv">
+        <div><span>Data</span><b>${diaCurto(r.d)}/2026</b></div>
+        <div><span>Fonte</span><b>${r.fonte}</b></div>
+      </div>
+      <div><h3>${esperado ? 'O que a plataforma informou' : 'Como veio no extrato'}</h3><div class="extrato-txt">${r.desc}</div>
+        ${esperado ? '' : '<p class="peq sub" style="margin-top:4px">Nomes e documentos ficam mascarados e nunca vão para a IA.</p>'}</div>
+      ${r.par ? `<div class="faixa ${r.sit === 'casado' ? 'ok' : r.sit === 'conferir' ? 'warn' : 'info'}">${r.par}${r.parValor ? `. No banco: <b class="nq">${brl(r.v)}</b>. Diferença: <b class="nq">${brl(dif)}</b>.` : '.'}</div>` : ''}
+      ${esperado ? `<p class="sub">Este valor ainda não está no banco, por isso não entra no que entrou nem no saldo. O Regem não calcula: mostra o que a plataforma disse.</p>` : `
+      <div class="campo"><label for="g-tipo">Isso é o quê?</label>
+        <select id="g-tipo"><option value="">Escolher</option>${TIPOS.map((t) => `<option${t === r.tipo ? ' selected' : ''}>${t}</option>`).join('')}</select></div>
+      <label class="check"><input type="checkbox" id="g-lembrar"><span><b>Lembrar para os próximos</b><small>Os próximos lançamentos com esta descrição entram com o mesmo tipo.</small></span></label>`}`;
+    $('g-rod').innerHTML = esperado
+      ? '<button class="btn" data-fechar>Fechar</button>'
+      : `<button class="btn" data-fechar>Cancelar</button>${r.sit === 'conferir' && r.parValor ? '<button class="btn" id="g-casar">Confirmar o par</button>' : ''}<button class="btn pri" id="g-salvar">Salvar</button>`;
+    if (!esperado) {
+      $('g-salvar').addEventListener('click', salvarLancamento);
+      const c = $('g-casar');
+      if (c) c.addEventListener('click', (e) => abrirCasar(r.id, e.currentTarget));
+    }
+    abrir('gaveta', origem, esperado ? $('g-rod').querySelector('button') : $('g-tipo'));
+  }
+  function salvarLancamento() {
+    const r = lancAberto;
+    const t = $('g-tipo').value;
+    const lembrar = $('g-lembrar').checked;
+    r.tipo = t;
+    if (t === 'Não é da loja') { r.sit = 'fora'; r.par = 'Você marcou: fica fora das contas da loja'; }
+    else if (r.sit === 'fora') { r.sit = 'so'; r.par = ''; }
+    fecharTopo();
+    pintarLista();
+    focarLinha(r.id);
+    aviso(lembrar && t ? `Salvo. Os próximos com esta descrição entram como "${t}".` : 'Lançamento salvo');
+  }
+  // a lista foi redesenhada: o foco volta para a mesma linha, ou para a busca se ela saiu do filtro
+  function focarLinha(id) {
+    const b = $('b-lista').querySelector(`[data-abrir="${id}"]`) || $('b-busca');
+    b.focus();
+  }
+
+  // ── confirmar um par ──
+  let casarId = null;
+  function abrirCasar(id, origem) {
+    const r = LANC.find((x) => x.id === id);
+    casarId = id;
+    $('d-casar-corpo').innerHTML = `<div class="kv">
+      <div><span>No banco</span><b>${brl(r.v)}</b></div>
+      <div><span>Em ${r.parOnde}</span><b>${brl(r.parValor)}</b></div>
+      <div><span>Diferença</span><b>${brl(Math.abs(r.parValor - r.v))}</b></div></div>`;
+    abrir('d-casar', origem, $('d-casar').querySelector('[data-fechar]'));
+  }
+  $('d-casar-ok').addEventListener('click', () => {
+    const r = LANC.find((x) => x.id === casarId);
+    r.sit = 'casado';
+    r.par = `Par confirmado por você, com ${brl(Math.abs(r.parValor - r.v))} de diferença`;
+    delete r.parValor;
+    fecharTopo();
+    if (pilha.length && pilha[pilha.length - 1].id === 'gaveta') fecharTopo();
+    pintarLista();
+    focarLinha(r.id);
+    aviso('Par confirmado');
+  });
+
+  // ── importar extrato: 3 passos ──
+  const NOMES_FONTE = { banco: 'extrato', pago: 'planilha do iFood Pago', n99: 'planilha da 99', maq: 'arquivo da maquininha' };
+  const CENARIOS = {
+    ok: { nome: 'extrato-nov.ofx', dica: 'Arquivo certo, com 2 lançamentos novos' },
+    repetido: { nome: 'extrato-22-11.ofx', dica: 'O mesmo arquivo que já entrou' },
+    outra: { nome: 'extrato-conta-7306.ofx', dica: 'De outra conta' },
+    naoabre: { nome: 'extrato.pdf', dica: 'Arquivo que não abre' },
+    buraco: { nome: 'extrato-sem-semana.ofx', dica: 'Falta uma semana no meio' },
+  };
+  const imp = { passo: 1, cenario: 'ok', origem: 'banco' };
+  const kvImp = (l) => `<div class="kv">${l.map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('')}</div>`;
+
+  function abrirImportar(origemFonte, origem) {
+    Object.assign(imp, { passo: 1, cenario: 'ok', origem: origemFonte });
+    pintarImportar();
+    abrir('gaveta', origem, $('g-corpo').querySelector('input:checked'));
+  }
+  function pintarImportar() {
+    const eExtrato = imp.origem === 'banco';
+    $('g-titulo').textContent = eExtrato ? 'Importar extrato' : 'Enviar ' + NOMES_FONTE[imp.origem];
+    $('g-estado').textContent = `Passo ${imp.passo} de 3`;
+    const etapas = ['Escolher o arquivo', 'Conferir', 'Confirmar'];
+    const barra = `<ol class="etapas">${etapas.map((t, i) => `<li${i + 1 === imp.passo ? ' aria-current="step"' : ''}${i + 1 < imp.passo ? ' class="feito"' : ''}><b>${i + 1 < imp.passo ? '✓' : i + 1}</b>${t}</li>`).join('')}</ol>`;
+    let corpo = '';
+    let rod = '';
+    if (imp.passo === 1) {
+      corpo = `
+        <div class="solta"><b>Solte o arquivo aqui</b><span>${eExtrato ? 'Extrato em OFX, que você baixa no site ou no app do banco.' : 'A planilha que o portal exporta.'}</span></div>
+        ${eExtrato ? '' : '<div class="faixa info">Ainda não temos um arquivo real desta fonte. O formato será confirmado com um exemplo antes de a fase entrar. Os passos abaixo mostram o mesmo caminho do extrato.</div>'}
+        <fieldset class="opcoes"><legend>No protótipo, escolha um arquivo de exemplo</legend>
+          ${Object.entries(CENARIOS).map(([k, c]) => `<label class="opcao"><input type="radio" name="imp-cen" value="${k}"${imp.cenario === k ? ' checked' : ''}><span><b>${c.nome}</b><small>${c.dica}</small></span></label>`).join('')}
+        </fieldset>`;
+      rod = '<button class="btn" data-fechar>Cancelar</button><button class="btn pri" id="imp-seguir">Continuar</button>';
+    } else if (imp.passo === 2) {
+      const c = imp.cenario;
+      if (c === 'ok') {
+        corpo = kvImp([['Conta', 'final 4821'], ['Período', '01/11 a 23/11'], ['Lançamentos no arquivo', String(IMP.total)], ['Já estavam aqui', String(IMP.ja)], ['Novos', String(IMP.novos)], ['Saldo final', brl(IMP.saldo)]])
+          + `<div><h3>Os ${IMP.novos} novos</h3><div class="kv"><div><span>23/11 · Maquininha</span><b>${assinado(IMP.entra)}</b></div><div><span>23/11 · Boleto de fornecedor</span><b>${assinado(-IMP.sai)}</b></div></div></div>
+             <div class="faixa ok">A conta fecha: ${brl(DADOS.saldo)} ${assinado(IMP.entra)} ${assinado(-IMP.sai)} = ${brl(IMP.saldo)}.</div>`;
+        rod = '<button class="btn" id="imp-voltar">Voltar</button><button class="btn pri" id="imp-seguir">Continuar</button>';
+      } else if (c === 'repetido') {
+        corpo = `<div class="faixa info"><b>Esse arquivo já entrou em 22/11.</b> Os ${IMP.ja} lançamentos dele já estão aqui, e nada vai duplicar.</div>`
+          + kvImp([['Conta', 'final 4821'], ['Período', '01/11 a 22/11'], ['Lançamentos no arquivo', String(IMP.ja)], ['Novos', '0'], ['Saldo final', brl(DADOS.saldo)]]);
+        rod = '<button class="btn" id="imp-voltar">Escolher outro</button><button class="btn pri" data-fechar>Fechar</button>';
+      } else if (c === 'outra') {
+        corpo = `<div class="faixa warn"><b>Esse arquivo é de outra conta.</b> Ele é da conta final <b>7306</b>, e a loja usa a conta final <b>4821</b>. Nada foi gravado.</div>
+          <p class="sub">Confira no banco se você baixou o extrato da conta da loja.</p>`;
+        rod = '<button class="btn" data-fechar>Cancelar</button><button class="btn pri" id="imp-voltar">Escolher outro</button>';
+      } else if (c === 'naoabre') {
+        corpo = `<div class="faixa crit"><b>Não consegui abrir esse arquivo.</b> Ele veio em PDF, e o Regem lê o extrato em OFX. Nada foi gravado.</div>
+          <div><h3>Como baixar em OFX</h3><ol class="lista-ok"><li>Abra o extrato no site ou no app do banco.</li><li>Procure "Exportar" ou "Salvar como".</li><li>Escolha o formato OFX e envie aqui.</li></ol></div>`;
+        rod = '<button class="btn" data-fechar>Cancelar</button><button class="btn pri" id="imp-voltar">Escolher outro</button>';
+      } else {
+        corpo = `<div class="faixa warn"><b>Falta um pedaço neste extrato.</b> Não tem nenhum lançamento de <b>09/11 a 15/11</b>, e a loja vendeu nesses dias. O banco pode ter cortado o arquivo.</div>`
+          + kvImp([['Conta', 'final 4821'], ['Período', '01/11 a 23/11'], ['Lançamentos no arquivo', String(IMP.comBuraco)], ['Novos', String(IMP.novos)], ['Dias sem lançamento', '09/11 a 15/11'], ['Saldo final', brl(IMP.saldo)]])
+          + '<p class="sub">Você pode importar o que veio. O Regem marca o buraco e não usa esse período na conta do caixa até o arquivo completo chegar.</p>';
+        rod = '<button class="btn" id="imp-voltar">Escolher outro</button><button class="btn pri" id="imp-seguir">Importar o que veio</button>';
+      }
+    } else {
+      const parcial = imp.cenario === 'buraco';
+      corpo = kvImp([['Conta', 'final 4821'], ['Vai entrar', `${IMP.novos} lançamentos novos`], ['Vai ficar de fora', parcial ? `${IMP.comBuraco - IMP.novos} repetidos` : `${IMP.ja} repetidos`], ['Saldo final', brl(IMP.saldo)]])
+        + `${parcial ? '<div class="faixa warn">O período de 09/11 a 15/11 fica marcado como incompleto.</div>' : ''}
+           <p class="sub">Depois de importar, o Regem tenta casar cada valor com os repasses e as contas. Só casa sozinho com valor exato e data próxima. O resto fica "A conferir".</p>`;
+      rod = '<button class="btn" id="imp-voltar">Voltar</button><button class="btn pri" id="imp-gravar">Importar</button>';
+    }
+    $('g-corpo').innerHTML = barra + `<div class="gaveta-sec">${corpo}</div>`;
+    $('g-rod').innerHTML = rod;
+    const seg = $('imp-seguir');
+    const vol = $('imp-voltar');
+    const gra = $('imp-gravar');
+    if (seg) seg.addEventListener('click', () => {
+      if (imp.passo === 1) { const m = $('g-corpo').querySelector('input[name="imp-cen"]:checked'); imp.cenario = m ? m.value : 'ok'; }
+      imp.passo += 1;
+      pintarImportar();
+      focarRodape();
+    });
+    if (vol) vol.addEventListener('click', () => { imp.passo -= 1; pintarImportar(); focarRodape(); });
+    if (gra) gra.addEventListener('click', () => { fecharTopo(); aviso(`Importado: ${IMP.novos} lançamentos novos. No protótipo, a lista fica como está.`); });
+    $('g-corpo').querySelectorAll('input[name="imp-cen"]').forEach((i) => i.addEventListener('change', () => { imp.cenario = i.value; }));
+  }
+  function focarRodape() {
+    const b = $('g-rod').querySelector('.btn.pri') || $('g-rod').querySelector('button');
+    if (b) b.focus();
+  }
+
+  // ── a regra da chuva ──
+  function abrirChuva(origem) {
+    $('g-titulo').textContent = 'A regra da chuva';
+    $('g-estado').textContent = 'Vale para "Avisar na véspera"';
+    $('g-corpo').innerHTML = `
+      <div><h3>Quando ele avisa</h3><ul class="lista-ok"><li>Quando <b>as duas previsões</b> dão chuva para o dia seguinte.</li><li>Ou quando há <b>alerta oficial do INMET</b> para a sua cidade.</li></ul></div>
+      <div><h3>Por que não avisa com uma só</h3><p class="sub">"Pancadas isoladas" aparece quase todo dia no verão. Se ele avisasse sempre, você pararia de ler.</p></div>
+      <div><h3>Exemplos</h3><div class="exemplos">
+        <div class="exemplo"><span><b>INMET:</b> chuva · <b>CPTEC:</b> pancadas de chuva</span><span class="selo ok">Avisa</span></div>
+        <div class="exemplo"><span><b>INMET:</b> pancadas isoladas · <b>CPTEC:</b> parcialmente nublado</span><span class="selo neutro">Não avisa</span></div>
+        <div class="exemplo"><span><b>INMET:</b> alerta de tempestade · <b>CPTEC:</b> nublado</span><span class="selo ok">Avisa, pelo alerta oficial</span></div>
+      </div></div>
+      <div><h3>O que ele não diz</h3><p class="sub">Quantos milímetros nem a hora da chuva: as previsões não trazem isso.</p></div>`;
+    $('g-rod').innerHTML = '<button class="btn pri" data-fechar>Entendi</button>';
+    abrir('gaveta', origem, $('g-rod').querySelector('button'));
+  }
+  document.querySelectorAll('[data-gaveta-chuva]').forEach((b) => b.addEventListener('click', () => abrirChuva(b)));
+
+  // ── os ajustes: o que está salvo × o que está na tela ──
+  const NOMES = { vespera: 'Avisar na véspera', amanha: 'Linha "Amanhã" no resumo', boletim: 'Boletim do ramo' };
+  const CHAVES = Object.keys(NOMES);
+  const salvos = { vespera: false, amanha: false, boletim: false };
+  const atual = { ...salvos };
+  function pintarAj() {
+    CHAVES.forEach((k) => {
+      document.querySelector(`[data-liga="${k}"]`).setAttribute('aria-checked', String(atual[k]));
+      $('e-' + k).textContent = atual[k] ? 'Ligado' : 'Desligado';
+      document.querySelector(`[data-aj="${k}"]`).classList.toggle('mudou', atual[k] !== salvos[k]);
+    });
+    const n = CHAVES.filter((k) => atual[k] !== salvos[k]).length;
+    $('barra').hidden = n === 0;
+    $('barra-txt').textContent = n === 1 ? '1 alteração ainda não salva' : `${n} alterações ainda não salvas`;
+  }
+  function gravar() { Object.assign(salvos, atual); pintarAj(); aviso('Ajustes salvos'); }
+  document.querySelectorAll('[data-liga]').forEach((b) => b.addEventListener('click', () => { atual[b.dataset.liga] = !atual[b.dataset.liga]; pintarAj(); }));
+  $('descartar').addEventListener('click', () => { Object.assign(atual, salvos); pintarAj(); });
+  $('salvar').addEventListener('click', (e) => {
+    const novos = CHAVES.filter((k) => atual[k] && !salvos[k]);
+    if (!novos.length) { gravar(); return; }
+    const lista = $('d-ligar-lista');
+    lista.textContent = '';
+    novos.forEach((k) => { const li = document.createElement('li'); li.textContent = NOMES[k]; lista.append(li); });
+    abrir('d-ligar', e.currentTarget, $('d-ligar').querySelector('[data-fechar]'));
+  });
+  $('d-ligar-ok').addEventListener('click', () => { fecharTopo(); gravar(); });
+  $('aj-busca').addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    let total = 0;
+    document.querySelectorAll('[data-grupo]').forEach((g) => {
+      let n = 0;
+      g.querySelectorAll('.aj').forEach((a) => {
+        const ok = !q || (a.textContent + ' ' + a.dataset.palavras).toLowerCase().includes(q);
+        a.hidden = !ok;
+        if (ok) n++;
+      });
+      g.hidden = n === 0;
+      g.querySelector('[data-conta]').textContent = `· ${n} ${n === 1 ? 'ajuste' : 'ajustes'}`;
+      total += n;
+    });
+    $('aj-vazio').hidden = total > 0;
+  });
+
+  pintarTela();
+  pintarAj();
+})();
+</script>
+</body>
+</html>
