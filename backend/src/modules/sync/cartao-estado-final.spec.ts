@@ -150,6 +150,58 @@ descrever('pedido de canal em estado final — a nuvem recebendo da loja (push)'
     ]);
     expect((await q('select status from pedido_externo where id = $1', [id]))[0].status).toBe(fica);
   });
+
+  // ERR-582: com o relógio da loja atrasado, o aceite chegava "mais velho" e era descartado; o pedido seguia "novo" na nuvem e
+  // o resgate criava uma segunda venda (9 de 9 pedidos nessa condição, de 12 a 22/11/2026).
+  describe('o aceite da loja com o relógio atrasado', () => {
+    const naNuvem = async (status: string, comandaId: string | null = null) => {
+      const id = randomUUID();
+      await q(`insert into pedido_externo (id, tenant_id, canal, external_id, status, comanda_id, cliente_nome) values ($1,$2,'anotaai',$3,$4,$5,'Cliente da nuvem')`, [
+        id, T, randomUUID(), status, comandaId,
+      ]);
+      await q(`begin; select set_config('regem.sync','on',true);
+               update pedido_externo set updated_at = now() - interval '1 hour' where id = '${id}'; commit;`);
+      return { id, linha: JSON.parse(JSON.stringify((await q('select * from pedido_externo where id = $1', [id]))[0])) };
+    };
+    const mandar = (linha: any, mudou: Record<string, unknown>) =>
+      svc.push(ctx() as any, [
+        { tabela: 'pedido_externo', linhas: [{ ...linha, ...mudou, updated_at: dataDaOutraPonta('mais velha').toISOString() }] } as any,
+      ]);
+    const ler = async (id: string) =>
+      (await q(`select status, comanda_id, cliente_nome, updated_at > now() - interval '90 minutes' as manteve_a_data from pedido_externo where id = $1`, [id]))[0];
+
+    it('o aceite com a venda vence o "novo" mesmo mais velho, e a data daqui fica', async () => {
+      const { id, linha } = await naNuvem('novo');
+      const venda = randomUUID();
+      await mandar(linha, { status: 'confirmado', comanda_id: venda });
+      expect(await ler(id)).toMatchObject({ status: 'confirmado', comanda_id: venda, manteve_a_data: true });
+    });
+
+    it('o que veio vazio na cópia mais velha não apaga o que está aqui', async () => {
+      const { id, linha } = await naNuvem('novo');
+      await mandar(linha, { status: 'confirmado', comanda_id: randomUUID(), cliente_nome: null });
+      expect((await ler(id)).cliente_nome).toBe('Cliente da nuvem');
+    });
+
+    it('sem a venda, a cópia mais velha não muda o pedido', async () => {
+      const { id, linha } = await naNuvem('novo');
+      await mandar(linha, { status: 'confirmado', comanda_id: null });
+      expect(await ler(id)).toMatchObject({ status: 'novo', comanda_id: null });
+    });
+
+    it('pedido que já tem venda aqui não troca de venda por uma cópia mais velha', async () => {
+      const daqui = randomUUID();
+      const { id, linha } = await naNuvem('confirmado', daqui);
+      await mandar(linha, { status: 'pronto', comanda_id: randomUUID() });
+      expect(await ler(id)).toMatchObject({ status: 'confirmado', comanda_id: daqui });
+    });
+
+    it('o cancelado daqui continua vencendo o aceite', async () => {
+      const { id, linha } = await naNuvem('cancelado');
+      await mandar(linha, { status: 'confirmado', comanda_id: randomUUID() });
+      expect(await ler(id)).toMatchObject({ status: 'cancelado', comanda_id: null });
+    });
+  });
 });
 
 // O mesmo lado do SERVIDOR DA LOJA (pull e restore do sync-daemon): a regra mora em `condicaoSobrescrever`, avaliada
