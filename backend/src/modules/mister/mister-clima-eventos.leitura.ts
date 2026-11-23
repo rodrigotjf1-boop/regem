@@ -2,7 +2,8 @@ import { sql } from 'drizzle-orm';
 import type { DrizzleDB } from '../../db/drizzle.module';
 import { somarDias } from '../perfil-cliente/calendario-regra';
 import { CalendarioDaLojaService } from '../perfil-cliente/calendario-da-loja.service';
-import type { CidadeDaLoja, ClimaLido, EventoDaBase, ItemDaLoja } from './mister-clima-eventos';
+import { type CidadeDaLoja, type ClimaLido, type EventoDaBase, type ItemDaLoja, montarAgenda } from './mister-clima-eventos';
+import type { DiaDaAgenda } from './mister-vespera';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -63,6 +64,16 @@ export async function lerClimaDaCidade(db: DrizzleDB, municipio: number | null, 
     if (semTabela(e)) return [];
     throw e;
   }
+}
+
+/** Um dia da agenda de uma loja (versão 8, E3): o mesmo que a pessoa vê ao perguntar "o que vem aí". */
+export async function lerDiaDaAgenda(db: DrizzleDB, tenantId: string, loja: { id: string | null; nome: string }, dia: string, hoje: string): Promise<DiaDaAgenda | null> {
+  const cidade = await lerCidadeDaLoja(db, tenantId, loja.id);
+  const daBase = await lerEventosDaBase(db, dia, dia);
+  const daLoja = await lerCalendarioDaLoja(db, tenantId, loja.id, dia, dia);
+  const clima = await lerClimaDaCidade(db, cidade.municipio, dia, dia);
+  const r = montarAgenda({ de: dia, ate: dia, hoje, loja: loja.nome, cidade, daBase, daLoja, clima });
+  return ((r.dias as DiaDaAgenda[])[0] ?? null) as DiaDaAgenda | null;
 }
 
 /** O que se previa na véspera, dia a dia (versão 8, E2). É previsão: o Regem não guarda a chuva que caiu. */

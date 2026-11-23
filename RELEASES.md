@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: aviso da véspera e linha "Amanhã", E3 da versão 8 (23/11; mig 498, só nuvem).** Só na nuvem: o Mister não roda no servidor
+  da loja, e a loja pula a migration. Vai no `.zip` sem efeito na loja. Não mexe no `sync-daemon` (coluna nova em tabela só da nuvem).
+
 - **Perguntar ao Mister sobre as notícias do ramo, fase N3 (23/11; SEM migration).** Só na nuvem e desligada até `MISTER_NOTICIAS_RAMO=1` no
   `regem-api`, depois da avaliação no console. A cópia do boletim passa a conferir hoje e os 2 dias anteriores. Vai no `.zip` sem efeito na loja.
 

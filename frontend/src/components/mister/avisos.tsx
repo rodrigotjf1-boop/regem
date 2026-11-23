@@ -34,8 +34,11 @@ const TIPOS_DO_GASTO = ['gasto_whatsapp', 'franquia_atendimento'];
 const DESTINOS_DO_GASTO: Destino[] = ['presidente', 'gerente', 'tela', 'dms'];
 type AvisoNaTela = { tipo: string; grupo: string; titulo: string; descricao: string; jaFunciona: boolean; regra: Regra; padrao: boolean };
 type DaTela = { avisos: AvisoNaTela[]; destinos: { id: Destino; nome: string }[] };
-/** `convidarFora`: só no boletim do ramo (mig 496), o convite pago para quem está fora das 24 horas. */
-type RegraDoRelatorio = { ligado: boolean; hora: string; diaSemana: number | null; convidarFora?: boolean };
+/**
+ * `convidarFora`: no boletim do ramo e na véspera (mig 496), o convite pago para quem está fora das 24 horas.
+ * `linhaAmanha`: só no resumo do dia (versão 8, E3; mig 498). Na tela é um ajuste à parte, em "Clima e eventos".
+ */
+type RegraDoRelatorio = { ligado: boolean; hora: string; diaSemana: number | null; convidarFora?: boolean; linhaAmanha?: boolean };
 type RelatorioNaTela = {
   tipo: string;
   titulo: string;
@@ -92,6 +95,9 @@ const deValorDaConversa = (v: Valor | undefined): Conversa => {
 
 /** Os relatórios (mig 420) ficam nos mesmos valores da tela, com a chave `rel:<tipo>`. */
 const REL = 'rel:';
+/** Versão 8, E3: a linha "Amanhã" do resumo do dia, guardada na regra dele e mostrada no grupo "Clima e eventos". */
+const AMANHA = 'clima:amanha';
+const temConviteOpcional = (tipo: string) => tipo === 'boletim_ramo' || tipo === 'vespera';
 const DIAS_DA_SEMANA = ['segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'];
 /** O boletim do Pulso fica pronto às 8h: antes disso não há o que mandar (o servidor confere a mesma hora). */
 const HORA_MINIMA_DO_BOLETIM = '08:15';
@@ -118,6 +124,7 @@ const MOTIVO_DO_RELATORIO: Record<string, string> = {
   sem_fichas: 'as fichas do resumo já não estavam na Página de vagas quando a pessoa tocou em "Ver resumo"',
   fora_da_janela_sem_convite: 'a pessoa não falou com o Mister nas últimas 24 horas e lê o boletim na tela, sem custo',
   sem_boletim: 'o boletim daquele dia já não estava disponível quando a pessoa tocou em "Ver resumo"',
+  sem_aviso: 'o dia do aviso já tinha passado quando a pessoa tocou em "Ver resumo"',
 };
 const quandoFoi = (iso: string) => {
   const d = new Date(iso);
@@ -290,6 +297,7 @@ export function AvisosDoMister() {
   const aplicarRelatorios = useCallback((rs: RelatorioNaTela[]) => {
     const v: Valores = {};
     for (const r of rs) v[REL + r.tipo] = paraValorDoRelatorio(r.regra);
+    if (rs.some((r) => r.tipo === 'vespera')) v[AMANHA] = rs.find((r) => r.tipo === 'resumo_dia')?.regra.linhaAmanha ? '1' : '0';
     setRelatorios(rs);
     setSalvos((s) => ({ ...s, ...v }));
     setValores((x) => ({ ...x, ...v }));
@@ -482,6 +490,18 @@ export function AvisosDoMister() {
                   : 'Fora das 24 horas: a pessoa lê na tela, sem custo. O WhatsApp só permite mensagem livre dentro das 24 horas.'}
               </span>
             )}
+            {rel.tipo === 'vespera' && (
+              <span className="mt-1 block text-xs font-semibold" data-vespera-custo>
+                {deValorDoRelatorio(valores[REL + rel.tipo]).convidarFora
+                  ? 'R$ 0 de IA. Fora das 24 horas: cerca de R$ 0,035 por pessoa, por dia com aviso.'
+                  : 'R$ 0: texto fixo, sem IA. Fora das 24 horas o aviso não sai, porque o WhatsApp só permite mensagem livre dentro delas.'}
+              </span>
+            )}
+            {rel.tipo === 'vespera' && (
+              <span className="mt-1 block text-xs" data-vespera-chuva>
+                Chuva só entra quando o INMET e o CPTEC concordam: &quot;pancadas isoladas&quot; aparece quase todo dia no verão.
+              </span>
+            )}
             {rel.ultimo && (
               <span className="mt-1 block text-xs">
                 {rel.ultimo.situacao === 'enviado'
@@ -534,9 +554,9 @@ export function AvisosDoMister() {
                   }}
                 />
               </label>
-              {rel.tipo === 'boletim_ramo' && atual.ligado && (
+              {temConviteOpcional(rel.tipo) && atual.ligado && (
                 <label className="flex min-w-0 items-center gap-1 text-sm">
-                  <span className="sr-only">Quem não falou com o Mister nas últimas 24 horas</span>
+                  <span className="sr-only">{rel.tipo === 'vespera' ? 'Convite da véspera fora das 24 horas' : 'Quem não falou com o Mister nas últimas 24 horas'}</span>
                   <select
                     className="min-h-10 max-w-full rounded-md border border-input bg-background px-2"
                     value={atual.convidarFora ? 'convite' : 'nao'}
@@ -725,7 +745,51 @@ export function AvisosDoMister() {
             },
           ],
         };
-    return [...dosAvisos, ...(doGrupo ? [doGrupo] : []), ...(daConversa ? [daConversa] : []), ...(dasAnalises ? [dasAnalises] : [])];
+    // Versão 8, E3: o aviso da véspera sai do grupo Relatórios e fica em "Clima e eventos", com a linha "Amanhã" do resumo.
+    const daVespera = doGrupo?.itens.find((i) => i.id === REL + 'vespera');
+    const resumoDoDiaLigado = deValorDoRelatorio(valores[`${REL}resumo_dia`]).ligado;
+    const doClima: GrupoDeAjustes | null = !daVespera
+      ? null
+      : {
+          titulo: 'Clima e eventos',
+          nota: <span className={`text-sm ${texto2}`}>O que vem aí na loja, em texto fixo. Nascem desligados.</span>,
+          itens: [
+            daVespera,
+            {
+              id: AMANHA,
+              rotulo: 'Linha "Amanhã" no resumo',
+              tipo: 'livre' as const,
+              palavras: 'amanhã clima evento feriado jogo chuva resumo do dia',
+              ajuda: (
+                <>
+                  <span className="block">Uma linha no fim do resumo do dia. Só aparece quando há algo para dizer.</span>
+                  <span className="mt-1 block text-xs font-semibold" data-amanha-custo>
+                    R$ 0: texto fixo, sem IA
+                  </span>
+                  {!resumoDoDiaLigado && (
+                    <span className="mt-1 block text-xs" data-amanha-precisa-do-resumo>
+                      Precisa do &quot;Resumo do dia&quot; ligado.
+                    </span>
+                  )}
+                </>
+              ),
+              desenhar: (v: Valor, mudar: (x: Valor) => void) => (
+                <span className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                  <span className={`text-sm ${texto2}`}>{v === '1' ? 'Ligada' : 'Desligada'}</span>
+                  <Chave ligada={v === '1'} comTexto={false} ocupada={v !== '1' && !resumoDoDiaLigado} rotulo={'Linha "Amanhã" no resumo'} aoMudar={(l) => mudar(l ? '1' : '0')} />
+                </span>
+              ),
+            },
+          ],
+        };
+    const relatoriosSemVespera = doGrupo ? { ...doGrupo, itens: doGrupo.itens.filter((i) => i.id !== REL + 'vespera') } : null;
+    return [
+      ...dosAvisos,
+      ...(relatoriosSemVespera ? [relatoriosSemVespera] : []),
+      ...(doClima ? [doClima] : []),
+      ...(daConversa ? [daConversa] : []),
+      ...(dasAnalises ? [dasAnalises] : []),
+    ];
   }, [dados, valores, nomes, relatorios, conversa, resumoLigado]);
 
   const salvar = async () => {
@@ -734,9 +798,11 @@ export function AvisosDoMister() {
     setErro('');
     try {
       const regras = dados.avisos.filter((a) => valores[a.tipo] !== salvos[a.tipo]).map((a) => ({ tipo: a.tipo, ...deValor(valores[a.tipo]) }));
+      // A linha "Amanhã" é da regra do resumo do dia: mudou, ela vai junto; sem mudar, o servidor mantém a salva.
+      const amanhaMudou = AMANHA in valores && valores[AMANHA] !== salvos[AMANHA];
       const rels = (relatorios ?? [])
-        .filter((r) => valores[REL + r.tipo] !== salvos[REL + r.tipo])
-        .map((r) => ({ tipo: r.tipo, ...deValorDoRelatorio(valores[REL + r.tipo]) }));
+        .filter((r) => valores[REL + r.tipo] !== salvos[REL + r.tipo] || (r.tipo === 'resumo_dia' && amanhaMudou))
+        .map((r) => ({ tipo: r.tipo, ...deValorDoRelatorio(valores[REL + r.tipo]), ...(r.tipo === 'resumo_dia' && amanhaMudou ? { linhaAmanha: valores[AMANHA] === '1' } : {}) }));
       // A conversa grava só o que mudou (o ausente mantém o salvo): os documentos por foto e/ou "Como mandar o resumo".
       const partesDaConversa = {
         ...(conversa && valores[CONV] !== salvos[CONV] ? deValorDaConversa(valores[CONV]) : {}),
