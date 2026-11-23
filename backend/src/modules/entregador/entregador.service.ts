@@ -1997,6 +1997,7 @@ export class EntregadorService implements OnModuleInit {
       const loc: any = await this.db.execute(sql`
         select lat, lng from entregador_posicao
         where colaborador_id = ${ped.entregador_id}
+          and tenant_id = ${tenantId}
           and atualizado_em >= now() - interval '10 minutes'`);
       const l = (loc.rows ?? loc)[0];
       if (l && l.lat != null && l.lng != null) pos = { lat: Number(l.lat), lng: Number(l.lng) };

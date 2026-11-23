@@ -343,13 +343,27 @@ export class Food99Service {
 
   // Webhook shopBindStatus: o lojista autorizou (ou desvinculou) a loja pelo link.
   // data.appShopIDList = UUID(s) da loja no nosso app; data.bindStatus = bind|unbind.
-  private async tratarBind(raw: string): Promise<void> {
+  private async tratarBind(raw: string, assinada: boolean): Promise<void> {
     const bindStatus = ((raw.match(/"bindStatus"\s*:\s*"?(bind|unbind)"?/i) || [])[1] || '').toLowerCase();
     const lista = (raw.match(/"appShopIDList"\s*:\s*\[([^\]]*)\]/) || [])[1] || '';
-    const uuids = (lista.match(/"([^"]+)"/g) || []).map((s) => s.replace(/"/g, ''));
+    let uuids = (lista.match(/"([^"]+)"/g) || []).map((s) => s.replace(/"/g, ''));
     if (!uuids.length) {
       this.logger.warn('shopBindStatus sem appShopIDList');
       return;
+    }
+    // Sem assinatura válida, o aviso só vale se a própria 99 confirmar: forjado, ele desligava a loja de alguém (S2-03).
+    if (!assinada) {
+      const consulta = await this.consultarLojasAutorizadas();
+      if (!consulta.ok) {
+        this.logger.warn('shopBindStatus sem assinatura e a 99 não confirmou: aviso ignorado');
+        return;
+      }
+      const autorizadas = new Set(consulta.lojas.map((s) => s.appShopId));
+      uuids = uuids.filter((u) => autorizadas.has(u) === (bindStatus !== 'unbind'));
+      if (!uuids.length) {
+        this.logger.warn('shopBindStatus sem assinatura e diferente do que a 99 informa: aviso ignorado');
+        return;
+      }
     }
     if (bindStatus === 'unbind') {
       for (const u of uuids) {
@@ -390,9 +404,15 @@ export class Food99Service {
   // POST /v3/auth/authorization/getAuthorizedShops — lista as lojas autorizadas ao
   // nosso app (independe do webhook shopBindStatus). Paginado. app_id LITERAL no corpo.
   private async getAuthorizedShops(): Promise<Array<{ appShopId: string; nome: string | null }>> {
+    return (await this.consultarLojasAutorizadas()).lojas;
+  }
+
+  // A lista de lojas autorizadas ao app. `ok: false` = a 99 não respondeu por inteiro: quem decide por ela não pode ler
+  // "não está na lista" como "foi desautorizada".
+  private async consultarLojasAutorizadas(): Promise<{ ok: boolean; lojas: Array<{ appShopId: string; nome: string | null }> }> {
     const appId = this.appIdEnv();
     const secret = this.appSecretEnv();
-    if (!appId || !secret) return [];
+    if (!appId || !secret) return { ok: false, lojas: [] };
     const out: Array<{ appShopId: string; nome: string | null }> = [];
     for (let page = 1; page <= 10; page++) {
       const ts = Math.floor(Date.now() / 1000);
@@ -406,7 +426,7 @@ export class Food99Service {
       const j: any = res ? await res.json().catch(() => ({ errno: -1 })) : { errno: -1 };
       if (j?.errno !== 0) {
         this.logger.warn(`getAuthorizedShops errno=${j?.errno}: ${JSON.stringify(j).slice(0, 160)}`);
-        break;
+        return { ok: false, lojas: out };
       }
       const d = j?.data ?? {};
       const shops: any[] = d.shops ?? d.list ?? d.shop_list ?? d.shop_infos ?? (Array.isArray(d) ? d : []);
@@ -414,9 +434,20 @@ export class Food99Service {
         const id = String(s.app_shop_id ?? s.appShopId ?? '');
         if (id) out.push({ appShopId: id, nome: s.shop_name ?? s.name ?? null });
       }
-      if (shops.length < 50) break;
+      if (shops.length < 50) return { ok: true, lojas: out };
     }
-    return out;
+    return { ok: false, lojas: out }; // mais de 10 páginas: a lista veio cortada
+  }
+
+  // A loja da 99 é de UMA empresa: o app é global e o id basta para pegar o token dela (S2-02).
+  private async recusarLojaDeOutraEmpresa(tenantId: string, appShopId: string) {
+    if (!appShopId) return;
+    const linhas = await this.db
+      .select({ tenantId: integracao.tenantId })
+      .from(integracao)
+      .where(and(eq(integracao.canal, CANAL), eq(integracao.merchantId, appShopId)));
+    if (linhas.some((l: any) => l.tenantId !== tenantId))
+      throw new BadRequestException('Esta loja da 99 já está ligada a outra empresa.');
   }
 
   // Lojas autorizadas ao app que AINDA não estão vinculadas a nenhum tenant do Regem
@@ -457,6 +488,7 @@ export class Food99Service {
     const pend = (row.config as any)?.pendingBind;
     const alvoId = appShopId || pend?.appShopId;
     if (!alvoId) throw new BadRequestException('Nenhuma loja recém-vinculada para confirmar.');
+    await this.recusarLojaDeOutraEmpresa(tenantId, String(alvoId));
     // nome: do webhook (pendingBind) ou busca no shop/detail (fluxo pull getAuthorizedShops).
     let nome = pend?.appShopId === alvoId ? pend?.nome ?? null : null;
     if (!nome) nome = (await this.shopDetail(alvoId).catch(() => null))?.shop_name ?? null;
@@ -1219,11 +1251,12 @@ export class Food99Service {
     // Vínculo/desvínculo de loja (produção): não depende de loja ativa; o app_shop_id
     // vem em data.appShopIDList, não no topo. Assinatura conferida com o secret GLOBAL.
     if (ev === 'shopbindstatus') {
-      if (!this.assinaturaOk(raw, this.appSecretEnv(), sign)) {
+      const assinada = this.assinaturaOk(raw, this.appSecretEnv(), sign);
+      if (!assinada) {
         this.logger.warn('shopBindStatus: assinatura inválida');
         if (process.env.FOOD99_REQUIRE_SIGN === 'true') return { errno: 0, errmsg: 'bad-sign' };
       }
-      await this.tratarBind(raw).catch((e) => this.logger.warn(`tratarBind: ${e?.message ?? e}`));
+      await this.tratarBind(raw, assinada).catch((e) => this.logger.warn(`tratarBind: ${e?.message ?? e}`));
       return { errno: 0, errmsg: 'ok' };
     }
 
@@ -1352,6 +1385,7 @@ export class Food99Service {
     appSecret: string,
     appShopId: string,
   ): Promise<{ ok: boolean }> {
+    await this.recusarLojaDeOutraEmpresa(tenantId, appShopId);
     const [existente] = await this.db
       .select()
       .from(integracao)

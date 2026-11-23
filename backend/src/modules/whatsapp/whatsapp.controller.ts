@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
@@ -135,6 +135,9 @@ export class WhatsappController {
   @Roles('presidente', 'gerente')
   @RequirePerm('bot')
   vincular(@CurrentUser() user: AuthUser, @Body() dto: { instancia?: string }) {
+    // Ligar uma conexão que já existe é da distribuição: a tela da loja não usa esta rota, e o nome da instância de outra
+    // loja dava acesso às conversas dela (S2-01). A loja conecta o próprio número pelo QR Code.
+    if (user.categoria !== 'suporte') throw new ForbiddenException('Esta conexão é feita pelo suporte da DMS.');
     return this.service.vincular(user.tenantId, dto?.instancia ?? '');
   }
 

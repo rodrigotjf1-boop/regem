@@ -62,6 +62,23 @@ describe('WhatsappCloudService.conectarNumeroExistente — número já na oficia
   });
   afterEach(() => jest.restoreAllMocks());
 
+  it('S2-05: número ligado a outra empresa não entra, nem como marketing', async () => {
+    const { pedidos } = fetchFalso(metaOk);
+    let n = 0;
+    const db: any = {
+      select: () => ({
+        from: () => ({
+          where: () => {
+            n++;
+            return Promise.resolve(n === 3 ? [{ tenantId: 'outra-empresa' }] : []);
+          },
+        }),
+      }),
+    };
+    await expect(new WhatsappCloudService(db).conectarNumeroExistente('tenant-1', 'marketing', PHONE, WABA)).rejects.toThrow('já está ligado a outra loja');
+    expect(pedidos.some((p) => p.url.includes('subscribed_apps'))).toBe(false);
+  });
+
   it('confere o número, confere que é da conta e inscreve o nosso app nela', async () => {
     const { pedidos } = fetchFalso(metaOk);
     const r = await cloudCom().conectarNumeroExistente('tenant-1', 'principal', PHONE, WABA);
