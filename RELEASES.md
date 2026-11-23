@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Relatórios › Notícias do ramo, fase N1 (23/11; mig 494, só nuvem).** Na nuvem vale assim que sobe. **Vale na loja:** a tela e a rota que
+  pede o boletim à nuvem chegam com o próximo `.zip`; até lá, o item não aparece no servidor da loja. Não mexe no `sync-daemon`: a tabela
+  nova não tem `tenant_id`, não existe na loja e a coluna nova é de `pulso_estado`, que já é `SO_NUVEM`.
+
 - **Separação entre empresas nas integrações (23/11; ERR-585; SEM migration).** Na nuvem vale assim que sobe: entregador só da empresa do
   pedido, instância da Evolution ligada só pelo suporte, loja da 99 e número oficial em uma empresa só, aviso da 99 sem assinatura só com a
   confirmação dela. O despacho do servidor da loja recebe a conferência do entregador com o próximo `.zip`.

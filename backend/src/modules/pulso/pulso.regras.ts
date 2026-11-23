@@ -160,3 +160,110 @@ export const resumoDosInteresses = (corpo: { municipios: string[]; temas: string
   createHash('sha256').update(JSON.stringify(corpo), 'utf8').digest('hex');
 
 export const codigoIbgeValido = (v: unknown): boolean => CODIGO_IBGE.test(String(v ?? ''));
+
+// ── NOTÍCIAS DO RAMO (fase N1; protótipo `mockups/regem-noticias-do-ramo.html`) ─────────────────────────────────────────
+
+/** O ramo da empresa que tem boletim: o Pulso só publica o de bares e restaurantes (decisão N3). */
+export const RAMO_DA_EMPRESA_COM_BOLETIM = 'food_service';
+/** Quantos dias a cópia do boletim fica guardada (decisão N4). */
+export const DIAS_DE_BOLETIM = 90;
+const MAX_DESTAQUES = 5;
+const MAX_NOVIDADES = 3;
+const MAX_NA_LISTA = 20;
+
+export type NoticiaDoBoletim = {
+  id: string;
+  titulo: string;
+  link: string;
+  categoria: string;
+  categoriaNome: string;
+  publicadoEm: string;
+  emDiscussao: boolean;
+  aviso: string | null;
+  credito: string;
+};
+export type IndicadorDoBoletim = {
+  id: string;
+  nome: string;
+  valor: number;
+  unidade: string;
+  referencia: string;
+  acumulado12Meses: number | null;
+  mudou: boolean;
+  credito: string;
+};
+export type BoletimDoRamo = {
+  dia: string;
+  mensagem: string | null;
+  indicadores: IndicadorDoBoletim[];
+  destaques: NoticiaDoBoletim[];
+  novidades: NoticiaDoBoletim[];
+  mais: NoticiaDoBoletim[];
+};
+
+/** Só link https vai para a tela: `javascript:` e afins ficam de fora, mesmo vindo de uma fonte conhecida. */
+function linkSeguro(v: unknown): string | null {
+  if (typeof v !== 'string' || v.length > 2000) return null;
+  try {
+    const u = new URL(v);
+    return u.protocol === 'https:' && !u.username && !u.password ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function lerNoticia(n: any): NoticiaDoBoletim | null {
+  const id = typeof n?.id === 'string' || typeof n?.id === 'number' ? String(n.id).slice(0, 40) : null;
+  const titulo = texto(n?.titulo, 500);
+  const link = linkSeguro(n?.link);
+  const categoria = texto(n?.categoria, 40);
+  const quando = typeof n?.publicado_em === 'string' ? Date.parse(n.publicado_em) : NaN;
+  // A licença das fontes pede o crédito: notícia sem crédito não se repassa.
+  const credito = texto(n?.fonte?.credito, 200) ?? texto(n?.fonte?.nome, 200);
+  if (!id || !titulo || !link || !categoria || !Number.isFinite(quando) || !credito) return null;
+  const emDiscussao = n?.em_discussao === true;
+  return {
+    id,
+    titulo,
+    link,
+    categoria,
+    categoriaNome: texto(n?.categoria_nome, 80) ?? categoria,
+    publicadoEm: new Date(quando).toISOString(),
+    emDiscussao,
+    // O que está no Congresso nunca sai sem o aviso, mesmo se a porta não mandar a frase.
+    aviso: texto(n?.aviso, 200) ?? (emDiscussao ? 'Em discussão no Congresso: ainda não é lei.' : null),
+    credito,
+  };
+}
+
+function lerIndicador(i: any): IndicadorDoBoletim | null {
+  const id = texto(i?.id, 60);
+  const nome = texto(i?.nome, 120);
+  const valor = typeof i?.valor === 'number' ? i.valor : Number.NaN;
+  const unidade = texto(i?.unidade, 40);
+  const referencia = texto(i?.referencia, 20);
+  const credito = texto(i?.fonte?.credito, 200) ?? texto(i?.fonte?.nome, 200);
+  if (!id || !nome || !Number.isFinite(valor) || !unidade || !referencia || !credito) return null;
+  const doze = i?.detalhes?.acumulado_12_meses;
+  return { id, nome, valor, unidade, referencia, acumulado12Meses: typeof doze === 'number' && Number.isFinite(doze) ? doze : null, mudou: i?.mudou === true, credito };
+}
+
+const listaDeNoticias = (v: unknown, max: number): NoticiaDoBoletim[] =>
+  (Array.isArray(v) ? v : []).map(lerNoticia).filter((n): n is NoticiaDoBoletim => n !== null).slice(0, max);
+
+/** Lê `GET /v1/ramo/boletim` sem confiar: o item torto fica de fora; sem o dia, não há boletim. */
+export function lerBoletimDaPorta(corpo: unknown): BoletimDoRamo | null {
+  const c = objeto(corpo);
+  if (typeof c?.dia !== 'string' || !DIA.test(c.dia)) return null;
+  const destaques = listaDeNoticias(c.destaques, MAX_DESTAQUES);
+  const novidades = listaDeNoticias(c.novidades, MAX_NOVIDADES);
+  return {
+    dia: c.dia,
+    // Com notícia na tela, a frase de "nada importante" não vale, mesmo se a porta mandar.
+    mensagem: destaques.length || novidades.length ? null : texto(c.mensagem, 200),
+    indicadores: (Array.isArray(c.indicadores) ? c.indicadores : []).map(lerIndicador).filter((i: IndicadorDoBoletim | null): i is IndicadorDoBoletim => i !== null).slice(0, 10),
+    destaques,
+    novidades,
+    mais: listaDeNoticias(c.mais, MAX_NA_LISTA),
+  };
+}
