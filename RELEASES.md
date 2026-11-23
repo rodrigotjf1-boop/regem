@@ -19,6 +19,9 @@
 - **Boletim do ramo no Mister, fase N2 (23/11; mig 496, só nuvem).** Só na nuvem: o Mister não roda no servidor da loja, e a loja pula a
   migration. Vai no `.zip` sem efeito na loja. Não mexe no `sync-daemon` (coluna nova em tabela que já é só da nuvem).
 
+- **As 33 vendas em dobro desfeitas (23/11; ERR-582; mig 497, só nuvem, já aplicada).** A loja recebe a comanda cancelada, o estorno e o cartão
+  cancelado pela sincronização, sem depender do `.zip`.
+
 - **Relatórios: `credit_card` e `debit_card` como cartão (23/11; ERR-587; SEM migration).** Na nuvem vale assim que sobe, inclusive para
   as vendas antigas, porque o relatório traduz o código na hora. O relatório do servidor da loja recebe a mesma leitura com o próximo
   `.zip`. Não mexe no `sync-daemon` nem em dado gravado.
