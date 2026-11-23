@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **As 16 vendas em dobro de agosto e setembro desfeitas (23/11; ERR-582; mig 500, só nuvem, já aplicada).** A loja recebe a comanda cancelada,
+  o estorno e o cartão cancelado pela sincronização, sem depender do `.zip`.
+
 - **Mister: burn rate e runway pelo extrato, R2 da versão 8 (23/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
 
 - **Financeiro › Banco e repasses, R1 da versão 8 do Mister (23/11; mig 499, só nuvem).** Importar o extrato OFX, só para o presidente. A
