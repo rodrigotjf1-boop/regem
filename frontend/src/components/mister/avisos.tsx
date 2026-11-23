@@ -34,7 +34,8 @@ const TIPOS_DO_GASTO = ['gasto_whatsapp', 'franquia_atendimento'];
 const DESTINOS_DO_GASTO: Destino[] = ['presidente', 'gerente', 'tela', 'dms'];
 type AvisoNaTela = { tipo: string; grupo: string; titulo: string; descricao: string; jaFunciona: boolean; regra: Regra; padrao: boolean };
 type DaTela = { avisos: AvisoNaTela[]; destinos: { id: Destino; nome: string }[] };
-type RegraDoRelatorio = { ligado: boolean; hora: string; diaSemana: number | null };
+/** `convidarFora`: só no boletim do ramo (mig 496), o convite pago para quem está fora das 24 horas. */
+type RegraDoRelatorio = { ligado: boolean; hora: string; diaSemana: number | null; convidarFora?: boolean };
 type RelatorioNaTela = {
   tipo: string;
   titulo: string;
@@ -92,11 +93,14 @@ const deValorDaConversa = (v: Valor | undefined): Conversa => {
 /** Os relatórios (mig 420) ficam nos mesmos valores da tela, com a chave `rel:<tipo>`. */
 const REL = 'rel:';
 const DIAS_DA_SEMANA = ['segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado', 'domingo'];
-const paraValorDoRelatorio = (r: RegraDoRelatorio): string => JSON.stringify({ ligado: r.ligado, hora: r.hora, diaSemana: r.diaSemana });
+/** O boletim do Pulso fica pronto às 8h: antes disso não há o que mandar (o servidor confere a mesma hora). */
+const HORA_MINIMA_DO_BOLETIM = '08:15';
+const paraValorDoRelatorio = (r: RegraDoRelatorio): string =>
+  JSON.stringify({ ligado: r.ligado, hora: r.hora, diaSemana: r.diaSemana, ...(r.convidarFora === undefined ? {} : { convidarFora: r.convidarFora }) });
 const deValorDoRelatorio = (v: Valor | undefined): RegraDoRelatorio => {
   try {
     const r = JSON.parse(String(v ?? ''));
-    return { ligado: !!r.ligado, hora: String(r.hora ?? ''), diaSemana: r.diaSemana ?? null };
+    return { ligado: !!r.ligado, hora: String(r.hora ?? ''), diaSemana: r.diaSemana ?? null, ...(typeof r.convidarFora === 'boolean' ? { convidarFora: r.convidarFora } : {}) };
   } catch {
     return { ligado: false, hora: '', diaSemana: null };
   }
@@ -112,6 +116,8 @@ const MOTIVO_DO_RELATORIO: Record<string, string> = {
   teto_atingido: 'a chave de IA chegou ao teto de gasto',
   interrompido: 'o servidor reiniciou no meio',
   sem_fichas: 'as fichas do resumo já não estavam na Página de vagas quando a pessoa tocou em "Ver resumo"',
+  fora_da_janela_sem_convite: 'a pessoa não falou com o Mister nas últimas 24 horas e lê o boletim na tela, sem custo',
+  sem_boletim: 'o boletim daquele dia já não estava disponível quando a pessoa tocou em "Ver resumo"',
 };
 const quandoFoi = (iso: string) => {
   const d = new Date(iso);
@@ -451,9 +457,9 @@ export function AvisosDoMister() {
       titulo: 'Relatórios',
       nota: (
         <span className={`text-sm ${texto2}`}>
-          O resumo do dia e o da semana usam a IA: cada um soma no &quot;Uso da IA&quot;. O de fichas novas só conta: não usa a IA. O resumo chega pelo WhatsApp a
-          quem ligou o próprio número em Pessoas. Quem não falou com o Mister nas últimas 24 horas recebe antes um convite pelo modelo de mensagem aprovado
-          pela Meta, e o resumo é feito quando a pessoa toca em &quot;Ver resumo&quot;.
+          O resumo do dia e o da semana usam a IA: cada um soma no &quot;Uso da IA&quot;. O de fichas novas e o boletim do ramo não usam a IA. O resumo chega pelo
+          WhatsApp a quem ligou o próprio número em Pessoas. Quem não falou com o Mister nas últimas 24 horas recebe antes um convite pelo modelo de mensagem
+          aprovado pela Meta, e o resumo é feito quando a pessoa toca em &quot;Ver resumo&quot;. No boletim do ramo, esse convite é opcional.
         </span>
       ),
       itens: relatorios.map((rel) => ({
@@ -467,6 +473,13 @@ export function AvisosDoMister() {
             {rel.vaiPara && (
               <span className="mt-1 block text-xs" data-relatorio-vai-para>
                 Vai para: {rel.vaiPara}.
+              </span>
+            )}
+            {rel.tipo === 'boletim_ramo' && deValorDoRelatorio(valores[REL + rel.tipo]).ligado && (
+              <span className="mt-1 block text-xs" data-boletim-custo>
+                {deValorDoRelatorio(valores[REL + rel.tipo]).convidarFora
+                  ? 'Fora das 24 horas: cerca de R$ 0,035 por pessoa, por dia em que houver boletim. O boletim chega quando a pessoa tocar em "Ver resumo".'
+                  : 'Fora das 24 horas: a pessoa lê na tela, sem custo. O WhatsApp só permite mensagem livre dentro das 24 horas.'}
               </span>
             )}
             {rel.ultimo && (
@@ -508,10 +521,32 @@ export function AvisosDoMister() {
                   type="time"
                   className="min-h-10 rounded-md border border-input bg-background px-2"
                   value={atual.hora}
+                  min={rel.tipo === 'boletim_ramo' ? HORA_MINIMA_DO_BOLETIM : undefined}
                   required
-                  onChange={(e) => e.target.value && mudar(paraValorDoRelatorio({ ...atual, hora: e.target.value }))}
+                  onChange={(e) => {
+                    const hora = e.target.value;
+                    if (!hora) return;
+                    if (rel.tipo === 'boletim_ramo' && hora < HORA_MINIMA_DO_BOLETIM) {
+                      toast.error(`Escolha um horário a partir de ${HORA_MINIMA_DO_BOLETIM}: o boletim fica pronto às 8h.`);
+                      return;
+                    }
+                    mudar(paraValorDoRelatorio({ ...atual, hora }));
+                  }}
                 />
               </label>
+              {rel.tipo === 'boletim_ramo' && atual.ligado && (
+                <label className="flex min-w-0 items-center gap-1 text-sm">
+                  <span className="sr-only">Quem não falou com o Mister nas últimas 24 horas</span>
+                  <select
+                    className="min-h-10 max-w-full rounded-md border border-input bg-background px-2"
+                    value={atual.convidarFora ? 'convite' : 'nao'}
+                    onChange={(e) => mudar(paraValorDoRelatorio({ ...atual, convidarFora: e.target.value === 'convite' }))}
+                  >
+                    <option value="nao">Sem convite · R$ 0</option>
+                    <option value="convite">Com convite · R$ 0,035</option>
+                  </select>
+                </label>
+              )}
               <Chave ligada={atual.ligado} rotulo={rel.titulo} aoMudar={(l) => mudar(paraValorDoRelatorio({ ...atual, ligado: l }))} />
             </span>
           );
