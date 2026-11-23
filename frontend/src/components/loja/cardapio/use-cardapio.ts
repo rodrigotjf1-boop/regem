@@ -1056,19 +1056,15 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
           observacao: i.obs || undefined,
         })),
       });
-      // Pagamento online: com gateway configurado, retorna o PIX (QR + copia-e-cola) para exibir;
-      // sem gateway ATIVO, o backend aprova no modo mock (sem PIX). Não engolir o erro: se falhar,
-      // mostrar o motivo. E se voltar sem PIX (mock), avisar que o online está inativo.
+      // Pagamento online: com gateway configurado, retorna o PIX (QR + copia-e-cola) para exibir. Não engolir o erro: se
+      // falhar, mostrar o motivo ao cliente, em palavras dele.
       let pixResp: any = null;
       let pixErro: string | null = null;
       if (r.pagamentoOnline && r.pedidoId) {
         try {
           pixResp = await api.cardapioPagar(token, r.pedidoId);
-          if (!pixResp?.pix?.qrCode)
-            pixErro =
-              'Pagamento online indisponível: o Mercado Pago não está ativo. ' +
-              'Ative em Delivery · Integrações (cole o Access Token e ligue a chave). ' +
-              'O pedido foi registrado.';
+          if (!pixResp?.pix?.qrCode && !pixResp?.jaPago)
+            pixErro = 'O pagamento online não saiu agora. Fale com a loja para concluir o pedido.';
         } catch (e) {
           pixErro = e instanceof Error ? e.message : 'Não foi possível gerar o PIX.';
         }

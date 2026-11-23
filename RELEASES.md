@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Pagamento online só com cobrança de verdade (23/11; ERR-581; SEM migration).** Vale na nuvem assim que sobe: loja sem gateway não
+  aprova mais o pedido, não oferece Pix nem cartão online, e pedido cancelado ou concluído não recebe cobrança. O servidor da loja recebe a
+  mesma regra com o próximo `.zip`.
+
 - **Recebimento do pedido numa transação só (22/11; ERR-579; SEM migration).** **Vale na loja:** finalizar a entrega, "Receber pagamento"
   e "Cobrar e entregar" rodam no servidor da loja, então a correção só chega lá com o próximo `.zip`.
 
