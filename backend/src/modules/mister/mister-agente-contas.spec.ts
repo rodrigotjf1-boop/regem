@@ -1,4 +1,4 @@
-import { entradaDoGraficoPorHora, periodoDaFerramenta, valoresSemConta } from './mister-agente.regras';
+import { entradaDoGraficoPorHora, periodoDaFerramenta, valoresEmReais, valoresSemConta } from './mister-agente.regras';
 
 // A conta que a resposta faz sobre os próprios valores, e o gráfico por hora de um dia (ERR-591).
 
@@ -21,8 +21,19 @@ describe('o valor que não veio da consulta', () => {
     expect(valoresSemConta('Somando tudo, R$ 100,80.', pix)).toEqual([10080]);
   });
 
-  it('valor arredondado não passa como conta', () => {
-    expect(valoresSemConta('Saiu R$ 16.500,00, ou seja, mais de R$ 15 mil.', [{ saiu: 16500 }])).toEqual([1500]);
+  it('"R$ 15 mil" é quinze mil, e não quinze reais', () => {
+    expect(valoresEmReais('R$ 15 mil, R$ 1,5 mil, R$15mil e R$ 2 milhões')).toEqual([1500000, 150000, 1500000, 200]);
+  });
+
+  it('em mil, vale o valor da consulta arredondado; o que não vem de nenhum, não', () => {
+    const meses = [{ saiu: [16500, 15700, 16550], entrou: 10000 }];
+    expect(valoresSemConta('As saídas passam de R$ 15 mil, e a entrada fica em R$ 10 mil.', meses)).toEqual([]);
+    expect(valoresSemConta('Saiu perto de R$ 17 mil.', meses)).toEqual([]);
+    expect(valoresSemConta('Saiu perto de R$ 90 mil.', meses)).toEqual([9000000]);
+  });
+
+  it('escrito por extenso, o valor arredondado não passa', () => {
+    expect(valoresSemConta('Saiu R$ 15.000,00.', [{ saiu: 15700 }])).toEqual([1500000]);
   });
 
   it('resposta sem valor, ou só com valor da consulta, não tem o que apontar', () => {
