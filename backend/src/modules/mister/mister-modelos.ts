@@ -94,7 +94,9 @@ export function parametrosDoResumo(tipo: TipoDeRelatorio, d: RelatorioDevido, em
       ? `resumo de ${nomeDoDia(d.referencia)}, ${diaMesDoRelatorio(d.referencia)}`
       : tipo === 'fichas_novas'
         ? `resumo das fichas novas de candidatos de ${diaMesDoRelatorio(d.referencia)}`
-        : `resumo da semana de ${diaMesDoRelatorio(d.referencia)} a ${diaMesDoRelatorio(d.ate)}`;
+        : tipo === 'boletim_ramo'
+          ? `boletim do ramo de ${diaMesDoRelatorio(d.referencia)}`
+          : `resumo da semana de ${diaMesDoRelatorio(d.referencia)} a ${diaMesDoRelatorio(d.ate)}`;
   return [parametro(qual), parametro(empresa)];
 }
 

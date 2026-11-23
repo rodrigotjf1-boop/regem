@@ -512,7 +512,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -6741,12 +6741,14 @@ export function testesDoMisterComPostgres(): void {
         ['resumo_dia', { ligado: false, hora: '23:30', diaSemana: null }, null],
         ['resumo_semana', { ligado: false, hora: '09:00', diaSemana: 1 }, null],
         ['fichas_novas', { ligado: false, hora: '09:00', diaSemana: null }, null],
+        ['boletim_ramo', { ligado: false, hora: '08:30', diaSemana: null, convidarFora: false }, null],
       ]);
-      // F4c: o das fichas novas diz para quem vai e que não usa a IA.
+      // F4c: o das fichas novas diz para quem vai e que não usa a IA; o boletim do ramo (N2) também.
       expect(tela.relatorios.map((r) => [r.tipo, r.usaIa, !!r.vaiPara])).toEqual([
         ['resumo_dia', true, false],
         ['resumo_semana', true, false],
         ['fichas_novas', false, true],
+        ['boletim_ramo', false, true],
       ]);
       const salvo = await relatoriosConfig.salvar(usuario('ana'), { relatorios: [{ tipo: 'resumo_dia', ligado: true, hora: '22:00' }] });
       expect(salvo.relatorios[0].regra).toEqual({ ligado: true, hora: '22:00', diaSemana: null });
@@ -6968,6 +6970,89 @@ export function testesDoMisterComPostgres(): void {
       // A Ana não pega o resumo do Carlos.
       numero.pedidos.length = 0;
       expect(await mandar(telAna, 'Ver resumo', { codigoDoModelo: `mister:resumo:${convite.id}` })).toBe('modelo_nao_achado');
+    });
+
+    // Fase N2 das Notícias do ramo (mig 496). A leitura da cópia e a régua de quem vê estão na `pulso-pg.spec.ts`, que aplica a
+    // cadeia do Pulso (ERR-451); aqui ela é um dublê, e o que se prova é o fluxo: sem a IA, sem gastar e com o convite opcional.
+    it('N2: o boletim sai sem a IA; fora das 24 horas não gasta; com o convite, no toque, vai o boletim do MESMO dia', async () => {
+      const relatoriosConfig = new MisterRelatoriosConfigService(db, auditoria);
+      const pedidosAIa: any[] = [];
+      const agenteDeTeste = { responder: async (...a: any[]) => (pedidosAIa.push(a), { texto: 'x', motivo: null, trilha: {}, resultados: [] }) } as any;
+      const relatorios = new MisterRelatoriosService(db, relatoriosConfig, agenteDeTeste, ferramentas, numero, entrada);
+      relatorios.onModuleInit();
+      const lidas: any[] = [];
+      let resposta: { texto: string } | null = null;
+      (relatorios as any).boletimDaPessoa = async (t: string, c: string, tel: string, d: any) => {
+        lidas.push({ t, c, tel, d });
+        return resposta;
+      };
+      await modulo(A, true);
+      await numeroConectado(true);
+      const telAna = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', telAna);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      // Um horário depois do mínimo do boletim, dentro das 3 horas da volta (o relógio do teste é fixo).
+      const agora = new Date('2026-11-23T12:00:00.000Z'); // 09:00 em São Paulo
+      await q(`update mister_vinculo set ultima_entrada_em = $1 where tenant_id = $2`, [agora, A]);
+      await relatoriosConfig.salvar(usuario('ana'), { relatorios: [{ tipo: 'boletim_ramo', ligado: true, hora: '08:30' }] });
+      const linhasDe = () => q(`select colaborador_id, situacao, motivo, texto from mister_relatorio where tenant_id = $1 and tipo = 'boletim_ramo' order by situacao, colaborador_id`, [A]);
+
+      // Sem cópia ou dia sem novidade: nada sai e nenhuma linha fica (a volta seguinte tenta de novo).
+      numero.pedidos.length = 0;
+      expect(await relatorios.volta(agora, [A])).toEqual({ devidos: 1, feitos: 0, enviados: 0, naoEnviados: 0, convites: 0 });
+      expect(numero.enviadas).toEqual([]);
+      expect(await linhasDe()).toEqual([]);
+      expect(lidas[0].d).toEqual({ referencia: '2026-11-23', ate: '2026-11-23' });
+
+      // A Ana (dentro das 24 horas) recebe; o Carlos (fora) não recebe nada e não custa nada: fica o motivo.
+      await q(`update mister_vinculo set ultima_entrada_em = $1::timestamptz - interval '25 hours' where colaborador_id = $2`, [agora, pessoa.carlos]);
+      resposta = { texto: '*Boletim do ramo · seg, 23/11*' };
+      expect(await relatorios.volta(agora, [A])).toEqual({ devidos: 1, feitos: 2, enviados: 1, naoEnviados: 1, convites: 0 });
+      expect(pedidosAIa).toEqual([]);
+      expect(numero.enviadas.map((m) => [m.para, m.texto])).toEqual([[telAna, '*Boletim do ramo · seg, 23/11*']]);
+      expect((await linhasDe()).find((l: any) => l.colaborador_id === pessoa.carlos)).toMatchObject({ situacao: 'nao_enviado', motivo: 'fora_da_janela_sem_convite', texto: null });
+      // Uma mensagem por pessoa e por dia.
+      numero.pedidos.length = 0;
+      expect(await relatorios.volta(agora, [A])).toMatchObject({ devidos: 1, feitos: 0 });
+      expect(numero.enviadas).toEqual([]);
+
+      // Com o convite ligado: o Carlos recebe o modelo; no toque vai o boletim do mesmo dia, sem a IA. Salvar sem o campo mantém.
+      await q(`delete from mister_relatorio where tenant_id = $1 and tipo = 'boletim_ramo'`, [A]);
+      await relatoriosConfig.salvar(usuario('ana'), { relatorios: [{ tipo: 'boletim_ramo', ligado: true, hora: '08:30', convidarFora: true }] });
+      await relatoriosConfig.salvar(usuario('ana'), { relatorios: [{ tipo: 'boletim_ramo', ligado: true, hora: '08:30' }] });
+      expect((await relatoriosConfig.daTela(A)).relatorios.find((r) => r.tipo === 'boletim_ramo')?.regra.convidarFora).toBe(true);
+      numero.pedidos.length = 0;
+      expect(await relatorios.volta(agora, [A])).toEqual({ devidos: 1, feitos: 2, enviados: 1, naoEnviados: 0, convites: 1 });
+      const [convite] = await q(`select id::text as id, trilha from mister_relatorio where colaborador_id = $1 and tipo = 'boletim_ramo'`, [pessoa.carlos]);
+      expect(convite.trilha).toEqual({ convite: { referencia: '2026-11-23', ate: '2026-11-23' } });
+      expect(numero.enviadas.find((m) => m.para === telCarlos)?.texto).toMatch(/^modelo:mister_resumo_pronto:boletim do ramo de 23\/11/);
+      numero.pedidos.length = 0;
+      lidas.length = 0;
+      resposta = { texto: '*Boletim do ramo · seg, 23/11* para o Carlos' };
+      expect(await mandar(telCarlos, 'Ver resumo', { codigoDoModelo: `mister:resumo:${convite.id}` })).toBe('tocou_modelo');
+      expect(lidas).toEqual([{ t: A, c: pessoa.carlos, tel: telCarlos, d: { referencia: '2026-11-23', ate: '2026-11-23' } }]);
+      expect(numero.enviadas.map((m) => [m.para, m.texto])).toEqual([[telCarlos, '*Boletim do ramo · seg, 23/11* para o Carlos']]);
+      expect(pedidosAIa).toEqual([]);
+
+      // O boletim sumiu antes do toque: a pessoa fica sabendo; a linha guarda o motivo.
+      await q(`update mister_relatorio set situacao = 'nao_enviado', motivo = 'convite_enviado', texto = null where id = $1`, [convite.id]);
+      resposta = null;
+      numero.pedidos.length = 0;
+      expect(await mandar(telCarlos, 'Ver resumo', { codigoDoModelo: `mister:resumo:${convite.id}` })).toBe('tocou_modelo');
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('não está mais disponível')]);
+      expect((await linhasDe()).find((l: any) => l.colaborador_id === pessoa.carlos)).toMatchObject({ situacao: 'nao_enviado', motivo: 'sem_boletim', texto: null });
+
+      // Empresa de outro ramo não vê a linha nem salva (a recusa vem antes de gravar).
+      await q(`update empresa set ramo = 'varejo' where id = $1`, [B]);
+      try {
+        expect((await relatoriosConfig.daTela(B)).relatorios.map((r) => r.tipo)).not.toContain('boletim_ramo');
+        await expect(relatoriosConfig.salvar({ ...usuario('ana'), tenantId: B } as any, { relatorios: [{ tipo: 'boletim_ramo', ligado: true, hora: '08:30' }] })).rejects.toThrow('não tem o boletim');
+      } finally {
+        await q(`update empresa set ramo = 'food_service' where id = $1`, [B]);
+      }
+      await q(`delete from mister_relatorio where tenant_id = $1 and tipo = 'boletim_ramo'`, [A]);
+      await q(`delete from mister_relatorio_regra where tenant_id = $1 and tipo = 'boletim_ramo'`, [A]);
     });
 
     // ─────────────── Versão 5, M5e (mig 462): o resumo em arquivo e no link ───────────────
