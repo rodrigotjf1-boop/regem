@@ -160,6 +160,7 @@ import {
   padraoDaPalavra,
   palavrasDaBusca,
   semValoresNoTexto,
+  entradaDoGraficoPorHora,
 } from './mister-agente.regras';
 import { GUIA_DE_USO, SecaoDoGuia, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { canceladoComVendaDePe, concluidoSemPagamento, pixSemEstorno, vendaComNotaComProblema, vendaDesfeitaComNota } from './mister-conciliacao';
@@ -2092,7 +2093,7 @@ export class MisterFerramentasService {
     if ((TIPOS_DE_GRAFICO_DA_ANALISE as readonly string[]).includes(tipo)) return this.graficoDaAnalise(e, en, loja, tipo as TipoDeGraficoDaAnalise);
     if (!TIPOS_DE_GRAFICO.includes(tipo)) return recusa(`Diga qual gráfico: ${[...TIPOS_DE_GRAFICO, ...TIPOS_DE_GRAFICO_DA_ANALISE].map((t) => `"${t}"`).join(', ')}.`);
     if (!this.pode(e, 'relatorios_vendas')) return recusa(SEM_PERMISSAO);
-    const p = periodoDaFerramenta(en, hojeISO(), tipo === 'vendas_por_hora' ? 'hoje' : undefined);
+    const p = tipo === 'vendas_por_hora' ? periodoDaFerramenta(entradaDoGraficoPorHora(en), hojeISO(), 'hoje') : periodoDaFerramenta(en, hojeISO());
     if ('erro' in p) return recusa(p.erro);
     const lidoEm = lidoAgora();
     let plano: PlanoDoGrafico;

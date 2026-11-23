@@ -81,7 +81,7 @@ COMO VOCÊ TRABALHA
 - Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, quanto a venda gastou de um insumo pela ficha técnica (por hora, por dia e de onde saiu), pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, a análise da semana, do pico e dos itens que saem juntos, das fases do mês e das perdas, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal), o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram) como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns) e o que já foi conversado com você nos últimos 30 dias. Antes de dizer que ainda não tem acesso, chame anotar_o_que_falta com o tema do dado pedido. Nunca estime, nunca invente e nunca complete um dado que faltou.
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
-- Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu.
+- Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu. Valor em reais sempre exato, como veio ou como a conta deu: nunca arredonde ("R$ 15 mil").
 - As perguntas anteriores desta conversa aparecem com a hora em que foram feitas e com as consultas feitas naquela hora. Você não vê mais o resultado daquelas consultas, só a sua resposta, e ela estava certa para aquele momento.
 - A loja segue vendendo. É normal o número de agora ser diferente do que você disse antes: diga o número de agora e, se ajudar, que ele mudou desde aquela hora. Não diga que errou, que inventou ou que respondeu sem consultar, e não peça desculpa por resposta antiga. Você só reconhece um erro seu quando a pergunta antiga está marcada "sem consulta" e a resposta dela trazia número. O cabeçalho da pergunta antiga também traz as "ações feitas naquela hora" (regras, anotar o que falta, propor): a ação que está ali FOI feita. Nunca diga que não fez sem conferir pela ferramenta.
 - Para o que é "agora" ou "hoje", consulte de novo em vez de repetir o número antigo.
@@ -592,7 +592,7 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
       properties: {
         tipo: { type: 'string', enum: ['vendas_por_dia', 'vendas_por_hora', 'canais', 'mais_vendidos', 'pico', 'fases_do_mes', 'cancelamentos_por_causa', 'mercadoria_perdida'], description: 'Qual gráfico.' },
         ...PERIODO,
-        dia: { type: 'string', description: 'Para "pico" de um dia só: "hoje", "ontem" ou AAAA-MM-DD.' },
+        dia: { type: 'string', description: 'Para "pico" e "vendas_por_hora" de um dia só: "hoje", "ontem" ou AAAA-MM-DD.' },
         diaDaSemana: { type: 'string', enum: ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'], description: 'Para "pico" de um dia da semana ao longo das últimas semanas.' },
         semanas: { type: 'integer', description: 'Com diaDaSemana: quantas semanas olhar, de 2 a 8. Sem isto, 4.' },
         loja: LOJA,
@@ -1458,6 +1458,34 @@ export function numerosDosResultados(resultados: unknown[]): Set<number> {
   };
   for (const r of resultados) andar(r, 0);
   return achados;
+}
+
+/** Acima disto, a conferência de contas não tenta combinar os valores da resposta. */
+const TETO_DE_VALORES_NA_CONTA = 18;
+
+/**
+ * O valor em reais da resposta que não veio de consulta NEM é conta sobre os valores que a própria resposta mostra (a soma
+ * exata de dois ou mais, ou a diferença entre dois). As instruções permitem somar e comparar: a avaliação só reprova o que sobra.
+ */
+export function valoresSemConta(texto: string, resultados: unknown[] = []): number[] {
+  const origem = numerosDosResultados(resultados);
+  const todos = valoresEmReais(texto);
+  const base = todos.filter((v) => origem.has(v));
+  const soltos = [...new Set(todos.filter((v) => !origem.has(v)))];
+  if (!soltos.length || base.length > TETO_DE_VALORES_NA_CONTA) return soltos;
+  const somas = new Set<number>([0]);
+  for (const v of base) for (const s of [...somas]) somas.add(s + v);
+  return soltos.filter((x) => !somas.has(x) && !base.some((a) => base.includes(a + x)));
+}
+
+/**
+ * O gráfico por hora de UM dia: o `dia` vira o período. Sem isto, "ontem" pedido pelo `dia` caía no padrão e o gráfico saía
+ * com os números de hoje (ERR-591). Quem manda `periodo`, `de` ou `ate` segue como veio.
+ */
+export function entradaDoGraficoPorHora(en: Record<string, unknown>): Record<string, unknown> {
+  const dia = String(en.dia ?? '').trim().toLowerCase();
+  if (!dia || en.periodo !== undefined || en.de !== undefined || en.ate !== undefined) return en;
+  return dia === 'hoje' || dia === 'ontem' ? { ...en, periodo: dia } : { ...en, de: dia, ate: dia };
 }
 
 /**
