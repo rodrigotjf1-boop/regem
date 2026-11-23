@@ -22,6 +22,8 @@ import { lerPedidos } from './mister-lista';
 import { ACOES, conferirAcao, resumoDoPedido, sigaDaAcao } from './mister-acoes';
 import { botoesDoPlano, lerPassos, textoDoPlano } from './mister-plano';
 import { ehTipoDeAviso } from './mister-avisos.regras';
+import { montarNoticias, pedidoDasNoticias } from './mister-noticias';
+import type { BoletimDoRamo, NoticiaDoBoletim } from '../pulso/pulso.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -47,6 +49,32 @@ const EMPRESA = 'Empresa de Teste da Avaliação';
 const LOJA = 'Loja Centro';
 const SEM_VALORES = 'O perfil desta pessoa no Regem não mostra valores em reais: os valores vêm vazios.';
 const SEM_PERMISSAO = 'O perfil desta pessoa no Regem não dá acesso a esta informação. Quem muda o perfil é o presidente.';
+const NOTICIA_DA_AVALIACAO = (id: string, titulo: string, categoria: string, categoriaNome: string, credito: string, emDiscussao = false): NoticiaDoBoletim => ({
+  id,
+  titulo,
+  link: `https://fonte.teste/${id}`,
+  categoria,
+  categoriaNome,
+  publicadoEm: `2026-11-1${id}T14:00:00.000Z`,
+  emDiscussao,
+  aviso: emDiscussao ? 'Em discussão no Congresso: ainda não é lei.' : null,
+  credito,
+});
+/** O boletim inventado da loja de teste: um ato oficial, um projeto no Congresso e duas novidades do setor. */
+const BOLETIM_DA_AVALIACAO: BoletimDoRamo = {
+  dia: '2026-11-13',
+  mensagem: null,
+  indicadores: [{ id: 'selic', nome: 'Selic (meta)', valor: 13.75, unidade: '% ao ano', referencia: '2026-11-13', acumulado12Meses: null, mudou: false, credito: 'Fonte: Banco Central do Brasil' }],
+  destaques: [
+    NOTICIA_DA_AVALIACAO('3', 'Receita amplia o ambiente de testes da CBS', 'impostos', 'Impostos e fiscal', 'Fonte: Receita Federal'),
+    NOTICIA_DA_AVALIACAO('2', 'Comissão pode votar a ampliação do limite de faturamento do MEI', 'impostos', 'Impostos e fiscal', 'Agência Câmara', true),
+  ],
+  novidades: [
+    NOTICIA_DA_AVALIACAO('1', 'Hamburguerias apostam em cardápio menor para reduzir desperdício', 'tendencias', 'Tendências do ramo', 'Fonte: Mercado&Consumo'),
+    NOTICIA_DA_AVALIACAO('0', 'iFood muda a regra de cupom para restaurantes', 'plataformas', 'Plataformas de delivery', 'Fonte: Mercado&Consumo'),
+  ],
+  mais: [],
+};
 
 export interface PerfilDaAvaliacao {
   nivel: NivelDoMister;
@@ -681,6 +709,11 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         produtos: nomes.slice(0, quantos).map(([produto, quantidade], n) => ({ posicao: n + 1, produto, quantidade, faturamento: v(Math.round(quantidade * 23.45 * 100) / 100) })),
       });
     }
+    // Fase N3: as notícias do ramo, pela MESMA montagem da consulta de verdade.
+    case 'noticias_do_ramo': {
+      const p = pedidoDasNoticias(en, '2026-11-13');
+      return 'erro' in p ? recusa(p.erro) : ok(montarNoticias([BOLETIM_DA_AVALIACAO], p));
+    }
     case 'insumo_vendido': {
       // M3c: os números da conversa 15 do protótipo (versão 3) — "carne 56 g" hoje; "carne" sozinha pede a escolha.
       const pedido = String(en.insumo ?? '').toLowerCase();
@@ -1135,6 +1168,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 8, E2: a venda em dia de jogo, e a chuva que ainda não tem dias guardados (V8-10).
   { id: 'c81', pergunta: 'Como a loja vende em dia de jogo?', consultas: ['clima_e_eventos'], numeros: ['18,1|18'], contem: ['5 dias|cinco dias'] },
   { id: 'c82', pergunta: 'E quando chove, vende mais?', consultas: ['clima_e_eventos'], numeros: ['60'], contem: ['previsão'] },
+  // Fase N3: as notícias do ramo. O que está no Congresso não é lei, e o efeito na loja é com o contador.
+  { id: 'c83', pergunta: 'Teve novidade de imposto essa semana?', consultas: ['noticias_do_ramo'], contem: ['CBS', 'MEI', 'não é lei|em discussão', 'contador'] },
+  { id: 'c84', pergunta: 'Quais as tendências do setor de restaurantes?', consultas: ['noticias_do_ramo'], contem: ['cardápio menor', 'iFood'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

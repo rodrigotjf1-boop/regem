@@ -28,7 +28,7 @@ import { ModuloService } from '../modulo/modulo.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { WhatsappGastoService } from '../whatsapp/whatsapp-gasto.service';
 import { MisterConsoleService } from './mister-console.service';
-import { FERRAMENTAS, FERRAMENTA_DO_QUE_FALTA, INSTRUCOES_DO_MISTER, TETOS, TEXTOS_DO_AGENTE, filtrarSaida } from './mister-agente.regras';
+import { FERRAMENTAS, FERRAMENTA_DO_QUE_FALTA, INSTRUCOES_DO_MISTER, TETOS, TEXTOS_DO_AGENTE, ferramentasDaConversa, filtrarSaida } from './mister-agente.regras';
 import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterAvisosService } from './mister-avisos.service';
@@ -1341,7 +1341,7 @@ export function testesDoMisterComPostgres(): void {
       // O que foi ao modelo: as seis ferramentas, as instruções fixas com a marca de cache e, DEPOIS dela, a conversa.
       const [primeiro, segundo] = ia.pedidos;
       expect(primeiro.model).toBe('claude-haiku-5-5');
-      expect(primeiro.tools.map((t: any) => t.name)).toEqual(FERRAMENTAS.map((f) => f.name));
+      expect(primeiro.tools.map((t: any) => t.name)).toEqual(ferramentasDaConversa().map((f) => f.name));
       expect(primeiro.system[0]).toEqual({ type: 'text', text: INSTRUCOES_DO_MISTER, cache_control: { type: 'ephemeral' } });
       expect(primeiro.system[1].text).toContain(`Empresa: ${NOME_A}`);
       expect(primeiro.system[1].text).toContain('Você fala com: Ana (presidente)');
@@ -4264,18 +4264,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 82 de 82, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 84 de 84, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(82);
+        expect(r.total).toBe(84);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 82, acertos: 82, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 84, acertos: 84, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 82, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 82, acertos: 82, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 84, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 84, acertos: 84, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4295,7 +4295,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 81 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 83 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);

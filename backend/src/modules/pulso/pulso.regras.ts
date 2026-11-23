@@ -169,6 +169,8 @@ export const codigoIbgeValido = (v: unknown): boolean => CODIGO_IBGE.test(String
 export const RAMO_DA_EMPRESA_COM_BOLETIM = 'food_service';
 /** Quantos dias a cópia do boletim fica guardada (decisão N4). */
 export const DIAS_DE_BOLETIM = 90;
+/** Cada volta confere hoje e os 2 dias anteriores: a notícia tirada no Pulso some também da cópia de ontem. */
+export const DIAS_DO_BOLETIM_RECONFERIDOS = 3;
 const MAX_DESTAQUES = 5;
 const MAX_NOVIDADES = 3;
 const MAX_NA_LISTA = 20;

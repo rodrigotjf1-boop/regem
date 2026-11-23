@@ -1,6 +1,6 @@
 import { FalhaDaIa, PedidoDeIa, RespostaDaIa } from '../ia/ia-empresa.service';
 import { PRECOS_POR_MILHAO } from '../ia/ia.regras';
-import { FERRAMENTAS, FERRAMENTAS_DA_ANALISE, INSTRUCOES_DO_MISTER, MODELO_DAS_ANALISES, MODELO_DAS_PERGUNTAS, MotivoSemResposta, RECURSO_DAS_PERGUNTAS, TETOS, TrocaDaMemoria, entradaParaATrilha, perguntaDaMemoria, podeRodarJunto } from './mister-agente.regras';
+import { FERRAMENTAS, FERRAMENTAS_DA_ANALISE, INSTRUCOES_DO_MISTER, MODELO_DAS_ANALISES, MODELO_DAS_PERGUNTAS, MotivoSemResposta, RECURSO_DAS_PERGUNTAS, TETOS, TrocaDaMemoria, entradaParaATrilha, ferramentasDaConversa, perguntaDaMemoria, podeRodarJunto } from './mister-agente.regras';
 
 /** O modelo das perguntas: o da distribuição (`MISTER_MODELO_PERGUNTAS`), se estiver na tabela de preços; senão o padrão. */
 export function modeloDasPerguntas(): string {
@@ -91,6 +91,8 @@ export interface PortasDoLaco {
   conversa: string;
   /** M2b (mig 435): o texto das instruções no ar (o do código com as trocas publicadas) ou o da candidata; sem ele, o do código. */
   instrucoes?: string;
+  /** A avaliação mede também a consulta que ainda não foi ligada nas conversas (fase N3 das Notícias do ramo). */
+  todasAsFerramentas?: boolean;
   pedir(p: PedidoDeIa): Promise<RespostaDaIa>;
   executar(nome: unknown, entrada: unknown): Promise<ResultadoDaFerramenta>;
   /** Recebe cada resultado na ORDEM em que o modelo pediu (as consultas juntas terminam em qualquer ordem). */
@@ -130,7 +132,7 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
           modelo,
           maxTokens: TETOS.maxTokens,
           system,
-          tools: FERRAMENTAS,
+          tools: portas.todasAsFerramentas ? FERRAMENTAS : ferramentasDaConversa(),
           messages,
           prazoMs: TETOS.prazoDaChamadaMs,
         });

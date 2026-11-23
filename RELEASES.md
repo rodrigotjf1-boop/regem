@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Perguntar ao Mister sobre as notícias do ramo, fase N3 (23/11; SEM migration).** Só na nuvem e desligada até `MISTER_NOTICIAS_RAMO=1` no
+  `regem-api`, depois da avaliação no console. A cópia do boletim passa a conferir hoje e os 2 dias anteriores. Vai no `.zip` sem efeito na loja.
+
 - **Mister: clima e eventos na conversa, E1 da versão 8 (23/11; SEM migration).** Vale na nuvem assim que sobe. O `PulsoModule` entra na
   lista dos módulos só da nuvem: com o próximo `.zip` ele deixa de subir no servidor da loja, onde as rotinas dele já não faziam nada.
   Não mexe no `sync-daemon`.
