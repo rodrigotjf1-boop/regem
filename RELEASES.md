@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: aviso da véspera e linha "Amanhã", E3 da versão 8 (23/11; mig 498, só nuvem).** Só na nuvem: o Mister não roda no servidor
+  da loja, e a loja pula a migration. Vai no `.zip` sem efeito na loja. Não mexe no `sync-daemon` (coluna nova em tabela só da nuvem).
+
 - **Mister: clima e eventos na conversa, E1 da versão 8 (23/11; SEM migration).** Vale na nuvem assim que sobe. O `PulsoModule` entra na
   lista dos módulos só da nuvem: com o próximo `.zip` ele deixa de subir no servidor da loja, onde as rotinas dele já não faziam nada.
   Não mexe no `sync-daemon`.

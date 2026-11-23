@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ehServidorLocal } from '../../common/modo';
-import { FUSO_OPERACAO, dataNoFuso, horaNoFuso } from '../../common/data';
+import { FUSO_OPERACAO, dataNoFuso, hojeISO, horaNoFuso, somarDias } from '../../common/data';
 import { instanteDe } from '../../common/fuso-sql';
 import { podeAcessar } from '../../auth/permissoes';
 import { ModuloService } from '../modulo/modulo.service';
@@ -29,10 +29,25 @@ import {
   TipoDeRelatorio,
   janelaDasFichas,
   perguntaDoRelatorio,
+  regraDoRelatorioQueVale,
   relatorioDevido,
+  temConviteOpcional,
   textoDasFichasNovas,
   textoDoBoletim,
 } from './mister-relatorios.regras';
+import { lerDiaDaAgenda } from './mister-clima-eventos.leitura';
+import type { EscopoDoMister } from './mister-ferramentas.service';
+import {
+  BOTAO_DA_VESPERA,
+  type DaVespera,
+  PERGUNTA_DO_ESTOQUE,
+  TEXTO_DEIXA_ASSIM,
+  botoesDaVespera,
+  lerBotaoDaVespera,
+  linhaDeAmanha,
+  oQueAvisar,
+  textoDaVespera,
+} from './mister-vespera';
 import { pessoaVale } from './mister-vinculo.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -115,6 +130,7 @@ export class MisterRelatoriosService implements OnModuleInit {
   /** O toque em "Ver resumo" chega pela entrada do WhatsApp, que mora no módulo de baixo: ela chama este serviço. */
   onModuleInit(): void {
     this.entrada?.registrarToque('resumo', (id, quem) => this.entregarPeloToque(id, quem));
+    this.entrada?.registrarBotao(BOTAO_DA_VESPERA, (botaoId, quem) => this.tocouNaVespera(botaoId, quem));
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)
@@ -203,6 +219,17 @@ export class MisterRelatoriosService implements OnModuleInit {
       }
       if (!boletim) return null;
     }
+    // A véspera (versão 8, E3): antes da vez, se amanhã tem algo para dizer. Dia comum = nada sai e nada fica.
+    let vespera: { texto: string } | null = null;
+    if (tipo === 'vespera') {
+      try {
+        vespera = await this.vesperaDaPessoa(tenantId, pessoa.colaboradorId, pessoa.telefone, devido);
+      } catch (e: any) {
+        this.logger.error(`a véspera de ${devido.referencia} (empresa ${tenantId}) não foi lida — ${e?.message ?? e}`, e?.stack);
+        return null;
+      }
+      if (!vespera) return null;
+    }
     const [vez] = linhas(
       await this.db.execute(sql`
         insert into mister_relatorio (tenant_id, tipo, referencia, colaborador_id, final_do_telefone)
@@ -220,8 +247,8 @@ export class MisterRelatoriosService implements OnModuleInit {
       // a pessoa tocar em "Ver resumo". O período fica na trilha (o toque faz o resumo do MESMO período, mesmo dias depois).
       // Q1 (mig 436): pelo Evolution não há janela — o resumo vai direto.
       if (!(await this.numero.semJanela()) && !dentroDaJanelaDoWhatsapp(pessoa.ultimaEntrada, agora.getTime())) {
-        // O boletim só gasta com o convite se a empresa escolheu (decisão N7).
-        if (tipo === 'boletim_ramo' && !regra.convidarFora) return await naoSaiu(FORA_SEM_CONVITE);
+        // O boletim e a véspera só gastam com o convite se a empresa escolheu (decisões N7 e V8-9).
+        if (temConviteOpcional(tipo) && !regra.convidarFora) return await naoSaiu(FORA_SEM_CONVITE);
         try {
           await this.numero.enviarModelo(pessoa.telefone, MODELO_DO_RESUMO, parametrosDoResumo(tipo, devido, pessoa.empresa), { tipo: 'resumo', id: vez.id });
         } catch (e: any) {
@@ -253,21 +280,32 @@ export class MisterRelatoriosService implements OnModuleInit {
         await this.concluir(vez.id, 'enviado', null, { texto });
         return true;
       }
+      if (tipo === 'vespera') {
+        const texto = vespera!.texto;
+        try {
+          await this.mandarVespera(pessoa.telefone, String(vez.id), texto);
+        } catch (e: any) {
+          return await naoSaiu(e instanceof FalhaDoEnvioDoMister ? `envio: ${e.motivo}` : 'envio', { texto });
+        }
+        await this.concluir(vez.id, 'enviado', null, { texto });
+        return true;
+      }
       const escopo = await this.ferramentas.escopo(tenantId, pessoa.colaboradorId, pessoa.telefone);
       if (!escopo || escopo.semLoja) return await naoSaiu('sem_acesso');
       const fim = await this.agente.responder(escopo, [], perguntaDoRelatorio(tipo, devido), { recurso: RECURSO_DO_RELATORIO[tipo] });
       if (fim.motivo) return await naoSaiu(fim.motivo, { trilha: fim.trilha });
       const saida = filtrarSaida(fim.texto, fim.resultados);
+      const textoFinal = tipo === 'resumo_dia' && regra.linhaAmanha ? await this.comLinhaDeAmanha(escopo, devido.referencia, saida.texto) : saida.texto;
       const trilha: Record<string, unknown> = { ...fim.trilha, conferencia: saida.notas };
       try {
         // Versão 5, M5e: o texto e o que vai junto ("Como mandar o resumo"); sem o serviço, só o texto, como antes.
         if (this.arquivo)
-          trilha.entrega = await this.arquivo.entregar({ tenantId, colaboradorId: pessoa.colaboradorId, telefone: pessoa.telefone }, escopo, String(vez.id), tipo as TipoDoResumo, devido.referencia, saida.texto);
-        else await this.numero.enviar(pessoa.telefone, { texto: saida.texto });
+          trilha.entrega = await this.arquivo.entregar({ tenantId, colaboradorId: pessoa.colaboradorId, telefone: pessoa.telefone }, escopo, String(vez.id), tipo as TipoDoResumo, devido.referencia, textoFinal);
+        else await this.numero.enviar(pessoa.telefone, { texto: textoFinal });
       } catch (e: any) {
-        return await naoSaiu(e instanceof FalhaDoEnvioDoMister ? `envio: ${e.motivo}` : 'envio', { texto: saida.texto, trilha });
+        return await naoSaiu(e instanceof FalhaDoEnvioDoMister ? `envio: ${e.motivo}` : 'envio', { texto: textoFinal, trilha });
       }
-      await this.concluir(vez.id, 'enviado', null, { texto: saida.texto, trilha });
+      await this.concluir(vez.id, 'enviado', null, { texto: textoFinal, trilha });
       return true;
     } catch (e: any) {
       this.logger.error(`o relatório ${tipo} de ${devido.referencia} (empresa ${tenantId}) não foi feito — ${e?.message ?? e}`, e?.stack);
@@ -360,6 +398,31 @@ export class MisterRelatoriosService implements OnModuleInit {
         return true;
       }
     }
+    if (tipo === 'vespera') {
+      // Sem a IA: o dia lido de novo, porque a previsão pode ter mudado desde o convite. Dia que já passou não vira aviso.
+      try {
+        const hoje = hojeISO();
+        const dia = /^\d{4}-\d{2}-\d{2}$/.test(devido.referencia) ? somarDias(devido.referencia, 1) : '';
+        const lido = dia && hoje <= dia ? await this.vesperaDaPessoa(vez.tenantId, vez.colaboradorId, quem.telefone, devido, hoje === dia ? 'Hoje' : 'Amanhã') : null;
+        const saiu = lido
+          ? await this.mandarVespera(quem.telefone, String(vez.id), lido.texto).then(
+              () => true,
+              () => false,
+            )
+          : await this.dizer(quem.telefone, 'Esse aviso já passou, ou não há mais nada para avisar desse dia.');
+        await this.db.execute(sql`
+          update mister_relatorio
+             set situacao = ${saiu && lido ? 'enviado' : 'nao_enviado'}, motivo = ${!lido ? 'sem_aviso' : saiu ? null : 'envio'},
+                 texto = ${lido ? lido.texto : null}, concluido_em = clock_timestamp()
+           where id = ${vez.id}::uuid and motivo = ${FAZENDO_NO_TOQUE}`);
+        return true;
+      } catch (e: any) {
+        this.logger.error(`a véspera ${vez.id} não foi enviada no toque — ${e?.message ?? e}`, e?.stack);
+        await voltarAoConvite().catch(() => undefined);
+        await this.dizer(quem.telefone, TEXTOS_DO_AGENTE.passageira);
+        return true;
+      }
+    }
     try {
       const escopo = /^\d{4}-\d{2}-\d{2}$/.test(devido.referencia) && /^\d{4}-\d{2}-\d{2}$/.test(devido.ate)
         ? await this.ferramentas.escopo(vez.tenantId, vez.colaboradorId, quem.telefone)
@@ -376,20 +439,24 @@ export class MisterRelatoriosService implements OnModuleInit {
         return true;
       }
       const saida = filtrarSaida(fim.texto, fim.resultados);
+      // A linha "Amanhã" só vale se o resumo sai antes do dia seguinte ter passado.
+      const regraAgora = regraDoRelatorioQueVale(tipo, (await this.config.salvas(vez.tenantId)).get(tipo));
+      const aindaVale = tipo === 'resumo_dia' && regraAgora.linhaAmanha && hojeISO() <= somarDias(devido.referencia, 1);
+      const textoFinal = aindaVale ? await this.comLinhaDeAmanha(escopo, devido.referencia, saida.texto) : saida.texto;
       const trilha: Record<string, unknown> = { ...(vez.trilha ?? {}), ...fim.trilha, conferencia: saida.notas };
       // Versão 5, M5e: o texto e o que vai junto, como na rotina.
       let saiu: boolean;
       if (this.arquivo) {
         saiu = await this.arquivo
-          .entregar({ tenantId: vez.tenantId, colaboradorId: vez.colaboradorId, telefone: quem.telefone }, escopo, String(vez.id), tipo as TipoDoResumo, devido.referencia, saida.texto)
+          .entregar({ tenantId: vez.tenantId, colaboradorId: vez.colaboradorId, telefone: quem.telefone }, escopo, String(vez.id), tipo as TipoDoResumo, devido.referencia, textoFinal)
           .then(
             (entrega) => ((trilha.entrega = entrega), true),
             () => false,
           );
-      } else saiu = await this.dizer(quem.telefone, saida.texto);
+      } else saiu = await this.dizer(quem.telefone, textoFinal);
       await this.db.execute(sql`
         update mister_relatorio
-           set situacao = ${saiu ? 'enviado' : 'nao_enviado'}, motivo = ${saiu ? null : 'envio'}, texto = ${saida.texto},
+           set situacao = ${saiu ? 'enviado' : 'nao_enviado'}, motivo = ${saiu ? null : 'envio'}, texto = ${textoFinal},
                trilha = ${JSON.stringify(trilha)}::jsonb, concluido_em = clock_timestamp()
          where id = ${vez.id}::uuid and motivo = ${FAZENDO_NO_TOQUE}`);
       return true;
@@ -474,6 +541,95 @@ export class MisterRelatoriosService implements OnModuleInit {
     if (!l?.corpo) return null;
     const texto = textoDoBoletim(l.corpo as BoletimDoRamo, linkDasNoticias());
     return texto ? { texto } : null;
+  }
+
+  // ───────────────────────────── versão 8, E3: a véspera ─────────────────────────────
+
+  /** O que vale avisar de um dia em cada loja da pessoa (até 10), no mesmo recorte do "o que vem aí". */
+  private async doDiaNasLojas(escopo: EscopoDoMister, dia: string, hoje: string): Promise<DaVespera[]> {
+    const fora: DaVespera[] = [];
+    for (const l of escopo.lojas.slice(0, 10)) {
+      const v = oQueAvisar(l.nome, await lerDiaDaAgenda(this.db, escopo.tenantId, l, dia, hoje));
+      if (v) fora.push(v);
+    }
+    return fora;
+  }
+
+  /** O aviso da véspera de uma pessoa — ou null, quando o dia seguinte não tem nada para dizer. */
+  async vesperaDaPessoa(tenantId: string, colaboradorId: string, telefone: string, devido: RelatorioDevido, quando: 'Amanhã' | 'Hoje' = 'Amanhã'): Promise<{ texto: string } | null> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(devido.referencia)) return null;
+    const escopo = await this.ferramentas.escopo(tenantId, colaboradorId, telefone);
+    if (!escopo || escopo.semLoja) return null;
+    const texto = textoDaVespera(await this.doDiaNasLojas(escopo, somarDias(devido.referencia, 1), devido.referencia), quando);
+    return texto ? { texto } : null;
+  }
+
+  /** O WhatsApp corta o texto com botões em 1024 letras: o aviso longo vai antes, e os botões vêm numa mensagem curta. */
+  private async mandarVespera(telefone: string, id: string, texto: string): Promise<void> {
+    const botoes = botoesDaVespera(id);
+    if (texto.length <= 1000) {
+      await this.numero.enviar(telefone, { texto, botoes });
+      return;
+    }
+    await this.numero.enviar(telefone, { texto });
+    await this.numero.enviar(telefone, { texto: 'Quer que eu confira o estoque para amanhã?', botoes });
+  }
+
+  /** O resumo com a linha "Amanhã". A leitura que falha não segura o resumo: ele sai sem a linha. */
+  private async comLinhaDeAmanha(escopo: EscopoDoMister, referencia: string, texto: string): Promise<string> {
+    try {
+      const linha = linhaDeAmanha(await this.doDiaNasLojas(escopo, somarDias(referencia, 1), referencia));
+      return linha ? `${texto}\n\n${linha}` : texto;
+    } catch (e: any) {
+      this.logger.warn(`a linha "Amanhã" do resumo não foi lida — ${e?.message ?? e}`);
+      return texto;
+    }
+  }
+
+  /** Os botões do aviso: "Deixa assim" só responde; "Conferir o estoque" pergunta ao agente uma vez, com as consultas de sempre. */
+  async tocouNaVespera(botaoId: string, quem: QuemTocou): Promise<boolean> {
+    const b = lerBotaoDaVespera(botaoId);
+    if (!b || !quem.vinculos.length) return false;
+    const donos = sql.join(
+      quem.vinculos.map((v) => sql`(${v.tenantId}::uuid, ${v.colaboradorId}::uuid)`),
+      sql`, `,
+    );
+    const [l] = linhas(
+      await this.db.execute(sql`
+        select id::text as id, tenant_id::text as "tenantId", colaborador_id::text as "colaboradorId"
+          from mister_relatorio r where r.id = ${b.id}::uuid and r.tipo = 'vespera' and (r.tenant_id, r.colaborador_id) in (${donos})`),
+    );
+    if (!l) return false;
+    if (b.acao === 'ok') {
+      await this.dizer(quem.telefone, TEXTO_DEIXA_ASSIM);
+      return true;
+    }
+    // A gravação condicional: dois toques não fazem duas consultas com IA.
+    const [vez] = linhas(
+      await this.db.execute(sql`
+        update mister_relatorio set trilha = coalesce(trilha, '{}'::jsonb) || '{"conferiuEstoque": true}'::jsonb
+         where id = ${l.id}::uuid and coalesce((trilha ->> 'conferiuEstoque')::boolean, false) = false
+        returning id`),
+    );
+    if (!vez) {
+      await this.dizer(quem.telefone, 'Já conferi o estoque deste aviso. Se quiser de novo, é só me pedir.');
+      return true;
+    }
+    try {
+      const escopo = await this.ferramentas.escopo(l.tenantId, l.colaboradorId, quem.telefone);
+      if (!escopo || escopo.semLoja) {
+        await this.dizer(quem.telefone, TEXTOS_DO_AGENTE.passageira);
+        return true;
+      }
+      if (quem.wamid) this.numero.mostrarDigitando(quem.wamid);
+      const fim = await this.agente.responder(escopo, [], PERGUNTA_DO_ESTOQUE);
+      await this.dizer(quem.telefone, fim.motivo ? (fraseDoMotivo(fim.motivo, escopo.nivel) ?? TEXTOS_DO_AGENTE.passageira) : filtrarSaida(fim.texto, fim.resultados).texto);
+    } catch (e: any) {
+      this.logger.error(`a conferência do estoque da véspera ${l.id} falhou — ${e?.message ?? e}`, e?.stack);
+      await this.db.execute(sql`update mister_relatorio set trilha = trilha - 'conferiuEstoque' where id = ${l.id}::uuid`).catch(() => undefined);
+      await this.dizer(quem.telefone, TEXTOS_DO_AGENTE.passageira);
+    }
+    return true;
   }
 
   /** Manda um texto pelo número do Mister. Devolve se saiu; a falha fica no log, com o motivo. */

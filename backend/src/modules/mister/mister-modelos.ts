@@ -1,3 +1,4 @@
+import { somarDias } from '../../common/data';
 import { diaMesDoRelatorio, nomeDoDia, RelatorioDevido, TipoDeRelatorio } from './mister-relatorios.regras';
 
 // OS MODELOS DE MENSAGEM DO MISTER NA META (parte 2 dos avisos e dos relatórios). Regras puras: o texto de cada
@@ -96,7 +97,9 @@ export function parametrosDoResumo(tipo: TipoDeRelatorio, d: RelatorioDevido, em
         ? `resumo das fichas novas de candidatos de ${diaMesDoRelatorio(d.referencia)}`
         : tipo === 'boletim_ramo'
           ? `boletim do ramo de ${diaMesDoRelatorio(d.referencia)}`
-          : `resumo da semana de ${diaMesDoRelatorio(d.referencia)} a ${diaMesDoRelatorio(d.ate)}`;
+          : tipo === 'vespera'
+            ? `aviso de ${nomeDoDia(somarDias(d.referencia, 1))}, ${diaMesDoRelatorio(somarDias(d.referencia, 1))}`
+            : `resumo da semana de ${diaMesDoRelatorio(d.referencia)} a ${diaMesDoRelatorio(d.ate)}`;
   return [parametro(qual), parametro(empresa)];
 }
 

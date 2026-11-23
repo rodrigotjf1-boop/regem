@@ -142,6 +142,14 @@ const RELATORIOS_PADRAO = () => [
     regra: { ligado: false, hora: '08:30', diaSemana: null, convidarFora: false },
     ultimo: null,
   },
+  {
+    // Versão 8, E3: o aviso da véspera, em texto fixo. Fica no grupo "Clima e eventos", com a linha "Amanhã" do resumo.
+    tipo: 'vespera', titulo: 'Avisar na véspera', usaIa: false,
+    descricao: 'No dia anterior, quando vem feriado, data forte, jogo na cidade ou chuva nas duas previsões. Só nos dias com algo para dizer. Texto fixo, sem IA.',
+    vaiPara: 'o presidente e os gerentes que ligaram o próprio WhatsApp em Pessoas, cada um com as suas lojas',
+    regra: { ligado: false, hora: '18:00', diaSemana: null, convidarFora: false },
+    ultimo: null,
+  },
 ];
 
 // O histórico dos avisos (F1.4 parte B): dois abertos (um escalou pelo modelo da Meta) e dois resolvidos (um fechado
@@ -455,7 +463,10 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
         S.salvamentosRel.push(corpo);
         for (const r of corpo.relatorios ?? []) {
           const x = S.relatorios.find((y) => y.tipo === r.tipo);
-          if (x) x.regra = { ligado: r.ligado, hora: r.hora, diaSemana: r.diaSemana, ...(r.convidarFora === undefined ? {} : { convidarFora: r.convidarFora }) };
+          if (x) {
+            const linha = r.linhaAmanha ?? x.regra.linhaAmanha;
+            x.regra = { ligado: r.ligado, hora: r.hora, diaSemana: r.diaSemana, ...(r.convidarFora === undefined ? {} : { convidarFora: r.convidarFora }), ...(linha === undefined ? {} : { linhaAmanha: linha }) };
+          }
         }
         return responder(route, { relatorios: S.relatorios });
       }
@@ -1062,7 +1073,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/23 ajustes em 9 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os quatro relatórios e o 'Como mandar o resumo' (M5e) , a conversa (M3a, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d) e as análises (V7e)");
+    ok(/25 ajustes em 10 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os quatro relatórios e o 'Como mandar o resumo' (M5e) , a conversa (M3a, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d) e as análises (V7e)");
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
     ok(t0.includes('O de fichas novas e o boletim do ramo não usam a IA.') && t0.includes('No boletim do ramo, esse convite é opcional.'), 'relatórios: a nota diz que o das fichas novas e o boletim não usam a IA, e que o convite do boletim é opcional');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
@@ -1146,6 +1157,31 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.setViewportSize({ width: 1280, height: 900 });
     await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/relatorios') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
     ok(JSON.stringify(S.salvamentosRel[3]) === JSON.stringify({ relatorios: [{ tipo: 'boletim_ramo', ligado: true, hora: '08:30', diaSemana: null, convidarFora: true }] }), `boletim: salvar manda só ele, com o convite (${JSON.stringify(S.salvamentosRel[3])})`);
+    // Versão 8, E3: "Clima e eventos" — a véspera e a linha "Amanhã", desligadas, com o preço; salvar manda só o que mudou.
+    const tClima = await page.locator('main').innerText();
+    ok(/Clima e eventos[\s\S]*Avisar na véspera[\s\S]*Linha "Amanhã" no resumo/.test(tClima), 'clima: o grupo novo, com a véspera e a linha "Amanhã"');
+    ok((await page.locator('[data-vespera-custo]').innerText()).includes('R$ 0: texto fixo, sem IA') && (await page.locator('[data-amanha-custo]').innerText()).includes('R$ 0'), 'clima: o preço ao lado dos dois');
+    ok((await page.locator('[data-vespera-chuva]').innerText()).includes('INMET e o CPTEC concordam'), 'clima: a regra da chuva está escrita');
+    const conviteDaVespera = page.getByLabel('Convite da véspera fora das 24 horas');
+    ok((await conviteDaVespera.count()) === 0, 'clima: desligada, a véspera não mostra o convite');
+    await page.click('button[role="switch"][aria-label="Avisar na véspera"]');
+    await conviteDaVespera.waitFor();
+    ok((await conviteDaVespera.inputValue()) === 'nao', 'clima: ligada, o padrão é não gastar com o convite');
+    await page.click('button[role="switch"][aria-label^="Linha"]');
+    for (const w of [320, 375]) {
+      await page.setViewportSize({ width: w, height: 800 });
+      await conviteDaVespera.scrollIntoViewIfNeeded();
+      const larga = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+      const caixa = await conviteDaVespera.boundingBox();
+      ok(!larga && !!caixa && caixa.x >= 0 && caixa.x + caixa.width <= w, `clima: ${w}px, o convite da véspera cabe sem barra para o lado`);
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/relatorios') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(
+      JSON.stringify(S.salvamentosRel[4]) ===
+        JSON.stringify({ relatorios: [{ tipo: 'resumo_dia', ligado: true, hora: '22:00', diaSemana: null, linhaAmanha: true }, { tipo: 'vespera', ligado: true, hora: '18:00', diaSemana: null, convidarFora: false }] }),
+      `clima: salvar manda a véspera e a linha "Amanhã" no resumo do dia (${JSON.stringify(S.salvamentosRel[4])})`,
+    );
     ok(erros.length === 0, `avisos: sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
@@ -1288,7 +1324,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t = await page.locator('main').innerText();
-    ok(/23 ajustes em 9 grupos/.test(t), "conversa: o grupo Conversa entra com três ajustes (o do boleto, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, Relatórios com o 'Como mandar o resumo' (M5e) e Análises com o ajuste da V7e");
+    ok(/25 ajustes em 10 grupos/.test(t), "conversa: o grupo Conversa entra com três ajustes (o do boleto, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, Relatórios com o 'Como mandar o resumo' (M5e) e Análises com o ajuste da V7e");
     ok(/Documentos e dinheiro[\s\S]*Boleto perto de vencer[\s\S]*Já paguei/.test(t), 'boleto: o aviso novo no grupo "Documentos e dinheiro", com o "Já paguei"');
     ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
     const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');

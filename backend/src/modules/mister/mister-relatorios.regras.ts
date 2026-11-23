@@ -9,10 +9,12 @@ import type { BoletimDoRamo, IndicadorDoBoletim, NoticiaDoBoletim } from '../pul
 // Fase N2 das Notícias do ramo (protótipo `mockups/regem-noticias-do-ramo.html`, aprovado 22/11): o BOLETIM DO RAMO — sem a
 // IA, montado da cópia do Pulso; fora das 24 horas só vai o convite se a empresa escolher (mig 496).
 
-export const TIPOS_DE_RELATORIO = ['resumo_dia', 'resumo_semana', 'fichas_novas', 'boletim_ramo'] as const;
+export const TIPOS_DE_RELATORIO = ['resumo_dia', 'resumo_semana', 'fichas_novas', 'boletim_ramo', 'vespera'] as const;
 export type TipoDeRelatorio = (typeof TIPOS_DE_RELATORIO)[number];
-/** Os relatórios que a IA escreve (o de fichas novas só conta e o boletim só repassa, sem a IA). */
-export type RelatorioDaIa = Exclude<TipoDeRelatorio, 'fichas_novas' | 'boletim_ramo'>;
+/** Os relatórios que a IA escreve (o de fichas novas só conta, e o boletim e a véspera são texto fixo, sem a IA). */
+export type RelatorioDaIa = Exclude<TipoDeRelatorio, 'fichas_novas' | 'boletim_ramo' | 'vespera'>;
+/** Quem só manda fora das 24 horas se a empresa escolheu o convite pago (mig 496). */
+export const temConviteOpcional = (t: TipoDeRelatorio): boolean => t === 'boletim_ramo' || t === 'vespera';
 export const ehTipoDeRelatorio = (t: unknown): t is TipoDeRelatorio => TIPOS_DE_RELATORIO.includes(t as TipoDeRelatorio);
 
 export interface RegraDoRelatorio {
@@ -21,8 +23,10 @@ export interface RegraDoRelatorio {
   hora: string;
   /** 1 = segunda … 7 = domingo (só o resumo da semana). */
   diaSemana: number | null;
-  /** Só no boletim do ramo: fora das 24 horas, manda o convite pago pelo modelo da Meta. Nasce desligado. */
+  /** No boletim do ramo e na véspera: fora das 24 horas, manda o convite pago pelo modelo da Meta. Nasce desligado. */
   convidarFora?: boolean;
+  /** Só no resumo do dia (versão 8, E3; mig 498): termina com a linha "Amanhã", quando há algo para dizer. */
+  linhaAmanha?: boolean;
 }
 
 /** O boletim fica pronto às 07:50 e a nuvem guarda a cópia às 08:05: antes disso não há o que mandar. */
@@ -34,6 +38,7 @@ export const PADRAO_DO_RELATORIO: Record<TipoDeRelatorio, RegraDoRelatorio> = {
   resumo_semana: { ligado: false, hora: '09:00', diaSemana: 1 },
   fichas_novas: { ligado: false, hora: '09:00', diaSemana: null },
   boletim_ramo: { ligado: false, hora: '08:30', diaSemana: null, convidarFora: false },
+  vespera: { ligado: false, hora: '18:00', diaSemana: null, convidarFora: false },
 };
 
 export const RELATORIO_NA_TELA: Record<TipoDeRelatorio, { titulo: string; descricao: string; vaiPara?: string; usaIa: boolean }> = {
@@ -50,6 +55,12 @@ export const RELATORIO_NA_TELA: Record<TipoDeRelatorio, { titulo: string; descri
     titulo: 'Boletim do ramo',
     descricao: 'Os indicadores, até 3 destaques e até 2 novidades do setor, com a fonte e o link de cada um. Só nos dias com novidade.',
     vaiPara: 'o presidente e o gerente com a permissão Notícias do ramo, se ligaram o próprio WhatsApp em Pessoas',
+    usaIa: false,
+  },
+  vespera: {
+    titulo: 'Avisar na véspera',
+    descricao: 'No dia anterior, quando vem feriado, data forte, jogo na cidade ou chuva nas duas previsões. Só nos dias com algo para dizer. Texto fixo, sem IA.',
+    vaiPara: 'o presidente e os gerentes que ligaram o próprio WhatsApp em Pessoas, cada um com as suas lojas',
     usaIa: false,
   },
 };
@@ -77,7 +88,8 @@ export function regraDoRelatorioQueVale(tipo: TipoDeRelatorio, salva?: Partial<R
     hora: typeof salva.hora === 'string' && HORA.test(salva.hora) ? salva.hora : p.hora,
     diaSemana: tipo === 'resumo_semana' ? (Number.isInteger(dia) && dia >= 1 && dia <= 7 ? dia : p.diaSemana) : null,
   };
-  return tipo === 'boletim_ramo' ? { ...regra, convidarFora: salva.convidarFora === true } : regra;
+  if (temConviteOpcional(tipo)) return { ...regra, convidarFora: salva.convidarFora === true };
+  return tipo === 'resumo_dia' && salva.linhaAmanha === true ? { ...regra, linhaAmanha: true } : regra;
 }
 
 /**
@@ -103,13 +115,15 @@ export function conferirRelatorios(dto: unknown): Array<{ tipo: TipoDeRelatorio;
       diaSemana = x.diaSemana;
     }
     const regra: RegraDoRelatorio = { ligado: x.ligado, hora: x.hora, diaSemana };
-    if (x.tipo === 'boletim_ramo') {
-      if (x.hora < HORA_MINIMA_DO_BOLETIM) return { erro: `${nome}: escolha um horário a partir de ${HORA_MINIMA_DO_BOLETIM}, depois que o boletim fica pronto.` };
-      // Ausente mantém o que está salvo (V16); presente, só booleano (V15).
-      if (x.convidarFora !== undefined) {
-        if (typeof x.convidarFora !== 'boolean') return { erro: `${nome}: diga se manda o convite fora das 24 horas.` };
-        regra.convidarFora = x.convidarFora;
-      }
+    if (x.tipo === 'boletim_ramo' && x.hora < HORA_MINIMA_DO_BOLETIM) return { erro: `${nome}: escolha um horário a partir de ${HORA_MINIMA_DO_BOLETIM}, depois que o boletim fica pronto.` };
+    // Ausente mantém o que está salvo (V16); presente, só booleano (V15).
+    if (temConviteOpcional(x.tipo) && x.convidarFora !== undefined) {
+      if (typeof x.convidarFora !== 'boolean') return { erro: `${nome}: diga se manda o convite fora das 24 horas.` };
+      regra.convidarFora = x.convidarFora;
+    }
+    if (x.tipo === 'resumo_dia' && x.linhaAmanha !== undefined) {
+      if (typeof x.linhaAmanha !== 'boolean') return { erro: `${nome}: diga se a linha "Amanhã" fica ligada ou desligada.` };
+      regra.linhaAmanha = x.linhaAmanha;
     }
     fora.push({ tipo: x.tipo, regra });
   }
@@ -154,6 +168,8 @@ export function relatorioDevido(tipo: TipoDeRelatorio, regra: RegraDoRelatorio, 
   if (atraso > ATRASO_MAXIMO_DO_RELATORIO_MIN) return null;
   if (tipo === 'fichas_novas') return { referencia: diaDoEnvio, ate: diaDoEnvio, hora: regra.hora };
   if (tipo === 'boletim_ramo') return { referencia: diaDoEnvio, ate: diaDoEnvio };
+  // A véspera: a referência é o dia do envio, e o aviso fala do dia seguinte.
+  if (tipo === 'vespera') return { referencia: diaDoEnvio, ate: diaDoEnvio };
   if (tipo === 'resumo_dia') {
     const dia = minutos(regra.hora) < VIRADA_DA_NOITE_MIN ? somarDias(diaDoEnvio, -1) : diaDoEnvio;
     return { referencia: dia, ate: dia };

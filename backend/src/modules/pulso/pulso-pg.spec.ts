@@ -7,7 +7,7 @@ import { hojeISO } from '../../common/data';
 import { somarDias } from '../perfil-cliente/calendario-regra';
 import { MisterRelatoriosService } from '../mister/mister-relatorios.service';
 import { NoticiasRamoService } from '../noticias-ramo/noticias-ramo.service';
-import { lerChuvaNaVespera, lerCidadeDaLoja, lerClimaDaCidade, lerEventosDaBase } from '../mister/mister-clima-eventos.leitura';
+import { lerChuvaNaVespera, lerCidadeDaLoja, lerClimaDaCidade, lerDiaDaAgenda, lerEventosDaBase } from '../mister/mister-clima-eventos.leitura';
 import { DIAS_DE_BOLETIM, lerConfigPulso, pausaEntreMunicipios } from './pulso.regras';
 import { PulsoService } from './pulso.service';
 
@@ -237,6 +237,13 @@ descrever('o Regem lê o Pulso (Postgres)', () => {
         { dia: '2031-03-11', chuva: false },
       ]);
       expect(await lerChuvaNaVespera(db, null, '2031-03-10', '2031-03-12')).toEqual([]);
+      // Versão 8, E3: o dia da agenda que o aviso da véspera lê, com o evento e a previsão daquela loja. A tabela dos eventos da
+      // loja é de outra cadeia de migrations: aqui uma temporária vazia, que some com a transação e não trava nada do CI.
+      await tq(`create temp table if not exists evento_loja (id uuid, tenant_id uuid, unidade_id uuid, nome text, tipo text, dia date, hora time, repete text, excluido_em timestamptz) on commit drop`);
+      const doDia = await lerDiaDaAgenda(db, t, { id: lojaA, nome: 'Centro' }, '2031-03-10', '2031-03-09');
+      expect(doDia?.rotulo).toBe('segunda, 10/03');
+      expect(doDia?.eventos.map((e) => e.nome)).toContain(`${prefixo}-dentro`);
+      expect(doDia?.previsao?.inmet?.resumo).toBe('Chuva');
     }));
 
   it('clima: 16 dias de cada município, e a chuva que se previa na véspera só para amanhã', () =>

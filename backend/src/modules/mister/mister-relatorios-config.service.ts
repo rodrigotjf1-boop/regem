@@ -12,6 +12,7 @@ import {
   conferirRelatorios,
   ehTipoDeRelatorio,
   regraDoRelatorioQueVale,
+  temConviteOpcional,
 } from './mister-relatorios.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -47,10 +48,12 @@ export class MisterRelatoriosConfigService {
     try {
       const lidas = linhas(
         await this.db.execute(sql`
-          select tipo, ligado, hora, dia_semana as "diaSemana", convidar_fora as "convidarFora" from mister_relatorio_regra where tenant_id = ${tenantId}::uuid`),
+          select tipo, ligado, hora, dia_semana as "diaSemana", convidar_fora as "convidarFora", linha_amanha as "linhaAmanha"
+            from mister_relatorio_regra where tenant_id = ${tenantId}::uuid`),
       );
       const m = new Map<TipoDeRelatorio, Partial<RegraDoRelatorio>>();
-      for (const l of lidas) if (ehTipoDeRelatorio(l.tipo)) m.set(l.tipo, { ligado: l.ligado, hora: l.hora, diaSemana: l.diaSemana ?? null, convidarFora: l.convidarFora === true });
+      for (const l of lidas)
+        if (ehTipoDeRelatorio(l.tipo)) m.set(l.tipo, { ligado: l.ligado, hora: l.hora, diaSemana: l.diaSemana ?? null, convidarFora: l.convidarFora === true, linhaAmanha: l.linhaAmanha === true });
       return m;
     } catch (e: any) {
       if (semTabela(e)) return new Map();
@@ -64,7 +67,8 @@ export class MisterRelatoriosConfigService {
     try {
       lidas = linhas(
         await this.db.execute(sql`
-          select r.tenant_id::text as "tenantId", r.tipo, r.ligado, r.hora, r.dia_semana as "diaSemana", r.convidar_fora as "convidarFora"
+          select r.tenant_id::text as "tenantId", r.tipo, r.ligado, r.hora, r.dia_semana as "diaSemana", r.convidar_fora as "convidarFora",
+                 r.linha_amanha as "linhaAmanha"
             from mister_relatorio_regra r join empresa e on e.id = r.tenant_id and e.deleted_at is null
            where r.ligado`),
       );
@@ -73,7 +77,7 @@ export class MisterRelatoriosConfigService {
     }
     return lidas
       .filter((l) => ehTipoDeRelatorio(l.tipo))
-      .map((l) => ({ tenantId: l.tenantId, tipo: l.tipo as TipoDeRelatorio, regra: regraDoRelatorioQueVale(l.tipo, { ligado: l.ligado, hora: l.hora, diaSemana: l.diaSemana, convidarFora: l.convidarFora === true }) }));
+      .map((l) => ({ tenantId: l.tenantId, tipo: l.tipo as TipoDeRelatorio, regra: regraDoRelatorioQueVale(l.tipo, { ligado: l.ligado, hora: l.hora, diaSemana: l.diaSemana, convidarFora: l.convidarFora === true, linhaAmanha: l.linhaAmanha === true }) }));
   }
 
   /** O boletim do ramo só existe para a empresa de bares e restaurantes (decisão N3). */
@@ -118,15 +122,19 @@ export class MisterRelatoriosConfigService {
     if (r.some((x) => x.tipo === 'boletim_ramo') && !(await this.temBoletim(user.tenantId))) throw new BadRequestException('Esta empresa não tem o boletim do ramo.');
     const antes = await this.salvas(user.tenantId);
     // O convite ausente no pedido mantém o que está salvo (V16).
-    for (const x of r) if (x.tipo === 'boletim_ramo') x.regra.convidarFora = x.regra.convidarFora ?? antes.get(x.tipo)?.convidarFora ?? false;
+    for (const x of r) {
+      if (temConviteOpcional(x.tipo)) x.regra.convidarFora = x.regra.convidarFora ?? antes.get(x.tipo)?.convidarFora ?? false;
+      if (x.tipo === 'resumo_dia') x.regra.linhaAmanha = x.regra.linhaAmanha ?? antes.get(x.tipo)?.linhaAmanha ?? false;
+    }
     await this.db.execute(sql`
-      insert into mister_relatorio_regra (tenant_id, tipo, ligado, hora, dia_semana, convidar_fora, alterado_por, atualizado_em)
-      select ${user.tenantId}::uuid, x.tipo, x.ligado, x.hora, x."diaSemana", coalesce(x."convidarFora", false), ${user.colaboradorId}::uuid, now()
+      insert into mister_relatorio_regra (tenant_id, tipo, ligado, hora, dia_semana, convidar_fora, linha_amanha, alterado_por, atualizado_em)
+      select ${user.tenantId}::uuid, x.tipo, x.ligado, x.hora, x."diaSemana", coalesce(x."convidarFora", false), coalesce(x."linhaAmanha", false),
+             ${user.colaboradorId}::uuid, now()
         from jsonb_to_recordset(${JSON.stringify(r.map((x) => ({ tipo: x.tipo, ...x.regra })))}::jsonb)
-             as x(tipo text, ligado boolean, hora text, "diaSemana" smallint, "convidarFora" boolean)
+             as x(tipo text, ligado boolean, hora text, "diaSemana" smallint, "convidarFora" boolean, "linhaAmanha" boolean)
       on conflict (tenant_id, tipo) do update
          set ligado = excluded.ligado, hora = excluded.hora, dia_semana = excluded.dia_semana, convidar_fora = excluded.convidar_fora,
-             alterado_por = excluded.alterado_por, atualizado_em = now()`);
+             linha_amanha = excluded.linha_amanha, alterado_por = excluded.alterado_por, atualizado_em = now()`);
     await this.auditoria?.registrar({
       tenantId: user.tenantId,
       atorId: user.colaboradorId,
