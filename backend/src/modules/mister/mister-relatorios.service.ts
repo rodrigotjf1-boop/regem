@@ -7,6 +7,7 @@ import { FUSO_OPERACAO, dataNoFuso, horaNoFuso } from '../../common/data';
 import { instanteDe } from '../../common/fuso-sql';
 import { podeAcessar } from '../../auth/permissoes';
 import { ModuloService } from '../modulo/modulo.service';
+import { RAMO_DA_EMPRESA_COM_BOLETIM, RAMO_DO_REGEM, type BoletimDoRamo } from '../pulso/pulso.regras';
 import { paginaPadrao } from '../vagas/vagas';
 import { TEXTOS_DO_AGENTE, filtrarSaida, fraseDoMotivo } from './mister-agente.regras';
 import { MisterAgenteService } from './mister-agente.service';
@@ -30,6 +31,7 @@ import {
   perguntaDoRelatorio,
   relatorioDevido,
   textoDasFichasNovas,
+  textoDoBoletim,
 } from './mister-relatorios.regras';
 import { pessoaVale } from './mister-vinculo.service';
 
@@ -53,6 +55,9 @@ import { pessoaVale } from './mister-vinculo.service';
 //    marcado até hoje nesse horário). Sem ficha, não sai nada nem fica linha — "só nos dias em que chegou ficha". O texto
 //    leva o primeiro nome e a inicial, a função, a escala e a distância: telefone e endereço ficam no Regem. Fora das 24
 //    horas, o mesmo convite dos resumos; no toque, a lista é lida de novo para a mesma janela.
+//  • BOLETIM DO RAMO (fase N2 das Notícias do ramo): sem a IA, da cópia do Pulso. Vai ao presidente e ao gerente com a
+//    permissão, só nos dias com destaque ou novidade. Fora das 24 horas o padrão é não gastar: a linha fica "não enviado /
+//    fora das 24 horas" e a pessoa lê na tela. O convite pago só sai se a empresa escolheu (`convidarFora`, mig 496).
 
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const semTabela = (e: any) => e?.code === '42P01' || e?.code === '42703';
@@ -60,6 +65,11 @@ const semTabela = (e: any) => e?.code === '42P01' || e?.code === '42703';
 /** O endereço da tela de Candidatos na nuvem (vai no fim do resumo das fichas). */
 export function linkDosCandidatos(): string {
   return `${String(process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '')}/candidatos`;
+}
+
+/** O endereço da tela de Notícias do ramo (vai no fim do boletim). */
+export function linkDasNoticias(): string {
+  return `${String(process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '')}/noticias-do-ramo`;
 }
 
 /** O relógio da operação agora: o dia, a hora e o dia da semana (1 = segunda … 7 = domingo). */
@@ -81,6 +91,8 @@ export interface ResultadoDaVoltaDosRelatorios {
 /** O motivo da linha cujo convite saiu e espera o toque; e o da que está sendo feita agora, depois do toque. */
 export const CONVITE_ENVIADO = 'convite_enviado';
 const FAZENDO_NO_TOQUE = 'fazendo_no_toque';
+/** O boletim fora das 24 horas, com a empresa sem o convite: não sai e não custa nada; a pessoa lê na tela. */
+export const FORA_SEM_CONVITE = 'fora_da_janela_sem_convite';
 
 @Injectable()
 export class MisterRelatoriosService implements OnModuleInit {
@@ -164,7 +176,7 @@ export class MisterRelatoriosService implements OnModuleInit {
   private async fazer(
     tenantId: string,
     tipo: TipoDeRelatorio,
-    _regra: RegraDoRelatorio,
+    regra: RegraDoRelatorio,
     devido: RelatorioDevido,
     pessoa: { colaboradorId: string; telefone: string; ultimaEntrada: Date | null; empresa: string },
     agora: Date,
@@ -179,6 +191,17 @@ export class MisterRelatoriosService implements OnModuleInit {
         return null;
       }
       if (!fichas) return null;
+    }
+    // Boletim do ramo: antes da vez, se a pessoa pode ver e se o dia tem novidade. Sem cópia ainda, a volta seguinte tenta.
+    let boletim: { texto: string } | null = null;
+    if (tipo === 'boletim_ramo') {
+      try {
+        boletim = await this.boletimDaPessoa(tenantId, pessoa.colaboradorId, pessoa.telefone, devido);
+      } catch (e: any) {
+        this.logger.error(`o boletim de ${devido.referencia} (empresa ${tenantId}) não foi lido — ${e?.message ?? e}`, e?.stack);
+        return null;
+      }
+      if (!boletim) return null;
     }
     const [vez] = linhas(
       await this.db.execute(sql`
@@ -197,6 +220,8 @@ export class MisterRelatoriosService implements OnModuleInit {
       // a pessoa tocar em "Ver resumo". O período fica na trilha (o toque faz o resumo do MESMO período, mesmo dias depois).
       // Q1 (mig 436): pelo Evolution não há janela — o resumo vai direto.
       if (!(await this.numero.semJanela()) && !dentroDaJanelaDoWhatsapp(pessoa.ultimaEntrada, agora.getTime())) {
+        // O boletim só gasta com o convite se a empresa escolheu (decisão N7).
+        if (tipo === 'boletim_ramo' && !regra.convidarFora) return await naoSaiu(FORA_SEM_CONVITE);
         try {
           await this.numero.enviarModelo(pessoa.telefone, MODELO_DO_RESUMO, parametrosDoResumo(tipo, devido, pessoa.empresa), { tipo: 'resumo', id: vez.id });
         } catch (e: any) {
@@ -216,6 +241,16 @@ export class MisterRelatoriosService implements OnModuleInit {
           return await naoSaiu(e instanceof FalhaDoEnvioDoMister ? `envio: ${e.motivo}` : 'envio', { texto, trilha: { fichas: fichas!.total } });
         }
         await this.concluir(vez.id, 'enviado', null, { texto, trilha: { fichas: fichas!.total } });
+        return true;
+      }
+      if (tipo === 'boletim_ramo') {
+        const texto = boletim!.texto;
+        try {
+          await this.numero.enviar(pessoa.telefone, { texto });
+        } catch (e: any) {
+          return await naoSaiu(e instanceof FalhaDoEnvioDoMister ? `envio: ${e.motivo}` : 'envio', { texto });
+        }
+        await this.concluir(vez.id, 'enviado', null, { texto });
         return true;
       }
       const escopo = await this.ferramentas.escopo(tenantId, pessoa.colaboradorId, pessoa.telefone);
@@ -301,6 +336,25 @@ export class MisterRelatoriosService implements OnModuleInit {
         return true;
       } catch (e: any) {
         this.logger.error(`o resumo das fichas ${vez.id} não foi feito no toque — ${e?.message ?? e}`, e?.stack);
+        await voltarAoConvite().catch(() => undefined);
+        await this.dizer(quem.telefone, TEXTOS_DO_AGENTE.passageira);
+        return true;
+      }
+    }
+    if (tipo === 'boletim_ramo') {
+      // Sem a IA: o boletim do MESMO dia, lido de novo (a notícia tirada desde o convite não aparece).
+      try {
+        const lido = await this.boletimDaPessoa(vez.tenantId, vez.colaboradorId, quem.telefone, devido);
+        const texto = lido?.texto ?? 'O boletim desse dia não está mais disponível, ou você não tem mais acesso às Notícias do ramo.';
+        const saiu = await this.dizer(quem.telefone, texto);
+        await this.db.execute(sql`
+          update mister_relatorio
+             set situacao = ${saiu && lido ? 'enviado' : 'nao_enviado'}, motivo = ${!lido ? 'sem_boletim' : saiu ? null : 'envio'},
+                 texto = ${lido ? texto : null}, concluido_em = clock_timestamp()
+           where id = ${vez.id}::uuid and motivo = ${FAZENDO_NO_TOQUE}`);
+        return true;
+      } catch (e: any) {
+        this.logger.error(`o boletim ${vez.id} não foi enviado no toque — ${e?.message ?? e}`, e?.stack);
         await voltarAoConvite().catch(() => undefined);
         await this.dizer(quem.telefone, TEXTOS_DO_AGENTE.passageira);
         return true;
@@ -403,6 +457,23 @@ export class MisterRelatoriosService implements OnModuleInit {
       })),
     });
     return { texto, total };
+  }
+
+  /**
+   * O boletim de uma pessoa — ou null quando não há o que dizer. A régua da tela: presidente ou a permissão Notícias do ramo,
+   * e só a empresa de bares e restaurantes. O texto sai da cópia que a nuvem guardou do Pulso, sem a IA.
+   */
+  async boletimDaPessoa(tenantId: string, colaboradorId: string, telefone: string, devido: RelatorioDevido): Promise<{ texto: string } | null> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(devido.referencia)) return null;
+    const escopo = await this.ferramentas.escopo(tenantId, colaboradorId, telefone);
+    if (!escopo || escopo.semLoja) return null;
+    if (escopo.nivel !== 'presidente' && !podeAcessar(escopo.permissoes, 'noticias_ramo')) return null;
+    const [e] = linhas(await this.db.execute(sql`select ramo from empresa where id = ${tenantId}::uuid`));
+    if (e?.ramo !== RAMO_DA_EMPRESA_COM_BOLETIM) return null;
+    const [l] = linhas(await this.db.execute(sql`select corpo from pulso_boletim where ramo = ${RAMO_DO_REGEM} and dia = ${devido.referencia}::date`));
+    if (!l?.corpo) return null;
+    const texto = textoDoBoletim(l.corpo as BoletimDoRamo, linkDasNoticias());
+    return texto ? { texto } : null;
   }
 
   /** Manda um texto pelo número do Mister. Devolve se saiu; a falha fica no log, com o motivo. */

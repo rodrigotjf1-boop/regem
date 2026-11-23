@@ -5,6 +5,7 @@ import { Pool, type PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { hojeISO } from '../../common/data';
 import { somarDias } from '../perfil-cliente/calendario-regra';
+import { MisterRelatoriosService } from '../mister/mister-relatorios.service';
 import { NoticiasRamoService } from '../noticias-ramo/noticias-ramo.service';
 import { lerCidadeDaLoja, lerClimaDaCidade, lerEventosDaBase } from '../mister/mister-clima-eventos.leitura';
 import { DIAS_DE_BOLETIM, lerConfigPulso, pausaEntreMunicipios } from './pulso.regras';
@@ -345,6 +346,31 @@ descrever('o Regem lê o Pulso (Postgres)', () => {
         expect(((await noticias.paraOServidorDaLoja(t)).boletim as any).dia).toBe('2026-11-23');
         await tq(`update empresa set ramo = 'varejo' where id = $1`, [t]);
         await expect(noticias.daTela(t)).rejects.toThrow('Não há boletim');
+      }));
+
+    it('o boletim do Mister lê a cópia: o presidente; o gerente só com a permissão; dia sem novidade e outro ramo não saem', () =>
+      naTransacao(async (c, tq) => {
+        let escopo: any = { nivel: 'presidente', semLoja: false, permissoes: {} };
+        const relatorios = new MisterRelatoriosService(drizzle(c as any) as any, {} as any, {} as any, { escopo: async () => escopo } as any, {} as any);
+        const t = (await tq(`insert into empresa (nome) values ('teste boletim') returning id`))[0].id as string;
+        await tq(`delete from pulso_boletim`);
+        const noticiaDaCopia = { id: '1', titulo: 'Mel com pimenta', link: 'https://fonte.teste/1', categoria: 'tendencias', categoriaNome: 'Tendências do ramo', publicadoEm: '2026-11-23T10:00:00.000Z', emDiscussao: false, aviso: null, credito: 'Fonte: Mercado&Consumo' };
+        const insere = (d: string, novidades: any[]) => tq(`insert into pulso_boletim (ramo, dia, corpo) values ('bares_restaurantes', $1::date, $2::jsonb)`, [d, JSON.stringify({ dia: d, mensagem: null, indicadores: [], destaques: [], novidades, mais: [] })]);
+        await insere('2026-11-23', [noticiaDaCopia]);
+        await insere('2026-11-22', []);
+        const ler = (dia: string) => relatorios.boletimDaPessoa(t, randomUUID(), '5521999990000', { referencia: dia, ate: dia });
+        expect((await ler('2026-11-23'))?.texto).toContain('Mel com pimenta');
+        expect(await ler('2026-11-22')).toBeNull(); // dia sem novidade
+        expect(await ler('2026-11-21')).toBeNull(); // sem cópia
+        escopo = { nivel: 'gerente', semLoja: false, permissoes: { noticias_ramo: false } };
+        expect(await ler('2026-11-23')).toBeNull();
+        escopo = { nivel: 'gerente', semLoja: false, permissoes: { noticias_ramo: true } };
+        expect((await ler('2026-11-23'))?.texto).toContain('Fonte: Mercado&Consumo');
+        escopo = null;
+        expect(await ler('2026-11-23')).toBeNull();
+        escopo = { nivel: 'presidente', semLoja: false, permissoes: {} };
+        await tq(`update empresa set ramo = 'varejo' where id = $1`, [t]);
+        expect(await ler('2026-11-23')).toBeNull();
       }));
   });
 });

@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { RAMO_DA_EMPRESA_COM_BOLETIM } from '../pulso/pulso.regras';
 import {
   RELATORIO_NA_TELA,
   RegraDoRelatorio,
@@ -46,10 +47,10 @@ export class MisterRelatoriosConfigService {
     try {
       const lidas = linhas(
         await this.db.execute(sql`
-          select tipo, ligado, hora, dia_semana as "diaSemana" from mister_relatorio_regra where tenant_id = ${tenantId}::uuid`),
+          select tipo, ligado, hora, dia_semana as "diaSemana", convidar_fora as "convidarFora" from mister_relatorio_regra where tenant_id = ${tenantId}::uuid`),
       );
       const m = new Map<TipoDeRelatorio, Partial<RegraDoRelatorio>>();
-      for (const l of lidas) if (ehTipoDeRelatorio(l.tipo)) m.set(l.tipo, { ligado: l.ligado, hora: l.hora, diaSemana: l.diaSemana ?? null });
+      for (const l of lidas) if (ehTipoDeRelatorio(l.tipo)) m.set(l.tipo, { ligado: l.ligado, hora: l.hora, diaSemana: l.diaSemana ?? null, convidarFora: l.convidarFora === true });
       return m;
     } catch (e: any) {
       if (semTabela(e)) return new Map();
@@ -63,7 +64,7 @@ export class MisterRelatoriosConfigService {
     try {
       lidas = linhas(
         await this.db.execute(sql`
-          select r.tenant_id::text as "tenantId", r.tipo, r.ligado, r.hora, r.dia_semana as "diaSemana"
+          select r.tenant_id::text as "tenantId", r.tipo, r.ligado, r.hora, r.dia_semana as "diaSemana", r.convidar_fora as "convidarFora"
             from mister_relatorio_regra r join empresa e on e.id = r.tenant_id and e.deleted_at is null
            where r.ligado`),
       );
@@ -72,12 +73,19 @@ export class MisterRelatoriosConfigService {
     }
     return lidas
       .filter((l) => ehTipoDeRelatorio(l.tipo))
-      .map((l) => ({ tenantId: l.tenantId, tipo: l.tipo as TipoDeRelatorio, regra: regraDoRelatorioQueVale(l.tipo, { ligado: l.ligado, hora: l.hora, diaSemana: l.diaSemana }) }));
+      .map((l) => ({ tenantId: l.tenantId, tipo: l.tipo as TipoDeRelatorio, regra: regraDoRelatorioQueVale(l.tipo, { ligado: l.ligado, hora: l.hora, diaSemana: l.diaSemana, convidarFora: l.convidarFora === true }) }));
+  }
+
+  /** O boletim do ramo só existe para a empresa de bares e restaurantes (decisão N3). */
+  private async temBoletim(tenantId: string): Promise<boolean> {
+    const [e] = linhas(await this.db.execute(sql`select ramo from empresa where id = ${tenantId}::uuid`));
+    return e?.ramo === RAMO_DA_EMPRESA_COM_BOLETIM;
   }
 
   /** O que o grupo "Relatórios" da tela mostra. */
   async daTela(tenantId: string): Promise<{ relatorios: RelatorioNaTela[] }> {
     const salvas = await this.salvas(tenantId);
+    const comBoletim = await this.temBoletim(tenantId);
     let ultimos: any[] = [];
     try {
       ultimos = linhas(
@@ -91,7 +99,7 @@ export class MisterRelatoriosConfigService {
       if (!semTabela(e)) throw e;
     }
     return {
-      relatorios: TIPOS_DE_RELATORIO.map((tipo) => {
+      relatorios: TIPOS_DE_RELATORIO.filter((tipo) => tipo !== 'boletim_ramo' || comBoletim).map((tipo) => {
         const u = ultimos.find((x) => x.tipo === tipo);
         return {
           tipo,
@@ -107,14 +115,17 @@ export class MisterRelatoriosConfigService {
   async salvar(user: AuthUser, dto: unknown) {
     const r = conferirRelatorios(dto);
     if ('erro' in r) throw new BadRequestException(r.erro);
+    if (r.some((x) => x.tipo === 'boletim_ramo') && !(await this.temBoletim(user.tenantId))) throw new BadRequestException('Esta empresa não tem o boletim do ramo.');
     const antes = await this.salvas(user.tenantId);
+    // O convite ausente no pedido mantém o que está salvo (V16).
+    for (const x of r) if (x.tipo === 'boletim_ramo') x.regra.convidarFora = x.regra.convidarFora ?? antes.get(x.tipo)?.convidarFora ?? false;
     await this.db.execute(sql`
-      insert into mister_relatorio_regra (tenant_id, tipo, ligado, hora, dia_semana, alterado_por, atualizado_em)
-      select ${user.tenantId}::uuid, x.tipo, x.ligado, x.hora, x."diaSemana", ${user.colaboradorId}::uuid, now()
+      insert into mister_relatorio_regra (tenant_id, tipo, ligado, hora, dia_semana, convidar_fora, alterado_por, atualizado_em)
+      select ${user.tenantId}::uuid, x.tipo, x.ligado, x.hora, x."diaSemana", coalesce(x."convidarFora", false), ${user.colaboradorId}::uuid, now()
         from jsonb_to_recordset(${JSON.stringify(r.map((x) => ({ tipo: x.tipo, ...x.regra })))}::jsonb)
-             as x(tipo text, ligado boolean, hora text, "diaSemana" smallint)
+             as x(tipo text, ligado boolean, hora text, "diaSemana" smallint, "convidarFora" boolean)
       on conflict (tenant_id, tipo) do update
-         set ligado = excluded.ligado, hora = excluded.hora, dia_semana = excluded.dia_semana,
+         set ligado = excluded.ligado, hora = excluded.hora, dia_semana = excluded.dia_semana, convidar_fora = excluded.convidar_fora,
              alterado_por = excluded.alterado_por, atualizado_em = now()`);
     await this.auditoria?.registrar({
       tenantId: user.tenantId,

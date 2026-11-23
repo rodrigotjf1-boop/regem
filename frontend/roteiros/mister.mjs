@@ -134,6 +134,14 @@ const RELATORIOS_PADRAO = () => [
     regra: { ligado: false, hora: '09:00', diaSemana: null },
     ultimo: null,
   },
+  {
+    // Fase N2 das Notícias do ramo: sem a IA; o convite fora das 24 horas é opcional e nasce desligado.
+    tipo: 'boletim_ramo', titulo: 'Boletim do ramo', usaIa: false,
+    descricao: 'Os indicadores, até 3 destaques e até 2 novidades do setor, com a fonte e o link de cada um. Só nos dias com novidade.',
+    vaiPara: 'o presidente e o gerente com a permissão Notícias do ramo, se ligaram o próprio WhatsApp em Pessoas',
+    regra: { ligado: false, hora: '08:30', diaSemana: null, convidarFora: false },
+    ultimo: null,
+  },
 ];
 
 // O histórico dos avisos (F1.4 parte B): dois abertos (um escalou pelo modelo da Meta) e dois resolvidos (um fechado
@@ -447,7 +455,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
         S.salvamentosRel.push(corpo);
         for (const r of corpo.relatorios ?? []) {
           const x = S.relatorios.find((y) => y.tipo === r.tipo);
-          if (x) x.regra = { ligado: r.ligado, hora: r.hora, diaSemana: r.diaSemana };
+          if (x) x.regra = { ligado: r.ligado, hora: r.hora, diaSemana: r.diaSemana, ...(r.convidarFora === undefined ? {} : { convidarFora: r.convidarFora }) };
         }
         return responder(route, { relatorios: S.relatorios });
       }
@@ -1054,9 +1062,9 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/22 ajustes em 9 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os três relatórios e o 'Como mandar o resumo' (M5e) , a conversa (M3a, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d) e as análises (V7e)");
+    ok(/23 ajustes em 9 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os quatro relatórios e o 'Como mandar o resumo' (M5e) , a conversa (M3a, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d) e as análises (V7e)");
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
-    ok(t0.includes('O de fichas novas só conta: não usa a IA.'), 'relatórios: a nota diz que o das fichas novas não usa a IA');
+    ok(t0.includes('O de fichas novas e o boletim do ramo não usam a IA.') && t0.includes('No boletim do ramo, esse convite é opcional.'), 'relatórios: a nota diz que o das fichas novas e o boletim não usam a IA, e que o convite do boletim é opcional');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
     ok(/Vai para:[\s\S]*Tela do Regem na loja[\s\S]*sem resolver em 5 min: WhatsApp do gerente da loja/.test(t0), 'avisos: a impressora vai à tela e, sem resolver em 5 min, ao gerente');
     ok((t0.match(/chega numa próxima entrega/g) ?? []).length === 4, 'avisos: os quatro tipos que ainda não saem dizem que chegam numa próxima entrega');
@@ -1116,6 +1124,28 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.click('button[role="switch"][aria-label*="Fichas novas de candidatos"]');
     await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/relatorios') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
     ok(JSON.stringify(S.salvamentosRel[2]) === JSON.stringify({ relatorios: [{ tipo: 'fichas_novas', ligado: true, hora: '09:00', diaSemana: null }] }), `relatórios: ligar as fichas novas manda só ele (${JSON.stringify(S.salvamentosRel[2])})`);
+    // Fase N2: o boletim do ramo nasce às 08:30, sem convite; o seletor só aparece ligado; antes das 08:15 não aceita.
+    const foraDoBoletim = page.getByLabel('Quem não falou com o Mister nas últimas 24 horas');
+    const horaDoBoletim = page.getByLabel('Horário do boletim do ramo');
+    ok((await horaDoBoletim.inputValue()) === '08:30' && (await foraDoBoletim.count()) === 0, 'boletim: nasce às 08:30 e, desligado, não mostra o convite');
+    await page.click('button[role="switch"][aria-label*="Boletim do ramo"]');
+    await foraDoBoletim.waitFor();
+    ok((await foraDoBoletim.inputValue()) === 'nao' && (await page.locator('[data-boletim-custo]').innerText()).includes('lê na tela, sem custo'), 'boletim: ligado, o padrão é não gastar');
+    await foraDoBoletim.selectOption('convite');
+    await page.waitForSelector('[data-boletim-custo]:has-text("cerca de R$ 0,035 por pessoa")');
+    await horaDoBoletim.fill('08:00');
+    await page.waitForSelector('text=Escolha um horário a partir de 08:15');
+    ok((await horaDoBoletim.inputValue()) === '08:30', 'boletim: horário antes das 08:15 não entra');
+    for (const w of [320, 375]) {
+      await page.setViewportSize({ width: w, height: 800 });
+      await foraDoBoletim.scrollIntoViewIfNeeded();
+      const larga = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+      const caixa = await foraDoBoletim.boundingBox();
+      ok(!larga && !!caixa && caixa.x >= 0 && caixa.x + caixa.width <= w, `boletim: ${w}px, o convite cabe sem barra para o lado`);
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/relatorios') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(JSON.stringify(S.salvamentosRel[3]) === JSON.stringify({ relatorios: [{ tipo: 'boletim_ramo', ligado: true, hora: '08:30', diaSemana: null, convidarFora: true }] }), `boletim: salvar manda só ele, com o convite (${JSON.stringify(S.salvamentosRel[3])})`);
     ok(erros.length === 0, `avisos: sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
@@ -1258,7 +1288,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t = await page.locator('main').innerText();
-    ok(/22 ajustes em 9 grupos/.test(t), "conversa: o grupo Conversa entra com três ajustes (o do boleto, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, Relatórios com o 'Como mandar o resumo' (M5e) e Análises com o ajuste da V7e");
+    ok(/23 ajustes em 9 grupos/.test(t), "conversa: o grupo Conversa entra com três ajustes (o do boleto, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, Relatórios com o 'Como mandar o resumo' (M5e) e Análises com o ajuste da V7e");
     ok(/Documentos e dinheiro[\s\S]*Boleto perto de vencer[\s\S]*Já paguei/.test(t), 'boleto: o aviso novo no grupo "Documentos e dinheiro", com o "Já paguei"');
     ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
     const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');
