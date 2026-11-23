@@ -8525,7 +8525,7 @@ export function testesDoMisterComPostgres(): void {
         const antes = (await perguntasDe('ana')).length;
         expect(await foto(telAna, id)).toBe('pergunta');
         expect(ia.pedidos).toHaveLength(2);
-        expect(ia.pedidos[1].max_tokens).toBe(3500);
+        expect(ia.pedidos[1].max_tokens).toBe(6000);
         expect(guardadas).toEqual([
           {
             total: 2,
@@ -8536,7 +8536,7 @@ export function testesDoMisterComPostgres(): void {
             semQuantidade: [],
           },
         ]);
-        expect(ia.pedidos[0].model).toBe('claude-haiku-5-5');
+        expect(ia.pedidos[0].model).toBe('claude-sonnet-5-5');
         expect(ia.pedidos[0].messages[0].content[0]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: Buffer.from(`midia-${id}`).toString('base64') } });
         expect(await q(`select recurso from ia_uso_dia where tenant_id = $1 and recurso = 'mister_foto'`, [A])).toHaveLength(1);
         const [p] = (await perguntasDe('ana')).slice(antes);
@@ -9469,6 +9469,33 @@ export function testesDoMisterComPostgres(): void {
         expect(await q(`select count(*)::int as n from compra_lista where tenant_id = $1`, [A])).toEqual(pedidosAntes);
         await q(`delete from mister_mensagem where wamid = any($1::text[])`, [[antiga, parada, recente]]);
         await q(`update mister_lista_compra set situacao = 'descartada' where id = $1`, [l.id]);
+      });
+
+      it('a linha em dúvida fica fora até a pessoa responder; a resposta entra, e a pergunta com foto guarda o texto inteiro', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const quem: any = { telefone: tel, tenantId: A, colaboradorId: pessoa.ana, unidadeId: lojaDeA, nivel: 'presidente', nome: 'Ana' };
+        const certa = { texto: 'Bacon em tiras', quantidade: 1, unidade: 'kg' };
+        const emDuvida = [{ texto: 'Tomate', quantidade: 2, unidade: 'kg', duvida: 'quantidade 2 ou 7' }];
+        // Sem responder: só a linha certa, e a mensagem diz o que ficou de fora.
+        expect(await lista.guardarLida(quem, { total: 2, pedidos: [certa], semQuantidade: [], emDuvida })).toBe(true);
+        const semResposta = await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'da_leitura' });
+        expect(semResposta).toMatchObject({ ok: true, dados: { linhas: 1, linhasNoArquivo: 2 } });
+        expect(semResposta.mensagens![0].texto).toBe('Li 1 de 2 linhas do arquivo. Em dúvida, ficaram de fora: Tomate (quantidade 2 ou 7). Me diga o certo ou mande outra foto.');
+        // Com a resposta: a linha entra com o que a pessoa disse.
+        expect(await lista.guardarLida(quem, { total: 2, pedidos: [certa], semQuantidade: [], emDuvida })).toBe(true);
+        const comResposta = await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'da_leitura', itens: [{ texto: 'Tomate', quantidade: 7, unidade: 'kg' }] });
+        expect(comResposta).toMatchObject({ ok: true, dados: { linhas: 2, linhasNoArquivo: 2 } });
+        expect(comResposta.mensagens![0]).toEqual({ texto: 'Li 2 de 2 linhas do arquivo.' });
+        expect((await ultima()).itens.map((x: any) => [x.texto, Number(x.quantidade)])).toEqual([['Bacon em tiras', 1], ['Tomate', 7]]);
+        await q(`update mister_lista_compra set situacao = 'descartada' where tenant_id = $1 and situacao in ('lida', 'montando', 'confirmar')`, [A]);
+        // A pergunta que veio da foto não é cortada em 1000 letras.
+        const chave = `foto-longa-${randomUUID()}`;
+        const texto = `⟦foto⟧ um cupom\n${'item '.repeat(600)}fim do cupom`;
+        expect(await fila.enfileirar({ tenantId: A, colaboradorId: pessoa.ana, unidadeId: lojaDeA, nivel: 'presidente', telefone: tel }, texto, chave, null)).toBe(true);
+        const [gravada] = await q(`select pergunta from mister_pergunta where chave = $1`, [chave]);
+        expect(gravada.pergunta.endsWith('fim do cupom')).toBe(true);
+        await q(`delete from mister_pergunta where chave = $1`, [chave]);
       });
 
       it('ERR-584: o arquivo inteiro: da_leitura monta com todas as linhas, e um pedaço avisa que há mais', async () => {

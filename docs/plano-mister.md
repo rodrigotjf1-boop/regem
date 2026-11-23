@@ -2444,3 +2444,25 @@ exportação OFX do banco da loja e se o dinheiro do iFood Pago aparece na API F
 - A descrição dos lançamentos não passa pela leitura do caixa: a IA recebe só somas por mês (V8-3).
 - **Limites ditos na resposta:** dinheiro que fica no caixa e não é depositado não aparece, transferência ainda não marcada conta como
   da loja, e o que vence depois do último extrato não está na conta.
+
+## Leitura de fotos (pedido do dono em 23/11/2026)
+
+Pedido: "melhor análise de imagem", porque a foto do celular sai tremida ou com pouca luz. Protótipo:
+`mockups/regem-mister-leitura-foto.html`. O dono escolheu: modelo melhor, usar todo o texto lido, mais tempo ao Graph, e "o que for
+dúvida" o Mister informa e pergunta, e a pessoa responde o certo ou manda outra foto.
+
+**O que o levantamento achou:** a foto é lida na nuvem. O Graph (Gemini) devolve o texto inteiro, mas o Regem guardava 15 linhas e
+600 letras. O Graph tinha 15 s, e 4 das 5 fotos de 20 a 23/11 caíram na reserva (Haiku, resposta curta). O último motivo gravado foi
+"sem resposta". O estudo de imagem do Farol (skill `imagem-python`) mede nitidez e luz, mas não testou realce para leitura.
+
+| Fase | O que entra | Situação |
+|---|---|---|
+| L0 · O teste | 20 fotos reais com a resposta certa, comparando as versões | espera as fotos do dono |
+| L1 · Leitura inteira | Texto inteiro até 5.000 letras, Graph com 25 s, o motivo da falha na pergunta, Sonnet 5.5 na reserva e na lista | neste PR |
+| L2a · Dúvida na lista e na foto | A linha em dúvida fica fora do pedido, o Mister pergunta, a resposta entra | neste PR |
+| L2b · Dúvida na nota e no cupom | Guardar o que leu em vez de recusar a foto inteira | a fazer |
+| L3 · Foto ruim e grande | Medir luz e tremido, documento até 20 MB, cupom em partes | depende de L0 e de biblioteca de imagem |
+| L4 · Releitura | O Sonnet relê a foto em dúvida. Nasce desligada, com o preço ao lado | depende de L0 |
+
+**Custo:** o Sonnet custa cerca de US$ 0,02 (uns R$ 0,12) por foto que cai na reserva ou lista copiada, contra menos de um centavo de
+dólar do Haiku, na chave de IA da empresa. `MISTER_FOTO_MODELO` volta ao modelo anterior.

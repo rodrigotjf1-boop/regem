@@ -22,6 +22,7 @@ import {
   PedidoDaLinha,
   TEXTOS_DA_LISTA,
   aplicarFator,
+  comAsRespostas,
   duvidaDoFator,
   ehParteDaLeitura,
   lerBotaoDaLista,
@@ -138,6 +139,8 @@ export class MisterListaService implements OnModuleInit {
       origem = 'conversa';
       lida = await this.ultimaLida(e);
       if (!lida) return recusa(TEXTOS_DA_LISTA.semLeitura);
+      // Em `itens`, só as linhas em dúvida que a pessoa já respondeu. O resto vem guardado.
+      lida = { ...lida, lista: comAsRespostas(lida.lista, lerPedidos(en.itens)) };
       pedidos = lida.lista.pedidos;
       if (!pedidos.length) return recusa(TEXTOS_DA_LISTA.semLinhas);
     } else if (en.acao === 'montar') {
@@ -180,7 +183,7 @@ export class MisterListaService implements OnModuleInit {
         await tx.execute(sql`
           insert into mister_lista_compra (tenant_id, unidade_id, colaborador_id, origem, situacao, itens, leitura, vence_em)
           values (${quem.tenantId}::uuid, ${quem.unidadeId}::uuid, ${quem.colaboradorId}::uuid, 'conversa', 'lida', ${JSON.stringify(l.pedidos)}::jsonb,
-                  ${JSON.stringify({ total: l.total, semQuantidade: l.semQuantidade })}::jsonb, clock_timestamp() + make_interval(hours => ${LEITURA_VALE_H}::int))`);
+                  ${JSON.stringify({ total: l.total, semQuantidade: l.semQuantidade, emDuvida: l.emDuvida ?? [] })}::jsonb, clock_timestamp() + make_interval(hours => ${LEITURA_VALE_H}::int))`);
       });
       return true;
     } catch (err: any) {
@@ -204,6 +207,7 @@ export class MisterListaService implements OnModuleInit {
         total: Number(l.leitura?.total) || pedidos.length,
         pedidos,
         semQuantidade: Array.isArray(l.leitura?.semQuantidade) ? l.leitura.semQuantidade.map(String) : [],
+        emDuvida: Array.isArray(l.leitura?.emDuvida) ? l.leitura.emDuvida : [],
       },
     };
   }

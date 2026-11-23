@@ -12,6 +12,8 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: leitura de fotos, L1 e L2a (23/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
+
 - **As 16 vendas em dobro de agosto e setembro desfeitas (23/11; ERR-582; mig 500, só nuvem, já aplicada).** A loja recebe a comanda cancelada,
   o estorno e o cartão cancelado pela sincronização, sem depender do `.zip`.
 
