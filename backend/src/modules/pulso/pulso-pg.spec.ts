@@ -7,7 +7,8 @@ import { hojeISO } from '../../common/data';
 import { somarDias } from '../perfil-cliente/calendario-regra';
 import { MisterRelatoriosService } from '../mister/mister-relatorios.service';
 import { NoticiasRamoService } from '../noticias-ramo/noticias-ramo.service';
-import { DIAS_DE_BOLETIM, lerConfigPulso } from './pulso.regras';
+import { lerCidadeDaLoja, lerClimaDaCidade, lerEventosDaBase } from '../mister/mister-clima-eventos.leitura';
+import { DIAS_DE_BOLETIM, lerConfigPulso, pausaEntreMunicipios } from './pulso.regras';
 import { PulsoService } from './pulso.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -188,6 +189,46 @@ descrever('o Regem lê o Pulso (Postgres)', () => {
       const f3 = pulsoFalso();
       expect(await svc.mandarInteresses(CFG, f3.buscar)).toBe(true);
       expect(f3.chamadas.find((x) => x.caminho === '/v1/interesses').corpo.municipios).toEqual(expect.arrayContaining(['3106200', '3304557']));
+    }));
+
+  it('versão 8, E1: a empresa com o Mister também recebe o clima da cidade; com muitas cidades a rotina vai no ritmo', () =>
+    naTransacao(async (c, tq) => {
+      const svc = new PulsoService(drizzle(c as any) as any);
+      const t = (await tq(`insert into empresa (nome) values ('teste mister clima') returning id`))[0].id as string;
+      await tq(`insert into fiscal_config (tenant_id, codigo_municipio) values ($1, 3106200)`, [t]);
+      expect(await svc.municipiosDasLojas()).not.toContain('3106200');
+      await tq(`insert into modulo_ativacao (tenant_id, unidade_id, modulo, ativo) values ($1, null, 'mister', true)`, [t]);
+      expect(await svc.municipiosDasLojas()).toContain('3106200');
+      expect([pausaEntreMunicipios(1), pausaEntreMunicipios(100), pausaEntreMunicipios(101)]).toEqual([0, 0, 600]);
+    }));
+
+  it('versão 8, E1: a agenda lê a cidade da loja, os eventos do período e a previsão daquela cidade', () =>
+    naTransacao(async (c, tq) => {
+      const db = drizzle(c as any) as any;
+      const t = (await tq(`insert into empresa (nome) values ('teste agenda') returning id`))[0].id as string;
+      const [lojaA, lojaB] = [randomUUID(), randomUUID()];
+      expect(await lerCidadeDaLoja(db, t, null)).toEqual({ situacao: 'sem_cidade', municipio: null, uf: null });
+      await tq(`insert into fiscal_config (tenant_id, unidade_id, codigo_municipio, uf) values ($1, $2, 3304557, 'RJ'), ($1, $3, 3550308, 'SP')`, [t, lojaA, lojaB]);
+      expect(await lerCidadeDaLoja(db, t, lojaB)).toEqual({ situacao: 'ok', municipio: 3550308, uf: 'SP' });
+      expect(await lerCidadeDaLoja(db, t, null)).toEqual({ situacao: 'varias_cidades', municipio: null, uf: null });
+      // A loja sem configuração própria usa a da empresa, quando há; aqui não há.
+      expect((await lerCidadeDaLoja(db, t, randomUUID())).situacao).toBe('sem_cidade');
+      const ev = (chave: string, inicio: string, situacao = 'confirmado', dia_inteiro = true) =>
+        tq(
+          `insert into pulso_evento (id, chave, tipo, nome, dia_inteiro, inicio, fuso, abrangencia, situacao, versao)
+           values ($1, $2, 'jogo', $2, $3, $4, 'America/Sao_Paulo', '[{"nivel":"nacional","valor":"BR"}]'::jsonb, $5, 1)`,
+          [randomUUID(), chave, dia_inteiro, inicio, situacao],
+        );
+      const prefixo = `agenda-${randomUUID().slice(0, 8)}`;
+      await ev(`${prefixo}-dentro`, '2031-03-10');
+      await ev(`${prefixo}-noite`, '2031-03-13T00:00:00.000Z', 'confirmado', false); // 21h do dia 12 em Brasília
+      await ev(`${prefixo}-fora`, '2031-03-20');
+      await ev(`${prefixo}-retirado`, '2031-03-11', 'retirado');
+      const lidos = (await lerEventosDaBase(db, '2031-03-10', '2031-03-12')).map((e) => e.nome).filter((n) => String(n).startsWith(prefixo));
+      expect(lidos).toEqual([`${prefixo}-dentro`, `${prefixo}-noite`]);
+      await tq(`insert into clima_municipio_dia (municipio, dia, chuva_prevista, inmet) values (3304557, '2031-03-10', true, '{"resumo":"Chuva"}'), (3550308, '2031-03-10', false, '{"resumo":"Sol"}')`);
+      expect(await lerClimaDaCidade(db, 3304557, '2031-03-10', '2031-03-12')).toEqual([{ dia: '2031-03-10', inmet: { resumo: 'Chuva' }, cptec: null }]);
+      expect(await lerClimaDaCidade(db, null, '2031-03-10', '2031-03-12')).toEqual([]);
     }));
 
   it('clima: 16 dias de cada município, e a chuva que se previa na véspera só para amanhã', () =>

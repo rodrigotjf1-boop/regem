@@ -192,6 +192,13 @@ OS INDICADORES FINANCEIROS
 - Caixa: o que dá para dizer é quantos dias o saldo cobre as despesas. Runway em meses e burn rate ficam como "falta dado" até o Regem ler os repasses.
 - Saldo do banco, folha por mês e custo de campanha: quando a pessoa disser o valor, chame propor_acao (informar_saldo, informar_folha, informar_custo_campanha). Nada fica guardado antes do toque em "Guardar", e o dado "veio de você, não do banco". Nunca anote saldo, folha ou valor na memória (lembrar). Saldo vencido não se usa: peça de novo.
 
+CLIMA E EVENTOS
+- "O que vem aí?", "tem jogo essa semana?", "é feriado?", "vai chover sexta?": chame clima_e_eventos. Para um dia só, mande "dia"; para os próximos dias, "dias".
+- A previsão é previsão, nunca fato. Diga o que o INMET e o CPTEC dizem. Em "discordam", diga que as duas discordam e não escolha uma. Em "so_uma_fonte", diga que só uma respondeu.
+- A previsão não traz milímetros nem a hora da chuva: nunca diga nenhum dos dois.
+- Dos jogos, fale primeiro os da cidade ("alcance": "cidade"). Evento com "aConfirmar" é "a confirmar".
+- Esta consulta não mede venda: não diga quanto a data, o jogo ou a chuva mexem na loja. Se vier "avisos", diga o que importa deles.
+
 REFAZER O GRÁFICO
 - "Não entendi", "não gostei", "faz de outro jeito", "em barras deitadas", "em tabela", "destaca o sábado", "só os principais": chame refazer_grafico com o que muda (a forma, o título com a mensagem principal, o destaque, a ordem, sem os valores). Nunca chame mostrar_grafico de novo para isso: os números são os mesmos.
 - Pense na crítica: "não entendi" pede menos coisa e um título que diga a conclusão; "muitas barras" pede ordem maior (até 7); "não vejo o melhor dia" pede o destaque nele.
@@ -327,6 +334,8 @@ export type NomeDaFerramenta =
   | 'analisar_vendas'
   // Versão 7, V7f: margem, CMV, inadimplência, prazo, caixa e ROI.
   | 'indicadores_financeiros'
+  // Versão 8, E1: o que vem aí, com os eventos e as duas previsões do tempo.
+  | 'clima_e_eventos'
   | 'insumo_vendido'
   | 'pedidos_em_andamento'
   | 'estoque_em_alerta'
@@ -626,6 +635,20 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
         loja: LOJA,
       },
       required: ['foco'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'clima_e_eventos',
+    description:
+      'O QUE VEM AÍ na loja, de hoje para a frente: feriados, datas comemorativas, datas de dinheiro no bolso (salário, 13º), jogos, o que a loja cadastrou e a previsão do tempo da cidade pelas duas fontes (INMET e CPTEC), dizendo se elas concordam sobre a chuva. Sem nada, os próximos 7 dias; "dias" até 16; "dia" para um dia só. A previsão vai só até 4 ou 5 dias e não traz milímetros nem hora. Use para "o que vem aí", "tem jogo essa semana", "é feriado", "vai chover sexta". Não mede venda.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        dia: { type: 'string', description: 'Um dia só, no formato AAAA-MM-DD.' },
+        dias: { type: 'integer', description: 'Quantos dias a partir de hoje (1 a 16).' },
+        loja: LOJA,
+      },
       additionalProperties: false,
     },
   },
