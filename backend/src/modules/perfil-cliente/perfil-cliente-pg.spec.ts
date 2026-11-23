@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Pool, PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { sqlCalcularPerfis } from './calculo-do-perfil';
+import { sql } from 'drizzle-orm';
+import { normalizarFormaPagamento, type TipoForma } from '../../common/formas-pagamento-normaliza';
+import { sqlCalcularPerfis, sqlFormaDoPerfil } from './calculo-do-perfil';
 
 const MIG_459 = join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '459_perfil_do_cliente.sql');
 const semFkCompartilhada = (s: string) =>
@@ -135,6 +137,48 @@ descrever('perfil do cliente — o cálculo (Postgres)', () => {
       expect(k).toMatchObject({ pedidos_diretos: 1, confianca: 'baixa', segmento: 'recentes', faixa_habitual: null });
       expect(k.etiquetas).toContain('novo');
       expect(k.camadas.gosto.de_sempre).toBeUndefined();
+    } finally {
+      await c.query('rollback');
+      c.release();
+    }
+  });
+
+  it('a forma de pagamento: os códigos dos canais seguem a regra comum', async () => {
+    const db = drizzle(pool as any);
+    const forma = async (cru: string, tipo = 'entrega') => {
+      const r: any = await db.execute(
+        sql`select ${sqlFormaDoPerfil(sql.raw('x.pag'), sql.raw('x.tipo'))} as forma from (select ${cru.toLowerCase()}::text as pag, ${tipo}::text as tipo) x`,
+      );
+      return (r.rows ?? r)[0].forma as string;
+    };
+    const NA_FICHA: Record<TipoForma, string> = { dinheiro: 'Dinheiro', pix: 'Pix', credito: 'Cartão', debito: 'Cartão', vr: 'Vale-refeição', online: 'Pago online', outro: 'Outro' };
+    const codigos = [
+      'Dinheiro', 'money', 'CASH', 'Pix', 'pix_auto', 'ifood-online-pix-payin', 'Cartão', 'cartao', 'Cartão de crédito', 'Cartão de débito',
+      'card', 'CREDIT', 'DEBIT', 'vr', 'Vale-refeição', 'MEAL_VOUCHER', 'online', 'Pago online', 'DIGITAL_WALLET',
+      'carteira digital', 'debt_book', 'custom', 'OTHER', '',
+    ];
+    for (const cru of codigos) expect([cru, await forma(cru)]).toEqual([cru, NA_FICHA[normalizarFormaPagamento(cru).tipo]]);
+    // A regra comum ainda não lê estes dois (o `_` não é fronteira de palavra na expressão dela); o perfil lê como cartão.
+    expect(await forma('credit_card')).toBe('Cartão');
+    expect(await forma('debit_card')).toBe('Cartão');
+    expect(await forma('entrega')).toBe('Na entrega');
+    expect(await forma('entrega', 'retirada')).toBe('Na retirada');
+  });
+
+  it('o perfil grava a forma em palavras, mesmo com o pedido gravado por código', async () => {
+    const c = await pool.connect();
+    try {
+      await c.query('begin');
+      const { q, t, ana } = await cenario(c);
+      const db = drizzle(c as any);
+      const gravada = async (cru: string) => {
+        await q(`update pedido_externo set forma_pagamento = $1 where cliente_id = $2`, [cru, ana]);
+        await db.execute(sqlCalcularPerfis(t, ana, true));
+        return (await q(`select camadas from cliente_perfil where cliente_id = $1`, [ana]))[0].camadas.gosto.pagamento;
+      };
+      expect(await gravada('card')).toBe('Cartão');
+      expect(await gravada('money')).toBe('Dinheiro');
+      expect(await gravada('entrega')).toBe('Na entrega');
     } finally {
       await c.query('rollback');
       c.release();
