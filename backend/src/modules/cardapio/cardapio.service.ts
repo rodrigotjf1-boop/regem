@@ -2065,7 +2065,8 @@ export class CardapioService {
       .from(formaPagamento)
       .where(and(eq(formaPagamento.tenantId, cfg.tenantId), eq(formaPagamento.ativo, true), eq(formaPagamento.cardapio, true)));
     const lista = formas.length ? formas.map((f) => f.nome) : Array.isArray(cfg.pagamentos) ? cfg.pagamentos : [];
-    return lista.includes('pix');
+    // Sem gateway não há Pix online: o agendado volta ao "na entrega" em vez de exigir um Pix que não sai.
+    return lista.includes('pix') && (await this.cobraOnline(cfg.tenantId));
   }
 
   /**
@@ -2373,6 +2374,13 @@ export class CardapioService {
     const opcaoEmVenda = (o: any) => !(o.origemOpcaoId && origemForaDeVenda.has(o.origemOpcaoId));
     // Fallback: se nenhuma foi marcada ainda, usa o `pagamentos` legado (sem regressão).
     const pagamentosCardapio = formasCardapio.map((f) => f.nome);
+    const pagamentosCadastrados: string[] = pagamentosCardapio.length ? pagamentosCardapio : ((cfg.pagamentos as string[] | null) ?? []);
+    // Pix e cartão online só aparecem na loja que consegue cobrar: a mesma regra do fechamento do pedido.
+    const ehOnline = (f: string) => f === 'pix' || f === 'cartao';
+    const pagamentosDaLoja =
+      pagamentosCadastrados.some(ehOnline) && !(await this.cobraOnline(cfg.tenantId))
+        ? pagamentosCadastrados.filter((f) => !ehOnline(f))
+        : pagamentosCadastrados;
     const alergs = await alergenosDoMenu;
     const comAlergenos = [...alergs.values()].some((a) => a.situacao === 'informado');
 
@@ -2421,7 +2429,7 @@ export class CardapioService {
                 ativo: true,
                 dias: diasPermitidos(new Date(), ajustesDoAgendado(cfg).dias),
                 janelaMin: 15,
-                pixObrigatorio: pagamentosCardapio.length ? pagamentosCardapio.includes('pix') : ((cfg.pagamentos as string[] | null) ?? []).includes('pix'),
+                pixObrigatorio: pagamentosDaLoja.includes('pix'),
               }
             : null,
         // Modo Encomenda (mig 186): regras p/ o checkout oferecer data futura.
@@ -2453,7 +2461,7 @@ export class CardapioService {
         raios: (cfg.raios as any[]) ?? [],
         lojaLat: cfg.endLat != null ? Number(cfg.endLat) : null,
         lojaLng: cfg.endLng != null ? Number(cfg.endLng) : null,
-        pagamentos: pagamentosCardapio.length ? pagamentosCardapio : (cfg.pagamentos ?? []),
+        pagamentos: pagamentosDaLoja,
         formasCartao: cfg.formasCartao ?? [],
         fidelidadeAtiva: cfg.fidelidadeAtiva,
         whatsapp: cfg.whatsapp,
@@ -2967,14 +2975,29 @@ export class CardapioService {
     return disp.sort((a, b) => (a.provider === prim ? -1 : 0) - (b.provider === prim ? -1 : 0));
   }
 
+  // A aprovação SEM cobrança só existe para demonstração: ligada de propósito e nunca em produção. Antes era o caminho
+  // normal de toda loja sem gateway: a rota pública marcava qualquer pedido como pago (auditoria de 22/11/2026, S1-01).
+  private static pixSimulado(): boolean {
+    return process.env.PIX_SIMULADO === 'true' && process.env.NODE_ENV !== 'production';
+  }
+
+  // A loja consegue cobrar online agora? A chave da Rede que não abre conta como "tem": quem recusa é a cobrança.
+  private async cobraOnline(tenantId: string): Promise<boolean> {
+    if (CardapioService.pixSimulado()) return true;
+    try {
+      return (await this.resolveGateways(tenantId)).length > 0;
+    } catch {
+      return true;
+    }
+  }
+
   /** A credencial da Rede do gateway já resolvido. */
   private static credRede(gw: GatewayPix): CredencialRede {
     return { pv: String(gw.pv ?? ''), chave: gw.token };
   }
 
-  // Público: pagamento online. Com Mercado Pago configurado → gera PIX (QR +
-  // copia-e-cola) e fica "aguardando" a confirmação (webhook). SEM gateway →
-  // fallback MOCK (aprova na hora), para demo/dev funcionarem sem credencial.
+  // Público: pagamento online. Com gateway configurado → gera PIX (QR + copia-e-cola) e fica "aguardando" a confirmação
+  // (webhook). SEM gateway → recusa, com o pedido como estava (a aprovação simulada só com `PIX_SIMULADO`, fora de produção).
   async pagarPedidoPublico(token: string, pedidoId: string) {
     const cfg = await this.resolver(token);
     const [p] = await this.db
@@ -2989,6 +3012,9 @@ export class CardapioService {
     if (!p) throw new NotFoundException('Pedido não encontrado.');
     if (p.pago) return { ok: true, jaPago: true, statusPagamento: 'aprovado' };
     if (p.sinalStatus === 'pago') return { ok: true, jaPago: true, sinalPago: true, statusPagamento: 'sinal_pago' };
+    // Pedido encerrado não recebe cobrança: o cliente pagaria por algo que a loja não vai entregar (B-01).
+    if (p.status === 'cancelado') throw new BadRequestException('Este pedido foi cancelado e não pode ser pago.');
+    if (p.status === 'concluido') throw new BadRequestException('Este pedido já foi concluído.');
 
     // Encomenda com sinal pendente: cobra SÓ o valor do sinal (resto na entrega).
     const ehSinal = p.sinalStatus === 'pendente' && p.sinalValor != null;
@@ -2996,7 +3022,8 @@ export class CardapioService {
 
     const gws = await this.resolveGateways(cfg.tenantId);
     if (!gws.length) {
-      // Fallback mock (sem gateway): aprova imediatamente.
+      if (!CardapioService.pixSimulado())
+        throw new BadRequestException('Esta loja não está recebendo pagamento online agora. Fale com a loja.');
       const r = await this.aprovarPagamento(cfg.tenantId, pedidoId);
       return r.tipo === 'sinal'
         ? { ok: true, sinalPago: true, statusPagamento: 'sinal_pago', mock: true }
@@ -4728,6 +4755,13 @@ export class CardapioService {
     if (ehAgendado && forma !== 'pix' && (await this.temPixOnlineNoCardapio(cfg)))
       throw new BadRequestException('O pedido agendado é pago no Pix, na hora do agendamento.');
     const online = !orcamento && (forma === 'pix' || forma === 'cartao' || exigeSinal);
+    // Sem como cobrar, o pedido não nasce esperando um pagamento que nunca vem: o cliente escolhe outra forma.
+    if (online && !(await this.cobraOnline(cfg.tenantId)))
+      throw new BadRequestException(
+        exigeSinal
+          ? 'Esta encomenda pede um sinal online, e a loja não está recebendo pagamento online agora. Fale com a loja.'
+          : 'Esta loja não está recebendo pagamento online agora. Escolha outra forma de pagamento.',
+      );
     const grande = paraReais(Math.max(0, somarCentavos(totalCent, -descontoCent, paraCentavos(taxa))));
 
     // Senha PRÓPRIA do cardápio — contador ATÔMICO por tenant/canal. O upsert
@@ -4850,7 +4884,7 @@ export class CardapioService {
         (await this.desfazSePassouDoLimite(cfg.tenantId, String(ped.id), limite, (tx) =>
           tx.execute(sql`
             update pedido_externo set status = 'cancelado', motivo_cancelamento = 'A janela do pedido agendado encheu no mesmo instante',
-                   updated_at = now()
+                   cancelado_em = now(), client_ref = null, updated_at = now()
              where id = ${String(ped.id)}::uuid and tenant_id = ${cfg.tenantId}::uuid and status = 'novo'`),
         ));
       if (desfez) throw new BadRequestException(`O horário das ${janelaDoAgendado.slice(11)} acabou de encher. Escolha outro.`);

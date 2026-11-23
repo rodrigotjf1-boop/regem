@@ -74,10 +74,11 @@ descrever('pedido agendado (Postgres)', () => {
     },
   } as any;
   const cardapio = new CardapioService(db, vendas, delivery, {} as any, new FidelidadeService(db), new CashbackService(db), eventos, {} as any, auditoria);
-  const antes = { edge: process.env.EDGE_MODE, segredo: process.env.CLIENTE_TOKEN_SECRET };
+  const antes = { edge: process.env.EDGE_MODE, segredo: process.env.CLIENTE_TOKEN_SECRET, pix: process.env.PIX_SIMULADO };
 
   beforeAll(async () => {
     delete process.env.EDGE_MODE;
+    process.env.PIX_SIMULADO = 'true'; // as lojas daqui têm o Pix online sem um gateway de verdade
     if (!process.env.JWT_SECRET && !antes.segredo) process.env.CLIENTE_TOKEN_SECRET = `teste-${randomUUID()}`;
     for (const t of ['edge_status', 'edge_heartbeat'])
       await pool
@@ -88,6 +89,8 @@ descrever('pedido agendado (Postgres)', () => {
   });
   afterAll(async () => {
     if (antes.edge !== undefined) process.env.EDGE_MODE = antes.edge;
+    if (antes.pix === undefined) delete process.env.PIX_SIMULADO;
+    else process.env.PIX_SIMULADO = antes.pix;
     if (antes.segredo === undefined) delete process.env.CLIENTE_TOKEN_SECRET;
     else process.env.CLIENTE_TOKEN_SECRET = antes.segredo;
     if (empresas.length) {
@@ -213,6 +216,43 @@ descrever('pedido agendado (Postgres)', () => {
     expect(String(recusa.reason?.message)).toContain('acabou de encher');
     const vivos = await q(`select count(*)::int as n from pedido_externo where tenant_id = $1 and retirada_tipo = 'agendado' and status <> 'cancelado'`, [l.t]);
     expect(vivos[0].n).toBe(2);
+  });
+
+  it('B-01: quem perdeu a última vaga escolhe outro horário com o MESMO carrinho e recebe um pedido novo, nunca o cancelado', async () => {
+    const l = await loja(2);
+    const j = janelaDaqui(195);
+    const outra = janelaDaqui(225);
+    await pedir(l, j); // a primeira vaga já está ocupada: sobra uma
+    const refs = [`ref-${randomUUID()}`, `ref-${randomUUID()}`];
+    const original = pool.query;
+    let chegaram = 0;
+    let soltar!: () => void;
+    const solta = new Promise<void>((r) => (soltar = r));
+    const prazo = setTimeout(() => soltar(), 3000);
+    (pool as any).query = async function (this: any, ...args: any[]) {
+      const t = typeof args[0] === 'string' ? args[0] : String(args[0]?.text ?? '');
+      if (/insert into pedido_externo/.test(t) && /retirada_tipo/.test(t)) {
+        if (++chegaram >= 2) soltar();
+        await solta;
+      }
+      return (original as any).apply(pool, args);
+    };
+    let r: PromiseSettledResult<any>[] = [];
+    try {
+      r = await Promise.allSettled(refs.map((clientRef) => pedir(l, j, 'pix', { clientRef })));
+    } finally {
+      clearTimeout(prazo);
+      (pool as any).query = original;
+    }
+    const perdeu = r.findIndex((x) => x.status === 'rejected');
+    expect(perdeu).toBeGreaterThanOrEqual(0);
+    const [desfeito] = await q(`select id, client_ref, cancelado_em from pedido_externo where tenant_id = $1 and status = 'cancelado'`, [l.t]);
+    expect(desfeito.client_ref).toBeNull();
+    expect(desfeito.cancelado_em).not.toBeNull();
+
+    const nova: any = await pedir(l, outra, 'pix', { clientRef: refs[perdeu] });
+    expect(nova.pedidoId).not.toBe(desfeito.id);
+    expect((await q(`select status, client_ref from pedido_externo where id = $1`, [nova.pedidoId]))[0]).toEqual({ status: 'novo', client_ref: refs[perdeu] });
   });
 
   it('V98 com o aceite automático do Delivery e sem Pix online: o desfeito fica cancelado e fora da cozinha (achado do vigia)', async () => {

@@ -94,7 +94,7 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
   } as any;
   const robo = new RoboPedidoService(db, cardapio, whats, oficial);
   const empresas: string[] = [];
-  const antes = { segredo: process.env.BOT_RESOLVER_SECRET, edge: process.env.EDGE_MODE, cliente: process.env.CLIENTE_TOKEN_SECRET };
+  const antes = { segredo: process.env.BOT_RESOLVER_SECRET, edge: process.env.EDGE_MODE, cliente: process.env.CLIENTE_TOKEN_SECRET, pix: process.env.PIX_SIMULADO };
 
   // Cada migration numa transação, repetida na corrida de catálogo do banco dividido do CI (lock timeout ou impasse —
   // ERR-405): a 342 e as seguintes trazem `lock_timeout` de 5 s.
@@ -118,6 +118,7 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
 
   beforeAll(async () => {
     process.env.BOT_RESOLVER_SECRET = SENHA;
+    process.env.PIX_SIMULADO = 'true'; // as lojas daqui têm o Pix online sem um gateway de verdade
     // O pedido do cardápio assina o token do cliente no fim (o CI não tem JWT_SECRET).
     if (!process.env.JWT_SECRET && !antes.cliente) process.env.CLIENTE_TOKEN_SECRET = `teste-${randomUUID()}`;
     delete process.env.EDGE_MODE; // como NUVEM
@@ -138,6 +139,8 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     if (antes.segredo === undefined) delete process.env.BOT_RESOLVER_SECRET;
     else process.env.BOT_RESOLVER_SECRET = antes.segredo;
     if (antes.edge !== undefined) process.env.EDGE_MODE = antes.edge;
+    if (antes.pix === undefined) delete process.env.PIX_SIMULADO;
+    else process.env.PIX_SIMULADO = antes.pix;
     if (antes.cliente === undefined) delete process.env.CLIENTE_TOKEN_SECRET;
     else process.env.CLIENTE_TOKEN_SECRET = antes.cliente;
     if (empresas.length) {
