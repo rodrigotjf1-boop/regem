@@ -346,6 +346,8 @@ export type NomeDaFerramenta =
   | 'indicadores_financeiros'
   // Versão 8, E1: o que vem aí, com os eventos e as duas previsões do tempo.
   | 'clima_e_eventos'
+  // Fase N3 das Notícias do ramo: o boletim do Pulso (nasce desligada, `MISTER_NOTICIAS_RAMO=1`).
+  | 'noticias_do_ramo'
   | 'insumo_vendido'
   | 'pedidos_em_andamento'
   | 'estoque_em_alerta'
@@ -660,6 +662,19 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
         comparar: { type: 'string', enum: ['jogo', 'feriado', 'ponto_facultativo', 'comemorativa', 'dinheiro', 'chuva'], description: 'O tipo de dia cuja venda comparar com os dias comuns.' },
         nome: { type: 'string', description: 'Com "comparar": só o evento ou time com este nome (ex.: "Black Friday", "Botafogo").' },
         loja: LOJA,
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'noticias_do_ramo',
+    description:
+      'As NOTÍCIAS DO RAMO de bares e restaurantes dos últimos dias, do boletim do Regem: impostos, trabalho, medidas do governo, economia e custos, e as novidades do setor (tendências, tecnologia, plataformas de delivery), com os indicadores (IPCA e Selic). Use para "teve novidade de imposto?", "o que saiu sobre a escala?", "quais as tendências do setor?", "como está a Selic?". Sem "dias", os últimos 7. Conte só o que veio, citando a fonte de cada notícia. O que vem com "emDiscussao" ainda NÃO é lei: diga isso. Não diga o efeito na loja nem quanto a pessoa vai pagar: para isso, oriente falar com o contador.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        assunto: { type: 'string', enum: ['impostos', 'trabalho', 'governo', 'economia', 'novidades'], description: 'Só este assunto. "novidades" = tendências, tecnologia e plataformas. Sem isto, todos.' },
+        dias: { type: 'integer', description: 'Quantos dias para trás, contando hoje (1 a 30). Sem isto, 7.' },
       },
       additionalProperties: false,
     },
@@ -1073,6 +1088,11 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
 ];
 
 export const ehFerramenta = (n: unknown): n is NomeDaFerramenta => FERRAMENTAS.some((f) => f.name === n);
+
+/** Fase N3: a consulta das notícias só entra na conversa com a variável ligada, depois da avaliação de perguntas. */
+export const noticiasNoMister = (): boolean => process.env.MISTER_NOTICIAS_RAMO === '1';
+/** O que o modelo recebe numa conversa de verdade; a avaliação recebe todas, para medir antes de ligar. */
+export const ferramentasDaConversa = (): typeof FERRAMENTAS => (noticiasNoMister() ? FERRAMENTAS : FERRAMENTAS.filter((f) => f.name !== 'noticias_do_ramo'));
 
 /** As ferramentas que leem dado (todas, menos as de `FERRAMENTAS_QUE_NAO_SAO_CONSULTA`): é o que conta como "consulta". */
 export const ehConsulta = (n: unknown): n is NomeDaFerramenta => ehFerramenta(n) && !FERRAMENTAS_QUE_NAO_SAO_CONSULTA.includes(n);

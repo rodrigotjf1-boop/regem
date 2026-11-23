@@ -5,6 +5,7 @@ import { Pool, type PoolClient } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { hojeISO } from '../../common/data';
 import { somarDias } from '../perfil-cliente/calendario-regra';
+import { consultarNoticias } from '../mister/mister-noticias';
 import { MisterRelatoriosService } from '../mister/mister-relatorios.service';
 import { NoticiasRamoService } from '../noticias-ramo/noticias-ramo.service';
 import { lerChuvaNaVespera, lerCidadeDaLoja, lerClimaDaCidade, lerDiaDaAgenda, lerEventosDaBase } from '../mister/mister-clima-eventos.leitura';
@@ -34,7 +35,7 @@ const CFG = lerConfigPulso({
 });
 
 /** O DMS ID e o Pulso de mentira: anota cada chamada (método, caminho, consulta, cabeçalhos, corpo). */
-function pulsoFalso(resp: { mudancas?: any[]; clima?: (m: string) => any; status?: number; boletim?: () => any } = {}) {
+function pulsoFalso(resp: { mudancas?: any[]; clima?: (m: string) => any; status?: number; boletim?: (data: string | null) => any } = {}) {
   const chamadas: any[] = [];
   let pagina = 0;
   const buscar = (async (alvo: any, init: any = {}) => {
@@ -53,7 +54,10 @@ function pulsoFalso(resp: { mudancas?: any[]; clima?: (m: string) => any; status
     if (u.pathname === '/v1/eventos/mudancas') return json(200, (resp.mudancas ?? [])[pagina++] ?? { eventos: [], proxima_versao: Number(u.searchParams.get('desde_versao')), tem_mais: false });
     if (u.pathname === '/v1/interesses') return json(200, { municipios: JSON.parse(String(init.body)).municipios, temas: [], ramos: ['bares_restaurantes'], municipios_pendentes: [], municipios_recusados: [] });
     if (u.pathname === '/v1/clima') return json(200, resp.clima ? resp.clima(u.searchParams.get('municipio') as string) : { dias: [] });
-    if (u.pathname === '/v1/ramo/boletim' && resp.boletim) return json(200, resp.boletim());
+    if (u.pathname === '/v1/ramo/boletim' && resp.boletim) {
+      const b = resp.boletim(u.searchParams.get('data'));
+      return b ? json(200, b) : json(404, {});
+    }
     return json(404, {});
   }) as unknown as typeof fetch;
   return { buscar, chamadas };
@@ -299,7 +303,7 @@ descrever('o Regem lê o Pulso (Postgres)', () => {
       const svc = new PulsoService(drizzle(pool as any) as any);
       const hoje = hojeISO();
       let corpo = boletimDe(hoje, [noticia('1'), noticia('2')]);
-      const f = pulsoFalso({ boletim: () => corpo });
+      const f = pulsoFalso({ boletim: (d) => (d === hoje ? corpo : null) });
       expect(await svc.lerBoletimDoRamo(CFG, f.buscar)).toBe(true);
       expect(f.chamadas.find((c) => c.caminho === '/v1/ramo/boletim').consulta).toEqual({ ramo: 'bares_restaurantes', data: hoje });
       let linhas = await q(`select to_char(dia, 'YYYY-MM-DD') as dia, corpo from pulso_boletim`);
@@ -307,7 +311,7 @@ descrever('o Regem lê o Pulso (Postgres)', () => {
       expect(linhas[0].dia).toBe(hoje);
       expect(linhas[0].corpo.novidades.map((n: any) => n.id)).toEqual(['1', '2']);
       // A reserva de 50 minutos: duas réplicas não chamam o Pulso duas vezes.
-      const outra = pulsoFalso({ boletim: () => corpo });
+      const outra = pulsoFalso({ boletim: (d) => (d === hoje ? corpo : null) });
       expect(await svc.lerBoletimDoRamo(CFG, outra.buscar)).toBe(false);
       expect(outra.chamadas).toHaveLength(0);
       await liberar();
@@ -338,10 +342,51 @@ descrever('o Regem lê o Pulso (Postgres)', () => {
       const velha = somarDias(hoje, -(DIAS_DE_BOLETIM + 1));
       const limite = somarDias(hoje, -DIAS_DE_BOLETIM);
       for (const d of [velha, limite]) await q(`insert into pulso_boletim (ramo, dia, corpo) values ('bares_restaurantes', $1::date, '{}')`, [d]);
-      await svc.lerBoletimDoRamo(CFG, pulsoFalso({ boletim: () => boletimDe(hoje, []) }).buscar);
+      await svc.lerBoletimDoRamo(CFG, pulsoFalso({ boletim: (d) => (d === hoje ? boletimDe(hoje, []) : null) }).buscar);
       const dias = (await q(`select to_char(dia, 'YYYY-MM-DD') as dia from pulso_boletim order by dia`)).map((l) => l.dia);
       expect(dias).toEqual([limite, hoje]);
     });
+
+    it('a notícia tirada no Pulso num boletim de ontem some da cópia; o de 3 dias atrás não é pedido', async () => {
+      const svc = new PulsoService(drizzle(pool as any) as any);
+      const hoje = hojeISO();
+      const ontem = somarDias(hoje, -1);
+      let deOntem = boletimDe(ontem, [noticia('1'), noticia('2')]);
+      const f = pulsoFalso({ boletim: (d) => (d === hoje ? boletimDe(hoje, [noticia('9')]) : d === ontem ? deOntem : null) });
+      expect(await svc.lerBoletimDoRamo(CFG, f.buscar)).toBe(true);
+      expect(f.chamadas.filter((c) => c.caminho === '/v1/ramo/boletim').map((c) => c.consulta.data)).toEqual([hoje, ontem, somarDias(hoje, -2)]);
+      await liberar();
+      deOntem = boletimDe(ontem, [noticia('2')]);
+      expect(await svc.lerBoletimDoRamo(CFG, f.buscar)).toBe(true);
+      const [l] = await q(`select corpo from pulso_boletim where dia = $1::date`, [ontem]);
+      expect(l.corpo.novidades.map((n: any) => n.id)).toEqual(['2']);
+    });
+
+    it('a consulta do Mister (N3) lê as cópias do período, com o assunto; a empresa de outro ramo não lê', () =>
+      naTransacao(async (c, tq) => {
+        const antes = process.env.MISTER_NOTICIAS_RAMO;
+        process.env.MISTER_NOTICIAS_RAMO = '1';
+        try {
+          const t = (await tq(`insert into empresa (nome) values ('teste notícias do Mister') returning id`))[0].id as string;
+          await tq(`delete from pulso_boletim`);
+          const insere = (d: string, novidades: any[]) => tq(`insert into pulso_boletim (ramo, dia, corpo) values ('bares_restaurantes', $1::date, $2::jsonb)`, [d, JSON.stringify({ dia: d, mensagem: null, indicadores: [], destaques: [], novidades, mais: [] })]);
+          const daCopia = (id: string) => ({ id, titulo: `Notícia ${id}`, link: `https://fonte.teste/${id}`, categoria: 'tendencias', categoriaNome: 'Tendências do ramo', publicadoEm: '2026-11-22T10:00:00.000Z', emDiscussao: false, aviso: null, credito: 'Fonte: Mercado&Consumo' });
+          await insere('2026-11-23', [daCopia('1')]);
+          await insere('2026-11-17', [daCopia('2')]);
+          await insere('2026-11-16', [daCopia('3')]); // fora dos 7 dias
+          const escopo = { tenantId: t, nivel: 'presidente', permissoes: {} } as any;
+          const db = drizzle(c as any) as any;
+          const r: any = await consultarNoticias(db, escopo, {}, '2026-11-23');
+          expect(r.ok).toBe(true);
+          expect(r.dados.noticias.map((n: any) => n.titulo).sort()).toEqual(['Notícia 1', 'Notícia 2']);
+          expect(((await consultarNoticias(db, escopo, { assunto: 'impostos' }, '2026-11-23')) as any).dados.total).toBe(0);
+          await tq(`update empresa set ramo = 'varejo' where id = $1`, [t]);
+          expect(await consultarNoticias(db, escopo, {}, '2026-11-23')).toEqual({ ok: false, dados: { erro: 'Não há boletim para o ramo desta empresa.' } });
+        } finally {
+          if (antes === undefined) delete process.env.MISTER_NOTICIAS_RAMO;
+          else process.env.MISTER_NOTICIAS_RAMO = antes;
+        }
+      }));
 
     it('a tela lê a cópia: o mais recente, um dia pedido, dia sem boletim e nenhum boletim; outro ramo não lê', () =>
       naTransacao(async (c, tq) => {
