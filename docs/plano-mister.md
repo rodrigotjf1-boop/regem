@@ -2388,3 +2388,26 @@ exportação OFX do banco da loja e se o dinheiro do iFood Pago aparece na API F
 
 **Da parte do dono:** dizer qual banco e qual maquininha a loja usa; mandar um extrato OFX e um arquivo de exemplo do iFood Pago e da
 99. Quem cuida da homologação do iFood é a distribuição.
+
+**Situação das etapas (23/11):**
+
+| Etapa | Situação |
+|---|---|
+| E1 · Clima e eventos na conversa | no ar (#1285) |
+| E2 · Comparação com as vendas | no ar (#1287) |
+| E3 · Véspera, linha "Amanhã" e regra pela conversa | no ar (#1289, mig 498) e a regra pela agenda neste PR |
+| E4 · Boletim do ramo | feita por outra frente: Notícias do ramo N1 a N3 (#1278, #1283, #1288) |
+| R1 a R5 · Banco e repasses | a fazer |
+
+**Como E1 a E3 ficaram:**
+
+- `clima_e_eventos` junta a base do Pulso, o calendário da loja e as duas previsões. Sem o Pulso, responde com o calendário fixo.
+- O jogo fica no dia do relógio da loja: o das 21h de segunda vem gravado como terça em UTC. Jogo de outra cidade só conta se a pessoa
+  pedir pelo nome ou pelo time.
+- A comparação olha 180 dias, contra o mesmo dia da semana nas 8 semanas anteriores, sem evento e com a loja aberta. Com menos de 4 dias
+  não sai número (V8-10).
+- A chuva guardada é a previsão da véspera, não a chuva que caiu. Com menos de 60 dias gravados, o Mister diz quantos tem e quando dá.
+- "Avisar na véspera" é um relatório em texto fixo. Fora das 24 horas, sem o convite, não sai e não custa nada.
+- A regra pela conversa usa a fonte `agenda`, no mesmo motor das outras regras.
+- Diferenças do protótipo: o alerta oficial do INMET ainda não entra, porque o Regem não lê essa rota do Pulso; o boletim do ramo
+  continua no grupo Relatórios, onde a fase N2 o colocou.

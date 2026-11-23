@@ -35,6 +35,7 @@ export function periodoDaAgenda(en: { dia?: unknown; dias?: unknown }, hoje: str
 }
 
 export type EventoDaBase = {
+  id?: string;
   tipo: string;
   nome: string | null;
   dia_inteiro: boolean;
@@ -97,6 +98,34 @@ export function leituraDaChuva(inmet: FonteDaPrevisao | null, cptec: FonteDaPrev
   if (a === null || b === null) return 'so_uma_fonte';
   if (a !== b) return 'discordam';
   return a ? 'as_duas_dao_chuva' : 'as_duas_sem_chuva';
+}
+
+export type CidadeDaEmpresa = { tenantId: string; unidadeId: string | null; municipio: number; uf: string | null };
+export type LinhaDaAgenda = { id: string; alvoId: string; tenantId: string; unidadeId: string | null; rotulo: string; campos: Record<string, unknown> };
+
+/**
+ * A fonte `agenda` das regras (versão 8, E3): cada evento dos próximos dias que vale na cidade de cada loja. O jogo de fora
+ * da cidade entra com `na_cidade = false`: "o meu time" pode jogar em outro lugar, e a pessoa pede pelo nome.
+ */
+export function linhasDaAgenda(cidades: CidadeDaEmpresa[], eventos: EventoDaBase[], hoje: string, ate: string): LinhaDaAgenda[] {
+  const fora: LinhaDaAgenda[] = [];
+  for (const c of cidades) {
+    for (const e of eventos) {
+      const quando = diaDoEvento(e);
+      if (!e.id || !e.nome || !quando || quando.dia < hoje || quando.dia > ate) continue;
+      const alcance = alcanceDoEvento(e.abrangencia, c.municipio, c.uf);
+      if (!alcance) continue;
+      fora.push({
+        id: e.id,
+        alvoId: e.id,
+        tenantId: c.tenantId,
+        unidadeId: c.unidadeId,
+        rotulo: `${e.nome} · ${rotuloDoDia(quando.dia)}${quando.hora ? ` às ${quando.hora}` : ''}`,
+        campos: { tipo: e.tipo, nome: e.nome, dias_para: diasEntre(hoje, quando.dia), na_cidade: alcance === 'cidade' },
+      });
+    }
+  }
+  return fora;
 }
 
 export type ClimaLido = { dia: string; inmet: any; cptec: any };

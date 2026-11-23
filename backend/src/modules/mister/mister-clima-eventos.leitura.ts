@@ -37,7 +37,7 @@ export async function lerEventosDaBase(db: DrizzleDB, de: string, ate: string): 
   try {
     return linhas(
       await db.execute(sql`
-        select tipo, nome, dia_inteiro, inicio, fuso, abrangencia, situacao
+        select id::text as id, tipo, nome, dia_inteiro, inicio, fuso, abrangencia, situacao
           from pulso_evento
          where situacao not in ('retirado', 'cancelado')
            and left(inicio, 10) between ${de} and ${somarDias(ate, 1)}
