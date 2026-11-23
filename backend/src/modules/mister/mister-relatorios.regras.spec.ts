@@ -1,6 +1,7 @@
 import {
   ATRASO_MAXIMO_DO_RELATORIO_MIN,
   FICHAS_NO_RESUMO_MAX,
+  LIMITE_DO_BOLETIM_NO_WHATSAPP,
   PADRAO_DO_RELATORIO,
   conferirRelatorios,
   janelaDasFichas,
@@ -11,6 +12,7 @@ import {
   relatorioDevido,
   saudacao,
   textoDasFichasNovas,
+  textoDoBoletim,
   vagaDaFicha,
 } from './mister-relatorios.regras';
 import { parametrosDoResumo } from './mister-modelos';
@@ -182,5 +184,103 @@ describe('o resumo das fichas novas (F4c das vagas)', () => {
       'resumo das fichas novas de candidatos de 16/11',
       'Burger',
     ]);
+  });
+});
+
+describe('o boletim do ramo (fase N2)', () => {
+  const noticia = (id: string, titulo: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    titulo,
+    link: `https://fonte.teste/${id}`,
+    categoria: 'impostos',
+    categoriaNome: 'Impostos e fiscal',
+    publicadoEm: '2026-11-20T14:05:00.000Z',
+    emDiscussao: false,
+    aviso: null as string | null,
+    credito: 'Fonte: Receita Federal (gov.br, CC BY-ND 3.0)',
+    ...extra,
+  });
+  const indicadores = [
+    { id: 'ipca_fora_do_domicilio', nome: 'IPCA da alimentação fora de casa', valor: 0.36, unidade: '% no mês', referencia: '2026-10', acumulado12Meses: 5.68, mudou: false, credito: 'Fonte: IBGE' },
+    { id: 'ipca_geral', nome: 'IPCA (inflação geral)', valor: 0.14, unidade: '% no mês', referencia: '2026-10', acumulado12Meses: 4.63, mudou: false, credito: 'Fonte: IBGE' },
+    { id: 'selic', nome: 'Selic (meta)', valor: 13.75, unidade: '% ao ano', referencia: '2026-11-22', acumulado12Meses: null, mudou: false, credito: 'Fonte: Banco Central do Brasil' },
+  ];
+  const LINK = 'https://app.teste/noticias-do-ramo';
+  const boletim = (o: Record<string, unknown> = {}) => ({ dia: '2026-11-22', mensagem: null, indicadores, destaques: [], novidades: [], mais: [], ...o }) as any;
+
+  it('nasce desligado, às 08:30, sem o convite pago e sem a IA', () => {
+    expect(PADRAO_DO_RELATORIO.boletim_ramo).toEqual({ ligado: false, hora: '08:30', diaSemana: null, convidarFora: false });
+    expect(regraDoRelatorioQueVale('boletim_ramo', null).convidarFora).toBe(false);
+    expect(regraDoRelatorioQueVale('boletim_ramo', { ligado: true, hora: '09:00', convidarFora: true })).toEqual({ ligado: true, hora: '09:00', diaSemana: null, convidarFora: true });
+    // A coluna nova não muda os outros relatórios.
+    expect(regraDoRelatorioQueVale('resumo_dia', { ligado: true, hora: '22:00', convidarFora: true })).toEqual({ ligado: true, hora: '22:00', diaSemana: null });
+  });
+
+  it('vence todo dia, do horário até 3 horas depois, com o boletim do dia do envio', () => {
+    const regra = { ligado: true, hora: '08:30', diaSemana: null };
+    expect(relatorioDevido('boletim_ramo', regra, dia('08:29'))).toBeNull();
+    expect(relatorioDevido('boletim_ramo', regra, dia('08:30'))).toEqual({ referencia: '2026-11-14', ate: '2026-11-14' });
+    expect(relatorioDevido('boletim_ramo', regra, dia('11:30'))).toEqual({ referencia: '2026-11-14', ate: '2026-11-14' });
+    expect(relatorioDevido('boletim_ramo', regra, dia('11:31'))).toBeNull();
+    expect(relatorioDevido('boletim_ramo', { ...regra, hora: '23:30' }, dia('00:40', 7, '2026-11-15'))).toEqual({ referencia: '2026-11-14', ate: '2026-11-14' });
+  });
+
+  it('o que a tela manda: antes das 08:15 não há boletim; o convite só booleano; ausente fica de fora para manter o salvo', () => {
+    expect(conferirRelatorios({ relatorios: [{ tipo: 'boletim_ramo', ligado: true, hora: '08:14' }] })).toEqual({ erro: expect.stringContaining('08:15') });
+    expect(conferirRelatorios({ relatorios: [{ tipo: 'boletim_ramo', ligado: true, hora: '08:15', convidarFora: 'sim' }] })).toEqual({ erro: expect.stringContaining('convite') });
+    expect(conferirRelatorios({ relatorios: [{ tipo: 'boletim_ramo', ligado: true, hora: '08:15' }] })).toEqual([{ tipo: 'boletim_ramo', regra: { ligado: true, hora: '08:15', diaSemana: null } }]);
+    expect(conferirRelatorios({ relatorios: [{ tipo: 'boletim_ramo', ligado: true, hora: '08:15', convidarFora: true }] })).toEqual([{ tipo: 'boletim_ramo', regra: { ligado: true, hora: '08:15', diaSemana: null, convidarFora: true } }]);
+    expect(conferirRelatorios({ relatorios: [{ tipo: 'fichas_novas', ligado: true, hora: '07:00', convidarFora: true }] })).toEqual([{ tipo: 'fichas_novas', regra: { ligado: true, hora: '07:00', diaSemana: null } }]);
+  });
+
+  it('o convite diz que é o boletim do dia', () => {
+    expect(parametrosDoResumo('boletim_ramo', { referencia: '2026-11-23', ate: '2026-11-23' }, 'Burger')).toEqual(['boletim do ramo de 23/11', 'Burger']);
+  });
+
+  it('dia sem destaque nem novidade: nada sai, mesmo com notícia na lista', () => {
+    expect(textoDoBoletim(boletim({ mais: [noticia('9', 'Só na lista')] }), LINK)).toBeNull();
+  });
+
+  it('a mensagem: indicadores, até 3 destaques e 2 novidades, o título igual, o aviso, o crédito, o link e quantas ficaram', () => {
+    const t = textoDoBoletim(
+      boletim({
+        destaques: [
+          noticia('1', 'Receita amplia o Piloto da CBS'),
+          noticia('2', 'Receita orienta contadores'),
+          noticia('3', 'Durigan defende novo imposto no Senado', { aviso: 'Em discussão no Congresso: ainda não é lei.', emDiscussao: true, credito: 'Agência Senado' }),
+          noticia('4', 'Quarto destaque fica para a tela'),
+        ],
+        novidades: [
+          noticia('5', 'Mel com pimenta entre as tendências', { credito: 'Fonte: Mercado&Consumo' }),
+          noticia('6', 'iFood lança armários inteligentes', { credito: 'Fonte: Mercado&Consumo' }),
+          noticia('7', 'Terceira novidade fica para a tela'),
+        ],
+        mais: [noticia('8', 'Na lista')],
+      }),
+      LINK,
+    ) as string;
+    expect(t.startsWith('*Boletim do ramo · dom, 22/11*\n\nIPCA fora de casa: *0,36%* no mês (out/26, IBGE)\nSelic: *13,75%* ao ano (Banco Central do Brasil)')).toBe(true);
+    expect(t).not.toContain('inflação geral');
+    expect(t).toContain('*1.* Receita amplia o Piloto da CBS\nFonte: Receita Federal (gov.br, CC BY-ND 3.0)\nhttps://fonte.teste/1');
+    expect(t).toContain('*3.* Durigan defende novo imposto no Senado\n_Em discussão no Congresso: ainda não é lei._\nAgência Senado\nhttps://fonte.teste/3');
+    expect(t).toContain('*Novidades e tendências*\nMel com pimenta entre as tendências\nFonte: Mercado&Consumo\nhttps://fonte.teste/5');
+    expect(t).toContain('iFood lança armários inteligentes');
+    expect(t).not.toContain('Quarto destaque');
+    expect(t).not.toContain('Terceira novidade');
+    expect(t.endsWith(`Mais 3 notícias no Regem:\n${LINK}`)).toBe(true);
+    expect(t.match(/Novidades e tendências/g)).toHaveLength(1);
+  });
+
+  it('só com novidade também sai; sem o que sobrar, o fim leva só o link', () => {
+    const t = textoDoBoletim(boletim({ novidades: [noticia('5', 'Mel com pimenta')] }), LINK) as string;
+    expect(t).toContain('*Novidades e tendências*');
+    expect(t.endsWith(`Ver no Regem:\n${LINK}`)).toBe(true);
+  });
+
+  it('a mensagem nunca passa do limite do WhatsApp: o que não cabe fica na conta do "Mais"', () => {
+    const longa = (id: string) => noticia(id, 'T'.repeat(500), { link: `https://fonte.teste/${'x'.repeat(1400)}${id}` });
+    const t = textoDoBoletim(boletim({ destaques: [longa('1'), longa('2'), longa('3')], novidades: [longa('4'), longa('5')] }), LINK) as string;
+    expect(t.length).toBeLessThanOrEqual(LIMITE_DO_BOLETIM_NO_WHATSAPP);
+    expect(t).toMatch(/Mais 4 notícias no Regem:/); // cada uma tem quase 2 mil letras: só a primeira coube
   });
 });

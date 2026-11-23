@@ -1,15 +1,18 @@
 import { somarDias } from '../../common/data';
+import type { BoletimDoRamo, IndicadorDoBoletim, NoticiaDoBoletim } from '../pulso/pulso.regras';
 
 // OS RELATÓRIOS DO MISTER (mig 420; protótipo `mockups/regem-mister.html`, "Avisos e relatórios" › Relatórios): o resumo do
 // dia e o resumo da semana, no horário que a empresa escolhe. Regras puras: o padrão, a conferência do que a tela manda,
 // QUANDO cada relatório vence e a pergunta que o agente recebe para escrevê-lo.
 // F4c das vagas (protótipo `mockups/regem-vagas-talentos.html`, aprovado 15/11): as FICHAS NOVAS de candidatos — só conta,
 // sem a IA; vai a quem pode ver os candidatos (presidente e quem tem a permissão Candidatos); só no dia em que chegou ficha.
+// Fase N2 das Notícias do ramo (protótipo `mockups/regem-noticias-do-ramo.html`, aprovado 22/11): o BOLETIM DO RAMO — sem a
+// IA, montado da cópia do Pulso; fora das 24 horas só vai o convite se a empresa escolher (mig 496).
 
-export const TIPOS_DE_RELATORIO = ['resumo_dia', 'resumo_semana', 'fichas_novas'] as const;
+export const TIPOS_DE_RELATORIO = ['resumo_dia', 'resumo_semana', 'fichas_novas', 'boletim_ramo'] as const;
 export type TipoDeRelatorio = (typeof TIPOS_DE_RELATORIO)[number];
-/** Os relatórios que a IA escreve (o de fichas novas só conta, sem a IA). */
-export type RelatorioDaIa = Exclude<TipoDeRelatorio, 'fichas_novas'>;
+/** Os relatórios que a IA escreve (o de fichas novas só conta e o boletim só repassa, sem a IA). */
+export type RelatorioDaIa = Exclude<TipoDeRelatorio, 'fichas_novas' | 'boletim_ramo'>;
 export const ehTipoDeRelatorio = (t: unknown): t is TipoDeRelatorio => TIPOS_DE_RELATORIO.includes(t as TipoDeRelatorio);
 
 export interface RegraDoRelatorio {
@@ -18,13 +21,19 @@ export interface RegraDoRelatorio {
   hora: string;
   /** 1 = segunda … 7 = domingo (só o resumo da semana). */
   diaSemana: number | null;
+  /** Só no boletim do ramo: fora das 24 horas, manda o convite pago pelo modelo da Meta. Nasce desligado. */
+  convidarFora?: boolean;
 }
 
-/** Como o protótipo: todos desligados; o do dia às 23:30, o da semana na segunda às 09:00, o das fichas às 09:00. */
+/** O boletim fica pronto às 07:50 e a nuvem guarda a cópia às 08:05: antes disso não há o que mandar. */
+export const HORA_MINIMA_DO_BOLETIM = '08:15';
+
+/** Como o protótipo: todos desligados; o do dia às 23:30, o da semana na segunda às 09:00, o das fichas às 09:00, o boletim às 08:30. */
 export const PADRAO_DO_RELATORIO: Record<TipoDeRelatorio, RegraDoRelatorio> = {
   resumo_dia: { ligado: false, hora: '23:30', diaSemana: null },
   resumo_semana: { ligado: false, hora: '09:00', diaSemana: 1 },
   fichas_novas: { ligado: false, hora: '09:00', diaSemana: null },
+  boletim_ramo: { ligado: false, hora: '08:30', diaSemana: null, convidarFora: false },
 };
 
 export const RELATORIO_NA_TELA: Record<TipoDeRelatorio, { titulo: string; descricao: string; vaiPara?: string; usaIa: boolean }> = {
@@ -35,6 +44,12 @@ export const RELATORIO_NA_TELA: Record<TipoDeRelatorio, { titulo: string; descri
     descricao:
       'As fichas que chegaram na Página de vagas desde o último resumo: nome, função, escala e distância. Só nos dias em que chegou ficha. Sem telefone nem endereço no WhatsApp.',
     vaiPara: 'o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê',
+    usaIa: false,
+  },
+  boletim_ramo: {
+    titulo: 'Boletim do ramo',
+    descricao: 'Os indicadores, até 3 destaques e até 2 novidades do setor, com a fonte e o link de cada um. Só nos dias com novidade.',
+    vaiPara: 'o presidente e o gerente com a permissão Notícias do ramo, se ligaram o próprio WhatsApp em Pessoas',
     usaIa: false,
   },
 };
@@ -57,11 +72,12 @@ export function regraDoRelatorioQueVale(tipo: TipoDeRelatorio, salva?: Partial<R
   const p = PADRAO_DO_RELATORIO[tipo];
   if (!salva) return { ...p };
   const dia = Number(salva.diaSemana);
-  return {
+  const regra: RegraDoRelatorio = {
     ligado: typeof salva.ligado === 'boolean' ? salva.ligado : p.ligado,
     hora: typeof salva.hora === 'string' && HORA.test(salva.hora) ? salva.hora : p.hora,
     diaSemana: tipo === 'resumo_semana' ? (Number.isInteger(dia) && dia >= 1 && dia <= 7 ? dia : p.diaSemana) : null,
   };
+  return tipo === 'boletim_ramo' ? { ...regra, convidarFora: salva.convidarFora === true } : regra;
 }
 
 /**
@@ -86,7 +102,16 @@ export function conferirRelatorios(dto: unknown): Array<{ tipo: TipoDeRelatorio;
       if (!Number.isInteger(x.diaSemana) || x.diaSemana < 1 || x.diaSemana > 7) return { erro: `${nome}: escolha o dia da semana.` };
       diaSemana = x.diaSemana;
     }
-    fora.push({ tipo: x.tipo, regra: { ligado: x.ligado, hora: x.hora, diaSemana } });
+    const regra: RegraDoRelatorio = { ligado: x.ligado, hora: x.hora, diaSemana };
+    if (x.tipo === 'boletim_ramo') {
+      if (x.hora < HORA_MINIMA_DO_BOLETIM) return { erro: `${nome}: escolha um horário a partir de ${HORA_MINIMA_DO_BOLETIM}, depois que o boletim fica pronto.` };
+      // Ausente mantém o que está salvo (V16); presente, só booleano (V15).
+      if (x.convidarFora !== undefined) {
+        if (typeof x.convidarFora !== 'boolean') return { erro: `${nome}: diga se manda o convite fora das 24 horas.` };
+        regra.convidarFora = x.convidarFora;
+      }
+    }
+    fora.push({ tipo: x.tipo, regra });
   }
   return fora;
 }
@@ -114,6 +139,7 @@ export interface RelatorioDevido {
  *  • Resumo da semana: só no dia da semana escolhido; os 7 dias até a véspera do envio (na segunda, a semana passada
  *    inteira, de segunda a domingo).
  *  • Fichas novas: todo dia, o dia do envio e o horário marcado (as fichas das últimas 24 horas até esse horário).
+ *  • Boletim do ramo: todo dia, o boletim do dia do envio.
  */
 export function relatorioDevido(tipo: TipoDeRelatorio, regra: RegraDoRelatorio, agora: AgoraNaOperacao): RelatorioDevido | null {
   if (!regra.ligado || !HORA.test(regra.hora) || !HORA.test(agora.hora)) return null;
@@ -127,6 +153,7 @@ export function relatorioDevido(tipo: TipoDeRelatorio, regra: RegraDoRelatorio, 
   }
   if (atraso > ATRASO_MAXIMO_DO_RELATORIO_MIN) return null;
   if (tipo === 'fichas_novas') return { referencia: diaDoEnvio, ate: diaDoEnvio, hora: regra.hora };
+  if (tipo === 'boletim_ramo') return { referencia: diaDoEnvio, ate: diaDoEnvio };
   if (tipo === 'resumo_dia') {
     const dia = minutos(regra.hora) < VIRADA_DA_NOITE_MIN ? somarDias(diaDoEnvio, -1) : diaDoEnvio;
     return { referencia: dia, ate: dia };
@@ -245,4 +272,65 @@ export function textoDasFichasNovas(p: { nome: string; hora: string; fichas: Fic
     '',
     `Ver as fichas: ${p.link}`,
   ].join('\n');
+}
+
+// ───────────────────────────── o boletim do ramo (fase N2) ───────────────────────────
+
+export const DESTAQUES_NO_WHATSAPP = 3;
+export const NOVIDADES_NO_WHATSAPP = 2;
+/** O WhatsApp aceita até 4.096 letras: o que não couber fica para a tela, e o "Mais N notícias" conta. */
+export const LIMITE_DO_BOLETIM_NO_WHATSAPP = 3800;
+
+const DIA_CURTO = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+const MES_CURTO = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const ROTULO_DO_INDICADOR: Record<string, string> = { ipca_fora_do_domicilio: 'IPCA fora de casa', selic: 'Selic' };
+
+function linhaDoIndicador(i: IndicadorDoBoletim): string {
+  const valor = i.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fonte = i.credito.replace(/^Fonte:\s*/i, '');
+  const mes = /^(\d{4})-(\d{2})$/.exec(i.referencia);
+  const quando = mes ? `${MES_CURTO[Number(mes[2]) - 1]}/${mes[1].slice(2)}, ` : '';
+  return `${ROTULO_DO_INDICADOR[i.id]}: *${valor}%* ${i.unidade.replace(/^%\s*/, '')} (${quando}${fonte})`;
+}
+
+/** Uma notícia na mensagem: o título igual ao da fonte, o aviso de "ainda não é lei", o crédito e o link. */
+const blocoDaNoticia = (n: NoticiaDoBoletim, antes = ''): string =>
+  [`${antes}${n.titulo}`, n.aviso ? `_${n.aviso}_` : null, n.credito, n.link].filter(Boolean).join('\n');
+
+/**
+ * A mensagem do boletim, montada sem a IA — ou null quando o dia não tem destaque nem novidade (o Mister fica calado). O
+ * título não muda e o crédito vai junto, como pedem os termos das fontes.
+ */
+export function textoDoBoletim(b: BoletimDoRamo, link: string): string | null {
+  const destaques = (b.destaques ?? []).slice(0, DESTAQUES_NO_WHATSAPP);
+  const novidades = (b.novidades ?? []).slice(0, NOVIDADES_NO_WHATSAPP);
+  if (!destaques.length && !novidades.length) return null;
+  const data = new Date(`${b.dia}T12:00:00Z`);
+  const indicadores = ['ipca_fora_do_domicilio', 'selic']
+    .map((id) => (b.indicadores ?? []).find((i) => i.id === id))
+    .filter((i): i is IndicadorDoBoletim => !!i)
+    .map(linhaDoIndicador);
+  const partes = [`*Boletim do ramo · ${DIA_CURTO[data.getUTCDay()]}, ${diaMesDoRelatorio(b.dia)}*`];
+  if (indicadores.length) partes.push(indicadores.join('\n'));
+  const cabe = (t: string) => [...partes, t].join('\n\n').length + link.length + 40 <= LIMITE_DO_BOLETIM_NO_WHATSAPP;
+  let mostradas = 0;
+  destaques.forEach((n, i) => {
+    const t = blocoDaNoticia(n, `*${i + 1}.* `);
+    if (cabe(t)) {
+      partes.push(t);
+      mostradas++;
+    }
+  });
+  let comTitulo = false;
+  for (const n of novidades) {
+    const t = comTitulo ? blocoDaNoticia(n) : `*Novidades e tendências*\n${blocoDaNoticia(n)}`;
+    if (!cabe(t)) continue;
+    partes.push(t);
+    comTitulo = true;
+    mostradas++;
+  }
+  const total = (b.destaques?.length ?? 0) + (b.novidades?.length ?? 0) + (b.mais?.length ?? 0);
+  const resto = total - mostradas;
+  partes.push(resto > 0 ? `Mais ${resto} ${resto === 1 ? 'notícia' : 'notícias'} no Regem:\n${link}` : `Ver no Regem:\n${link}`);
+  return partes.join('\n\n');
 }
