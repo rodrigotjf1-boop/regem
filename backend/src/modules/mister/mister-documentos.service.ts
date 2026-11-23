@@ -263,6 +263,8 @@ export class MisterDocumentosService implements OnModuleInit {
     if (String(botaoId ?? '').startsWith('doc:ni:')) return this.notas ? this.notas.escolher(botaoId, quem) : false;
     // Versão 6, M6h: o "Como deseja lançar?" do cupom fiscal ("doc:cl:…") também é do serviço das notas.
     if (String(botaoId ?? '').startsWith('doc:cl:')) return this.notas ? this.notas.comoLancar(botaoId, quem) : false;
+    // L2b: o "Lançar assim" da nota cuja soma não fecha ("doc:ns:…").
+    if (String(botaoId ?? '').startsWith('doc:ns:')) return this.notas ? this.notas.lancarAssim(botaoId, quem) : false;
     // M3g: o "Desfazer" da correção do vencimento.
     if (String(botaoId ?? '').startsWith('doc:volta:')) return this.desfazerCorrecao(String(botaoId), quem);
     const b = lerBotaoDoDocumento(botaoId);
@@ -376,6 +378,8 @@ export class MisterDocumentosService implements OnModuleInit {
    */
   async completarPeloTexto(quem: QuemMandou, texto: string): Promise<boolean> {
     if (!this.ligado() || quem.nivel !== 'presidente') return false;
+    // L2b: a resposta à dúvida da leitura (a linha, o total ou o item que faltou).
+    if (this.notas?.ligadas() && (await this.notas.responderLeitura(quem, texto))) return true;
     // M3b: a resposta ao "1 CX tem quantos kg?" da nota que espera o fator.
     if (this.notas?.ligadas() && (await this.notas.responderFator(quem, texto))) return true;
     let d: any;

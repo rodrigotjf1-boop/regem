@@ -41,9 +41,13 @@ function nomeDoDocumento(d: DocumentoEmAndamento): string {
 
 function perguntaDaNota(d: DocumentoEmAndamento): string | null {
   const [tipo, i] = String(d.motivo ?? '').split(':');
+  // L2b: o que a leitura não garantiu. A resposta vem como texto, ou numa foto melhor.
+  if (tipo === 'total') return 'não deu para ler o total: a pessoa diz o valor ou manda outra foto';
+  if (tipo === 'soma') return 'os itens não somam o total: a pessoa manda outra foto, diz o item que faltou (ex.: 2 cx tomate 60,00) ou toca em "Lançar assim"';
   const it = d.nota?.itens?.[Number(i)];
   if (!it) return null;
   const item = limpo(it.descricao);
+  if (tipo === 'duvida') return `a linha "${item}" ficou em dúvida (${limpo(it.duvida?.texto, 40)}): a pessoa diz o certo ou manda outra foto`;
   if (tipo === 'fator') {
     const de = limpo(it.unidade, 12) || 'unidade';
     const para = limpo(it.unidadeDoEstoque, 12);

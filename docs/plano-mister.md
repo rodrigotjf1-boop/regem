@@ -2458,9 +2458,9 @@ dúvida" o Mister informa e pergunta, e a pessoa responde o certo ou manda outra
 | Fase | O que entra | Situação |
 |---|---|---|
 | L0 · O teste | 20 fotos reais com a resposta certa, comparando as versões | espera as fotos do dono |
-| L1 · Leitura inteira | Texto inteiro até 5.000 letras, Graph com 25 s, o motivo da falha na pergunta, Sonnet 5.5 na reserva e na lista | neste PR |
-| L2a · Dúvida na lista e na foto | A linha em dúvida fica fora do pedido, o Mister pergunta, a resposta entra | neste PR |
-| L2b · Dúvida na nota e no cupom | Guardar o que leu em vez de recusar a foto inteira | a fazer |
+| L1 · Leitura inteira | Texto inteiro até 5.000 letras, Graph com 25 s, o motivo da falha na pergunta, Sonnet 5.5 na reserva e na lista | no ar (#1296) |
+| L2a · Dúvida na lista e na foto | A linha em dúvida fica fora do pedido, o Mister pergunta, a resposta entra | no ar (#1296) |
+| L2b · Dúvida na nota e no cupom | Guarda o que leu e pergunta a linha, o total ou o que faltou. "Lançar assim" segue com a soma aberta. Nada é lançado antes da resposta | neste PR |
 | L3 · Foto ruim e grande | Medir luz e tremido, documento até 20 MB, cupom em partes | depende de L0 e de biblioteca de imagem |
 | L4 · Releitura | O Sonnet relê a foto em dúvida. Nasce desligada, com o preço ao lado | depende de L0 |
 
