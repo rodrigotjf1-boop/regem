@@ -31,6 +31,9 @@ jest.setTimeout(120_000);
 
 const MIG = join(__dirname, '../../../../database/migrations/499_banco_e_repasses.sql');
 
+/** O JSON sem UUID e sem resumo: hexa aleatório pode conter "800" ou "98765" e reprovar o teste por sorte. */
+const semHexa = (v: unknown) => JSON.stringify(v).replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b[0-9a-f]{32,}\b/gi, '');
+
 const NOME_CRU = 'FULANO DE TAL';
 const CPF_CRU = '123.456.789-00';
 const CONTA_CRUA = '98765-4';
@@ -177,7 +180,7 @@ descrever('Banco e repasses (Postgres)', () => {
     expect(gravadas.find((x) => Number(x.valor_centavos) === -25075)).toMatchObject({ fonte: 'banco', situacao: 'so_no_banco', descricao: 'TARIFA PACOTE DE SERVICOS' });
 
     // Nem o nome, nem o documento, nem a conta inteira em NENHUMA coluna das tabelas novas.
-    const tudo = JSON.stringify([
+    const tudo = semHexa([
       gravadas,
       await q(`select * from banco_conta where tenant_id = $1`, [t]),
       await q(`select * from banco_importacao where tenant_id = $1`, [t]),
@@ -188,7 +191,7 @@ descrever('Banco e repasses (Postgres)', () => {
     // A auditoria: só contagens e período.
     const aud = auditados.find((a) => a.tenantId === t && a.acao === 'banco_importou_extrato');
     expect(aud.detalhe).toEqual({ novos: 5, repetidos: 0, recusados: 1, de: '2026-11-01', ate: '2026-11-10', incompleto: false });
-    expect(JSON.stringify(aud)).not.toMatch(/FULANO|123\.456|98765|1500/);
+    expect(semHexa(aud)).not.toMatch(/FULANO|123\.456|98765|1500/);
   });
 
   it('XML de ponta a ponta', async () => {
@@ -399,7 +402,7 @@ descrever('Banco e repasses (Postgres)', () => {
       const aud = auditados.filter((a) => a.tenantId === t && a.acao === 'banco_classificou_lancamento');
       expect(aud).toHaveLength(5);
       expect(aud[0].detalhe).toEqual({ de: null, para: 'venda_ifood', lembrar: false });
-      expect(JSON.stringify(aud)).not.toMatch(/IFOOD|800/);
+      expect(semHexa(aud)).not.toMatch(/IFOOD|800/);
     });
 
     it('"Lembrar para os próximos": o próximo arquivo entra com o tipo; o sentido e o lote contam certo; não guarda texto', async () => {
@@ -558,7 +561,7 @@ descrever('Banco e repasses (Postgres)', () => {
 
       const lista: any = await (await fetch(`${url}/banco-repasses?limite=50`, { headers: como(user) })).json();
       expect(lista.total).toBe(6);
-      expect(JSON.stringify(lista)).not.toMatch(/FULANO|123\.456\.789|98765/);
+      expect(semHexa(lista)).not.toMatch(/FULANO|123\.456\.789|98765/);
 
       const alvo = lista.lista.find((x: any) => x.valor === -1000);
       expect(alvo.descricao).toBe('PIX ENVIADO · F*** T***');
