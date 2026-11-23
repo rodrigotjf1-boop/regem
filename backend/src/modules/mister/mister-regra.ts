@@ -26,7 +26,7 @@ export interface CampoDaFonte {
   unidade?: string;
 }
 
-export type NomeDaFonte = 'pedidos' | 'contas' | 'tarefas' | 'equipamentos' | 'caixas' | 'canais' | 'vendas';
+export type NomeDaFonte = 'pedidos' | 'contas' | 'tarefas' | 'equipamentos' | 'caixas' | 'canais' | 'vendas' | 'agenda';
 
 export interface FonteDaRegra {
   nome: NomeDaFonte;
@@ -135,6 +135,19 @@ export const FONTES_DA_REGRA: readonly FonteDaRegra[] = [
       { nome: 'ticket_medio', tipo: 'numero', rotulo: 'ticket médio de hoje', dinheiro: true },
       { nome: 'faturamento_delivery', tipo: 'numero', rotulo: 'faturamento do delivery hoje', dinheiro: true },
       { nome: 'faturamento_balcao', tipo: 'numero', rotulo: 'faturamento do balcão hoje', dinheiro: true },
+    ],
+  },
+  {
+    // Versão 8, E3: "me avisa um dia antes de jogo do meu time". Fatos públicos da base de eventos, sem valor da loja.
+    nome: 'agenda',
+    rotulo: 'eventos da agenda',
+    descricao: 'Cada evento dos próximos 7 dias que vale na cidade da loja: jogo, feriado, ponto facultativo, data comemorativa e dia de dinheiro no bolso. O time se filtra pelo nome do jogo (contem).',
+    permissao: null,
+    campos: [
+      { nome: 'tipo', tipo: 'texto', rotulo: 'tipo de evento', valores: ['jogo', 'feriado', 'ponto_facultativo', 'comemorativa', 'dinheiro'] },
+      { nome: 'nome', tipo: 'texto', rotulo: 'nome do evento' },
+      { nome: 'dias_para', tipo: 'numero', rotulo: 'dias até o evento' },
+      { nome: 'na_cidade', tipo: 'sim_nao', rotulo: 'na cidade da loja' },
     ],
   },
 ];
@@ -510,6 +523,14 @@ const NOME_DA_FONTE: Record<NomeDaFonte, Flexao> = {
   caixas: { um: 'caixa aberto', varios: 'caixas abertos' },
   canais: { um: 'canal pausado', varios: 'canais pausados' },
   vendas: { um: 'venda de hoje', varios: 'vendas de hoje' },
+  agenda: { um: 'evento', varios: 'eventos' },
+};
+const EVENTO_NA_FRASE: Record<string, Flexao> = {
+  jogo: { um: 'jogo', varios: 'jogos' },
+  feriado: { um: 'feriado', varios: 'feriados' },
+  ponto_facultativo: { um: 'ponto facultativo', varios: 'pontos facultativos' },
+  comemorativa: { um: 'data comemorativa', varios: 'datas comemorativas' },
+  dinheiro: { um: 'dia de dinheiro no bolso', varios: 'dias de dinheiro no bolso' },
 };
 const SITUACAO_NA_FRASE: Record<string, Flexao> = {
   aguardando_aceite: igual('aguardando aceite'),
@@ -534,6 +555,11 @@ const valoresDoFiltro = (f: Filtro) => (Array.isArray(f.valor) ? f.valor : [f.va
 
 /** A impressora e o servidor têm nome próprio na frase, quando a regra escolhe um dos dois. */
 function nomeNaFrase(r: Regra): Flexao {
+  if (r.fonte === 'agenda') {
+    const t = r.filtros.find((f) => f.campo === 'tipo' && (f.op === '=' || f.op === 'em'));
+    const v = t ? valoresDoFiltro(t) : [];
+    return (v.length === 1 && EVENTO_NA_FRASE[v[0]]) || NOME_DA_FONTE.agenda;
+  }
   if (r.fonte !== 'equipamentos') return NOME_DA_FONTE[r.fonte];
   const tipo = r.filtros.find((f) => f.campo === 'tipo' && (f.op === '=' || f.op === 'em'));
   const valores = tipo ? valoresDoFiltro(tipo) : [];
@@ -589,6 +615,17 @@ function trechoDoFiltro(f: Filtro, r: Regra, fonte: FonteDaRegra): { junto?: Fle
   const c = fonte.campos.find((x) => x.nome === f.campo);
   const v = valorEmPalavras(c, f.valor);
   const valores = valoresDoFiltro(f);
+  if (r.fonte === 'agenda') {
+    // O tipo já está no nome da frase ("jogo"); o resto em palavras de gente.
+    if (f.campo === 'tipo' && (f.op === '=' || (f.op === 'em' && valores.length === 1))) return {};
+    if (f.campo === 'na_cidade' && typeof f.valor === 'boolean') return { junto: igual(f.valor ? 'na cidade da loja' : 'fora da cidade da loja') };
+    if (f.campo === 'dias_para' && typeof f.valor === 'number') {
+      const n = f.valor;
+      const dias = `${n.toLocaleString('pt-BR')} ${n === 1 ? 'dia' : 'dias'}`;
+      if (f.op === '=') return { junto: igual(n === 0 ? 'no próprio dia' : n === 1 ? 'um dia antes' : `${dias} antes`) };
+      if (f.op === '<=') return { junto: igual(`nos próximos ${dias}`) };
+    }
+  }
   if (f.op !== 'contem') {
     if (f.campo === 'situacao') {
       const nomes = (k: keyof Flexao) => lista(valores.map((x) => SITUACAO_NA_FRASE[x]?.[k] ?? x), 'ou');
@@ -917,7 +954,8 @@ function campoDeDestaque(r: Regra): CampoDaFonte | undefined {
 
 /** O texto do aviso da regra — o código escreve: o título, a lista (até 10) e o número que a regra mede. */
 export function textoDoDisparo(r: Regra, d: Disparo): string {
-  const destaque = campoDeDestaque(r);
+  // Na agenda, o rótulo já traz o dia e a hora: "· 1" ao lado só atrapalharia.
+  const destaque = r.fonte === 'agenda' ? undefined : campoDeDestaque(r);
   const linhas = d.itens.slice(0, LIMITES_DA_REGRA.itensNaLista).map((l) => {
     const v = destaque ? l.campos[destaque.nome] : null;
     return `• ${l.rotulo}${v !== null && v !== undefined && v !== '' ? ` · ${valorEmPalavras(destaque, v)}` : ''}`;

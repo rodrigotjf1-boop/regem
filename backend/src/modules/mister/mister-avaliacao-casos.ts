@@ -1171,6 +1171,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Fase N3: as notícias do ramo. O que está no Congresso não é lei, e o efeito na loja é com o contador.
   { id: 'c83', pergunta: 'Teve novidade de imposto essa semana?', consultas: ['noticias_do_ramo'], contem: ['CBS', 'MEI', 'não é lei|em discussão', 'contador'] },
   { id: 'c84', pergunta: 'Quais as tendências do setor de restaurantes?', consultas: ['noticias_do_ramo'], contem: ['cardápio menor', 'iFood'] },
+  // Versão 8, E3: a regra pela conversa, com a fonte agenda.
+  { id: 'c85', pergunta: 'Me avisa um dia antes de cada jogo do Botafogo, às 18h.', consultas: ['regras'], contem: ['Botafogo|botafogo', 'Confirmar'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

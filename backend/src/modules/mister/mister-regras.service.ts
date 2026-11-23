@@ -10,6 +10,8 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { pedidoComoNoQuadro } from './mister-agente.regras';
 import { dentroDaJanelaDoWhatsapp, ehTipoDeAviso } from './mister-avisos.regras';
+import { linhasDaAgenda } from './mister-clima-eventos';
+import { lerEventosDaBase } from './mister-clima-eventos.leitura';
 import { MisterEntradaService, QuemTocou } from './mister-entrada.service';
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
 import { MODELO_DO_AVISO } from './mister-modelos';
@@ -119,6 +121,8 @@ export function dentroDoHorarioDaLoja(horarios: unknown, agora: Agora): boolean 
 }
 
 type Leitura = (tenants: string[], agora: Agora) => Promise<Array<LinhaDaFonte & { tenantId: string }>>;
+/** Um evento da agenda vem uma vez por loja: quem vê várias lojas recebe o aviso dele uma vez só. */
+const semRepetirOItem = <T extends { id: string }>(ls: T[]): T[] => [...new Map(ls.map((l) => [l.id, l])).values()];
 
 @Injectable()
 export class MisterRegrasService implements OnModuleInit {
@@ -526,7 +530,7 @@ export class MisterRegrasService implements OnModuleInit {
   /** As outras fontes não guardam a história do dia: o que a regra pega AGORA, sem valor em reais para quem não os vê. */
   private async aFonteAgora(quemPergunta: EscopoDoMister, dono: EscopoDoMister, regra: Regra, agora: Agora): Promise<Record<string, unknown>> {
     const daLoja = (l: { unidadeId: string | null }) => !dono.presa || !l.unidadeId || l.unidadeId === dono.presa;
-    const lidas = regra.fonte === 'vendas' ? await this.vendas(dono.tenantId, dono, agora) : (await this.leitura(regra.fonte)([dono.tenantId], agora)).filter(daLoja);
+    const lidas = regra.fonte === 'vendas' ? await this.vendas(dono.tenantId, dono, agora) : semRepetirOItem((await this.leitura(regra.fonte)([dono.tenantId], agora)).filter(daLoja));
     const pegas = linhasQueARegraPega(regra, lidas);
     const olhaAgoraMesmo = olhaAgora(regra, {}, agora);
     if (regra.medida === 'cada_item') return { itensQueElaPegaAgora: pegas.length, valeAgora: pegas.length > 0, olhaNesteHorario: olhaAgoraMesmo };
@@ -798,7 +802,7 @@ export class MisterRegrasService implements OnModuleInit {
     for (const x of aOlhar) {
       const daLoja = (l: { unidadeId: string | null }) => !x.escopo.presa || !l.unidadeId || l.unidadeId === x.escopo.presa;
       const linhasDaRegra =
-        x.regra.fonte === 'vendas' ? await this.vendas(x.tenantId, x.escopo, agora) : (lidas.get(x.regra.fonte) ?? []).filter((l) => l.tenantId === x.tenantId && daLoja(l));
+        x.regra.fonte === 'vendas' ? await this.vendas(x.tenantId, x.escopo, agora) : semRepetirOItem((lidas.get(x.regra.fonte) ?? []).filter((l) => l.tenantId === x.tenantId && daLoja(l)));
       const { disparos, estado } = avaliarRegra(x.regra, linhasDaRegra, x.estado, agora);
       for (const d of disparos) if (await this.avisar(x, textoDoDisparo(x.regra, d), d.chave, instante)) avisos++;
       await this.db.execute(sql`
@@ -1002,6 +1006,19 @@ export class MisterRegrasService implements OnModuleInit {
               campos: { canal, pausado_ha_min: minutosInteiros(c.ha), min_para_reabrir: minutosInteiros(c.falta) },
             };
           });
+      case 'agenda':
+        // Versão 8, E3: os eventos dos próximos 7 dias que valem na cidade de cada loja.
+        return async (tenants, agora) => {
+          const cidades = linhas(
+            await this.db.execute(sql`
+              select tenant_id::text as "tenantId", unidade_id::text as "unidadeId", codigo_municipio as municipio, uf
+                from fiscal_config
+               where ${em(tenants, 'tenant_id')} and codigo_municipio is not null`),
+          ).map((c) => ({ tenantId: String(c.tenantId), unidadeId: c.unidadeId ?? null, municipio: Number(c.municipio), uf: c.uf ?? null }));
+          if (!cidades.length) return [];
+          const ate = somarDias(agora.dia, 7);
+          return linhasDaAgenda(cidades, await lerEventosDaBase(this.db, agora.dia, ate), agora.dia, ate).slice(0, LINHAS_POR_FONTE);
+        };
       default:
         return async () => [];
     }
@@ -1046,5 +1063,5 @@ export class MisterRegrasService implements OnModuleInit {
 }
 
 /** As fontes que o motor sabe ler (a spec confere que o catálogo e a leitura andam juntos). */
-export const FONTES_LIDAS: readonly NomeDaFonte[] = ['pedidos', 'contas', 'tarefas', 'equipamentos', 'caixas', 'canais', 'vendas'];
+export const FONTES_LIDAS: readonly NomeDaFonte[] = ['pedidos', 'contas', 'tarefas', 'equipamentos', 'caixas', 'canais', 'vendas', 'agenda'];
 export { FONTES_DA_REGRA };
