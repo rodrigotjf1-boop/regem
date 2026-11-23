@@ -3,7 +3,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { FUSO_SQL } from '../../common/fuso-sql';
-import { MotivoSemResposta, NivelDoMister, NotaDaSaida, TETOS, TrocaDaMemoria } from './mister-agente.regras';
+import { MotivoSemResposta, NivelDoMister, NotaDaSaida, TETOS, TrocaDaMemoria, tetoDaPergunta } from './mister-agente.regras';
 import { lerAndamento } from './mister-andamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -80,7 +80,7 @@ export class MisterFilaService {
 
   /** Põe a pergunta na fila. Devolve `false` quando a mesma mensagem já tinha entrado. */
   async enfileirar(dono: DonoDaPergunta, texto: string, chave: string | null, wamid: string | null): Promise<boolean> {
-    const pergunta = String(texto ?? '').trim().slice(0, TETOS.pergunta);
+    const pergunta = String(texto ?? '').trim().slice(0, tetoDaPergunta(texto));
     const novas = linhas(
       await this.db.execute(sql`
         insert into mister_pergunta (tenant_id, colaborador_id, unidade_id, nivel, telefone, chave, wamid, pergunta)

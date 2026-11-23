@@ -82,8 +82,8 @@ describe('a foto no Mister (M5a): as regras', () => {
     const muitos = oQueOGraphViu(doGraph([1, 2, 3, 4].map((i) => ({ tipo: `Página ${i}`, contexto: `Conteúdo ${i}` }))))!;
     expect(muitos.descricao).toContain('Página 3');
     expect(muitos.descricao).not.toContain('Página 4');
-    const longo = oQueOGraphViu(doGraph([{ tipo: 'Foto', contexto: `${'palavra '.repeat(200)}.`, transcricao: Array.from({ length: 40 }, (_, i) => `linha ${i}`).join('\n') }]))!;
-    expect(longo.descricao.length).toBeLessThanOrEqual(600);
+    const longo = oQueOGraphViu(doGraph([{ tipo: 'Foto', contexto: `${'palavra '.repeat(800)}.`, transcricao: Array.from({ length: 40 }, (_, i) => `linha ${i}`).join('\n') }]))!;
+    expect(longo.descricao.length).toBeLessThanOrEqual(5000);
     expect(longo.resumo.length).toBeLessThanOrEqual(160);
     expect(longo.descricao.endsWith('…')).toBe(true);
   });

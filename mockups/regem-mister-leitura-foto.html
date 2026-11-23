@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leitura de fotos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PROTÓTIPO DO MISTER, VERSÃO 8 (23/11/2026), para aprovação do dono.
+   Duas frentes: clima e eventos, repasses e banco. Os estilos são os da v7, sem as peças de foto e voz; os novos vêm no fim.
+   Todos os dados são inventados e nada aqui fala com o Regem. */
+:root{
+  --bg:#EDF0F4; --card:#FFFFFF; --ink:#0F2230; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E2A340; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0E7C66; --ok-bg:#E8F6F1; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A; --d-azul:#7CC0F5;
+  /* o gráfico (claro) */
+  --g-fundo:#FFFFFF; --g-ink:#0F2230; --g-ink2:#55697B; --g-grade:#E6ECF1; --g-eixo:#C8D2DC; --g-barra:#2F4A60; --g-ant:#D3DCE4;
+  --g-dest:#C08118; --g-area:rgba(212,149,47,.16); --g-bom:#0E7C66; --g-ruim:#B93232;
+  --g-c1:#2F4A60; --g-c2:#D4952F; --g-c3:#5B8DB8; --g-c4:#3E8E7E; --g-c5:#A9B7C4;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px} h3{font-size:16px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pular{position:absolute;left:8px;top:-60px;background:var(--gold);color:var(--on-gold);padding:8px 12px;border-radius:8px;font-weight:700;z-index:99}
+.pular:focus{top:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+.pagina{padding:20px;max-width:1240px;margin-inline:auto;container-type:inline-size;container-name:principal}
+.cab{margin-bottom:16px} .cab .sub{max-width:76ch;margin-top:4px}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.faixa{border-radius:10px;padding:10px 14px;margin-bottom:14px;border:1px solid}
+.faixa.warn{background:var(--warn-bg);border-color:#EBC7B0;color:#6F3410} .faixa.info{background:var(--info-bg);border-color:#BFD6EA;color:#1D4C77}
+.faixa.ok{background:var(--ok-bg);border-color:#B5DCC8;color:#0B4A33}
+a{color:var(--info);text-underline-offset:2px}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.v5{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:2px;white-space:nowrap}
+.fase{font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--gold-ink)}
+
+/* celular */
+.celulares{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:24px 18px;align-items:start}
+.caso h3{margin-bottom:2px} .caso > .sub{font-size:13.5px;margin-bottom:8px}
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:370px}
+.cel-topo{background:var(--c-wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:150px;align-content:start}
+.bolha{max-width:90%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.42;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere;min-width:0}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha.larga{max-width:96%;width:96%}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#5E6E7A;margin-top:2px}
+.bolha ul{margin:4px 0;padding-left:18px} .bolha li{margin-bottom:2px}
+.entendi{display:block;font-size:13px;color:#43586C;background:#F3F6F8;border-left:3px solid var(--c-wa);border-radius:4px;padding:4px 8px;margin:-1px -3px 6px}
+.botoes-wa{display:grid;gap:4px;margin-top:6px}
+.botoes-wa span{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.botoes-wa.dois{grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr))}
+.toque{justify-self:end;font-size:12px;color:#5E6E7A;background:rgba(255,255,255,.7);border-radius:999px;padding:2px 10px}
+.audio{display:flex;gap:8px;align-items:center;min-width:0;padding:2px 0}
+.audio .play{width:30px;height:30px;border-radius:50%;background:var(--c-wa);color:#fff;display:grid;place-items:center;font-size:11px;flex:none}
+.audio .onda{flex:1;min-width:40px;height:20px;background:repeating-linear-gradient(90deg,#7C8B96 0 2px,transparent 2px 5px);border-radius:2px;opacity:.8}
+.audio small{font:600 11px var(--mono);color:#5E6E7A;flex:none}
+.midia{display:block;border-radius:8px;overflow:hidden;margin:-3px -6px 6px;background:#fff;border:1px solid #D5DDE3}
+.doc-msg{display:flex;gap:10px;align-items:center;background:#F3F6F8;border-radius:8px;padding:8px 10px;margin:-2px -4px 6px;min-width:0}
+.doc-msg .ico{width:32px;height:38px;border-radius:4px;background:var(--crit);color:#fff;display:grid;place-items:center;font:800 10px var(--display);flex:none}
+.doc-msg > span:not(.ico){min-width:0}
+.doc-msg b{display:block;font-size:13px;line-height:1.25;overflow-wrap:anywhere} .doc-msg small{font-size:11.5px;color:#5E6E7A}
+
+/* gráfico */
+.grafico{background:var(--g-fundo);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.g-svg{display:block;width:100%;height:auto}
+.g-svg text{font-family:var(--body)}
+.g-fundo{fill:var(--g-fundo)} .g-faixa{fill:var(--g-dest)}
+.g-tit{font-family:var(--display)!important;font-weight:700;font-size:15.5px;fill:var(--g-ink)}
+.g-sub{font-size:11.5px;fill:var(--g-ink2)}
+.g-kpi{font-family:var(--mono)!important;font-weight:700;font-size:22px;fill:var(--g-ink)}
+.g-delta{font-size:11.5px;font-weight:700} .g-delta.bom{fill:var(--g-bom)} .g-delta.ruim{fill:var(--g-ruim)}
+.g-grade{stroke:var(--g-grade);stroke-width:1} .g-eixo{stroke:var(--g-eixo);stroke-width:1}
+.g-barra{fill:var(--g-barra)} .g-ant{fill:var(--g-ant)} .g-dest{fill:var(--g-dest)}
+.g-val{font-family:var(--mono)!important;font-size:10.5px;font-weight:700;fill:var(--g-ink)}
+.g-rot{font-size:11px;font-weight:600;fill:var(--g-ink)} .g-rot2{font-size:10px;fill:var(--g-ink2)}
+.g-leg{font-size:10.5px;fill:var(--g-ink2)} .g-rod{font-size:10px;fill:var(--g-ink2)}
+.g-area{fill:var(--g-area)} .g-linha{fill:none;stroke:var(--g-dest);stroke-width:2.5;stroke-linejoin:round}
+.g-ponto{fill:var(--g-fundo);stroke:var(--g-dest);stroke-width:2} .g-pico{fill:var(--g-dest)}
+.g-media{stroke:var(--g-ink);stroke-width:1.5;stroke-dasharray:6 4} .g-media-t{font-size:10.5px;font-weight:700;fill:var(--g-ink)}
+.g-c1{fill:var(--g-c1)} .g-c2{fill:var(--g-c2)} .g-c3{fill:var(--g-c3)} .g-c4{fill:var(--g-c4)} .g-c5{fill:var(--g-c5)}
+.g-nome{font-size:11.5px;font-weight:600;fill:var(--g-ink)} .g-num{font-family:var(--mono)!important;font-size:11px;font-weight:700;fill:var(--g-ink)}
+.g-num2{font-family:var(--mono)!important;font-size:10.5px;fill:var(--g-ink2)} .g-trilho{fill:var(--g-grade)}
+
+/* vista dos gráficos */
+.graficos{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr));gap:18px;align-items:start}
+.g-caso h3{margin-bottom:2px} .g-caso > .sub{font-size:13.5px;margin-bottom:8px}
+.onde{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.comparar{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px;align-items:start}
+.lista-melhor{margin:6px 0 0;padding-left:20px} .lista-melhor li{margin-bottom:4px}
+
+/* app da loja */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:70vh;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#EDF0F4}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px;letter-spacing:.02em}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px}
+.lado li.atual{background:rgba(226,163,64,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:loja}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.onde-app{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.corpo-app{padding:18px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.grupo-aj{font:700 12.5px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin:4px 0 2px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}
+.grupo-aj span{font:500 12.5px var(--body);text-transform:none;letter-spacing:0}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line)}
+.aj.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;min-width:0}
+.aj .ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:40px;background:#fff;max-width:100%;min-width:0}
+.liga{position:relative;width:52px;height:30px;border-radius:999px;border:1px solid var(--line-2);background:var(--neutro-bg);cursor:pointer;flex:none;padding:0}
+.liga::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.liga[aria-checked="true"]{background:var(--ok);border-color:var(--ok)} .liga[aria-checked="true"]::after{left:25px}
+.liga[disabled]{opacity:.5;cursor:not-allowed}
+.estado-liga{font-size:13px;color:var(--ink-2);min-width:64px}
+@container loja (max-width: 620px){ .aj{grid-template-columns:minmax(0,1fr)} .aj .ctrl{justify-content:flex-start} }
+.barra-salvar{position:sticky;bottom:0;background:var(--navy);color:#fff;border-radius:12px 12px 0 0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;z-index:5;margin-top:12px}
+.barra-salvar .btn{border-color:#3C5568;background:transparent;color:#fff} .barra-salvar .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.barra-salvar :focus-visible{outline-color:var(--d-azul)}
+.medidor{height:12px;border-radius:999px;background:var(--neutro-bg);overflow:hidden;margin:8px 0}
+.medidor span{display:block;height:100%;background:var(--navy);border-radius:999px}
+.usos{list-style:none;margin:8px 0 0;padding:0}
+.usos li{display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)}
+.usos li:first-child{border-top:0}
+
+/* notas */
+.notas{max-width:1000px}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:6px}
+.decisao{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0 0}
+.decisao h3{font-size:15px;margin-bottom:6px}
+.decisao ol{margin:0;padding-left:20px} .decisao li{margin-bottom:4px}
+.rec{font:700 11px var(--display);background:var(--ok-bg);color:var(--ok);padding:1px 7px;border-radius:999px;letter-spacing:.03em;white-space:nowrap}
+.fases{width:100%;border-collapse:collapse;font-size:14px}
+.fases th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px;border-bottom:2px solid var(--line-2)}
+.fases td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+@container principal (max-width: 700px){
+  .fases thead{display:none} .fases,.fases tbody,.fases tr,.fases td{display:block;width:100%}
+  .fases tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff}
+  .fases td{border:0;padding:3px 0}
+  .fases td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+}
+
+@media (max-width: 900px){
+  .app{grid-template-columns:minmax(0,1fr)} .lado{display:none}
+  .pagina{padding:14px} .topo{padding:10px 14px} .corpo-app{padding:14px}
+  .btn,.parte{min-height:44px}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important} }
+
+
+/* ── peças novas da v6 ── */
+.v6{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:2px;white-space:nowrap}
+.trava{display:block;font-size:13px;color:#6F3410;background:var(--warn-bg);border-left:3px solid var(--warn);border-radius:4px;padding:4px 8px;margin:-1px -3px 6px}
+.regra-pt{display:block;background:#F3F6F8;border-radius:8px;padding:8px 10px;margin:6px -4px 4px;font-size:13.5px}
+.regra-pt b{font-family:var(--display);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#43586C;display:block;margin-bottom:2px}
+.link-wa{display:block;margin-top:6px;background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.lista-num{margin:4px 0;padding-left:20px} .lista-num li{margin-bottom:2px}
+.bolha.com-foto{width:min(270px,84%)}
+.g-mini{display:block;width:100%;height:auto;background:#fff;border-radius:8px;margin:-3px -6px 6px;border:1px solid #D5DDE3}
+
+/* lista no modelo do Estoque */
+.lista-cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;margin-bottom:10px}
+.lista-cab h2{font-size:18px} .lista-cab h2 .mono{font-size:15px;color:var(--ink-2)}
+.situacoes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.sit{background:#fff;border:1px solid var(--line-2);border-radius:999px;padding:5px 12px;min-height:36px;cursor:pointer;font-weight:600;color:var(--ink-2)}
+.sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.sit .mono{margin-left:4px}
+.busca{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.busca input,.busca select{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff;min-width:0;flex:1 1 200px}
+.busca select{flex:0 1 200px}
+.linhas{display:grid;gap:8px}
+.linha{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;align-items:start}
+.linha .t{font-weight:600} .linha .d{font-size:13.5px;color:var(--ink-2)}
+.linha .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.linha .ac{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.btn.peq{min-height:36px;padding:5px 10px;font-size:13.5px}
+.btn.perigo{color:var(--crit);border-color:#E9B8B8}
+@container loja (max-width: 560px){ .linha{grid-template-columns:minmax(0,1fr)} .linha .ac{justify-content:flex-start} }
+.vazio{border:1px dashed var(--line-2);border-radius:10px;padding:18px;text-align:center;color:var(--ink-2)}
+
+/* gaveta e diálogo */
+.fundo{position:fixed;inset:0;background:rgba(11,24,34,.45);z-index:40}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:#fff;z-index:41;display:flex;flex-direction:column;box-shadow:-8px 0 30px rgba(0,0,0,.18)}
+.gaveta-cab{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line)}
+.gaveta-corpo{padding:16px 18px;overflow-y:auto;display:grid;gap:12px;align-content:start;min-height:0;flex:1}
+.gaveta-rod{padding:12px 18px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.campo{display:grid;gap:4px} .campo label,.campo .rot{font-weight:600;font-size:14px}
+.campo input,.campo select,.campo textarea{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff;width:100%;min-width:0}
+.campo .ajuda{font-size:12.5px;color:var(--ink-2)}
+.fechar{background:transparent;border:1px solid var(--line-2);border-radius:10px;min-width:40px;min-height:40px;cursor:pointer;font-size:18px;line-height:1}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(460px,calc(100% - 32px));max-height:calc(100% - 32px);overflow-y:auto;background:#fff;border-radius:14px;z-index:43;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+.fundo.alto{z-index:42}
+.dialogo h2{margin-bottom:8px}
+.dialogo .acoes{justify-content:flex-end;margin-top:14px}
+.lista-ok{margin:6px 0 0;padding-left:20px} .lista-ok li{margin-bottom:4px}
+
+/* console */
+.console .app{background:#0F1B25} .console .lado{background:#07111A}
+.console .principal{background:#EDF0F4}
+.tab-c{width:100%;border-collapse:collapse;font-size:14px;background:#fff;border-radius:10px;overflow:hidden}
+.tab-c th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line-2)}
+.tab-c td{padding:9px 10px;border-bottom:1px solid var(--line);overflow-wrap:anywhere;vertical-align:top}
+@container loja (max-width: 640px){
+  .tab-c thead{display:none} .tab-c,.tab-c tbody,.tab-c tr,.tab-c td{display:block;width:100%}
+  .tab-c tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:8px;background:#fff}
+  .tab-c td{border:0;padding:3px 0}
+  .tab-c td[data-rot]::before{content:attr(data-rot) " · ";font-weight:600;color:var(--ink-2)}
+}
+
+
+/* ── peças novas da v7 ── */
+.v7{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:3px;white-space:nowrap}
+.secao{font-size:18px;margin:22px 0 4px}
+.secao:first-of-type{margin-top:6px}
+.secao-sub{color:var(--ink-2);font-size:14px;margin-bottom:12px;max-width:76ch}
+.bolha .hora{color:#52616C}
+.toque{color:#47555F;background:rgba(255,255,255,.85)}
+.entendi{color:#3C4F60}
+
+/* antes e depois */
+.par{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:22px 18px;align-items:start;margin-bottom:8px}
+.etq{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin-bottom:8px;font-size:13.5px;color:var(--ink-2)}
+.cel.antes .cel-topo{background:#55646F}
+.cel.antes .cel-topo .foto{color:#55646F}
+.robo{display:block;font:500 12.5px/1.45 var(--mono);color:#33434F}
+.mudou-lista{margin:6px 0 0;padding-left:20px}
+.mudou-lista li{margin-bottom:6px}
+.nunca{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:10px}
+.nunca li{border-top:1px solid var(--line);padding-top:10px}
+.nunca li:first-child{border-top:0;padding-top:0}
+.nunca s{display:block;color:var(--crit);text-decoration-thickness:1.5px;font-weight:600}
+.nunca span{font-size:13.5px;color:var(--ink-2)}
+
+/* o Mister conferindo e os passos */
+.pensa{justify-self:start;display:inline-flex;gap:7px;align-items:center;font-size:12.5px;color:#3C4F60;background:rgba(255,255,255,.88);border-radius:999px;padding:3px 11px}
+.pensa::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--gold);flex:none}
+.passos{list-style:none;margin:5px 0;padding:0;display:grid;gap:5px}
+.passos li{display:grid;grid-template-columns:20px minmax(0,1fr);gap:4px;align-items:start}
+.passos .m{font-weight:700;text-align:center;line-height:1.42}
+.passos .m.ok{color:var(--ok)} .passos .m.nao{color:var(--warn)} .passos .m.n{color:#47555F;font-family:var(--mono);font-size:12.5px}
+
+/* números × sugestão */
+.bloco{display:block;border-radius:6px;padding:6px 9px;margin:6px -2px 2px;font-size:13.5px;line-height:1.42}
+.bloco > b:first-child{display:block;font:700 12px var(--display);margin-bottom:2px}
+.mostra{background:#EEF2F6;border-left:3px solid var(--navy)}
+.mostra > b:first-child{color:var(--navy)}
+.sugere{background:var(--gold-bg);border-left:3px solid var(--gold)}
+.sugere > b:first-child{color:var(--gold-ink)}
+.legenda{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px;margin-bottom:16px}
+.legenda .bloco{margin:0;background-clip:padding-box}
+.legenda .mostra{background:#fff;border:1px solid var(--line);border-left:3px solid var(--navy)}
+.legenda .sugere{background:#fff;border:1px solid var(--line);border-left:3px solid var(--gold)}
+
+/* gráfico no balão: desenhado em HTML para a letra não encolher no celular */
+.gb{display:block;background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:9px 10px;margin:6px -3px}
+.gb-t{display:block;font:700 13.5px/1.25 var(--display);color:var(--ink)}
+.gb-s{display:block;font-size:11.5px;color:#52616C;margin:1px 0 7px}
+.gb-lin{display:grid;grid-template-columns:minmax(0,5.6em) minmax(0,1fr) auto;gap:6px;align-items:center;font-size:12px;line-height:1.25;padding:2px 0}
+.gb-lin .r{color:var(--ink);overflow-wrap:break-word}
+.gb-lin .tr{height:11px;display:block;background:#EEF2F6;border-radius:0 4px 4px 0;overflow:hidden}
+.gb-lin .tr i{display:block;height:100%;background:var(--g-barra);border-radius:0 4px 4px 0}
+.gb-lin.dest .r{font-weight:700}
+.gb-lin.dest .tr i{background:var(--g-dest)}
+.gb-lin .v{font:700 11.5px var(--mono);font-variant-numeric:tabular-nums;color:var(--ink);text-align:right;white-space:nowrap}
+
+/* financeiro */
+.k-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin-bottom:8px}
+.k-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;min-width:0;display:flex;flex-direction:column;gap:5px}
+.k-card .nome{font:700 14px var(--display)}
+.k-card .num{font:700 27px/1.1 var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+.k-card .como{font-size:13px;color:var(--ink-2)}
+.k-card .selo{align-self:flex-start;white-space:normal}
+.f-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,215px),1fr));gap:12px;margin-bottom:8px}
+.f-card{background:var(--card);border:1px dashed var(--line-2);border-radius:var(--radius);padding:14px 16px;min-width:0;display:flex;flex-direction:column;gap:6px}
+.f-card .topo-f{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;justify-content:space-between}
+.f-card .nome{font:700 14.5px var(--display)}
+.f-card p{font-size:13.5px;margin:0}
+.f-card .rot{font-weight:700;color:var(--ink)}
+.f-card .ausente{font:700 22px var(--mono);color:var(--ink-2)}
+
+
+/* ajustes */
+.parte[disabled]{cursor:default}
+.busca-aj{display:flex;margin-bottom:12px}
+.busca-aj input{flex:1 1 auto;min-width:0;max-width:420px;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff}
+.aj.largo{grid-template-columns:minmax(0,1fr)}
+.aj.largo .ctrl{justify-content:stretch}
+.aj textarea{font:inherit;color:inherit;width:100%;min-width:0;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;background:#fff;resize:vertical}
+.aj .preco{display:block;font-size:13px;font-weight:600;color:var(--gold-ink);margin-top:3px}
+.ja{font:600 11px var(--display);color:var(--ink-2);background:var(--neutro-bg);border-radius:4px;padding:1px 6px;white-space:nowrap;vertical-align:2px}
+.link-aj{background:transparent;border:0;padding:4px 0;min-height:32px;color:var(--info);font-weight:600;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.bloco-aj{margin-bottom:16px}
+.salvo{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ok);color:#fff;font-weight:600;padding:9px 16px;border-radius:10px;z-index:50;max-width:calc(100% - 32px);box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.conta-g{background:var(--neutro-bg);border-radius:10px;padding:10px 12px;font-size:14px}
+.conta-g b{font-family:var(--mono)}
+.gaveta-sec{display:grid;gap:12px;min-width:0}
+.gaveta h3{font-size:14.5px;margin-bottom:3px}
+.gaveta .lista-ok{font-size:14px}
+.barra-salvar{flex-wrap:wrap}
+
+/* notas */
+.notas{max-width:1040px}
+.dois-lados{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px}
+.dois-lados .cartao{margin-bottom:0}
+.dois-lados{margin-bottom:14px}
+/* a tabela de fases tem 4 colunas: vira cartões antes de espremer */
+@container principal (max-width: 940px){
+  .fases thead{display:none} .fases,.fases tbody,.fases tr,.fases td{display:block;width:100%}
+  .fases tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff}
+  .fases td{border:0;padding:3px 0}
+  .fases td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+}
+.fases td:first-child{font-weight:700}
+@media (max-width:900px){ .link-aj{min-height:44px} .busca-aj input{min-height:44px} }
+
+/* ── peças novas da v8 ── */
+.v8{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:3px;white-space:nowrap}
+.dia-wa{justify-self:center;font-size:12px;font-weight:600;color:#3C4F60;background:rgba(255,255,255,.9);border-radius:6px;padding:2px 10px;text-align:center}
+div.bloco{display:block}
+.bloco ul,.bloco ol{margin:3px 0 0;padding-left:18px}
+.prev{display:block;background:#F3F6F8;border-radius:6px;padding:5px 8px;margin:5px 0 0;font-size:13.5px}
+.prev b{display:block;font:700 11.5px var(--display);color:#3C4F60}
+.prev .mono{font-size:12.5px;white-space:nowrap}
+.conta-wa{display:grid;gap:3px;margin:6px 0;font-size:13.5px}
+.conta-wa .l{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:baseline}
+.conta-wa .v{font:700 12.5px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+.conta-wa .l.tot{border-top:1px solid #C8D2DC;padding-top:4px;font-weight:700}
+.conta-wa .l.sub-l{color:#3C4F60;font-size:12.5px}
+.nota-wa{display:block;font-size:12.5px;line-height:1.4;color:#3C4F60;margin-top:5px}
+.evento{display:block;padding:5px 0;border-top:1px solid #E6EBEF}
+.evento:first-of-type{border-top:0}
+.evento b{display:block}
+.pill-wa{display:inline-block;font:700 11px var(--display);border-radius:999px;padding:1px 7px;white-space:nowrap}
+.pill-wa.vale{background:var(--ok-bg);color:var(--ok)}
+.pill-wa.disc{background:var(--warn-bg);color:var(--warn)}
+.gb-lin.neg .tr i{background:var(--g-ruim)}
+.gb-lin.pos .tr i{background:var(--g-bom)}
+.gb-lin{grid-template-columns:minmax(0,5.2em) minmax(24px,1fr) auto}
+.ctl-caso{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+
+/* a lista de Banco e repasses */
+.tela-troca{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.lado .grupo-menu{padding:8px 10px 2px;color:#fff;font-weight:700}
+.lado li.filho{padding-left:22px;font-size:14px}
+.fontes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,178px),1fr));gap:8px;margin-bottom:12px}
+.fonte{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.fonte.falta{border-color:#E7BFA6;background:#FFFBF8}
+.fonte .nome{font:700 14px var(--display)}
+.fonte .como{font-size:12.5px;color:var(--ink-2)}
+.fonte .selo{align-self:flex-start;white-space:normal}
+.fonte .quando{font-size:12.5px;color:var(--ink-2)}
+.fonte .btn{margin-top:4px;align-self:flex-start}
+.totais{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:8px;margin-bottom:12px}
+.total{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:0}
+.total span{display:block;font-size:12.5px;color:var(--ink-2)}
+.total b{display:block;font:700 16.5px var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.busca select{flex:1 1 170px}
+.tab-l{width:100%;border-collapse:separate;border-spacing:0;font-size:14px;background:#fff;border:1px solid var(--line);border-radius:10px}
+.tab-l th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:9px 10px;border-bottom:2px solid var(--line-2);white-space:nowrap}
+.tab-l td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:break-word}
+.tab-l .c-fonte{white-space:nowrap}
+.tab-l .c-desc{min-width:190px}
+.nq,[data-n]{white-space:nowrap}
+.tab-l tbody tr:last-child td{border-bottom:0}
+.tab-l th.num,.tab-l td.c-valor{text-align:right}
+.tab-l .c-data{white-space:nowrap;font-family:var(--mono);font-size:13px}
+.tab-l .c-valor{font:700 13.5px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tab-l .c-valor.ent{color:var(--ok)}
+.lanc-t{display:block;font-weight:600;font-size:13.5px}
+.lanc-p{display:block;font-size:12.5px;color:var(--ink-2)}
+.tab-l .c-ac{white-space:nowrap}
+.linha-ac{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.sem-tipo{color:var(--warn);font-weight:600}
+.mais{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px 14px;margin-top:12px;color:var(--ink-2);font-size:13.5px}
+.esqueleto{display:grid;gap:8px}
+.esqueleto i{display:block;height:46px;border-radius:10px;background:linear-gradient(90deg,#E4E9EF,#F2F5F8,#E4E9EF);background-size:200% 100%;animation:brilho 1.3s linear infinite}
+@keyframes brilho{to{background-position:-200% 0}}
+@media (prefers-reduced-motion: reduce){ .esqueleto i{animation:none} }
+.vazio .btn{margin-top:10px}
+.vazio b{display:block;color:var(--ink);font-family:var(--display);font-size:16px;margin-bottom:3px}
+.vazio.erro{border-color:#E9B8B8;background:#FFF8F8}
+details.ajuda-sit{margin-bottom:12px;font-size:13.5px}
+details.ajuda-sit summary{cursor:pointer;font-weight:600;color:var(--info);min-height:32px;padding:4px 0}
+details.ajuda-sit dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:8px;margin:6px 0 0}
+details.ajuda-sit dl div{background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--ink-2)}
+/* a tabela vira cartões pelo espaço da lista, nunca pela janela */
+@container loja (max-width: 900px){
+  .tab-l{border:0;background:transparent;display:block}
+  .tab-l thead{display:none}
+  .tab-l tbody{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:8px}
+  .tab-l tr{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"data valor" "desc desc" "tipo tipo" "fonte fonte" "sit ac";gap:3px 10px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;align-items:center;min-width:0}
+  .tab-l td,.tab-l .c-desc{display:block;border:0!important;padding:0;min-width:0}
+  .tab-l .c-fonte{white-space:normal}
+  .tab-l .c-desc{overflow-wrap:anywhere}
+  .tab-l .c-data{grid-area:data;color:var(--ink-2)} .tab-l .c-valor{grid-area:valor;font-size:15px} .tab-l .c-desc{grid-area:desc}
+  .tab-l .c-tipo{grid-area:tipo;font-size:13.5px} .tab-l .c-fonte{grid-area:fonte;font-size:13.5px}
+  .tab-l .c-sit{grid-area:sit;margin-top:4px} .tab-l .c-ac{grid-area:ac;margin-top:4px}
+  .tab-l td[data-rot]::before{content:attr(data-rot) " · ";font-weight:600;color:var(--ink-2)}
+  .tab-l .c-data[data-rot]::before{content:""}
+}
+@container loja (max-width: 340px){
+  .tab-l tr{grid-template-columns:minmax(0,1fr);grid-template-areas:"data" "valor" "desc" "tipo" "fonte" "sit" "ac"}
+  .tab-l .c-valor{text-align:left}
+  .linha-ac{justify-content:flex-start}
+}
+
+/* importar extrato e o lançamento */
+.etapas{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.etapas li{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:2px 10px;border-radius:9px;border:1px solid var(--line-2);background:#fff;color:var(--ink-2);font-size:13px;font-weight:600}
+.etapas li b{font-family:var(--mono);font-size:12px;background:#EEF2F6;border-radius:999px;padding:0 7px;color:var(--ink)}
+.etapas li[aria-current]{background:var(--navy);border-color:var(--navy);color:#fff}
+.etapas li[aria-current] b{background:rgba(255,255,255,.2);color:#fff}
+.etapas li.feito b{background:var(--ok-bg);color:var(--ok)}
+.solta{border:1.5px dashed var(--line-2);border-radius:10px;padding:14px;text-align:center;background:#FAFBFC}
+.solta b{display:block;font-family:var(--display)}
+.solta span{font-size:13px;color:var(--ink-2)}
+.opcoes{border:0;margin:0;padding:0;display:grid;gap:6px;min-width:0}
+.opcoes legend{font-weight:600;font-size:14px;padding:0;margin-bottom:4px}
+.opcao{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start;border:1px solid var(--line-2);border-radius:10px;padding:8px 10px;cursor:pointer;background:#fff}
+.opcao:has(input:checked){border-color:var(--navy);box-shadow:inset 0 0 0 1px var(--navy)}
+.opcao input{width:18px;height:18px;margin:2px 0 0}
+.opcao b{display:block;font-size:13.5px;overflow-wrap:anywhere} .opcao small{display:block;font-size:12.5px;color:var(--ink-2)}
+.kv{display:grid;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.kv div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:7px 11px;border-top:1px solid var(--line);font-size:14px;align-items:baseline}
+.kv div:first-child{border-top:0}
+.kv span{color:var(--ink-2)}
+.kv b{font-family:var(--mono);font-size:13px;text-align:right;overflow-wrap:anywhere}
+.g-valor{font:700 26px/1.1 var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.g-valor.ent{color:var(--ok)}
+.extrato-txt{background:#F3F6F8;border-radius:8px;padding:8px 10px;font:500 12.5px/1.45 var(--mono);overflow-wrap:anywhere;color:#2B3B48}
+.check{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start;cursor:pointer}
+.check input{width:18px;height:18px;margin:2px 0 0}
+.check b{display:block;font-size:14px} .check small{font-size:12.5px;color:var(--ink-2)}
+.faixa.crit{background:var(--crit-bg);border-color:#EBB9B9;color:#7E2020}
+.gaveta .faixa{margin:0}
+.exemplos{display:grid;gap:6px}
+.exemplo{border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:13.5px;display:grid;gap:2px}
+.exemplo .selo{justify-self:start;white-space:normal}
+
+/* de onde vem cada dado */
+.dados{width:100%;border-collapse:collapse;font-size:14px;background:#fff;border-radius:10px}
+.dados th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:9px 10px;border-bottom:2px solid var(--line-2)}
+.dados td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.dados td:first-child{font-weight:700;font-family:var(--display)}
+.dados tr:last-child td{border-bottom:0}
+@container principal (max-width: 860px){
+  .dados,.dados tbody,.dados tr,.dados td{display:block;width:100%}
+  .dados{background:transparent}
+  .dados thead{display:none}
+  .dados tr{background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:8px}
+  .dados td{border:0;padding:3px 0}
+  .dados td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  .dados td:first-child{font-size:16px}
+  .dados td:first-child::before{display:none!important}
+}
+.ind-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr));gap:12px}
+.alerta-13{border-left:3px solid var(--warn);background:var(--warn-bg);border-radius:6px;padding:8px 12px;margin-top:10px;font-size:14px;color:#5F2C0D}
+@media (max-width:900px){ .fonte .btn,.tab-l .btn{min-height:44px} .ctl{min-height:40px} details.ajuda-sit summary{min-height:44px;padding:10px 0} }
+
+/* Leitura de fotos */
+.estreita{max-width:820px}
+.caminho{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:10px;counter-reset:passo}
+.caminho li{counter-increment:passo;display:grid;grid-template-columns:28px minmax(0,1fr);gap:4px 10px;align-items:start;padding-top:10px;border-top:1px solid var(--line)}
+.caminho li:first-child{border-top:0;padding-top:0}
+.caminho li::before{content:counter(passo);grid-row:span 2;width:26px;height:26px;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;font:700 13px var(--mono)}
+.caminho .selo{justify-self:start;white-space:normal}
+.foto-falsa{display:grid;gap:5px;padding:12px 16px;margin-bottom:5px;background:#F4F1E8;border-radius:6px;min-height:86px;align-content:start}
+.foto-falsa i{display:block;height:5px;border-radius:2px;background:#4A4A44;width:88%}
+.foto-falsa i:nth-child(2n){width:64%} .foto-falsa i:nth-child(3n){width:76%}
+.foto-falsa.tremida i{filter:blur(1.1px)} .foto-falsa.muito-tremida i{filter:blur(3px);transform:translateX(3px) skewX(-8deg)}
+.foto-falsa.escura{background:#2A2722} .foto-falsa.escura i{background:#46423A}
+.foto-falsa.mao{background:#FBF7DC} .foto-falsa.mao i{background:#22407A;height:3px;transform:rotate(-1.2deg)}
+.botoes-wa button{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;min-height:40px;text-align:center;color:#0B5CAD;font:600 13.5px var(--body);cursor:pointer}
+.botoes-wa button[aria-pressed="true"]{background:#E6F0F8;border-color:#0B5CAD}
+.botoes-wa button:focus-visible,.liga:focus-visible{outline:2px solid var(--foco);outline-offset:2px}
+.kv-simples{display:grid;gap:0;margin:6px 0 10px}
+.kv-simples div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 14px;padding:9px 0;border-top:1px solid var(--line)}
+.kv-simples div:first-child{border-top:0} .kv-simples b{font-family:var(--mono);font-size:13.5px}
+</style>
+</head>
+<body>
+
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+<header class="proto">
+  <span class="titulo">Protótipo · Leitura de fotos</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button class="aba" data-aba="achei" aria-pressed="true">O que achei</button>
+    <button class="aba" data-aba="celular" aria-pressed="false">No celular</button>
+    <button class="aba" data-aba="loja" aria-pressed="false">Na loja</button>
+    <button class="aba" data-aba="teste" aria-pressed="false">O teste</button>
+    <button class="aba" data-aba="notas" aria-pressed="false">Notas e decisões</button>
+  </nav>
+  <span class="nota">Conversas de exemplo. Os números de "O que achei" são reais.</span>
+</header>
+
+<main id="conteudo" tabindex="-1">
+
+<!-- ═════════════════════ O QUE ACHEI ═════════════════════ -->
+<section class="vista ativa" id="v-achei" aria-labelledby="h-achei">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-achei">Por que o Mister lê pior do que esta sessão</h1>
+      <p class="sub">A foto é lida na nuvem. O maior problema não é a foto ruim: é o que o Regem faz com a leitura depois. Boa parte do que o DMS Graph leu é jogada fora antes de chegar ao Mister.</p>
+    </div>
+
+    <div class="k-grade">
+      <div class="k-card"><span class="nome">Fotos lidas pela reserva</span><span class="num">4 de 5</span><span class="como">De 20 a 23/11. O Graph tinha 15 segundos, e o último motivo gravado foi "sem resposta".</span></div>
+      <div class="k-card"><span class="nome">O que sobra da leitura</span><span class="num">600 letras</span><span class="como">O Graph devolve o texto inteiro. O Regem guarda 15 linhas e corta em 600 letras.</span></div>
+      <div class="k-card"><span class="nome">Resposta da reserva</span><span class="num">12 linhas</span><span class="como">A reserva é o Claude Haiku, o modelo mais simples, com resposta curta.</span></div>
+      <div class="k-card"><span class="nome">Maior foto aceita</span><span class="num">5 MB</span><span class="como">Foto enviada como documento pode passar disso, e aí volta "não consegui ver".</span></div>
+    </div>
+
+    <div class="cartao">
+      <h2>O caminho da foto antes desta melhoria</h2>
+      <ol class="caminho">
+        <li><span class="selo neutro">Fora do Regem</span><div><b>O WhatsApp comprime a foto.</b> Enviada como documento, ela vai sem compressão.</div></li>
+        <li><span class="selo warn">Perde tempo</span><div><b>O DMS Graph lê a foto inteira, mas só tem 15 segundos.</b> Se demorar, o Regem desiste dele e chama a reserva.</div></li>
+        <li><span class="selo crit">Perde leitura</span><div><b>O texto é cortado.</b> Um cupom de 36 itens não cabe em 15 linhas nem em 600 letras.</div></li>
+        <li><span class="selo warn">Lê duas vezes</span><div><b>Na lista de compras, o Haiku lê a foto de novo</b>, em vez de usar o que o Graph já leu.</div></li>
+        <li><span class="selo ok">Já funciona</span><div><b>Nota e cupom vão ao Claude Sonnet, e a soma dos itens é conferida.</b> O boleto é conferido pelo código de barras.</div></li>
+        <li><span class="selo crit">Falta</span><div><b>Ninguém diz qual linha ficou em dúvida.</b> Na lista de compras, um número mal lido pode virar pedido errado.</div></li>
+      </ol>
+    </div>
+
+    <div class="dois-lados">
+      <div class="cartao">
+        <h2>O que aproveitar do Farol</h2>
+        <ul>
+          <li><b>Medir a foto antes de ler:</b> nitidez, luz e parte estourada. São contas prontas e sem custo de IA.</li>
+          <li><b>Reduzir sem serrilhar</b> e respeitar a orientação gravada na foto.</li>
+          <li><b>Comparar fotos da mesma rajada</b> e ficar com a mais nítida.</li>
+        </ul>
+      </div>
+      <div class="cartao">
+        <h2>O que o Farol avisa</h2>
+        <ul>
+          <li><b>A nitidez não tem escala absoluta.</b> Serve para orientar e comparar, não para recusar a foto de um celular qualquer.</li>
+          <li><b>O Farol mede a imagem, mas não a melhora.</b> O estudo dele não testou realce de contraste para leitura.</li>
+          <li><b>Por isso, realce só entra se ganhar no teste</b> com as suas fotos. Tremido de verdade nenhum filtro desfaz.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NO CELULAR ═════════════════════ -->
+<section class="vista" id="v-celular" aria-labelledby="h-celular">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-celular">Como fica no WhatsApp</h1>
+      <p class="sub">O Mister lê tudo o que dá, diz exatamente o que ficou em dúvida e pergunta só aquilo. Número duvidoso nunca entra sozinho em pedido ou lançamento.</p>
+    </div>
+    <div class="celulares">
+
+      <article class="caso"><h3>Cupom tremido, lido até o fim</h3><p class="sub">A leitura inteira chega ao Mister, e a soma confere. <span class="fase">L1</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div>
+          <div class="bolha meu com-foto"><span class="foto-falsa tremida" role="img" aria-label="Foto de um cupom, um pouco tremida"><i></i><i></i><i></i><i></i><i></i><i></i></span>lança esse cupom<span class="hora">10:12</span></div>
+          <div class="bolha dele larga">📷 <i>Vi:</i> cupom do Mercado Bom Preço, de 22/11.<br><br>Li <b>16 de 16 itens</b>. A soma dá <b>R$ 1.284,90</b>, igual ao total do cupom.<div class="botoes-wa dois"><span>Lançar</span><span>Ver os itens</span></div><span class="hora">10:12</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso"><h3>Uma linha em dúvida</h3><p class="sub">Toque numa resposta para ver o que acontece. <span class="fase">L2</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div>
+          <div class="bolha meu com-foto"><span class="foto-falsa" role="img" aria-label="Foto de um cupom"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="hora">10:20</span></div>
+          <div class="bolha dele larga">📷 <i>Vi:</i> cupom com 16 itens.<br><br>Li 15 com certeza. Só a <b>linha 9</b> ficou borrada:<br><b>Arroz T1 5 kg</b>, quantidade <b>2 ou 7</b>?<br><br>Com 2, a soma fecha com o total de <b>R$ 642,30</b>. Com 7, daria R$ 766,80.<div class="botoes-wa dois" id="duvida"><button type="button" data-resp="2">São 2</button><button type="button" data-resp="7">São 7</button><button type="button" data-resp="foto">Mando outra foto</button></div><span class="hora">10:20</span></div>
+          <div class="bolha dele larga" id="duvida-fim" hidden aria-live="polite"></div>
+        </div></div>
+      </article>
+
+      <article class="caso"><h3>Lista escrita à mão</h3><p class="sub">Palavra em dúvida vira pergunta, e o resto segue. <span class="fase">L2</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div>
+          <div class="bolha meu com-foto"><span class="foto-falsa mao" role="img" aria-label="Foto de uma lista escrita à mão"><i></i><i></i><i></i><i></i><i></i></span>faz o pedido<span class="hora">11:02</span></div>
+          <div class="bolha dele larga">📷 <i>Vi:</i> lista de compras com 12 linhas.<br><br>Li 11. Na <b>linha 7</b> a letra deixa dúvida: <b>tomate</b> ou <b>batata</b>? São 10 kg.<div class="botoes-wa dois"><span>Tomate</span><span>Batata</span></div><span class="nota-wa">As outras 11 linhas já estão separadas. Nada foi pedido ainda.</span><span class="hora">11:02</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso"><h3>Foto escura demais</h3><p class="sub">Ele tenta ler e diz o que fazer, sem inventar. <span class="fase">L3</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div>
+          <div class="bolha meu com-foto"><span class="foto-falsa escura" role="img" aria-label="Foto muito escura de um papel"><i></i><i></i><i></i><i></i></span><span class="hora">22:41</span></div>
+          <div class="bolha dele larga">📷 A foto ficou <b>escura</b>, e não dá para confiar nos números.<br><br>Acende a luz ou chega perto de uma janela e manda de novo. Se puder, deixa o papel reto sobre a mesa.<span class="nota-wa">O que li dessa foto não entrou em nada.</span><span class="hora">22:41</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso"><h3>Foto tremida, sem salvação</h3><p class="sub">A dica muda conforme o problema. <span class="fase">L3</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div>
+          <div class="bolha meu com-foto"><span class="foto-falsa muito-tremida" role="img" aria-label="Foto bem tremida de um cupom"><i></i><i></i><i></i><i></i><i></i></span><span class="hora">14:05</span></div>
+          <div class="bolha dele larga">📷 A foto <b>tremeu</b> e só consegui ler 4 de cerca de 20 linhas.<br><br>Apoia o cotovelo na mesa, toca na tela para focar e espera um segundo antes de tirar. Se o cupom for comprido, pode mandar em duas partes.<span class="hora">14:05</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso"><h3>Cupom comprido em duas fotos</h3><p class="sub">As partes viram um documento só, sem repetir item. <span class="fase">L3</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div>
+          <div class="bolha meu com-foto"><span class="foto-falsa" role="img" aria-label="Primeira parte do cupom"><i></i><i></i><i></i><i></i><i></i><i></i></span>parte 1<span class="hora">15:30</span></div>
+          <div class="bolha dele">📷 Li 18 itens e o cupom continua. Pode mandar o resto.<span class="hora">15:30</span></div>
+          <div class="bolha meu com-foto"><span class="foto-falsa" role="img" aria-label="Segunda parte do cupom"><i></i><i></i><i></i><i></i></span>parte 2<span class="hora">15:31</span></div>
+          <div class="bolha dele larga">Juntei as duas: <b>36 itens</b>, com 2 que apareciam nas duas fotos contados uma vez só. A soma dá <b>R$ 2.930,45</b>, igual ao total.<div class="botoes-wa dois"><span>Lançar</span><span>Ver os itens</span></div><span class="hora">15:31</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso"><h3>Quando vale mandar como documento</h3><p class="sub">Só aparece quando a compressão atrapalhou. <span class="fase">L3</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div>
+          <div class="bolha meu com-foto"><span class="foto-falsa" role="img" aria-label="Foto de uma nota com letra miúda"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="hora">16:10</span></div>
+          <div class="bolha dele larga">📷 A letra dessa nota é muito pequena, e o WhatsApp reduziu a foto.<br><br>Manda de novo assim: <b>clipe › Documento › escolha a foto</b>. Ela chega sem perder qualidade.<span class="hora">16:10</span></div>
+        </div></div>
+      </article>
+
+      <article class="caso"><h3>Com a segunda leitura ligada</h3><p class="sub">A IA mais forte relê só a foto em dúvida. <span class="fase">L4</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Segunda, 23/11</div>
+          <div class="bolha meu com-foto"><span class="foto-falsa mao" role="img" aria-label="Foto de uma lista escrita à mão"><i></i><i></i><i></i><i></i><i></i></span>faz o pedido<span class="hora">17:22</span></div>
+          <div class="bolha dele larga">📷 <i>Vi:</i> lista com 12 linhas. A primeira leitura ficou em dúvida em 3 delas, então <b>reli com mais atenção</b>.<br><br>Agora li <b>12 de 12</b>.<div class="botoes-wa dois"><span>Ver a lista</span><span>Montar o pedido</span></div><span class="hora">17:22</span></div>
+        </div></div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NA LOJA ═════════════════════ -->
+<section class="vista" id="v-loja" aria-labelledby="h-loja">
+  <div class="pagina estreita">
+    <div class="cab">
+      <h1 id="h-loja">Mister › Avisos e relatórios › Conversa</h1>
+      <p class="sub">Só uma opção nova, a releitura. O modelo melhor na reserva e na lista já vale para todos. Só o presidente muda.</p>
+    </div>
+    <div class="cartao">
+      <div class="grupo-aj">Conversa <span>Como o Mister lê e responde</span></div>
+      <div class="aj"><div><div class="t" id="aj-boleto">Lançar boletos por foto</div><div class="d">Já existe e continua igual.</div></div><div class="ctrl"><button class="liga" role="switch" aria-checked="true" aria-labelledby="aj-boleto"></button></div></div>
+      <div class="aj"><div><div class="t" id="aj-reler">Reler a foto difícil com a IA mais forte <span class="selo info">novo</span></div><div class="d">Só quando a primeira leitura fica em dúvida. A foto boa não passa por aqui.</div><span class="preco">Cerca de R$ 0,12 por foto relida, na chave de IA da empresa</span></div><div class="ctrl"><button class="liga" id="liga-reler" role="switch" aria-checked="false" aria-labelledby="aj-reler"></button></div></div>
+      <p class="sub" id="reler-estado" aria-live="polite">Desligada. Quando a leitura fica em dúvida, o Mister pergunta a você.</p>
+    </div>
+    <div class="cartao">
+      <h2>Quanto isso custaria</h2>
+      <div class="kv-simples">
+        <div><span>Foto lida pela reserva ou lista copiada, com o Sonnet (já ligado)</span><b>cerca de R$ 0,12</b></div>
+        <div><span>Foto relida, uma lista de 40 linhas</span><b>cerca de US$ 0,02</b></div>
+        <div><span>30 fotos relidas no mês</span><b>cerca de R$ 3,60</b></div>
+        <div><span>Fotos que não precisam de releitura</span><b>R$ 0,00 a mais</b></div>
+      </div>
+      <p class="sub">Estimativa pela tabela do Claude Sonnet 5.5, com o dólar a R$ 5,50. O custo real aparece em Mister › IA e uso.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ O TESTE ═════════════════════ -->
+<section class="vista" id="v-teste" aria-labelledby="h-teste">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-teste">O teste antes de mexer</h1>
+      <p class="sub">Primeiro medimos com as suas fotos ruins. Cada ideia só entra se acertar mais de verdade. Nada disso toca a produção.</p>
+    </div>
+    <div class="dois-lados">
+      <div class="cartao">
+        <h2>Da sua parte: 20 fotos</h2>
+        <ul>
+          <li>5 cupons, de preferência compridos</li>
+          <li>5 notas ou boletos</li>
+          <li>5 listas escritas à mão</li>
+          <li>5 fotos ruins de verdade: tremidas ou no escuro</li>
+        </ul>
+        <p class="sub">Tire como você tira no dia a dia e mande por aqui, nesta sessão. Elas ficam só numa pasta de teste, e eu apago ao terminar.</p>
+      </div>
+      <div class="cartao">
+        <h2>O que conta como melhor</h2>
+        <ul>
+          <li>Acerta mais linhas e mais números do que hoje.</li>
+          <li><b>Não inventa:</b> número errado dito com certeza reprova na hora.</li>
+          <li>Responde em até 30 segundos.</li>
+          <li>O custo por foto fica escrito ao lado do resultado.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="cartao">
+      <h2>O que será comparado</h2>
+      <table class="fases"><caption class="sr">As versões da leitura comparadas no teste</caption>
+        <thead><tr><th>Versão</th><th>O que muda</th><th>Custo a mais</th><th>Resultado</th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Versão">A · Como é hoje</td><td data-rot="O que muda">Graph em 15 s, reserva no Haiku e o corte em 600 letras</td><td data-rot="Custo a mais">—</td><td data-rot="Resultado"><span class="selo neutro">a medir</span></td></tr>
+          <tr><td data-rot="Versão">B · Leitura inteira</td><td data-rot="O que muda">O texto completo do Graph chega ao Mister</td><td data-rot="Custo a mais">nenhum</td><td data-rot="Resultado"><span class="selo neutro">a medir</span></td></tr>
+          <tr><td data-rot="Versão">C · B com ajuste de luz</td><td data-rot="O que muda">Clareia só a foto escura, antes de ler</td><td data-rot="Custo a mais">nenhum</td><td data-rot="Resultado"><span class="selo neutro">a medir</span></td></tr>
+          <tr><td data-rot="Versão">D · B com fatias</td><td data-rot="O que muda">Cupom comprido lido em pedaços, com sobra entre eles</td><td data-rot="Custo a mais">pouco</td><td data-rot="Resultado"><span class="selo neutro">a medir</span></td></tr>
+          <tr><td data-rot="Versão">E · B com Sonnet na dúvida</td><td data-rot="O que muda">A IA mais forte relê só o que ficou em dúvida</td><td data-rot="Custo a mais">cerca de R$ 0,12 por foto relida</td><td data-rot="Resultado"><span class="selo neutro">a medir</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NOTAS E DECISÕES ═════════════════════ -->
+<section class="vista" id="v-notas" aria-labelledby="h-notas">
+  <div class="pagina notas">
+    <div class="cab">
+      <h1 id="h-notas">Notas e decisões</h1>
+      <p class="sub">As fases e o que precisa da sua decisão. Em cada decisão, a recomendada vem primeiro.</p>
+    </div>
+    <div class="cartao">
+      <h2>As fases</h2>
+      <table class="fases"><caption class="sr">Fases da melhoria da leitura de fotos</caption>
+        <thead><tr><th>Fase</th><th>O que entra</th><th>Migration</th><th>Depende de</th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Fase">L0 · O teste</td><td data-rot="O que entra">As 20 fotos, a resposta certa de cada uma e as versões A a E</td><td data-rot="Migration">não</td><td data-rot="Depende de">As suas fotos</td></tr>
+          <tr><td data-rot="Fase">L1 · Leitura inteira</td><td data-rot="O que entra">Sem o corte de 600 letras, 25 s para o Graph, o motivo de cada falha e o Sonnet no lugar do Haiku</td><td data-rot="Migration">não</td><td data-rot="Depende de">Pedido do dono em 23/11: não espera o teste</td></tr>
+          <tr><td data-rot="Fase">L2 · Dúvida vira pergunta</td><td data-rot="O que entra">O Mister diz a dúvida e pergunta: a pessoa responde o certo ou manda outra foto. Número em dúvida não entra em pedido nem lançamento. Lista e foto comum primeiro, depois nota e cupom</td><td data-rot="Migration">a conferir</td><td data-rot="Depende de">L1</td></tr>
+          <tr><td data-rot="Fase">L3 · Foto ruim e foto grande</td><td data-rot="O que entra">Medir luz e tremido, dar a dica certa, aceitar documento até 20 MB e cupom em partes</td><td data-rot="Migration">a conferir</td><td data-rot="Depende de">L0 e uma biblioteca de imagem no servidor</td></tr>
+          <tr><td data-rot="Fase">L4 · Segunda leitura</td><td data-rot="O que entra">O Sonnet relê a foto em dúvida. Nasce desligada, com o preço ao lado</td><td data-rot="Migration">sim, o ajuste</td><td data-rot="Depende de">L2 e o resultado da versão E</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cartao">
+      <h2>As decisões</h2>
+      <p class="sub">O dono já escolheu em 23/11: usar o texto inteiro, dar mais tempo ao Graph, trocar o modelo e perguntar quando houver dúvida. As outras seguem a recomendada até ele dizer o contrário.</p>
+      <div class="decisao"><h3>Modelo da leitura</h3><ol><li>Claude Sonnet 5.5 na reserva e na cópia das listas, cerca de R$ 0,12 por foto <span class="rec">escolhida pelo dono</span></li><li>Manter o Haiku</li></ol></div>
+      <div class="decisao"><h3>L-1 · O que o Graph leu</h3><ol><li>Usar a leitura inteira <span class="rec">recomendada</span></li><li>Manter o resumo de 600 letras</li></ol></div>
+      <div class="decisao"><h3>L-2 · Tempo do Graph</h3><ol><li>Até 25 s, registrando o motivo de cada falha <span class="rec">recomendada</span></li><li>Manter 15 s e cair mais cedo na reserva</li></ol></div>
+      <div class="decisao"><h3>L-3 · Realce da imagem</h3><ol><li>Só o que ganhar no teste com as suas fotos <span class="rec">recomendada</span></li><li>Aplicar sempre, sem medir</li></ol></div>
+      <div class="decisao"><h3>L-4 · Foto ruim</h3><ol><li>Tentar ler e dizer o que ficou em dúvida <span class="rec">recomendada</span></li><li>Recusar e pedir outra foto</li></ol></div>
+      <div class="decisao"><h3>L-5 · Número em dúvida</h3><ol><li>Perguntar antes de entrar em pedido ou lançamento <span class="rec">recomendada</span></li><li>Usar o mais provável e avisar depois</li></ol></div>
+      <div class="decisao"><h3>L-6 · Segunda leitura</h3><ol><li>Só na dúvida, desligada, com o preço ao lado <span class="rec">recomendada</span></li><li>Ler toda foto com a IA mais forte</li><li>Não ter segunda leitura</li></ol></div>
+      <div class="decisao"><h3>L-7 · Cupom comprido</h3><ol><li>Aceitar em duas ou mais fotos, sem repetir item <span class="rec">recomendada</span></li><li>Só uma foto por cupom</li></ol></div>
+      <div class="decisao"><h3>L-8 · Foto como documento</h3><ol><li>Aceitar até 20 MB, reduzir na memória e não guardar <span class="rec">recomendada</span></li><li>Manter o limite de 5 MB</li></ol></div>
+      <div class="decisao"><h3>L-9 · A foto fica guardada?</h3><ol><li>Não. Fica só o texto lido, sem CPF, telefone ou conta <span class="rec">recomendada</span></li><li>Guardar 7 dias para conferir depois</li></ol></div>
+    </div>
+    <div class="cartao">
+      <h2>O que ainda não sei</h2>
+      <ul>
+        <li>Se 25 segundos bastam para o Graph. A última falha gravada foi "sem resposta", e agora cada foto guarda o motivo.</li>
+        <li>Se clarear a foto ajuda a IA a ler. Só o teste responde.</li>
+        <li>Qual biblioteca de imagem entra no servidor sem pesar no instalador da loja.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const abas = [...document.querySelectorAll('.aba')];
+  abas.forEach((b) => b.addEventListener('click', () => {
+    abas.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll('.vista').forEach((v) => v.classList.toggle('ativa', v.id === 'v-' + b.dataset.aba));
+    window.scrollTo(0, 0);
+  }));
+  document.querySelectorAll('.liga').forEach((b) => b.addEventListener('click', () => {
+    b.setAttribute('aria-checked', String(b.getAttribute('aria-checked') !== 'true'));
+    if (b.id === 'liga-reler') $('reler-estado').textContent = b.getAttribute('aria-checked') === 'true'
+      ? 'Ligada. Só a foto em dúvida é relida, e o gasto aparece em Mister › IA e uso.'
+      : 'Desligada. Quando a leitura fica em dúvida, o Mister pergunta a você.';
+  }));
+  const RESPOSTAS = {
+    '2': 'Anotei <b>2</b>. Agora os 16 itens somam <b>R$ 642,30</b>, igual ao total. Posso lançar?',
+    '7': 'Com 7 a soma fica em <b>R$ 766,80</b>, e o cupom diz <b>R$ 642,30</b>. A conta não fecha, então não vou lançar. Confere o cupom ou manda outra foto?',
+    foto: 'Combinado. Manda só a parte da <b>linha 9</b>, bem de perto. As outras 15 eu já guardei.',
+  };
+  const botoes = [...document.querySelectorAll('#duvida button')];
+  botoes.forEach((b) => {
+    b.setAttribute('aria-pressed', 'false');
+    b.addEventListener('click', () => {
+      botoes.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+      $('duvida-fim').hidden = false;
+      $('duvida-fim').innerHTML = RESPOSTAS[b.dataset.resp] + '<span class="hora">10:21</span>';
+    });
+  });
+})();
+</script>
+</body>
+</html>
