@@ -513,7 +513,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -4211,6 +4211,8 @@ export function testesDoMisterComPostgres(): void {
         c78: { foco: 'margem' },
         c81: { comparar: 'jogo' },
         c82: { comparar: 'chuva' },
+        c86: { foco: 'caixa' },
+        c87: { foco: 'caixa' },
         c85: {
           acao: 'propor',
           regra: {
@@ -4280,18 +4282,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 85 de 85, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 87 de 87, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(85);
+        expect(r.total).toBe(87);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 85, acertos: 85, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 87, acertos: 87, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 85, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 85, acertos: 85, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 87, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 87, acertos: 87, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4311,7 +4313,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 84 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 86 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -11759,7 +11761,7 @@ export function testesDoMisterComPostgres(): void {
         const limpar = async () => {
           await apagarInformados();
           await q(`delete from mister_proposta where tenant_id = any($1::uuid[]) and procedimento like 'informar_%'`, [[A, B]]);
-          for (const t of ['cupom_uso', 'cupom', 'campanha', 'lancamento_caixa', 'titulo_financeiro', 'pedido_externo', 'comanda_item', 'comanda', 'produto_variacao'])
+          for (const t of ['banco_conta', 'cupom_uso', 'cupom', 'campanha', 'lancamento_caixa', 'titulo_financeiro', 'pedido_externo', 'comanda_item', 'comanda', 'produto_variacao'])
             await q(`delete from ${t} where tenant_id = any($1::uuid[])`, [[A, B]]);
           await q(`delete from produto where tenant_id = any($1::uuid[]) and nome like 'V7F %'`, [[A, B]]);
           await q(`delete from ficha_ingrediente where tenant_id = any($1::uuid[]) and ficha_id in (select id from ficha_tecnica where nome like 'V7F %')`, [[A, B]]);
@@ -11953,6 +11955,52 @@ export function testesDoMisterComPostgres(): void {
           expect(r.dados.saldo).toMatchObject({ valor: 9000, origem: 'veio de você, não do banco' });
           expect(r.dados.runwayEmMeses).toBeNull();
           expect(r.dados.avisos.join(' ')).toContain('para não contar duas vezes');
+        });
+
+        it('caixa pelo extrato (R2): burn rate e runway com os 3 meses; transferência e "Não é da loja" ficam fora; sem um mês, diz qual', async () => {
+          const { e } = await presidente();
+          const meses = mesesCompletos(hoje, 3);
+          const lojas = (await q(`select id::text as id from unidade where tenant_id = $1 and deleted_at is null`, [A])).map((x: any) => x.id as string);
+          for (const [i, u] of lojas.entries()) {
+            const c = (await q(`insert into banco_conta (tenant_id, unidade_id, banco, final) values ($1, $2, '341', $3) returning id::text as id`, [A, u, String(7000 + i)]))[0].id;
+            const imp = (
+              await q(
+                `insert into banco_importacao (tenant_id, unidade_id, conta_id, arquivo_hash, periodo_de, periodo_ate, saldo_centavos, saldo_em)
+                 values ($1, $2, $3, 'h', $4::date, $5::date, $6, $5::date) returning id::text as id`,
+                [A, u, c, meses[0].de, hoje, i === 0 ? 3842000 : 0],
+              )
+            )[0].id;
+            await q(
+              `insert into banco_lancamento (tenant_id, unidade_id, conta_id, importacao_id, chave, data, valor_centavos, descricao, descricao_hash)
+               select $1::uuid, $2::uuid, $3::uuid, $4::uuid, 'z' || d::date, d::date, 0, 'X', 'h' from generate_series($5::date, $6::date, interval '3 days') d`,
+              [A, u, c, imp, meses[0].de, hoje],
+            );
+            if (i > 0) continue;
+            const lanc = (chave: string, dia: string, valor: number, situacao = 'so_no_banco', tipo: string | null = null) =>
+              q(
+                `insert into banco_lancamento (tenant_id, unidade_id, conta_id, importacao_id, chave, data, valor_centavos, descricao, descricao_hash, situacao, tipo)
+                 values ($1, $2, $3, $4, $5, $6::date, $7, 'X', 'h', $8, $9)`,
+                [A, u, c, imp, chave, dia, valor, situacao, tipo],
+              );
+            for (const m of meses) {
+              await lanc(`e${m.de}`, m.de, 1000000);
+              await lanc(`s${m.de}`, m.de, -1650000);
+              await lanc(`t${m.de}`, m.de, 300000, 'so_no_banco', 'transferencia_contas');
+              await lanc(`f${m.de}`, m.de, -50000, 'nao_e_da_loja', 'nao_e_da_loja');
+            }
+          }
+
+          const r: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'caixa' });
+          expect(r.dados).toMatchObject({ fonte: 'extrato do banco', situacao: 'caixa_encolhendo', burnRate: 6500, runwayEmMeses: 5.9 });
+          expect(r.dados.saldo).toMatchObject({ valor: 38420, origem: 'do extrato do banco' });
+          expect(r.dados.mesesNoBanco.map((m: any) => [m.mes, m.entrou, m.saiu])).toEqual(meses.map((m) => [m.nome, 10000, 16500]));
+
+          await q(`update banco_importacao set periodo_de = $1::date where tenant_id = $2`, [meses[1].de, A]);
+          const sem: any = await ferramentas.executar(e, 'indicadores_financeiros', { foco: 'caixa' });
+          expect(sem.dados.fonte).toBeUndefined();
+          expect(sem.dados).toMatchObject({ burnRate: null, runwayEmMeses: null });
+          expect(sem.dados.faltaNoBanco.join(' ')).toContain(meses[0].nome);
+          expect(sem.dados.mesesNoBanco).toHaveLength(2);
         });
 
         it('o saldo com 8 dias não vale, com 7 vale; o valor mais novo do mesmo dia é o que conta', async () => {

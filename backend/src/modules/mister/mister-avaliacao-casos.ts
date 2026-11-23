@@ -79,6 +79,8 @@ const BOLETIM_DA_AVALIACAO: BoletimDoRamo = {
 export interface PerfilDaAvaliacao {
   nivel: NivelDoMister;
   verValores: boolean;
+  /** R2: a loja de teste com os 3 meses no extrato do banco. */
+  extrato?: 'encolhendo' | 'gerando';
 }
 
 /** A conversa da loja de teste, como o modelo a vê. */
@@ -553,6 +555,25 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         return ok({ loja: LOJA, foco, periodo: 'últimos 90 dias', prazoMedioDias: 18, titulosPagos: 24, comparacao: { periodo: 'os 90 dias anteriores', prazoMedioDias: 21, titulosPagos: 22, diferencaEmDias: -3 } });
       if (foco === 'caixa') {
         if (perfil.nivel !== 'presidente') return recusa('O caixa, com o saldo e a folha informados, é só do presidente.');
+        if (perfil.extrato) {
+          const encolhe = perfil.extrato === 'encolhendo';
+          return ok({
+            foco,
+            alcance: 'a empresa inteira',
+            fonte: 'extrato do banco',
+            saldo: { valor: 38420, em: '22/11', origem: 'do extrato do banco' },
+            mesesNoBanco: encolhe
+              ? [{ mes: 'agosto', entrou: 10000, saiu: 16500, sobrouOuFaltou: -6500 }, { mes: 'setembro', entrou: 10000, saiu: 15700, sobrouOuFaltou: -5700 }, { mes: 'outubro', entrou: 10000, saiu: 16550, sobrouOuFaltou: -6550 }]
+              : [{ mes: 'agosto', entrou: 12140, saiu: 10000, sobrouOuFaltou: 2140 }, { mes: 'setembro', entrou: 11380, saiu: 10000, sobrouOuFaltou: 1380 }, { mes: 'outubro', entrou: 13010, saiu: 10000, sobrouOuFaltou: 3010 }],
+            situacao: encolhe ? 'caixa_encolhendo' : 'gerando_caixa',
+            mediaPorMes: encolhe ? -6250 : 2176.67,
+            burnRate: encolhe ? 6250 : null,
+            runwayEmMeses: encolhe ? 6.1 : null,
+            ...(encolhe ? {} : { porQueNaoTemRunway: 'A loja não está gastando mais do que entra: não faz sentido dizer quanto tempo o caixa dura.' }),
+            foraDaConta: 'Transferências entre as suas contas e o que você marcou como não sendo da loja.',
+            avisos: ['A conta só enxerga o que passou no banco: o dinheiro que fica no caixa da loja e não é depositado não aparece.', 'O que vence depois do último extrato não está nessa conta.'],
+          });
+        }
         return ok({
           foco,
           alcance: 'a empresa inteira',
@@ -562,7 +583,8 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
           diasQueOSaldoCobre: null,
           burnRate: null,
           runwayEmMeses: null,
-          porQueNaoTemRunway: 'O runway em meses e o burn rate dependem do que entra de verdade na conta, e os repasses do iFood, da 99 e do cartão o Regem ainda não lê.',
+          porQueNaoTemRunway: 'O burn rate e o runway saem do extrato do banco, com os 3 meses fechados (agosto, setembro e outubro) completos.',
+          faltaNoBanco: ['O extrato do banco de agosto, setembro e outubro: baixe em OFX no site ou no app do banco e importe em Financeiro › Banco e repasses.'],
           oQueFalta: ['O saldo de hoje no banco: peça à pessoa.', 'Quanto sai de folha por mês, que não está lançada no Regem: peça à pessoa.'],
           semDados: true,
         });
@@ -1173,6 +1195,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c84', pergunta: 'Quais as tendências do setor de restaurantes?', consultas: ['noticias_do_ramo'], contem: ['cardápio menor', 'iFood'] },
   // Versão 8, E3: a regra pela conversa, com a fonte agenda.
   { id: 'c85', pergunta: 'Me avisa um dia antes de cada jogo do Botafogo, às 18h.', consultas: ['regras'], contem: ['Botafogo|botafogo', 'Confirmar'] },
+  // Versão 8, R2: o caixa pelo extrato do banco.
+  { id: 'c86', pergunta: 'Pelo extrato, quanto tempo de caixa eu tenho?', perfil: { nivel: 'presidente', verValores: true, extrato: 'encolhendo' }, consultas: ['indicadores_financeiros'], numeros: ['38.420', '6.250', '6,1'], contem: ['22/11'] },
+  { id: 'c87', pergunta: 'Pelo extrato, a loja está queimando caixa?', perfil: { nivel: 'presidente', verValores: true, extrato: 'gerando' }, consultas: ['indicadores_financeiros'], numeros: ['2.176,67'], contem: ['gerando|crescendo|sobr'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

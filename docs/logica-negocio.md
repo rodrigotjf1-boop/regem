@@ -167,11 +167,16 @@ prazo_de_pagamento = média(data do lançamento de caixa − data do recebimento
 despesas_do_mês    = saídas do último mês completo − sangria, estorno, devolução e folha lançada + folha informada
 dias_que_o_saldo_cobre = ⌊ saldo informado × dias do mês ÷ despesas_do_mês ⌋    (supõe a venda parada)
 roi_%              = (margem das vendas da campanha − custo informado) ÷ custo informado × 100
+sobra_do_mês       = entradas − saídas no extrato, sem transferência entre contas e sem "Não é da loja"
+média_mensal       = média da sobra_do_mês dos 3 últimos meses fechados
+burn_rate          = −média_mensal, só quando ela é negativa
+runway_em_meses    = ⌊ saldo do último extrato × 10 ÷ burn_rate ⌋ ÷ 10    (para baixo; saldo zerado ou negativo = 0)
 ```
 
 - **Dado informado na conversa** (`mister_dado_informado`, mig 492): saldo do banco, folha mensal e custo de campanha. Só de acréscimo; grava no toque em "Guardar"; só o presidente informa. Saldo e folha, e o que deriva deles, só o presidente vê. O saldo vale por 7 dias.
 - **ROI:** vendas atribuídas pelo cupom da campanha (`cupom_uso.pedido_id`), cada pedido uma vez, só pedido que vale na conta oficial. Exige o custo de toda a venda de produto desses pedidos; sem ele, não há ROI, e o faturamento não entra no lugar da margem.
-- **Falta dado até o Regem ler os repasses de iFood, 99 e cartão:** burn rate, runway em meses e giro de recebíveis. **Margem líquida** falta ainda pessoal, impostos e taxas dos canais.
+- **Burn rate e runway (R2 da versão 8):** só saem do extrato do banco, com os 3 últimos meses fechados completos em todas as lojas. Mês completo: os arquivos cobrem do dia 1 ao último, sem trecho de 5 dias ou mais sem lançamento em que a loja vendeu. Faltando um mês, o Mister diz qual e não estima. Loja que gera caixa não tem runway. O saldo do extrato vale por 7 dias; sem ele, sai o burn rate e não o runway, a não ser que haja saldo informado válido. O dinheiro que fica no caixa e não é depositado não aparece nessa conta.
+- **Falta dado até o Regem ler os repasses de iFood, 99 e cartão:** giro de recebíveis. **Margem líquida** falta ainda pessoal, impostos e taxas dos canais.
 
 ---
 

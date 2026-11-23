@@ -449,7 +449,7 @@ export interface EntradaDoCaixa {
   hoje: string;
 }
 
-const NAO_LEIO_OS_REPASSES = 'O runway em meses e o burn rate dependem do que entra de verdade na conta, e os repasses do iFood, da 99 e do cartão o Regem ainda não lê.';
+const NAO_LEIO_OS_REPASSES = 'O burn rate e o runway saem do extrato do banco: baixe em OFX e importe em Financeiro › Banco e repasses.';
 
 export function indicadorDeCaixa(o: EntradaDoCaixa): Record<string, unknown> {
   const saldoOk = o.saldo && saldoVale(o.saldo.dia, o.hoje) ? o.saldo : null;
