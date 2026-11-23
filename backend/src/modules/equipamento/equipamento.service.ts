@@ -1106,7 +1106,7 @@ export class EquipamentoService {
     const [row] = await this.db
       .select()
       .from(equipamento)
-      .where(and(eq(equipamento.token, token), eq(equipamento.ativo, true)));
+      .where(and(eq(equipamento.token, token), eq(equipamento.ativo, true), isNull(equipamento.revogadoEm)));
     return row ?? null;
   }
 

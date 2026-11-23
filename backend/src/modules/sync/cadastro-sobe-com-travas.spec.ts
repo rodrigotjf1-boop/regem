@@ -146,6 +146,32 @@ descrever('cadastro da loja sobe com travas (push na nuvem)', () => {
     expect(r.resultado.colaborador).toEqual({ aplicadas: 0, ignoradas: 2 });
   });
 
+  it('S3-04: perfil ou função de OUTRA empresa não entra, em colaborador novo nem no que já existe', async () => {
+    const outra = randomUUID();
+    const pOutra = randomUUID();
+    const fOutra = randomUUID();
+    await q(`insert into empresa (id, nome) values ($1, 'teste outra empresa')`, [outra]);
+    try {
+      await q(`insert into perfil_acesso (id, tenant_id, nome, nivel) values ($1,$2,'Presidência','presidente')`, [pOutra, outra]);
+      await q(`insert into funcao (id, tenant_id, nome, categoria) values ($1,$2,'Dono','presidente')`, [fOutra, outra]);
+      const bia = await colaborador('Bia', { perfil: ids.pExec });
+      const novo1 = randomUUID();
+      const novo2 = randomUUID();
+      const r: any = await enviar('colaborador', [
+        { id: bia, nome: 'Bia', perfil_acesso_id: pOutra, funcao_id: null, status: 'ativo', updated_at: agora() },
+        { id: novo1, nome: 'Intruso', perfil_acesso_id: pOutra, funcao_id: null, status: 'ativo', updated_at: agora() },
+        { id: novo2, nome: 'Intruso', perfil_acesso_id: null, funcao_id: fOutra, status: 'ativo', updated_at: agora() },
+      ]);
+      expect((await um('select perfil_acesso_id from colaborador where id = $1', [bia])).perfil_acesso_id).toBe(ids.pExec);
+      expect((await q('select 1 from colaborador where id = any($1::uuid[])', [[novo1, novo2]])).rowCount).toBe(0);
+      expect(r.resultado.colaborador).toEqual({ aplicadas: 0, ignoradas: 3 });
+    } finally {
+      await q('delete from perfil_acesso where tenant_id = $1', [outra]).catch(() => undefined);
+      await q('delete from funcao where tenant_id = $1', [outra]).catch(() => undefined);
+      await q('delete from empresa where id = $1', [outra]).catch(() => undefined);
+    }
+  });
+
   it('perfil: o nível não muda pela loja, e o perfil do presidente não muda nada', async () => {
     let r: any = await enviar('perfil_acesso', [{ id: ids.pGer, nome: 'Gerência', nivel: 'presidente', updated_at: agora() }]);
     expect(r.resultado.perfil_acesso).toEqual({ aplicadas: 0, ignoradas: 1 });
