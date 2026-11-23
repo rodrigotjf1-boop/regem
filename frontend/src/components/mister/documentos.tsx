@@ -88,6 +88,11 @@ const MOTIVO: Record<string, string> = {
   item: 'esperando você dizer a que insumo vai um item',
   fator: 'esperando a conversão de unidade de um item',
   itens_ligados: 'cada item ligado a um insumo do estoque',
+  // A dúvida da leitura (L2b): a pessoa responde na conversa ou manda outra foto.
+  duvida: 'esperando você dizer o certo de uma linha que ficou em dúvida',
+  total: 'esperando você dizer o total, que não deu para ler',
+  soma: 'os itens lidos não somam o total: esperando a sua resposta na conversa',
+  foto_nova: 'você mandou outra foto no lugar desta',
 };
 const ORIGEM: Record<Exclude<Origem, null>, string> = { codigo: 'código', ia: 'IA', pessoa: 'conversa' };
 

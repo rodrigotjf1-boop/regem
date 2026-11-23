@@ -5,6 +5,7 @@ import { Conversao, fatorParaEstoque } from '../../common/conversao-unidade';
 import { custosMediosNaLoja, lojaDeControle } from '../../common/custo-loja';
 import {
   FRASES_DA_NOTA,
+  ItemDaNota,
   ItemNoMister,
   NotaNoMister,
   botoesDoComoLancar,
@@ -19,6 +20,17 @@ import {
   sugerirInsumos,
 } from '../../common/nota-por-foto';
 import { RECURSO_DO_DOCUMENTO, cupomNaInstalacao, notasNaInstalacao } from '../../common/documento-por-foto';
+import {
+  FRASES_DA_LEITURA,
+  botaoLancarAssim,
+  ehMotivoDaLeitura,
+  lerItemDigitado,
+  lerLancarAssim,
+  numeroDaResposta,
+  pendenciaDaLeitura,
+  podePerguntar,
+  responderDuvidaDoItem,
+} from '../../common/duvida-da-nota';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EstoqueService } from '../estoque/estoque.service';
@@ -106,11 +118,14 @@ export class MisterNotasService {
     }
     const leitura = lerLeituraDaNota(saida);
     const problemas = leitura ? conferirNota(leitura) : (['ilegivel'] as const);
-    if (!leitura || problemas.length) {
+    // L2b: linha em dúvida, total que não deu para ler e soma que não fecha viram pergunta. O resto pede outra foto.
+    if (!leitura || !podePerguntar(problemas)) {
       await this.gravar(quem, wamid, 'recusado', leitura ? problemas.join(',') : 'leitura_fora_do_formato', null, null);
       await this.falar(quem.telefone, { texto: FRASES_DA_NOTA.problema([...problemas]) });
       return;
     }
+    // A foto nova toma o lugar da que esperava resposta sobre a leitura.
+    await this.encerrarEmDuvida(quem, wamid);
 
     const fornecedorId = await this.fornecedorPeloCnpj(quem.tenantId, leitura.emitenteCnpj);
     const insumos = await this.insumos(quem.tenantId);
@@ -134,13 +149,22 @@ export class MisterNotasService {
       numero: leitura.numero,
       emitenteNome: leitura.emitenteNome,
       emitenteCnpj: leitura.emitenteCnpj,
-      valorTotalCentavos: leitura.valorTotalCentavos!,
+      // Sem total lido fica 0, e a pendência "total" pergunta antes de qualquer lançamento.
+      valorTotalCentavos: leitura.valorTotalCentavos ?? 0,
       duplicatas: leitura.duplicatas,
       itens,
+      // A soma da conferência desconta o que a nota traz, também quando ela não segue pelo caminho do cupom.
+      ...(leitura.descontoCentavos ? { descontoCentavos: leitura.descontoCentavos } : {}),
       ...(cupom
         ? { especie: 'cupom' as const, dataEmissao: leitura.dataEmissao, formaPagamento: leitura.formaPagamento, descontoCentavos: leitura.descontoCentavos, comoLancar: null }
         : {}),
     };
+    const daLeitura = pendenciaDaLeitura(nota);
+    if (daLeitura) {
+      const id = await this.gravar(quem, wamid, 'falta', daLeitura, nota, fornecedorId);
+      if (id) await this.perguntarDaLeitura(quem.telefone, id, nota, daLeitura);
+      return;
+    }
     if (cupom) {
       const id = await this.gravar(quem, wamid, 'falta', 'como_lancar', nota, fornecedorId);
       if (!id) return;
@@ -291,6 +315,135 @@ export class MisterNotasService {
       ?.registrar({ tenantId: d.tenantId, atorId, atorPerfil, tipo: 'mister', acao: 'mister_cupom_desfeito', entidadeTipo: 'mister_documento', entidadeId: d.id, detalhe: { titulo: d.tituloId } } as any)
       .catch(() => undefined);
     return 'feito';
+  }
+
+  // ───────────────────────────── a dúvida da leitura (L2b) ──────────────────────────
+
+  /** A foto nova da mesma pessoa encerra a anterior que esperava resposta sobre a leitura (a mesma mensagem repetida, não). */
+  private async encerrarEmDuvida(quem: QuemMandou, wamid: string | null): Promise<void> {
+    await this.db.execute(sql`
+      update mister_documento set situacao = 'recusado', motivo = 'foto_nova', respondido_em = now(), atualizado_em = clock_timestamp()
+       where tenant_id = ${quem.tenantId}::uuid and colaborador_id = ${quem.colaboradorId}::uuid and tipo = 'nota' and situacao = 'falta'
+         and (motivo like 'duvida:%' or motivo in ('total', 'soma'))
+         and wamid is distinct from ${wamid}`);
+  }
+
+  /** Depois de resolver a leitura: a próxima dúvida, o "Como deseja lançar?" do cupom, os itens ou o resumo. */
+  private proximoPasso(nota: NotaNoMister): { situacao: 'falta' | 'confirmar'; motivo: string } {
+    const daLeitura = pendenciaDaLeitura(nota);
+    if (daLeitura) return { situacao: 'falta', motivo: daLeitura };
+    if (nota.especie === 'cupom' && !nota.comoLancar) return { situacao: 'falta', motivo: 'como_lancar' };
+    const pend = nota.especie === 'cupom' && nota.comoLancar !== 'estoque' ? null : proximaPendencia(nota);
+    return pend ? { situacao: 'falta', motivo: `${pend.tipo}:${pend.indice}` } : { situacao: 'confirmar', motivo: nota.comoLancar === 'despesa' ? 'so_despesa' : 'itens_ligados' };
+  }
+
+  private async perguntarDaLeitura(telefone: string, id: string, nota: NotaNoMister, motivo: string): Promise<void> {
+    if (motivo === 'total') return this.falar(telefone, { texto: FRASES_DA_LEITURA.total(nota) });
+    if (motivo === 'soma') return this.falar(telefone, { texto: FRASES_DA_LEITURA.soma(nota), botoes: [botaoLancarAssim(id), { id: `doc:outra:${id}`, titulo: 'Cancelar' }] });
+    return this.falar(telefone, { texto: FRASES_DA_LEITURA.duvida(nota, Number(motivo.split(':')[1])) });
+  }
+
+  private async falarDepoisDaLeitura(telefone: string, id: string, nota: NotaNoMister, motivo: string): Promise<void> {
+    if (ehMotivoDaLeitura(motivo)) return this.perguntarDaLeitura(telefone, id, nota, motivo);
+    if (motivo === 'como_lancar') return this.falar(telefone, { texto: FRASES_DA_NOTA.comoLancar(nota), botoes: botoesDoComoLancar(id) });
+    return this.seguir(telefone, id, nota);
+  }
+
+  /** O item sem insumo ligado, com as sugestões pelo nome que vale agora. */
+  private itemSemInsumo(it: ItemDaNota, insumos: Awaited<ReturnType<MisterNotasService['insumos']>>): ItemNoMister {
+    const sugestoes = sugerirInsumos(it.descricao, insumos).map((s) => ({ id: s.id, nome: s.nome }));
+    return { ...it, insumoId: null, insumoNome: null, unidadeDoEstoque: null, fator: null, fatorProposto: null, estado: 'item', sugestoes };
+  }
+
+  /**
+   * A resposta à dúvida da leitura: a linha, o total ou o item que faltou. Só a nota desta pessoa, das últimas 4 horas. O que não
+   * parece resposta devolve false e segue como conversa com o Mister. Nada é lançado aqui.
+   */
+  async responderLeitura(quem: QuemMandou, texto: string): Promise<boolean> {
+    const espera = sql`tenant_id = ${quem.tenantId}::uuid and colaborador_id = ${quem.colaboradorId}::uuid and tipo = 'nota' and situacao = 'falta'
+      and (motivo like 'duvida:%' or motivo in ('total', 'soma')) and atualizado_em > clock_timestamp() - interval '4 hours'`;
+    const [tem] = linhas(await this.db.execute(sql`select 1 as x from mister_documento where ${espera} limit 1`));
+    if (!tem) return false;
+    const insumos = await this.insumos(quem.tenantId);
+    let fala: string | null = null;
+    const resultado = await this.db.transaction(async (tx: any) => {
+      const [d] = linhas(await tx.execute(sql`select id::text as id, dados, motivo from mister_documento where ${espera} order by atualizado_em desc limit 1 for update`));
+      const nota: NotaNoMister | undefined = d?.dados?.nota;
+      if (!d || !nota || !ehMotivoDaLeitura(d.motivo)) return null;
+      const motivo = String(d.motivo);
+      if (motivo === 'total') {
+        const n = numeroDaResposta(texto);
+        if (n === null) return null;
+        if (n === 'varios') {
+          fala = FRASES_DA_LEITURA.repeteTotal;
+          return null;
+        }
+        nota.valorTotalCentavos = Math.round(n * 100);
+      } else if (motivo === 'soma') {
+        const novo = lerItemDigitado(texto);
+        if (!novo) return null;
+        nota.itens.push(this.itemSemInsumo(novo, insumos));
+      } else {
+        const i = Number(motivo.split(':')[1]);
+        const it = nota.itens[i];
+        if (!it) return null;
+        const campo = it.duvida?.campo;
+        const r = responderDuvidaDoItem(it, texto);
+        if (r === 'outro') return null;
+        if (r === 'repete') {
+          fala = FRASES_DA_LEITURA.repete(it);
+          return null;
+        }
+        // O nome mudou: o insumo ligado pelo nome antigo não vale mais.
+        if (campo === 'descricao') nota.itens[i] = this.itemSemInsumo(it, insumos);
+      }
+      const prox = this.proximoPasso(nota);
+      await tx.execute(sql`
+        update mister_documento
+           set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), valor_centavos = ${nota.valorTotalCentavos || null},
+               situacao = ${prox.situacao}, motivo = ${prox.motivo}, atualizado_em = clock_timestamp()
+         where id = ${d.id}::uuid`);
+      return { id: d.id as string, nota, motivo: prox.motivo };
+    });
+    if (fala) {
+      await this.falar(quem.telefone, { texto: fala });
+      return true;
+    }
+    if (!resultado) return false;
+    await this.falarDepoisDaLeitura(quem.telefone, resultado.id, resultado.nota, resultado.motivo);
+    return true;
+  }
+
+  /** O toque em "Lançar assim": a soma não fecha, e a pessoa decidiu seguir. Só o presidente, e só a nota que espera isso. */
+  async lancarAssim(botaoId: string, quem: QuemTocou): Promise<boolean> {
+    const documentoId = lerLancarAssim(botaoId);
+    const empresas = quem.vinculos.map((v) => v.tenantId);
+    if (!documentoId || !empresas.length) return false;
+    const resultado = await this.db.transaction(async (tx: any) => {
+      const [d] = linhas(
+        await tx.execute(sql`
+          select id::text as id, tenant_id::text as "tenantId", situacao, motivo, tipo, dados
+            from mister_documento
+           where id = ${documentoId}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})
+           for update`),
+      );
+      if (!d || d.tipo !== 'nota') return { achou: false } as const;
+      const v = quem.vinculos.find((x) => x.tenantId === d.tenantId)!;
+      if (v.nivel !== 'presidente') return { achou: true, resposta: { texto: 'Lançar nota por foto, por enquanto, é só com o presidente.' } } as const;
+      const nota: NotaNoMister | undefined = d.dados?.nota;
+      if (d.situacao !== 'falta' || d.motivo !== 'soma' || !nota) return { achou: true, resposta: { texto: 'Esta nota já foi respondida.' } } as const;
+      nota.semSomar = true;
+      const prox = this.proximoPasso(nota);
+      await tx.execute(sql`
+        update mister_documento
+           set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), situacao = ${prox.situacao}, motivo = ${prox.motivo}, atualizado_em = clock_timestamp()
+         where id = ${d.id}::uuid`);
+      return { achou: true, seguir: { id: d.id as string, nota, motivo: prox.motivo } } as const;
+    });
+    if (!resultado.achou) return false;
+    if ('resposta' in resultado && resultado.resposta) await this.falar(quem.telefone, resultado.resposta);
+    if ('seguir' in resultado && resultado.seguir) await this.falarDepoisDaLeitura(quem.telefone, resultado.seguir.id, resultado.seguir.nota, resultado.seguir.motivo);
+    return true;
   }
 
   /**
@@ -546,7 +699,7 @@ export class MisterNotasService {
         insert into mister_documento (tenant_id, unidade_id, colaborador_id, telefone_final, wamid, tipo, situacao, motivo,
                                       valor_centavos, vencimento, beneficiario, fornecedor_id, dados)
         values (${quem.tenantId}::uuid, ${quem.unidadeId}::uuid, ${quem.colaboradorId}::uuid, ${quem.telefone.slice(-4)}, ${wamid},
-                'nota', ${situacao}, ${motivo}, ${nota?.valorTotalCentavos ?? null}, ${nota?.duplicatas[0]?.vencimento ?? null}::date,
+                'nota', ${situacao}, ${motivo}, ${nota?.valorTotalCentavos || null}, ${nota?.duplicatas[0]?.vencimento ?? null}::date,
                 ${nota?.emitenteNome ?? null}, ${fornecedorId}::uuid, ${JSON.stringify(nota ? { nota } : {})}::jsonb)
         on conflict (wamid) where wamid is not null do nothing
         returning id::text as id`),

@@ -8206,15 +8206,126 @@ export function testesDoMisterComPostgres(): void {
           expect(numero.enviadas.map((m) => m.texto)).toEqual(['Certo: não lancei a nota.']);
           expect(await q(`select count(*)::int as n from recebimento where tenant_id = $1`, [A])).toEqual([{ n: 1 }]);
 
-          // A nota cujos itens não somam o total: pede outra foto, sem perguntar nada.
+          // A nota cujos itens não somam o total: guarda o que leu e pergunta (L2b).
           ia.roteiro = [leitura({ tipo: 'nota' }), daNota({ itens: [{ descricao: 'BLEND BOVINO 56G', quantidade: '40', unidade: 'KG', valorTotal: '1.320,00' }] })];
           numero.pedidos.length = 0;
           expect(await foto(telAna, novaMidia())).toBe('documento');
-          expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('Os itens que consegui ler não somam o total da nota')]);
-          expect((await docs())[2]).toMatchObject({ tipo: 'nota', situacao: 'recusado', motivo: 'itens_nao_somam' });
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([expect.stringContaining('Faltam R$ 1.320,00')]);
+          expect((await docs())[2]).toMatchObject({ tipo: 'nota', situacao: 'falta', motivo: 'soma' });
         } finally {
           delete process.env.MISTER_NOTAS;
           for (const t of ['movimento_estoque', 'lote', 'recebimento_item', 'recebimento', 'mister_de_para', 'item_estoque_unidade', 'item_conversao', 'item_fornecedor', 'item_estoque'])
+            await q(`delete from ${t} where tenant_id = $1`, [A]).catch(() => undefined);
+        }
+      });
+
+      it('a dúvida da nota (L2b): guarda o que leu, pergunta a linha, o total ou o que faltou, e nada é lançado antes da resposta', async () => {
+        const nota = (o: Record<string, unknown> = {}) =>
+          falar(
+            JSON.stringify({
+              especie: 'nota',
+              chave: null,
+              emitenteNome: 'Mercado Bom Preço',
+              emitenteCnpj: null,
+              numero: '77',
+              valorTotal: '642,30',
+              duplicatas: [],
+              itens: [
+                { descricao: 'OUTROS ITENS', quantidade: '1', unidade: 'UN', valorUnitario: '592,50', valorTotal: '592,50' },
+                { descricao: 'ARROZ T1 5KG', quantidade: '2', unidade: 'UN', valorUnitario: '24,90', valorTotal: '49,80', duvida: { campo: 'quantidade', texto: '2 ou 7' } },
+              ],
+              legivel: true,
+              ...o,
+            }),
+          );
+        const SEM_DUVIDA = [
+          { descricao: 'OUTROS ITENS', quantidade: '1', unidade: 'UN', valorUnitario: '592,50', valorTotal: '592,50' },
+        ];
+        const ultimo = async () => (await docs()).slice(-1)[0];
+        const ultimaFala = () => numero.enviadas.at(-1)!;
+        const fotoDe = async (o: Record<string, unknown> = {}) => {
+          ia.roteiro = [leitura({ tipo: 'nota' }), nota(o)];
+          numero.pedidos.length = 0;
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          return ultimo();
+        };
+        process.env.MISTER_NOTAS = '1';
+        try {
+          // 1) A linha em dúvida: mostra a conta de cada opção, e quem escolhe é a pessoa.
+          const d1 = await fotoDe();
+          expect(d1).toMatchObject({ tipo: 'nota', situacao: 'falta', motivo: 'duvida:1', valor_centavos: '64230' });
+          expect(ultimaFala().texto).toContain('*ARROZ T1 5KG*, quantidade *2 ou 7*');
+          expect(ultimaFala().texto).toContain('Com 2, a soma fecha com o total de R$ 642,30.');
+          expect(ultimaFala().texto).toContain('Com 7, daria R$ 766,80.');
+          // Resposta que não decide pergunta de novo, sem gravar.
+          numero.pedidos.length = 0;
+          expect(await mandar(telAna, '2 ou 7')).toBe('documento');
+          expect(ultimaFala().texto).toContain('Não entendi qual é');
+          expect((await ultimo()).motivo).toBe('duvida:1');
+          // A resposta certa corrige a linha, e a nota segue pelo caminho de sempre.
+          numero.pedidos.length = 0;
+          expect(await mandar(telAna, 'são 2')).toBe('documento');
+          const d1b = await ultimo();
+          expect(d1b).toMatchObject({ id: d1.id, situacao: 'falta', motivo: 'item:0' });
+          expect(d1b.dados.nota.itens[1]).toMatchObject({ quantidade: 2, valorTotalCentavos: 4980, duvida: null });
+          expect(await q(`select count(*)::int as n from recebimento where tenant_id = $1`, [A])).toEqual([{ n: 0 }]);
+          expect(await titulos()).toEqual([]);
+
+          // 2) A resposta com a quantidade errada não fecha a soma: pergunta o que faltou antes de lançar.
+          const d2 = await fotoDe();
+          numero.pedidos.length = 0;
+          expect(await mandar(telAna, '7')).toBe('documento');
+          expect(await ultimo()).toMatchObject({ id: d2.id, situacao: 'falta', motivo: 'soma' });
+          expect(ultimaFala().texto).toContain('Sobram R$ 124,50');
+
+          // 3) A foto nova toma o lugar da que esperava resposta.
+          const d3 = await fotoDe({ itens: SEM_DUVIDA });
+          expect(d3).toMatchObject({ situacao: 'falta', motivo: 'soma' });
+          expect((await docs()).find((x: any) => x.id === d2.id)).toMatchObject({ situacao: 'recusado', motivo: 'foto_nova' });
+          expect(ultimaFala().texto).toContain('Faltam R$ 49,80');
+          expect(ultimaFala().botoes.map((b) => b.id)).toEqual([`doc:ns:${d3.id}`, `doc:outra:${d3.id}`]);
+
+          // 4) O item que faltou, escrito pela pessoa, fecha a soma.
+          numero.pedidos.length = 0;
+          expect(await mandar(telAna, '2 cx tomate 49,80')).toBe('documento');
+          const d3b = await ultimo();
+          expect(d3b).toMatchObject({ id: d3.id, situacao: 'falta', motivo: 'item:0' });
+          expect(d3b.dados.nota.itens[1]).toMatchObject({ descricao: 'tomate', quantidade: 2, unidade: 'CX', valorTotalCentavos: 4980, estado: 'item' });
+
+          // 5) "Lançar assim": o gerente não pode; o presidente segue, e o toque repetido não muda nada.
+          const d4 = await fotoDe({ itens: SEM_DUVIDA });
+          numero.pedidos.length = 0;
+          expect(await tocar(telCarlos, `doc:ns:${d4.id}`)).toBe('respondeu_proposta');
+          expect(ultimaFala().texto).toBe('Lançar nota por foto, por enquanto, é só com o presidente.');
+          expect((await ultimo()).motivo).toBe('soma');
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:ns:${d4.id}`)).toBe('respondeu_proposta');
+          const d4b = await ultimo();
+          expect(d4b).toMatchObject({ situacao: 'falta', motivo: 'item:0' });
+          expect(d4b.dados.nota.semSomar).toBe(true);
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:ns:${d4.id}`)).toBe('respondeu_proposta');
+          expect(ultimaFala().texto).toBe('Esta nota já foi respondida.');
+
+          // 6) O total que não deu para ler: a pessoa diz o valor, e a soma é conferida com ele.
+          const d5 = await fotoDe({ valorTotal: null, itens: SEM_DUVIDA });
+          expect(d5).toMatchObject({ situacao: 'falta', motivo: 'total', valor_centavos: null });
+          expect(ultimaFala().texto).toContain('não consegui ler o total da nota');
+          const andamento = await fila.andamento(A, pessoa.ana);
+          expect(linhasDoAndamento(andamento.documentos, andamento.listas, true).join('\n')).toContain('não deu para ler o total');
+          numero.pedidos.length = 0;
+          expect(await mandar(telAna, '592,50')).toBe('documento');
+          expect(await ultimo()).toMatchObject({ id: d5.id, situacao: 'falta', motivo: 'item:0', valor_centavos: '59250' });
+
+          // 7) Foto sem nada aproveitável continua pedindo outra foto.
+          ia.roteiro = [leitura({ tipo: 'nota' }), nota({ legivel: false, itens: [] })];
+          numero.pedidos.length = 0;
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          expect(await ultimo()).toMatchObject({ situacao: 'recusado' });
+          expect(await titulos()).toEqual([]);
+        } finally {
+          delete process.env.MISTER_NOTAS;
+          for (const t of ['mister_de_para', 'item_estoque'])
             await q(`delete from ${t} where tenant_id = $1`, [A]).catch(() => undefined);
         }
       });
