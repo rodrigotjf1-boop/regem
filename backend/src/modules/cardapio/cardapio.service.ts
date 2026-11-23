@@ -4344,8 +4344,11 @@ export class CardapioService {
 
     // ── Cashback (PREVIEW) sobre o que sobra após o prêmio — base p/ a regra do cupom.
     const baseCashbackPrev = Math.max(0, paraReais(somarCentavos(totalCent, -paraCentavos(premio.desconto || 0))));
+    // De quem é o saldo: de quem PROVOU quem é (a credencial de Sua conta ou o número da conversa do robô). Só digitar o
+    // telefone de alguém gastava o cashback e os vales dessa pessoa (S1-02, V79).
+    const telefoneDoSaldo = e.usarCashback === false ? '' : await this.telefoneDoSaldo(cfg.tenantId, e);
     const cbPrev =
-      e.usarCashback === false ? { saldoUsado: 0 } : await this.cashback.avaliarDescontos(cfg.tenantId, e.telefone ?? '', baseCashbackPrev);
+      e.usarCashback === false ? { saldoUsado: 0 } : await this.cashback.avaliarDescontos(cfg.tenantId, telefoneDoSaldo, baseCashbackPrev);
     const cashbackUsadoCent = paraCentavos(cbPrev.saldoUsado || 0);
 
     // ── Cupom — com as regras configuráveis de empilhamento.
@@ -4374,11 +4377,22 @@ export class CardapioService {
     const cb =
       e.usarCashback === false
         ? { saldoUsado: 0, vales: [] as any[], desconto: 0 }
-        : await this.cashback.avaliarDescontos(cfg.tenantId, e.telefone ?? '', Math.max(0, paraReais(somarCentavos(totalCent, -descontoCent))));
+        : await this.cashback.avaliarDescontos(cfg.tenantId, telefoneDoSaldo, Math.max(0, paraReais(somarCentavos(totalCent, -descontoCent))));
     descontoCent = somarCentavos(descontoCent, paraCentavos(cb.desconto || 0));
     // Trava contábil: o desconto total nunca passa do subtotal dos itens.
     if (descontoCent > totalCent) descontoCent = totalCent;
-    return { premio, temResgate, cup, cb, descontoCent, freteGratis, avisos };
+    return { premio, temResgate, cup, cb, descontoCent, freteGratis, avisos, telefoneDoSaldo };
+  }
+
+  /** O telefone cujo saldo pode ser usado: o da conversa do robô ou o do cadastro da credencial. Sem prova, nenhum. */
+  private async telefoneDoSaldo(tenantId: string, e: { telefone?: string; clienteId?: string | null; telefoneVerificado?: boolean }) {
+    if (e.telefoneVerificado === true) return e.telefone ?? '';
+    if (!e.clienteId) return '';
+    const [row] = await this.db
+      .select({ telefone: cliente.telefone })
+      .from(cliente)
+      .where(and(eq(cliente.id, e.clienteId), eq(cliente.tenantId, tenantId)));
+    return row?.telefone ?? '';
   }
 
   /**
@@ -5055,11 +5069,11 @@ export class CardapioService {
     }
 
     // Cashback consumido: debita o saldo usado e marca os vales como usados.
-    if (cb.desconto > 0 && dto.telefone && ped?.id) {
+    if (cb.desconto > 0 && d.telefoneDoSaldo && ped?.id) {
       try {
         await this.cashback.consumir(
           cfg.tenantId,
-          dto.telefone,
+          d.telefoneDoSaldo,
           ped.id,
           cb.saldoUsado,
           cb.vales.map((v: any) => v.id),
