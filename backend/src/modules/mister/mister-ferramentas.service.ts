@@ -161,8 +161,9 @@ import {
 import { GUIA_DE_USO, SecaoDoGuia, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { canceladoComVendaDePe, concluidoSemPagamento, pixSemEstorno, vendaComNotaComProblema, vendaDesfeitaComNota } from './mister-conciliacao';
 import { primeiroNome } from './mister.regras';
-import { montarAgenda, periodoDaAgenda } from './mister-clima-eventos';
-import { lerCalendarioDaLoja, lerCidadeDaLoja, lerClimaDaCidade, lerEventosDaBase } from './mister-clima-eventos.leitura';
+import { diaCurto, montarAgenda, periodoDaAgenda } from './mister-clima-eventos';
+import { lerCalendarioDaLoja, lerChuvaNaVespera, lerCidadeDaLoja, lerClimaDaCidade, lerEventosDaBase } from './mister-clima-eventos.leitura';
+import { JANELA_DA_COMPARACAO, TIPOS_DE_COMPARACAO, type TipoDeComparacao, compararDias, diasDeChuva, diasDoTipo, nomeDaComparacao } from './mister-comparacao-dias';
 import {
   ParteDoVencimento,
   ServidorLido,
@@ -2303,6 +2304,7 @@ export class MisterFerramentasService {
 
   /** `clima_e_eventos`: o calendário da loja, a base de eventos e as duas previsões da cidade. Fatos públicos: sem valor da loja. */
   private async climaEEventos(en: Record<string, unknown>, e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (en.comparar !== undefined && en.comparar !== null && en.comparar !== '') return this.vendaEmDiasAssim(en, e, loja);
     const hoje = hojeISO();
     const p = periodoDaAgenda(en as { dia?: unknown; dias?: unknown }, hoje);
     if ('erro' in p) return recusa(p.erro);
@@ -2313,6 +2315,45 @@ export class MisterFerramentasService {
       lerClimaDaCidade(this.db, cidade.municipio, p.de, p.ate),
     ]);
     return { ok: true, dados: montarAgenda({ ...p, hoje, loja: loja.nome, cidade, daBase, daLoja, clima }) };
+  }
+
+  /** Versão 8, E2: a venda em dias de jogo, feriado, data forte ou chuva, contra os mesmos dias da semana sem evento. */
+  private async vendaEmDiasAssim(en: Record<string, unknown>, e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    const tipo = String(en.comparar) as TipoDeComparacao;
+    if (!TIPOS_DE_COMPARACAO.includes(tipo)) return recusa(`Diga o que comparar: ${TIPOS_DE_COMPARACAO.map((t) => `"${t}"`).join(', ')}.`);
+    if (!this.pode(e, 'relatorios_vendas')) return recusa(SEM_PERMISSAO);
+    const hoje = hojeISO();
+    const ate = somarDias(hoje, -1);
+    const de = somarDias(hoje, -JANELA_DA_COMPARACAO);
+    const base = { loja: loja.nome, comparando: nomeDaComparacao(tipo), periodo: `de ${diaCurto(de)} a ${diaCurto(ate)}` };
+    const cidade = await lerCidadeDaLoja(this.db, e.tenantId, loja.atual);
+    if ((tipo === 'chuva' || tipo === 'jogo') && cidade.situacao !== 'ok') {
+      return {
+        ok: true,
+        dados: {
+          ...base,
+          semDados: true,
+          oQueFalta: [cidade.situacao === 'sem_cidade' ? 'Falta o município da loja: preencha o "Código IBGE do município" em Financeiro › Configuração.' : 'As lojas ficam em cidades diferentes: pergunte de qual loja é a comparação.'],
+        },
+      };
+    }
+    let foraDaReferencia = new Set<string>();
+    let diasDaChuva: Set<string> | null = null;
+    if (tipo === 'chuva') {
+      const c = diasDeChuva(await lerChuvaNaVespera(this.db, cidade.municipio, de, ate), de, ate, hoje);
+      if ('ainda' in c) return { ok: true, dados: { ...base, ...c.ainda } };
+      diasDaChuva = c.dias;
+      foraDaReferencia = c.foraDaReferencia;
+    }
+    // A referência olha até 8 semanas antes de cada dia. Uma leitura depois da outra: a consulta segura uma conexão só.
+    const inicio = somarDias(de, -56);
+    const daBase = await lerEventosDaBase(this.db, inicio, ate);
+    const daLoja = await lerCalendarioDaLoja(this.db, e.tenantId, loja.atual, inicio, ate);
+    const linhas = lerLinhasOficiais(await this.relatorios.linhasDaVendaOficial(e.tenantId, inicio, hoje, loja.atual));
+    const doTipo = diasDoTipo({ tipo, nome: en.nome, daBase, daLoja, cidade, de: inicio, ate });
+    const dias = [...(diasDaChuva ?? doTipo.dias)].filter((d) => d >= de && d <= ate);
+    const r = compararDias({ dias, linhas, comEvento: new Set([...doTipo.comEvento, ...foraDaReferencia]), verValores: e.verValores });
+    return { ok: true, dados: { ...base, ...r, ...(e.verValores ? {} : { aviso: SEM_VALORES }) } };
   }
 
   // ───────────────────────────── versão 7, V7f: os indicadores financeiros ─────────────────────────────

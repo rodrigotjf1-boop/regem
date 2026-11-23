@@ -25,10 +25,10 @@ const fim = (texto: string | null, ferramentas: Array<{ nome: string; ok?: boole
     : { texto, motivo: null, resultados, trilha: { ferramentas: ferramentas.map((f) => ({ nome: f.nome, ok: f.ok ?? true, ms: 1, entrada: f.entrada ?? {} })) } }) as FimDaPergunta;
 
 describe('a avaliação do Mister — as perguntas', () => {
-  it('são 80 (a c79 e a c80 de clima e eventos, E1; a c71 a c78 dos indicadores, V7f; a c64 a c70 das análises, V7e; a c61 do plano com um botão, a c62 da reclamação conferida e a c63 do ajuste na conversa, V7c; a c59 e a c60 da regra que junta os avisos, ERR-561; a c58 da conta paga com PIN, M6j lote 10; a c57 do horário com PIN, M6j lote 9; a c56 do preço com PIN, M6j lote 8; a c43 do gasto do WhatsApp, G3; a c44 da memória, M4b; a c45 a c47 do fica de olho e do lembrete, M4d; a c48 do gráfico, M5d.2; a c49 da pausa pelo WhatsApp, M6j; a c50 das contas de quem não vê valores, M6j lote 4; a c51 e a c52 das faltas e das horas, M6j lote 5; a c53 dos clientes em números, M6j lote 6; a c54 da imagem, M6l; a c55 do movimento de estoque, M6j lote 7), com id e pergunta únicos, e cada uma confere alguma coisa', () => {
-    expect(CASOS_DA_AVALIACAO).toHaveLength(80);
-    expect(new Set(CASOS_DA_AVALIACAO.map((c) => c.id)).size).toBe(80);
-    expect(new Set(CASOS_DA_AVALIACAO.map((c) => `${c.pergunta}|${c.perfil?.nivel ?? 'presidente'}|${c.perfil?.verValores ?? true}`)).size).toBe(80);
+  it('são 82 (a c81 e a c82 da venda em dias assim, E2; a c79 e a c80 de clima e eventos, E1; a c71 a c78 dos indicadores, V7f; a c64 a c70 das análises, V7e; a c61 do plano com um botão, a c62 da reclamação conferida e a c63 do ajuste na conversa, V7c; a c59 e a c60 da regra que junta os avisos, ERR-561; a c58 da conta paga com PIN, M6j lote 10; a c57 do horário com PIN, M6j lote 9; a c56 do preço com PIN, M6j lote 8; a c43 do gasto do WhatsApp, G3; a c44 da memória, M4b; a c45 a c47 do fica de olho e do lembrete, M4d; a c48 do gráfico, M5d.2; a c49 da pausa pelo WhatsApp, M6j; a c50 das contas de quem não vê valores, M6j lote 4; a c51 e a c52 das faltas e das horas, M6j lote 5; a c53 dos clientes em números, M6j lote 6; a c54 da imagem, M6l; a c55 do movimento de estoque, M6j lote 7), com id e pergunta únicos, e cada uma confere alguma coisa', () => {
+    expect(CASOS_DA_AVALIACAO).toHaveLength(82);
+    expect(new Set(CASOS_DA_AVALIACAO.map((c) => c.id)).size).toBe(82);
+    expect(new Set(CASOS_DA_AVALIACAO.map((c) => `${c.pergunta}|${c.perfil?.nivel ?? 'presidente'}|${c.perfil?.verValores ?? true}`)).size).toBe(82);
     for (const c of CASOS_DA_AVALIACAO) {
       const confere = (c.consultas?.length ?? 0) + (c.umaDasConsultas?.length ?? 0) + (c.numeros?.length ?? 0) + (c.contem?.length ?? 0) + (c.anotar?.length ?? 0) + (c.semValores ? 1 : 0) + (c.semConsulta ? 1 : 0);
       expect({ id: c.id, confere: confere > 0 }).toEqual({ id: c.id, confere: true });

@@ -4209,6 +4209,8 @@ export function testesDoMisterComPostgres(): void {
         c76: { acao: 'informar_saldo', valorInformado: 42300 },
         c77: { foco: 'roi_campanha', campanha: 'SMASH10' },
         c78: { foco: 'margem' },
+        c81: { comparar: 'jogo' },
+        c82: { comparar: 'chuva' },
         c54: { acao: 'criar_imagem', proporcao: '9:16', pedidoDaImagem: "Cartaz vertical da terça do smash. Foto de um smash duplo com batata, fundo escuro, luz quente. Texto exato: \"TERÇA DO SMASH\" e \"Smash duplo + batata · R$ 29,90\"." },
       };
       const EXTRAS: Record<string, string[]> = { c37: ['produtos_mais_vendidos'], c38: ['servidor_e_incidentes'] };
@@ -4262,18 +4264,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 80 de 80, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 82 de 82, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(80);
+        expect(r.total).toBe(82);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 80, acertos: 80, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 82, acertos: 82, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 80, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 80, acertos: 80, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 82, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 82, acertos: 82, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4293,7 +4295,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 79 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 81 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -11612,6 +11614,17 @@ export function testesDoMisterComPostgres(): void {
           ok: false,
           dados: { erro: 'Esta consulta olha de hoje para a frente.' },
         });
+        // Versão 8, E2: a venda em dias assim passa pela conta oficial, e sem a permissão de relatórios não sai nada.
+        const feriado: any = await ferramentas.executar(e, 'clima_e_eventos', { comparar: 'feriado' });
+        expect(feriado.ok).toBe(true);
+        expect(feriado.dados.comparando).toBe('feriado');
+        expect(typeof feriado.dados.diasComparados).toBe('number');
+        const chuva: any = await ferramentas.executar(e, 'clima_e_eventos', { comparar: 'chuva' });
+        expect(chuva.ok).toBe(true);
+        expect(chuva.dados.ainda === true || chuva.dados.semDados === true).toBe(true);
+        expect((await ferramentas.executar(e, 'clima_e_eventos', { comparar: 'lua_cheia' })).ok).toBe(false);
+        const gerenteSemRelatorios = { ...(await ferramentas.escopoDaTela(A, pessoa.carlos))!, permissoes: {} as any };
+        expect(await ferramentas.executar(gerenteSemRelatorios, 'clima_e_eventos', { comparar: 'feriado' })).toEqual({ ok: false, dados: { erro: expect.stringContaining('não dá acesso') } });
       });
 
       // ───────────── versão 7, V7f: os indicadores financeiros (a conta oficial, o custo, as permissões e o dado informado) ─────────────
