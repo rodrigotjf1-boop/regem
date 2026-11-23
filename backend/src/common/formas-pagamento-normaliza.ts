@@ -3,8 +3,8 @@
 // mesmo método com N nomes (PT-BR, código em inglês, enum do iFood, `code` do Anota):
 //   dinheiro = Dinheiro | dinheiro | money | CASH
 //   pix      = Pix | PIX | ifood-online-pix-payin
-//   crédito  = Cartão de crédito | CREDIT | Cartão/card (Anota: decide pelo cardSelected)
-//   débito   = Cartão de débito | DEBIT
+//   crédito  = Cartão de crédito | CREDIT | credit_card | Cartão/card (Anota: decide pelo cardSelected)
+//   débito   = Cartão de débito | DEBIT | debit_card
 //   VR       = Vale-refeição | MEAL_VOUCHER | vr
 //   online   = Pago online | online | DIGITAL_WALLET | OTHER
 //   (entrega/retirada/balcao = TIPO de entrega vazado → tratado como "a combinar")
@@ -26,7 +26,8 @@ export function normalizarFormaPagamento(
   bruto?: string | null,
   raw?: any,
 ): { tipo: TipoForma; label: string } {
-  const s = String(bruto ?? '').trim().toLowerCase();
+  // `_` e `-` separam as palavras dos códigos (`credit_card`): sem isso, o `\b` abaixo não enxerga `credit` nem `card`.
+  const s = String(bruto ?? '').trim().toLowerCase().replace(/[_-]+/g, ' ');
   // Anota Aí manda cartão genérico ('card'); o detalhe (crédito×débito) vem no raw.
   const pay = Array.isArray(raw?.payments) ? raw.payments[0] : null;
   const detalheCartao = String(pay?.cardSelected ?? pay?.externalId ?? '').toLowerCase();
