@@ -19,6 +19,7 @@ import {
   lerClima,
   lerConfigPulso,
   lerMudancas,
+  pausaEntreMunicipios,
   resumoDosInteresses,
 } from './pulso.regras';
 
@@ -189,12 +190,12 @@ export class PulsoService {
     }
   }
 
-  /** Os municípios (código IBGE) das empresas com o módulo "Perfil do cliente" ligado — sem nada que diga de quem são. */
+  /** Os municípios (código IBGE) das empresas com "Perfil do cliente" ou Mister ligado — sem nada que diga de quem são. */
   async municipiosDasLojas(): Promise<string[]> {
     const r = this.rows(await this.db.execute(sql`
       select distinct f.codigo_municipio::text as municipio
         from fiscal_config f
-        join modulo_ativacao m on m.tenant_id = f.tenant_id and m.modulo = 'perfil_cliente' and m.ativo
+        join modulo_ativacao m on m.tenant_id = f.tenant_id and m.modulo in ('perfil_cliente', 'mister') and m.ativo
        where f.codigo_municipio is not null`));
     return corpoDosInteresses(r.map((x: any) => x.municipio)).municipios;
   }
@@ -237,7 +238,10 @@ export class PulsoService {
       const ate = somarDias(hoje, DIAS_DE_CLIMA - 1);
       const porta = this.porta(cfg, buscar);
       let gravados = 0;
-      for (const municipio of await this.municipiosDasLojas()) {
+      const municipios = await this.municipiosDasLojas();
+      const pausa = buscar ? 0 : pausaEntreMunicipios(municipios.length);
+      for (const municipio of municipios) {
+        if (pausa) await new Promise((r) => setTimeout(r, pausa));
         const r = await porta.pedir('GET', '/clima', { consulta: { municipio, de: hoje, ate } });
         if (r.status !== 200) {
           await this.anotarErro(`clima ${municipio}`, new ErroPorta(r.status, r.problema || 'resposta-inesperada'));

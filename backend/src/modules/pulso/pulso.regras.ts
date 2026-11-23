@@ -19,6 +19,8 @@ export const PAGINAS_POR_VOLTA = 20;
 export const LIMITE_POR_PAGINA = 500;
 /** O Pulso aceita até 500 municípios por aplicativo. */
 export const MAXIMO_DE_MUNICIPIOS = 500;
+/** A porta aceita 120 leituras por minuto: com mais de 100 municípios, a rotina do clima vai no ritmo (100 por minuto). */
+export const pausaEntreMunicipios = (quantos: number): number => (quantos > 100 ? 600 : 0);
 
 const ID_DE_APLICATIVO = /^[a-z0-9]{8,64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
