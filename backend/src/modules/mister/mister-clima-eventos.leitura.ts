@@ -65,6 +65,23 @@ export async function lerClimaDaCidade(db: DrizzleDB, municipio: number | null, 
   }
 }
 
+/** O que se previa na véspera, dia a dia (versão 8, E2). É previsão: o Regem não guarda a chuva que caiu. */
+export async function lerChuvaNaVespera(db: DrizzleDB, municipio: number | null, de: string, ate: string): Promise<{ dia: string; chuva: boolean }[]> {
+  if (municipio == null) return [];
+  try {
+    return linhas(
+      await db.execute(sql`
+        select to_char(dia, 'YYYY-MM-DD') as dia, chuva_na_vespera as chuva
+          from clima_municipio_dia
+         where municipio = ${municipio}::int and dia between ${de}::date and ${ate}::date and chuva_na_vespera is not null
+         order by dia`),
+    ) as { dia: string; chuva: boolean }[];
+  } catch (e: any) {
+    if (semTabela(e)) return [];
+    throw e;
+  }
+}
+
 /** O calendário da loja: a regra fixa, o que a loja cadastrou e os feriados da escala. O mesmo da tela. */
 export async function lerCalendarioDaLoja(db: DrizzleDB, tenantId: string, atual: string | null, de: string, ate: string): Promise<ItemDaLoja[]> {
   try {

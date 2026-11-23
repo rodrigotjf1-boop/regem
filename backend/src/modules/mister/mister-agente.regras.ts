@@ -202,7 +202,9 @@ CLIMA E EVENTOS
 - A previsão é previsão, nunca fato. Diga o que o INMET e o CPTEC dizem. Em "discordam", diga que as duas discordam e não escolha uma. Em "so_uma_fonte", diga que só uma respondeu.
 - A previsão não traz milímetros nem a hora da chuva: nunca diga nenhum dos dois.
 - Dos jogos, fale primeiro os da cidade ("alcance": "cidade"). Evento com "aConfirmar" é "a confirmar".
-- Esta consulta não mede venda: não diga quanto a data, o jogo ou a chuva mexem na loja. Se vier "avisos", diga o que importa deles.
+- A agenda não mede venda: só diga quanto a data, o jogo ou a chuva mexem na loja depois de chamar clima_e_eventos com "comparar". Se vier "avisos", diga o que importa deles.
+- "Como a loja vende em dia de jogo?", "feriado vende mais?", "e quando chove?", "como foi a Black Friday?": chame clima_e_eventos com "comparar" (e "nome", se for um evento ou time). Escreva como nas análises: o resultado, "O que os números mostram:" com quantos dias entraram e contra o quê, e "Minha sugestão:" à parte. Diferença não prova causa: diga "pode ser".
+- Com "poucoDado", "ainda" ou "semDados", NÃO dê variação nem estimativa: diga quantos dias há e o que falta, como veio. Na chuva, diga que o Regem guarda a previsão da véspera, não a chuva que caiu.
 
 REFAZER O GRÁFICO
 - "Não entendi", "não gostei", "faz de outro jeito", "em barras deitadas", "em tabela", "destaca o sábado", "só os principais": chame refazer_grafico com o que muda (a forma, o título com a mensagem principal, o destaque, a ordem, sem os valores). Nunca chame mostrar_grafico de novo para isso: os números são os mesmos.
@@ -649,12 +651,14 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'clima_e_eventos',
     description:
-      'O QUE VEM AÍ na loja, de hoje para a frente: feriados, datas comemorativas, datas de dinheiro no bolso (salário, 13º), jogos, o que a loja cadastrou e a previsão do tempo da cidade pelas duas fontes (INMET e CPTEC), dizendo se elas concordam sobre a chuva. Sem nada, os próximos 7 dias; "dias" até 16; "dia" para um dia só. A previsão vai só até 4 ou 5 dias e não traz milímetros nem hora. Use para "o que vem aí", "tem jogo essa semana", "é feriado", "vai chover sexta". Não mede venda.',
+      'O QUE VEM AÍ na loja, de hoje para a frente: feriados, datas comemorativas, datas de dinheiro no bolso (salário, 13º), jogos, o que a loja cadastrou e a previsão do tempo da cidade pelas duas fontes (INMET e CPTEC), dizendo se elas concordam sobre a chuva. Sem nada, os próximos 7 dias; "dias" até 16; "dia" para um dia só. A previsão vai só até 4 ou 5 dias e não traz milímetros nem hora. Use para "o que vem aí", "tem jogo essa semana", "é feriado", "vai chover sexta". Com "comparar", olha para TRÁS: a venda nos últimos 180 dias em dias de jogo na cidade, feriado, ponto facultativo, data comemorativa, dinheiro no bolso ou chuva prevista na véspera, contra o mesmo dia da semana sem evento; com menos de 4 dias, não dá número. Use para "como vendo em dia de jogo", "feriado vende mais", "quando chove vende mais".',
     input_schema: {
       type: 'object',
       properties: {
         dia: { type: 'string', description: 'Um dia só, no formato AAAA-MM-DD.' },
         dias: { type: 'integer', description: 'Quantos dias a partir de hoje (1 a 16).' },
+        comparar: { type: 'string', enum: ['jogo', 'feriado', 'ponto_facultativo', 'comemorativa', 'dinheiro', 'chuva'], description: 'O tipo de dia cuja venda comparar com os dias comuns.' },
+        nome: { type: 'string', description: 'Com "comparar": só o evento ou time com este nome (ex.: "Black Friday", "Botafogo").' },
         loja: LOJA,
       },
       additionalProperties: false,
@@ -1111,7 +1115,7 @@ export function perguntaDaMemoria(t: TrocaDaMemoria): string {
   return `[pergunta feita às ${t.hora} · ${como}${feitas}]\n${t.pergunta}`;
 }
 
-const CAMPOS_DA_ENTRADA = ['foco', 'periodo', 'de', 'ate', 'dia', 'diaDaSemana', 'semanas', 'dias', 'loja', 'quantos', 'ordem', 'busca', 'pagina', 'numero', 'assunto', 'tema'] as const;
+const CAMPOS_DA_ENTRADA = ['foco', 'comparar', 'periodo', 'de', 'ate', 'dia', 'diaDaSemana', 'semanas', 'dias', 'loja', 'quantos', 'ordem', 'busca', 'pagina', 'numero', 'assunto', 'tema'] as const;
 
 /**
  * O que foi pedido a uma ferramenta, para a trilha: só os campos conhecidos, curtos. É o PEDIDO (período, loja, ordem),

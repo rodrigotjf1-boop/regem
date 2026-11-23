@@ -7,7 +7,7 @@ import { hojeISO } from '../../common/data';
 import { somarDias } from '../perfil-cliente/calendario-regra';
 import { MisterRelatoriosService } from '../mister/mister-relatorios.service';
 import { NoticiasRamoService } from '../noticias-ramo/noticias-ramo.service';
-import { lerCidadeDaLoja, lerClimaDaCidade, lerEventosDaBase } from '../mister/mister-clima-eventos.leitura';
+import { lerChuvaNaVespera, lerCidadeDaLoja, lerClimaDaCidade, lerEventosDaBase } from '../mister/mister-clima-eventos.leitura';
 import { DIAS_DE_BOLETIM, lerConfigPulso, pausaEntreMunicipios } from './pulso.regras';
 import { PulsoService } from './pulso.service';
 
@@ -229,6 +229,14 @@ descrever('o Regem lê o Pulso (Postgres)', () => {
       await tq(`insert into clima_municipio_dia (municipio, dia, chuva_prevista, inmet) values (3304557, '2031-03-10', true, '{"resumo":"Chuva"}'), (3550308, '2031-03-10', false, '{"resumo":"Sol"}')`);
       expect(await lerClimaDaCidade(db, 3304557, '2031-03-10', '2031-03-12')).toEqual([{ dia: '2031-03-10', inmet: { resumo: 'Chuva' }, cptec: null }]);
       expect(await lerClimaDaCidade(db, null, '2031-03-10', '2031-03-12')).toEqual([]);
+      // Versão 8, E2: só o dia com a previsão da véspera gravada conta.
+      await tq(`update clima_municipio_dia set chuva_na_vespera = true where municipio = 3304557 and dia = '2031-03-10'`);
+      await tq(`insert into clima_municipio_dia (municipio, dia, chuva_prevista, chuva_na_vespera) values (3304557, '2031-03-11', false, false), (3304557, '2031-03-12', true, null)`);
+      expect(await lerChuvaNaVespera(db, 3304557, '2031-03-10', '2031-03-12')).toEqual([
+        { dia: '2031-03-10', chuva: true },
+        { dia: '2031-03-11', chuva: false },
+      ]);
+      expect(await lerChuvaNaVespera(db, null, '2031-03-10', '2031-03-12')).toEqual([]);
     }));
 
   it('clima: 16 dias de cada município, e a chuva que se previa na véspera só para amanhã', () =>

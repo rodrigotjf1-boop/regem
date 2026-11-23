@@ -435,6 +435,29 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
     }
     // Versão 8, E1: o que vem aí. As duas previsões discordam na sexta, e a resposta tem de dizer isso.
     case 'clima_e_eventos': {
+      // Versão 8, E2: a comparação com a venda. A chuva ainda tem poucos dias guardados: a resposta diz isso (V8-10).
+      if (en.comparar === 'chuva')
+        return ok({
+          loja: LOJA,
+          comparando: 'dia com chuva prevista na véspera',
+          periodo: 'de 26/05 a 22/11',
+          ainda: true,
+          diasGravados: 6,
+          precisaDe: 60,
+          daParaCompararPorVoltaDe: '19/01',
+          oQueFalta: 'Só tenho 6 dias de previsão guardados. Para comparar, preciso de cerca de 60.',
+        });
+      if (en.comparar)
+        return ok({
+          loja: LOJA,
+          comparando: 'dia de jogo na cidade',
+          periodo: 'de 26/05 a 22/11',
+          diasComparados: 5,
+          quais: ['quarta, 07/10', 'domingo, 18/10', 'quarta, 28/10', 'domingo, 08/11', 'sábado, 21/11'],
+          comparadoCom: 'o mesmo dia da semana nas 8 semanas antes, sem evento e com a loja aberta',
+          pedidosPorDia: { emDiasAssim: 132.4, diasComuns: 112, variacaoPct: 18.2 },
+          ...(perfil.verValores ? { vendaPorDia: { emDiasAssim: 6840.2, diasComuns: 5790.1, variacaoPct: 18.1 } } : { aviso: SEM_VALORES }),
+        });
       const previsaoDaSexta = {
         inmet: { resumo: 'Pancadas de chuva isoladas', minima: 23, maxima: 33, chuva: true },
         cptec: { resumo: 'Parcialmente nublado', minima: 24, maxima: 31, chuva: false },
@@ -1109,6 +1132,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 8, E1: o que vem aí, e as duas previsões que discordam (V8-8).
   { id: 'c79', pergunta: 'O que vem aí essa semana?', consultas: ['clima_e_eventos'], contem: ['Black Friday', 'Botafogo'] },
   { id: 'c80', pergunta: 'Vai chover na sexta?', consultas: ['clima_e_eventos'], contem: ['INMET', 'CPTEC', 'discord|diverg|não concord|nao concord'] },
+  // Versão 8, E2: a venda em dia de jogo, e a chuva que ainda não tem dias guardados (V8-10).
+  { id: 'c81', pergunta: 'Como a loja vende em dia de jogo?', consultas: ['clima_e_eventos'], numeros: ['18,1|18'], contem: ['5 dias|cinco dias'] },
+  { id: 'c82', pergunta: 'E quando chove, vende mais?', consultas: ['clima_e_eventos'], numeros: ['60'], contem: ['previsão'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────
