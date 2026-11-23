@@ -92,6 +92,8 @@ import {
   lerVendasDaCampanha,
   listarCampanhasComCupom,
 } from './mister-indicadores.leitura';
+import { LEITURA_VAZIA, MESES_DA_CONTA, caixaPeloBanco, indicadorDeCaixaPeloBanco, oQueFaltaNoBanco } from './mister-caixa-banco';
+import { lerCaixaDoBanco } from './mister-caixa-banco.leitura';
 import {
   AtencaoDoResumo,
   DadosDoResumo,
@@ -2408,8 +2410,18 @@ export class MisterFerramentasService {
         if (!semTabela(err) && !semTabela(err?.cause)) throw err;
         informados = { saldo: null, folha: null };
       }
+      // R2 da versão 8: com os 3 meses fechados completos no extrato, o caixa é o do banco.
+      const mesesDoBanco = mesesCompletos(hoje, MESES_DA_CONTA);
+      let doExtrato = LEITURA_VAZIA;
+      try {
+        doExtrato = await lerCaixaDoBanco(this.db, e.tenantId, mesesDoBanco[0].de, mesesDoBanco[mesesDoBanco.length - 1].ate);
+      } catch (err: any) {
+        if (!semTabela(err) && !semTabela(err?.cause)) throw err;
+      }
+      const doBanco = caixaPeloBanco(doExtrato, mesesDoBanco, hoje);
+      if (doBanco.pronto) return { ok: true, dados: { foco, ...indicadorDeCaixaPeloBanco(doBanco, informados.saldo, hoje) } };
       const saidas = await lerSaidas(this.db, { tenantId: e.tenantId, de: mes.de, ate: mes.ate });
-      return { ok: true, dados: { foco, ...indicadorDeCaixa({ ...informados, saidas, mes, hoje }) } };
+      return { ok: true, dados: { foco, ...indicadorDeCaixa({ ...informados, saidas, mes, hoje }), ...oQueFaltaNoBanco(doBanco) } };
     }
     if (foco === 'roi_campanha') return this.roiDaCampanha(e, en, loja, pronto);
 

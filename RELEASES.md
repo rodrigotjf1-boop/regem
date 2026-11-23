@@ -12,6 +12,8 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: burn rate e runway pelo extrato, R2 da versão 8 (23/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
+
 - **Financeiro › Banco e repasses, R1 da versão 8 do Mister (23/11; mig 499, só nuvem).** Importar o extrato OFX, só para o presidente. A
   loja pula a migration e a rota não sobe nela. **Mexe no `sync-daemon`** (as 5 tabelas em `SO_NUVEM`): entra no próximo `.exe`.
 

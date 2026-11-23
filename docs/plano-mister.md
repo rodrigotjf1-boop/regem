@@ -2397,8 +2397,9 @@ exportação OFX do banco da loja e se o dinheiro do iFood Pago aparece na API F
 | E2 · Comparação com as vendas | no ar (#1287) |
 | E3 · Véspera, linha "Amanhã" e regra pela conversa | no ar (#1289, mig 498) e a regra pela agenda neste PR |
 | E4 · Boletim do ramo | feita por outra frente: Notícias do ramo N1 a N3 (#1278, #1283, #1288) |
-| R1 · Extrato do banco | feita neste PR (mig 499, só nuvem) |
-| R2 a R5 · Caixa, repasses, planilhas, giro | a fazer |
+| R1 · Extrato do banco | no ar (#1291, mig 499, só nuvem) |
+| R2 · Burn rate e runway reais | feita neste PR (sem migration) |
+| R3 a R5 · Repasses, planilhas, giro | a fazer |
 
 **Como E1 a E3 ficaram:**
 
@@ -2434,3 +2435,12 @@ exportação OFX do banco da loja e se o dinheiro do iFood Pago aparece na API F
   repasses, que só existe na R3/R4; o aviso quando o saldo não fecha é novo; "Falta dizer" é um selo, pelo contraste; o período
   ganhou mês anterior, "Todo o extrato" e "Outro período" com o seletor de data.
 - **Falta conferir com um arquivo real:** a exportação OFX do banco da loja e como a descrição vem nela.
+
+**Como a R2 ficou (sem migration; definições em `docs/logica-negocio.md` § 2.6):**
+
+- "Quanto tempo de caixa eu tenho?" responde pelo extrato quando os 3 últimos meses fechados estão completos em todas as lojas: saldo
+  com a data, o que sobrou ou faltou em cada mês, burn rate e runway. Sem isso, continua a conta antiga e diz qual mês falta importar.
+- Ficam fora da conta as transferências entre contas e o que foi marcado como "Não é da loja". Loja que gera caixa não tem runway.
+- A descrição dos lançamentos não passa pela leitura do caixa: a IA recebe só somas por mês (V8-3).
+- **Limites ditos na resposta:** dinheiro que fica no caixa e não é depositado não aparece, transferência ainda não marcada conta como
+  da loja, e o que vence depois do último extrato não está na conta.
