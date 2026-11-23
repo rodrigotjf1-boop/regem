@@ -103,6 +103,7 @@ import { VigiaModule } from './modules/vigia/vigia.module';
 import { MisterAgenteModule } from './modules/mister/mister-agente.module';
 import { AvisosNaTelaModule } from './modules/mister/avisos-na-tela.module';
 import { NoticiasRamoModule } from './modules/noticias-ramo/noticias-ramo.module';
+import { BancoRepassesModule } from './modules/banco-repasses/banco-repasses.module';
 import { AvaliacaoPedidoModule } from './modules/avaliacao-pedido/avaliacao-pedido.module';
 import { AuthModule } from './auth/auth.module';
 
@@ -142,6 +143,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
       PulsoModule,
       // O Clube de recompra (mig 471): a configuração e os prêmios — tabelas só da nuvem; tudo nasce desligado.
       ClubeModule,
+      // Financeiro › Banco e repasses (mig 499): o extrato do banco, só do presidente — tabelas só da nuvem.
+      BancoRepassesModule,
       // O vigia do servidor da loja (mig 414): a nuvem recebe o sinal de todos os servidores; nasce desligado.
       VigiaModule,
       // O agente de IA do Mister (mig 418): responde às perguntas que chegam pelo número da distribuição. Só na nuvem.

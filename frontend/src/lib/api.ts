@@ -1745,6 +1745,13 @@ export const api = {
   whatsappTemplatesAnalytics: (desde?: string, ate?: string) =>
     req(`/whatsapp/cloud/templates/analytics${desde || ate ? `?${new URLSearchParams({ ...(desde ? { desde } : {}), ...(ate ? { ate } : {}) }).toString()}` : ''}`),
   // WhatsApp › Uso e gasto (mig 444, só o presidente): o gasto que a Meta informa, do que a nuvem guardou.
+  // Financeiro › Banco e repasses (R1 da versão 8 do Mister, mig 499): só o presidente (o servidor recusa os outros).
+  bancoRepasses: (q: Record<string, string>) => req(`/banco-repasses?${new URLSearchParams(q).toString()}`),
+  bancoConferirExtrato: (file: File) => uploadFile('/banco-repasses/importar/conferir', file) as unknown as Promise<unknown>,
+  bancoImportarExtrato: (file: File) =>
+    uploadFile('/banco-repasses/importar', file) as unknown as Promise<{ novos: number; repetidos: number; recusados: number; buraco: { de: string; ate: string } | null }>,
+  bancoClassificar: (id: string, body: { tipo?: string | null; lembrar?: boolean }) =>
+    req(`/banco-repasses/lancamentos/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   whatsappGasto: (q: Record<string, string>) => req(`/whatsapp/gasto${Object.keys(q).length ? `?${new URLSearchParams(q).toString()}` : ''}`),
   // "Tentar de novo": lê a Meta agora (não antes de 2 minutos da última tentativa) e devolve o resumo.
   // G3: o custo estimado de uma campanha antes de enviar (presidente e gerente; o mês e os alertas só ao presidente).

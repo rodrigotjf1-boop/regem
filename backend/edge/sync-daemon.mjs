@@ -2569,6 +2569,13 @@ const SO_NUVEM = new Set([
   'whatsapp_gasto',
   'whatsapp_gasto_modelo',
   'whatsapp_gasto_leitura',
+  // Financeiro › Banco e repasses (R1 da versão 8 do Mister, mig 499, @cloud-only): o extrato do banco, só do presidente e só na
+  // nuvem. A loja não tem estas tabelas.
+  'banco_empresa',
+  'banco_conta',
+  'banco_importacao',
+  'banco_lancamento',
+  'banco_regra',
   // O DMS Graph (mig 450, @cloud-only): a ligação da EMPRESA com o Graph (segredo cifrado com a chave da nuvem) e o pedido
   // do clique em curso. Quem lê a foto do cliente e fala com o Graph é a nuvem — a loja não tem estas tabelas.
   'graph_ligacao',

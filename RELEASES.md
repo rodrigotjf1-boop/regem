@@ -12,6 +12,9 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Financeiro › Banco e repasses, R1 da versão 8 do Mister (23/11; mig 499, só nuvem).** Importar o extrato OFX, só para o presidente. A
+  loja pula a migration e a rota não sobe nela. **Mexe no `sync-daemon`** (as 5 tabelas em `SO_NUVEM`): entra no próximo `.exe`.
+
 - **Mister: aviso da véspera e linha "Amanhã", E3 da versão 8 (23/11; mig 498, só nuvem).** Só na nuvem: o Mister não roda no servidor
   da loja, e a loja pula a migration. Vai no `.zip` sem efeito na loja. Não mexe no `sync-daemon` (coluna nova em tabela só da nuvem).
 
