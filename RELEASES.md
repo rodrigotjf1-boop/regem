@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Relatórios: `credit_card` e `debit_card` como cartão (23/11; ERR-587; SEM migration).** Na nuvem vale assim que sobe, inclusive para
+  as vendas antigas, porque o relatório traduz o código na hora. O relatório do servidor da loja recebe a mesma leitura com o próximo
+  `.zip`. Não mexe no `sync-daemon` nem em dado gravado.
+
 - **Relatórios › Notícias do ramo, fase N1 (23/11; mig 494, só nuvem).** Na nuvem vale assim que sobe. **Vale na loja:** a tela e a rota que
   pede o boletim à nuvem chegam com o próximo `.zip`; até lá, o item não aparece no servidor da loja. Não mexe no `sync-daemon`: a tabela
   nova não tem `tenant_id`, não existe na loja e a coluna nova é de `pulso_estado`, que já é `SO_NUVEM`.
