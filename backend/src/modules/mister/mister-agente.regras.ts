@@ -1419,8 +1419,9 @@ const TEM_LINK = /\b(?:https?:\/\/|www\.)[^\s)>\]]+/i;
 const LINK = /\b(?:https?:\/\/|www\.)[^\s)>\]]+/gi;
 const TEM_LINK_DO_MARKDOWN = /\[[^\]\n]{1,200}\]\((?:https?:\/\/|www\.)[^\s)]+\)/i;
 const LINK_DO_MARKDOWN = /\[([^\]\n]{1,200})\]\((?:https?:\/\/|www\.)[^\s)]+\)/gi;
-/** "R$ 1.234,56", "R$1234,5", "R$ 87" → centavos. */
-const VALOR = /R\$\s?(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?/g;
+/** "R$ 1.234,56", "R$1234,5", "R$ 87", "R$ 15 mil" → centavos. */
+const VALOR = /R\$\s?(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?(\s?mil\b)?/gi;
+const MIL_REAIS_EM_CENTAVOS = 100_000;
 
 /**
  * A diferença entre dois valores em reais, em centavos exatos e sem sinal, com o sentido escrito: assim o "R$ 2.466,30 a
@@ -1434,15 +1435,20 @@ export function diferencaEmReais(atual: unknown, anterior: unknown): { valor: nu
   return { valor: Math.abs(a - b) / 100, sentido: a > b ? 'a mais' : a < b ? 'a menos' : 'igual' };
 }
 
-/** Os valores em reais escritos num texto, em centavos. */
-export function valoresEmReais(texto: string): number[] {
-  const achados: number[] = [];
+function lerValores(texto: string): { centavos: number; emMil: boolean }[] {
+  const achados: { centavos: number; emMil: boolean }[] = [];
   for (const m of String(texto ?? '').matchAll(VALOR)) {
     const inteiro = Number(m[1].replace(/\./g, ''));
     const centavos = m[2] ? Number(m[2].padEnd(2, '0')) : 0;
-    achados.push(inteiro * 100 + centavos);
+    const valor = inteiro * 100 + centavos;
+    achados.push({ centavos: m[3] ? valor * 1000 : valor, emMil: !!m[3] });
   }
   return achados;
+}
+
+/** Os valores em reais escritos num texto, em centavos. */
+export function valoresEmReais(texto: string): number[] {
+  return lerValores(texto).map((v) => v.centavos);
 }
 
 /**
@@ -1470,12 +1476,22 @@ const TETO_DE_VALORES_NA_CONTA = 18;
 /**
  * O valor em reais da resposta que não veio de consulta NEM é conta sobre os valores que a própria resposta mostra (a soma
  * exata de dois ou mais, ou a diferença entre dois). As instruções permitem somar e comparar: a avaliação só reprova o que sobra.
+ * "R$ 15 mil" num comentário vale quando é um valor da consulta arredondado (R$ 15.700 → 15 ou 16 mil); escrito por extenso
+ * ("R$ 15.000,00"), tem de ser exato.
  */
 export function valoresSemConta(texto: string, resultados: unknown[] = []): number[] {
   const origem = numerosDosResultados(resultados);
-  const todos = valoresEmReais(texto);
+  const lidos = lerValores(texto);
+  const todos = lidos.map((v) => v.centavos);
+  const emMil = new Set(lidos.filter((v) => v.emMil).map((v) => v.centavos));
+  const arredondados = new Set<number>();
+  for (const v of origem) {
+    const a = Math.abs(v);
+    arredondados.add(Math.floor(a / MIL_REAIS_EM_CENTAVOS) * MIL_REAIS_EM_CENTAVOS);
+    arredondados.add(Math.round(a / MIL_REAIS_EM_CENTAVOS) * MIL_REAIS_EM_CENTAVOS);
+  }
   const base = todos.filter((v) => origem.has(v));
-  const soltos = [...new Set(todos.filter((v) => !origem.has(v)))];
+  const soltos = [...new Set(todos.filter((v) => !origem.has(v) && !(emMil.has(v) && arredondados.has(v))))];
   if (!soltos.length || base.length > TETO_DE_VALORES_NA_CONTA) return soltos;
   const somas = new Set<number>([0]);
   for (const v of base) for (const s of [...somas]) somas.add(s + v);

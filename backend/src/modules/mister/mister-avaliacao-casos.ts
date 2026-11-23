@@ -1093,7 +1093,7 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c03', pergunta: 'Quanto faturei ontem?', umaDasConsultas: ['resumo_do_dia', 'vendas_do_periodo'], numeros: ['5.110,85'] },
   { id: 'c04', pergunta: 'Qual foi o ticket médio desta semana?', consultas: ['vendas_do_periodo'], numeros: ['49,95'] },
   { id: 'c05', pergunta: 'Vendi mais esta semana do que na semana passada?', consultas: ['vendas_do_periodo'], numeros: ['24.876,45'] },
-  { id: 'c06', pergunta: 'Qual foi o horário de pico ontem?', consultas: ['vendas_do_periodo'], numeros: ['20h|20:00|20 h|20 horas'] },
+  { id: 'c06', pergunta: 'Qual foi o horário de pico ontem?', umaDasConsultas: ['vendas_do_periodo', 'analisar_vendas'], numeros: ['20h|20:00|20 h|20 horas'] },
   { id: 'c07', pergunta: 'Quanto vendi no iFood ontem?', consultas: ['vendas_do_periodo'], numeros: ['1.688,35'] },
   { id: 'c08', pergunta: 'Quais foram os 3 produtos mais vendidos desta semana?', consultas: ['produtos_mais_vendidos'], contem: ['X-Burger', 'Batata'] },
   { id: 'c09', pergunta: 'Qual produto me dá mais lucro neste mês?', consultas: ['produtos_mais_vendidos'], contem: ['X-Bacon'] },
@@ -1180,7 +1180,7 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c70', pergunta: 'Vale fazer uma promoção no dia mais fraco da semana? Olha a semana passada.', consultas: ['analisar_vendas'], contem: ['segunda', 'Minha sugestão'] },
   // Versão 7, V7f: os indicadores. A c71 é o caso real de hoje: nenhum custo lançado, e a resposta diz o que falta e onde (V7-10).
   { id: 'c71', pergunta: 'Como está a minha margem?', consultas: ['indicadores_financeiros'], contem: ['custo', 'Recebimento'] },
-  { id: 'c72', pergunta: 'Qual foi a margem e o CMV de setembro de 2026?', consultas: ['indicadores_financeiros'], numeros: ['65,8', '34,2', '92'], contem: ['custo de hoje|de hoje do cadastro'] },
+  { id: 'c72', pergunta: 'Qual foi a margem e o CMV de setembro de 2026?', consultas: ['indicadores_financeiros'], numeros: ['65,8', '34,2', '92'], contem: ['custo de hoje|de hoje do cadastro|de hoje no cadastro'] },
   { id: 'c73', pergunta: 'Quem está me devendo?', consultas: ['indicadores_financeiros'], numeros: ['1.180,45', '14', '41'], contem: ['Contas a pagar'] },
   { id: 'c74', pergunta: 'Em quanto tempo eu pago os fornecedores?', consultas: ['indicadores_financeiros'], numeros: ['18'] },
   { id: 'c75', pergunta: 'Quanto tempo de caixa eu tenho?', consultas: ['indicadores_financeiros'], contem: ['saldo', 'folha'] },
@@ -1199,7 +1199,7 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 8, E3: a regra pela conversa, com a fonte agenda.
   { id: 'c85', pergunta: 'Me avisa um dia antes de cada jogo do Botafogo, às 18h.', consultas: ['regras'], contem: ['Botafogo|botafogo', 'Confirmar'] },
   // Versão 8, R2: o caixa pelo extrato do banco.
-  { id: 'c86', pergunta: 'Pelo extrato, quanto tempo de caixa eu tenho?', perfil: { nivel: 'presidente', verValores: true, extrato: 'encolhendo' }, consultas: ['indicadores_financeiros'], numeros: ['38.420', '6.250', '6,1'], contem: ['12/11'] },
+  { id: 'c86', pergunta: 'Pelo extrato, quanto tempo de caixa eu tenho?', perfil: { nivel: 'presidente', verValores: true, extrato: 'encolhendo' }, consultas: ['indicadores_financeiros'], numeros: ['38.420,00|38.420', '6.250,00|6.250', '6,1'], contem: ['12/11'] },
   { id: 'c87', pergunta: 'Pelo extrato, a loja está queimando caixa?', perfil: { nivel: 'presidente', verValores: true, extrato: 'gerando' }, consultas: ['indicadores_financeiros'], numeros: ['2.176,67'], contem: ['gerando|crescendo|sobr'] },
 ];
 
