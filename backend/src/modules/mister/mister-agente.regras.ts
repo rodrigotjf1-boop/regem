@@ -671,7 +671,7 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'noticias_do_ramo',
     description:
-      'As NOTÍCIAS DO RAMO de bares e restaurantes dos últimos dias, do boletim do Regem: impostos, trabalho, medidas do governo, economia e custos, e as novidades do setor (tendências, tecnologia, plataformas de delivery), com os indicadores (IPCA e Selic). Use para "teve novidade de imposto?", "o que saiu sobre a escala?", "quais as tendências do setor?", "como está a Selic?". Sem "dias", os últimos 7. Conte só o que veio, citando a fonte de cada notícia. O que vem com "emDiscussao" ainda NÃO é lei: diga isso. Não diga o efeito na loja nem quanto a pessoa vai pagar: para isso, oriente falar com o contador.',
+      'As NOTÍCIAS DO RAMO de bares e restaurantes dos últimos dias, do boletim do Regem: impostos, trabalho, medidas do governo, economia e custos, e as novidades do setor (tendências, tecnologia, plataformas de delivery), com os indicadores (IPCA e Selic). Use para "teve novidade de imposto?", "o que saiu sobre a escala?", "quais as tendências do setor?", "como está a Selic?". Sem "dias", os últimos 7. Conte só o que veio, citando a fonte de cada notícia. O que vem com "emDiscussao" ainda NÃO é lei: diga isso. Não diga o efeito na loja nem quanto a pessoa vai pagar: para isso, oriente falar com o contador. Não escreva link: termine dizendo que os links estão em Relatórios › Notícias do ramo.',
     input_schema: {
       type: 'object',
       properties: {

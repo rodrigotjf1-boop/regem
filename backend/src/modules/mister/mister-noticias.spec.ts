@@ -61,7 +61,7 @@ describe('as notícias do ramo no Mister', () => {
     for (const en of [{ dias: 0 }, { dias: DIAS_DAS_NOTICIAS_MAX + 1 }, { dias: 1.5 }, { dias: 'x' }, { assunto: 'futebol' }]) expect(pedidoDasNoticias(en, '2026-11-23')).toEqual({ erro: expect.any(String) });
   });
 
-  it('junta os dias sem repetir, da mais nova para a mais velha, com o aviso, a fonte e o link', () => {
+  it('junta os dias sem repetir, da mais nova para a mais velha, com o aviso e a fonte; o link fica na tela do Regem', () => {
     const r: any = montarNoticias(
       [
         boletim({ destaques: [noticia('2', 'impostos', '2026-11-21T10:00:00.000Z', { emDiscussao: true, aviso: 'Em discussão no Congresso: ainda não é lei.' })] }),
@@ -71,8 +71,11 @@ describe('as notícias do ramo no Mister', () => {
     );
     expect(r.total).toBe(2);
     expect(r.noticias.map((n: any) => n.titulo)).toEqual(['Notícia 3', 'Notícia 2']);
-    expect(r.noticias[1]).toMatchObject({ emDiscussao: true, aviso: 'Em discussão no Congresso: ainda não é lei.', fonte: 'Fonte: teste', link: 'https://fonte.teste/2' });
+    expect(r.noticias[1]).toMatchObject({ emDiscussao: true, aviso: 'Em discussão no Congresso: ainda não é lei.', fonte: 'Fonte: teste' });
+    // O filtro de saída tira todo link: o modelo não recebe o endereço e diz onde achar a matéria.
+    expect(JSON.stringify(r)).not.toContain('https://');
     expect(r.cuidado).toBe(CUIDADO_DAS_NOTICIAS);
+    expect(r.cuidado).toContain('Relatórios › Notícias do ramo');
     expect(r.periodo).toBe('de 17/11 a 23/11');
   });
 
