@@ -154,7 +154,7 @@ describe('o caminho da foto', () => {
     );
     const r: any = await s.olhar(quem, midia, 'w1');
     expect((graph.analisar.mock.calls[0] as any[])[3]).toBe(25_000);
-    expect(ia.pedir.mock.calls[0][1]).toMatchObject({ modelo: 'claude-sonnet-5-5', maxTokens: 2500 });
+    expect(ia.pedir.mock.calls[0][1]).toMatchObject({ modelo: 'claude-sonnet-5-5', maxTokens: 8000 });
     expect(r.pergunta).toContain('porque o DMS Graph não leu (demora)');
   });
 

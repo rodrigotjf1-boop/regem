@@ -3,7 +3,9 @@ import { sql } from 'drizzle-orm';
 import { hojeISO, somarDias } from '../../common/data';
 import {
   DadosDoLancamento,
+  FRASE_DA_LEITURA_CORTADA,
   FRASES_DO_DOCUMENTO,
+  MAX_TOKENS_DO_DOCUMENTO,
   MODELO_DO_DOCUMENTO_PADRAO,
   ModoDoBoleto,
   RECURSO_DO_DOCUMENTO,
@@ -178,6 +180,7 @@ export class MisterDocumentosService implements OnModuleInit {
     }
 
     let texto: string;
+    let cortada = false;
     const bloco =
       tipo === 'application/pdf'
         ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: arquivo.buffer.toString('base64') } }
@@ -186,15 +189,22 @@ export class MisterDocumentosService implements OnModuleInit {
       const r = await this.ia.pedir(quem.tenantId, {
         recurso: RECURSO_DO_DOCUMENTO,
         modelo: this.modelo(),
-        maxTokens: 400,
+        maxTokens: MAX_TOKENS_DO_DOCUMENTO,
         system: instrucoesDoDocumento(cupomNaInstalacao()),
         messages: [{ role: 'user', content: [bloco, { type: 'text', text: 'Leia este documento.' }] }],
         prazoMs: PRAZO_DA_IA_MS,
       });
       texto = r.texto;
+      cortada = r.parou === 'max_tokens';
     } catch (e: any) {
       this.logger.warn(`documento de ${quem.tenantId.slice(0, 8)}: a IA não leu (${e instanceof FalhaDaIa ? e.motivo : e?.message ?? e})`);
       await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.semIa });
+      return true;
+    }
+    if (cortada) {
+      this.logger.warn(`documento de ${quem.tenantId.slice(0, 8)}: a leitura parou no teto de ${MAX_TOKENS_DO_DOCUMENTO} tokens`);
+      await this.registrar(quem, wamid, { tipo: 'outro', situacao: 'recusado', motivo: 'leitura_cortada' });
+      await this.falar(quem.telefone, { texto: FRASE_DA_LEITURA_CORTADA });
       return true;
     }
 

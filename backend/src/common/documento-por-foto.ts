@@ -33,6 +33,14 @@ export const cupomNaInstalacao = (): boolean => notasNaInstalacao() && process.e
 export const RECURSO_DO_DOCUMENTO = 'mister_documento';
 /** O modelo mais forte lê o documento (decisão do protótipo: a leitura pede precisão; o custo é de centavo por foto). */
 export const MODELO_DO_DOCUMENTO_PADRAO = 'claude-sonnet-5-5';
+/**
+ * Os tetos da resposta. No Sonnet 5.5 o raciocínio do modelo conta no `max_tokens` junto com o texto: um teto do tamanho da
+ * resposta corta o JSON no meio (ERR-593). Só se paga o que for usado.
+ */
+export const MAX_TOKENS_DO_DOCUMENTO = 2000;
+export const MAX_TOKENS_DA_NOTA = 12_000;
+/** A resposta cortada pelo teto é limite NOSSO: a pessoa não é mandada tirar outra foto como se a foto fosse o problema. */
+export const FRASE_DA_LEITURA_CORTADA = 'A leitura parou no meio por um limite do nosso lado, não pela sua foto. Manda de novo, por favor.';
 
 export const TIPOS_DO_DOCUMENTO = ['boleto', 'conta', 'nota', 'outro'] as const;
 export type TipoDoDocumento = (typeof TIPOS_DO_DOCUMENTO)[number];

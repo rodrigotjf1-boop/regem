@@ -93,6 +93,7 @@ const MOTIVO: Record<string, string> = {
   total: 'esperando você dizer o total, que não deu para ler',
   soma: 'os itens lidos não somam o total: esperando a sua resposta na conversa',
   foto_nova: 'você mandou outra foto no lugar desta',
+  leitura_cortada: 'a leitura parou no meio por um limite do sistema, não pela foto',
 };
 const ORIGEM: Record<Exclude<Origem, null>, string> = { codigo: 'código', ia: 'IA', pessoa: 'conversa' };
 
