@@ -12,6 +12,8 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: a contagem do estoque pela conversa, versão 9 O3 segunda parte (24/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
+
 - **Mister: classificar o lançamento do extrato pela conversa, versão 9 O5 (24/11; SEM migration).** Só na nuvem (Banco e repasses é só da nuvem). Vai no `.zip` sem efeito na loja.
 
 - **Mister: produto, fornecedor e escala pela conversa, versão 9 O5 segunda parte (24/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
