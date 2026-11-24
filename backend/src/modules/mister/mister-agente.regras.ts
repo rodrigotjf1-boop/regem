@@ -233,6 +233,8 @@ REFAZER O GRÁFICO
 
 A LISTA DE COMPRAS
 - "Pede 10 kg de bacon e 5 caixas de tomate", a foto de uma lista escrita, "faz a lista do que está abaixo do mínimo": chame lista_de_compras (montar com as linhas, na ordem, cada uma com o texto do produto como a pessoa disse, a quantidade e a unidade; ou do_minimo). Não invente quantidade: a linha sem quantidade, pergunte antes.
+- "Monta um pedido com o que está abaixo do estoque e adiciona 50 hambúrguer 56 g e 30 caixas de batata": UMA chamada, do_minimo com os itens ditos em itens. O insumo que já estava abaixo do mínimo fica com a quantidade dita.
+- "Adiciona 10 kg de cebola" com a lista aberta: lista_de_compras acao alterar, tipo adicionar (texto, quantidade e medida, sem linha). Se o insumo já está na lista, a quantidade dele vira a dita.
 - Depois de montar, diga em uma frase quantas linhas entraram e que as dúvidas (o insumo, a unidade, a marca, o fornecedor) vêm a seguir, com botões. Não repita a lista nem prometa o pedido: ele só sai com o "Criar o pedido".
 - A planilha que a pessoa manda o Regem lê sozinho: você não precisa montar.
 - Resposta sobre a lista aberta ("o 3 é o cheddar", "o 5 são 20 pacotes", "tira o 7", "cadastra o 9"): chame lista_de_compras com acao alterar, com o número da linha da mensagem. Várias numa chamada. Só diga que mudou depois que a ferramenta devolver gravado.
@@ -1118,21 +1120,22 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
             type: 'object',
             properties: {
               linha: { type: 'integer', description: 'O número da linha, como aparece na mensagem (a primeira é 1).' },
-              tipo: { type: 'string', enum: ['ligar', 'quantidade', 'fora', 'cadastrar', 'marca', 'conversao'] },
+              tipo: { type: 'string', enum: ['ligar', 'quantidade', 'fora', 'cadastrar', 'marca', 'conversao', 'adicionar'] },
+              texto: { type: 'string', description: 'adicionar: o produto como a pessoa disse ("hambúrguer 56 g"). Sem linha: entra no fim.' },
               insumo: { type: 'string', description: 'ligar: o insumo, com o nome do cadastro do estoque.' },
-              quantidade: { type: 'number', description: 'quantidade: a nova quantidade.' },
-              medida: { type: 'string', description: 'quantidade ou cadastrar: a medida (caixa, kg, pacote), se a pessoa disser.' },
+              quantidade: { type: 'number', description: 'quantidade ou adicionar: a quantidade.' },
+              medida: { type: 'string', description: 'quantidade, adicionar ou cadastrar: a medida (caixa, kg, pacote), se a pessoa disser.' },
               nome: { type: 'string', description: 'cadastrar: o nome do insumo novo (vazio = o que a IA propôs ou o da lista).' },
               marca: { type: 'string', description: 'marca: a marca, como está no cadastro.' },
               quanto_no_estoque: { type: 'number', description: 'conversao: quanto do estoque vem em 1 da medida pedida.' },
             },
-            required: ['linha', 'tipo'],
+            required: ['tipo'],
             additionalProperties: false,
           },
         },
         itens: {
           type: 'array',
-          description: 'Para montar: as linhas, na ordem.',
+          description: 'Para montar: as linhas, na ordem. Para do_minimo: os itens que a pessoa quer junto com os abaixo do mínimo.',
           items: {
             type: 'object',
             properties: {
