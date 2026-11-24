@@ -1,9 +1,16 @@
 'use client';
 
 import { Input } from '@/components/ui/input';
+import { lerValorDigitado } from '@/lib/valor-digitado';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+// O valor de uma linha ("1.200,00" = R$ 1.200,00; antes virava zero). O que não é valor conta zero no restante, e o servidor
+// recusa a venda cuja soma das partes não bate com o total.
+const valorDaLinha = (texto: string) => {
+  const v = lerValorDigitado(texto);
+  return v !== null && Number.isFinite(v) ? v : 0;
+};
 
 export type LinhaPagto = { forma: string; valor: string };
 
@@ -21,7 +28,7 @@ export function SplitPagamento({
   pagamentos: LinhaPagto[];
   onPagamentos: (p: LinhaPagto[]) => void;
 }) {
-  const somaCent = pagamentos.reduce((s, p) => s + Math.round((Number(String(p.valor).replace(',', '.')) || 0) * 100), 0);
+  const somaCent = pagamentos.reduce((s, p) => s + Math.round(valorDaLinha(p.valor) * 100), 0);
   const restanteCent = Math.round(total * 100) - somaCent;
   const setLinha = (i: number, patch: Partial<LinhaPagto>) => onPagamentos(pagamentos.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   const addLinha = () => onPagamentos([...pagamentos, { forma: opcoes[0], valor: restanteCent > 0 ? (restanteCent / 100).toFixed(2) : '' }]);
@@ -66,6 +73,6 @@ export function SplitPagamento({
 export function montarPagamentos(dividir: boolean, pagamentos: LinhaPagto[]) {
   if (!dividir) return undefined;
   return pagamentos
-    .map((p) => ({ forma: p.forma, valor: Number(String(p.valor).replace(',', '.')) || 0 }))
+    .map((p) => ({ forma: p.forma, valor: valorDaLinha(p.valor) }))
     .filter((p) => p.forma && p.valor > 0);
 }

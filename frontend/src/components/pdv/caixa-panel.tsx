@@ -7,6 +7,7 @@ import { api, getCategoria, getPermissoes } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 import { avisarComprovante } from '@/lib/comprovante';
+import { lerValorDigitado, valorDigitadoValido } from '@/lib/valor-digitado';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -99,10 +100,14 @@ export function CaixaPanel({
   async function abrir() {
     const v = prompt('Valor de abertura (troco inicial) do caixa:', '0');
     if (v === null) return;
+    // "1.200,00" é R$ 1.200,00 — antes virava R$ 0,00 calado (C-05). Vazio ou texto que não é valor: não abre.
+    const valorAbertura = lerValorDigitado(v);
+    if (!valorDigitadoValido(valorAbertura))
+      return toast.error('Valor de abertura inválido. Digite só o valor, como 150 ou 1.200,00 (0 se não houver troco).');
     setBusy(true);
     try {
-      await api.abrirCaixa({ valorAbertura: Number(String(v).replace(',', '.')) || 0, origem });
-      toast.success('Turno aberto.');
+      await api.abrirCaixa({ valorAbertura, origem });
+      toast.success(`Turno aberto com ${brl(valorAbertura)} de troco.`);
       onChange();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao abrir o caixa');
@@ -112,8 +117,8 @@ export function CaixaPanel({
   }
 
   async function confirmarMov() {
-    const valor = Number(String(movValor).replace(',', '.')) || 0;
-    if (valor <= 0) return toast.error('Informe um valor válido.');
+    const valor = lerValorDigitado(movValor);
+    if (!valorDigitadoValido(valor) || valor <= 0) return toast.error('Informe um valor válido, como 50 ou 1.200,00.');
     const comSenha = mov === 'sangria' && pedeSenha;
     if (comSenha && !movSenha) return toast.error('Informe a senha de quem libera.');
     setBusy(true);
@@ -142,13 +147,17 @@ export function CaixaPanel({
   }
 
   async function confirmarFechar() {
+    // O contado que não é valor ("1.200,50" lido como NaN) era DESCARTADO e a forma contava zero no fechamento (C-05):
+    // agora a contagem não sai com um campo ilegível — a pessoa corrige antes.
+    const valoresInformados: Record<string, number> = {};
+    for (const [k, v] of Object.entries(informados)) {
+      const n = lerValorDigitado(v);
+      if (n === null) continue;
+      if (!valorDigitadoValido(n)) return toast.error(`O valor contado em "${k}" não é um valor válido. Digite como 150 ou 1.200,50.`);
+      valoresInformados[k] = n;
+    }
     setBusy(true);
     try {
-      const valoresInformados: Record<string, number> = {};
-      for (const [k, v] of Object.entries(informados)) {
-        const n = Number(String(v).replace(',', '.'));
-        if (String(v).trim() !== '' && Number.isFinite(n)) valoresInformados[k] = n;
-      }
       const r: any = await api.fecharCaixa({
         valoresInformados,
         obs: obs.trim() || undefined,
@@ -159,8 +168,15 @@ export function CaixaPanel({
       setResultado(r);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao fechar o caixa');
-      // 409 = o servidor achou pendência (pedido que chegou durante a contagem): volta a mostrar.
-      if ((e as any)?.status === 409) void abrirFechamento();
+      // Outro fechamento terminou antes (dois toques, dois aparelhos): este caixa já está fechado — sai e atualiza.
+      if ((e as any)?.code === 'CAIXA_JA_FECHADO') {
+        setFechar(false);
+        setPend(null);
+        onChange();
+      } else if ((e as any)?.status === 409) {
+        // 409 = o servidor achou pendência (pedido que chegou durante a contagem): volta a mostrar.
+        void abrirFechamento();
+      }
     } finally {
       setBusy(false);
     }

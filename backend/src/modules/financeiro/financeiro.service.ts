@@ -526,28 +526,41 @@ export class FinanceiroService {
       if (unidadeId === null && terminalId)
         throw new BadRequestException('Terminal inválido ou inativo.');
     }
-    const aberta = await this.sessaoAberta(tenantId, origem, terminalId);
-    if (aberta) throw new BadRequestException('Já existe um caixa aberto neste terminal.');
-    // Nº do turno = sequencial por dia (fuso SP), por origem: 1º caixa do dia = Turno 1.
-    const tn: any = await this.db.execute(sql`
-      select coalesce(max(turno_numero), 0) + 1 as n from caixa_sessao
-      where tenant_id = ${tenantId} and origem = ${origem}
-        and (aberta_em at time zone 'America/Sao_Paulo')::date
-            = (now() at time zone 'America/Sao_Paulo')::date`);
-    const turnoNumero = Number((tn.rows ?? tn)[0].n) || 1;
-    const [s] = await this.db
-      .insert(caixaSessao)
-      .values({
-        tenantId,
-        unidadeId,
-        terminalId,
-        origem,
-        turnoNumero,
-        valorAbertura: String(dto.valorAbertura ?? 0),
-        abertaPorId: atorId,
-      })
-      .returning();
-    return s;
+    // Conferir "já tem caixa aberto", numerar o turno e gravar numa transação, com a empresa travada (C-06 da revisão de
+    // 24/11/2026): sem isso, dois toques em "Abrir" (ou dois terminais juntos) liam "nenhum aberto" e o mesmo número de
+    // turno, e abriam dois caixas no mesmo terminal — as vendas se dividiam entre eles. `for no key update` não espera as
+    // gravações que só apontam para a empresa (a chave estrangeira pede `for key share`): só outra abertura espera.
+    return this.db.transaction(async (tx: any) => {
+      await tx.execute(sql`select id from empresa where id = ${tenantId} for no key update`);
+      const condAberta = [
+        eq(caixaSessao.tenantId, tenantId),
+        eq(caixaSessao.status, 'aberta'),
+        eq(caixaSessao.origem, origem),
+        ...(origem !== 'delivery' ? [terminalId ? eq(caixaSessao.terminalId, terminalId) : isNull(caixaSessao.terminalId)] : []),
+      ];
+      const [aberta] = await tx.select({ id: caixaSessao.id }).from(caixaSessao).where(and(...condAberta));
+      if (aberta) throw new BadRequestException('Já existe um caixa aberto neste terminal.');
+      // Nº do turno = sequencial por dia (fuso SP), por origem: 1º caixa do dia = Turno 1.
+      const tn: any = await tx.execute(sql`
+        select coalesce(max(turno_numero), 0) + 1 as n from caixa_sessao
+        where tenant_id = ${tenantId} and origem = ${origem}
+          and (aberta_em at time zone 'America/Sao_Paulo')::date
+              = (now() at time zone 'America/Sao_Paulo')::date`);
+      const turnoNumero = Number((tn.rows ?? tn)[0].n) || 1;
+      const [s] = await tx
+        .insert(caixaSessao)
+        .values({
+          tenantId,
+          unidadeId,
+          terminalId,
+          origem,
+          turnoNumero,
+          valorAbertura: String(dto.valorAbertura ?? 0),
+          abertaPorId: atorId,
+        })
+        .returning();
+      return s;
+    });
   }
 
   // Caixa aberto + nome do operador (p/ o PDV mostrar "Turno N · Operador X").
@@ -731,18 +744,46 @@ export class FinanceiroService {
     );
     if (!s) throw new BadRequestException('Nenhum caixa aberto.');
     this.exigeDonoDoTurno(s, atorId, atorPerfil);
-    await this.db.insert(lancamentoCaixa).values({
-      tenantId,
-      unidadeId: s.unidadeId,
-      sessaoId: s.id,
-      tipo: dto.tipo === 'suprimento' ? 'entrada' : 'saida',
-      valor: String(dto.valor),
-      data: hojeISO(),
-      categoria: dto.tipo,
-      forma: 'dinheiro',
-      descricao: dto.descricao,
-      criadoPorId: atorId,
+    // O lançamento entra com o caixa TRAVADO e ainda aberto (C-01 da revisão de 24/11/2026): antes, o caixa era lido
+    // fora de transação e o lançamento podia cair num caixa que fechou no meio, fora do esperado do fechamento. O
+    // fechamento trava com `for update`; aqui `for share` (o suprimento não espera outra venda) e, na sangria,
+    // `for no key update` — duas sangrias juntas passam uma de cada vez, e a segunda enxerga a primeira no esperado.
+    const sangria = dto.tipo === 'sangria';
+    const valorCent = paraCentavos(dto.valor);
+    const esperadoNaGaveta = await this.db.transaction(async (tx: any) => {
+      const trava: any = await tx.execute(
+        sangria
+          ? sql`select id from caixa_sessao where id = ${s.id} and status = 'aberta' for no key update`
+          : sql`select id from caixa_sessao where id = ${s.id} and status = 'aberta' for share`,
+      );
+      if (!(trava.rows ?? trava).length) throw new BadRequestException('Nenhum caixa aberto.');
+      // O dinheiro que o sistema espera na gaveta antes da sangria (a mesma conta do fechamento: abertura + dinheiro).
+      let esperadoCent: number | null = null;
+      if (sangria) {
+        const d: any = await tx.execute(sql`
+          select coalesce(sum(case when tipo = 'entrada' then valor else -valor end), 0) as mov
+            from lancamento_caixa where sessao_id = ${s.id} and coalesce(forma, 'dinheiro') = 'dinheiro'`);
+        esperadoCent = somarCentavos(paraCentavos((d.rows ?? d)[0]?.mov ?? 0), paraCentavos(s.valorAbertura));
+      }
+      await tx.insert(lancamentoCaixa).values({
+        tenantId,
+        unidadeId: s.unidadeId,
+        sessaoId: s.id,
+        tipo: dto.tipo === 'suprimento' ? 'entrada' : 'saida',
+        valor: String(dto.valor),
+        data: hojeISO(),
+        categoria: dto.tipo,
+        forma: 'dinheiro',
+        descricao: dto.descricao,
+        criadoPorId: atorId,
+      });
+      return esperadoCent;
     });
+    // Sangria acima do dinheiro esperado (C-04): entra (a contagem é cega — recusar diria ao operador quanto o sistema
+    // espera), mas fica marcada na auditoria com o esperado, para o gestor achar o erro de digitação antes do fechamento.
+    const acimaDoEsperado = esperadoNaGaveta != null && valorCent > esperadoNaGaveta;
+    if (acimaDoEsperado)
+      this.logger.warn(`caixa ${s.id}: sangria acima do dinheiro esperado na gaveta`);
     // Toda sangria e suprimento na auditoria, com quem liberou quando o perfil pediu a senha.
     await this.auditoria.registrar({
       tenantId,
@@ -757,6 +798,7 @@ export class FinanceiroService {
         valor: Number(dto.valor),
         motivo: dto.descricao ?? null,
         ...(liberou ? { autorizadoPor: liberou.nome, autorizadoPorId: liberou.id } : {}),
+        ...(esperadoNaGaveta != null ? { esperadoNaGaveta: paraReais(esperadoNaGaveta), acimaDoEsperado } : {}),
       },
       origem: 'web',
     });
@@ -794,12 +836,20 @@ export class FinanceiroService {
   // ===== Pendências do turno (pedidos ainda não baixados na hora de fechar) =====
   // O que a tela de fechar mostra ANTES da contagem: as entregas (turno do delivery) ou as
   // retiradas (turno do balcão) que ainda não foram concluídas nem canceladas.
+  // A loja das pendências de um turno. O caixa do DELIVERY é um para a empresa inteira (`abrirSessao`, `sessaoAberta`):
+  // quem o fecha responde pelas entregas de TODAS as lojas, então a lista, a baixa e a trava do fechamento olham a empresa
+  // (C-03 da revisão de 24/11/2026 — antes, a entrega pendente de outra loja ficava fora). O do balcão é do terminal: a loja.
+  private lojaDasPendencias(escopo: 'delivery' | 'pdv', unidadeAtual: string | null): string | null {
+    return escopo === 'delivery' ? null : unidadeAtual;
+  }
+
   async pendenciasDoTurno(tenantId: string, unidadeAtual: string | null, origem: string | undefined, atorPerfil: string) {
     const escopo = escopoDoTurno(origem);
+    const loja = this.lojaDasPendencias(escopo, unidadeAtual);
     const [p, agendados] = await Promise.all([
-      pendenciasDoTurno(this.db, tenantId, unidadeAtual, escopo),
+      pendenciasDoTurno(this.db, tenantId, loja, escopo),
       // G8 (mig 455): no turno do delivery, os pedidos agendados para depois — a tela pergunta um por um.
-      escopo === 'delivery' ? agendadosParaDepois(this.db, tenantId, unidadeAtual) : Promise.resolve([]),
+      escopo === 'delivery' ? agendadosParaDepois(this.db, tenantId, loja) : Promise.resolve([]),
     ]);
     return {
       ...p,
@@ -818,7 +868,7 @@ export class FinanceiroService {
   async baixarPendenciasAntigas(tenantId: string, atorId: string, atorPerfil: string, unidadeAtual: string | null, origem: string | undefined) {
     if (!gerenteOuPresidente(atorPerfil)) throw new ForbiddenException('Só gerente ou presidente baixa as pendências antigas.');
     const escopo = escopoDoTurno(origem);
-    const r = await baixarPendenciasAntigas(this.db, tenantId, unidadeAtual, escopo);
+    const r = await baixarPendenciasAntigas(this.db, tenantId, this.lojaDasPendencias(escopo, unidadeAtual), escopo);
     if (r.canceladosComCliente.length) this.events?.emit(EVENTO_CANCELADOS_NA_BAIXA, { tenantId, pedidos: r.canceladosComCliente });
     if (r.concluidos + r.cancelados > 0) {
       await this.auditoria.registrar({
@@ -884,7 +934,7 @@ export class FinanceiroService {
     // barrado aqui: lá a tela só avisa das retiradas pendentes antes de fechar.
     let fechouComPendencias: { total: number; justificativa: string; pedidos: string[] } | null = null;
     if (s.origem === 'delivery') {
-      const pend = await pendenciasDoTurno(this.db, tenantId, dto.unidadeAtual ?? null, 'delivery');
+      const pend = await pendenciasDoTurno(this.db, tenantId, this.lojaDasPendencias('delivery', dto.unidadeAtual ?? null), 'delivery');
       if (pend.total > 0) {
         const n = pend.total === 1 ? 'Há 1 entrega pendente' : `Há ${pend.total} entregas pendentes`;
         if (!gerenteOuPresidente(atorPerfil))
@@ -905,7 +955,7 @@ export class FinanceiroService {
       // G8 (mig 455): os pedidos AGENDADOS para depois — o turno não fecha sem a resposta de cada um. "Manter" vem na lista
       // `agendadosMantidos`; mudar o horário ou cancelar tira o pedido da lista antes. Vale para todos (é uma pergunta,
       // não uma pendência a justificar).
-      const agendados = await agendadosParaDepois(this.db, tenantId, dto.unidadeAtual ?? null);
+      const agendados = await agendadosParaDepois(this.db, tenantId, this.lojaDasPendencias('delivery', dto.unidadeAtual ?? null));
       const mantidos = new Set(Array.isArray(dto.agendadosMantidos) ? dto.agendadosMantidos.map(String) : []);
       const faltam = agendados.filter((a) => !mantidos.has(a.id));
       if (faltam.length)
@@ -922,62 +972,75 @@ export class FinanceiroService {
     // Esperado por forma = movimentos (entrada − saída) da sessão agrupados por
     // forma; sangrias/suprimentos já são lançamentos, então entram naturalmente.
     // A abertura conta como dinheiro (gaveta).
-    const rf: any = await this.db.execute(sql`
-      select coalesce(forma,'dinheiro') as forma,
-             coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as mov
-      from lancamento_caixa where sessao_id=${s.id}
-      group by coalesce(forma,'dinheiro')`);
-    const espCent: Record<string, number> = {};
-    for (const x of rf.rows ?? rf) espCent[x.forma] = paraCentavos(x.mov);
-    espCent['dinheiro'] = somarCentavos(espCent['dinheiro'] ?? 0, paraCentavos(s.valorAbertura));
-
+    // TUDO com o caixa travado (C-01 e C-02 da revisão de 24/11/2026). `for update` espera as vendas, sangrias e
+    // recebimentos que estão gravando neste caixa (eles o travam com `for share`/`for key share`) e faz os que chegarem
+    // depois esperarem o fechamento terminar — aí eles releem, veem "fechada" e recusam. Antes, a soma vinha de uma
+    // leitura solta: o lançamento gravado no meio ficava fora do esperado (e dentro de um caixa já fechado), e dois
+    // fechamentos juntos gravavam os dois, valendo a contagem do último, com duas auditorias e dois comprovantes.
+    const limiteCent = await this.limiteDiferenca(tenantId, s.unidadeId);
     // Contado por forma (compat: só valorInformado = dinheiro).
     const informados: Record<string, number> =
       dto.valoresInformados ??
       (dto.valorInformado != null ? { dinheiro: dto.valorInformado } : {});
+    const fechou = await this.db.transaction(async (tx: any) => {
+      const trava: any = await tx.execute(sql`select id from caixa_sessao where id = ${s.id} and status = 'aberta' for update`);
+      if (!(trava.rows ?? trava).length)
+        throw new ConflictException({ message: 'Este caixa acabou de ser fechado (outro fechamento terminou antes).', code: 'CAIXA_JA_FECHADO', codigo: 'CAIXA_JA_FECHADO' });
+      const rf: any = await tx.execute(sql`
+        select coalesce(forma,'dinheiro') as forma,
+               coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as mov
+        from lancamento_caixa where sessao_id=${s.id}
+        group by coalesce(forma,'dinheiro')`);
+      const espCent: Record<string, number> = {};
+      for (const x of rf.rows ?? rf) espCent[x.forma] = paraCentavos(x.mov);
+      espCent['dinheiro'] = somarCentavos(espCent['dinheiro'] ?? 0, paraCentavos(s.valorAbertura));
 
-    const formas = Array.from(new Set([...Object.keys(espCent), ...Object.keys(informados)])).sort();
-    const esperadoPorForma: Record<string, number> = {};
-    const informadoPorForma: Record<string, number> = {};
-    const diferencaPorForma: Record<string, number> = {};
-    let totEspCent = 0;
-    let totInfCent = 0;
-    let excedeu = false;
-    const limiteCent = await this.limiteDiferenca(tenantId, s.unidadeId);
-    for (const f of formas) {
-      const e = espCent[f] ?? 0;
-      const i = paraCentavos(informados[f] ?? 0);
-      esperadoPorForma[f] = paraReais(e);
-      informadoPorForma[f] = paraReais(i);
-      const d = somarCentavos(i, -e);
-      diferencaPorForma[f] = paraReais(d);
-      totEspCent += e;
-      totInfCent += i;
-      if (Math.abs(d) > limiteCent) excedeu = true;
-    }
-    const esperado = paraReais(totEspCent);
-    const informado = paraReais(totInfCent);
-    const diferencaCent = somarCentavos(totInfCent, -totEspCent);
-    const diferenca = paraReais(diferencaCent);
-    if (Math.abs(diferencaCent) > limiteCent) excedeu = true;
+      const formas = Array.from(new Set([...Object.keys(espCent), ...Object.keys(informados)])).sort();
+      const esperadoPorForma: Record<string, number> = {};
+      const informadoPorForma: Record<string, number> = {};
+      const diferencaPorForma: Record<string, number> = {};
+      let totEspCent = 0;
+      let totInfCent = 0;
+      let excedeu = false;
+      for (const f of formas) {
+        const e = espCent[f] ?? 0;
+        const i = paraCentavos(informados[f] ?? 0);
+        esperadoPorForma[f] = paraReais(e);
+        informadoPorForma[f] = paraReais(i);
+        const d = somarCentavos(i, -e);
+        diferencaPorForma[f] = paraReais(d);
+        totEspCent += e;
+        totInfCent += i;
+        if (Math.abs(d) > limiteCent) excedeu = true;
+      }
+      const esperado = paraReais(totEspCent);
+      const informado = paraReais(totInfCent);
+      const diferencaCent = somarCentavos(totInfCent, -totEspCent);
+      const diferenca = paraReais(diferencaCent);
+      if (Math.abs(diferencaCent) > limiteCent) excedeu = true;
 
-    const [row] = await this.db
-      .update(caixaSessao)
-      .set({
-        status: 'fechada',
-        // Colunas legadas guardam o DINHEIRO (gaveta); o detalhe fica nos jsonb.
-        valorInformado: String(informadoPorForma['dinheiro'] ?? informado),
-        valorEsperado: String(esperadoPorForma['dinheiro'] ?? esperado),
-        diferenca: String(diferencaPorForma['dinheiro'] ?? diferenca),
-        valoresInformados: informadoPorForma,
-        esperadoPorForma,
-        diferencaPorForma,
-        fechadaEm: new Date(),
-        fechadaPorId: atorId,
-        obs: dto.obs,
-      })
-      .where(eq(caixaSessao.id, s.id))
-      .returning();
+      const [row] = await tx
+        .update(caixaSessao)
+        .set({
+          status: 'fechada',
+          // Colunas legadas guardam o DINHEIRO (gaveta); o detalhe fica nos jsonb.
+          valorInformado: String(informadoPorForma['dinheiro'] ?? informado),
+          valorEsperado: String(esperadoPorForma['dinheiro'] ?? esperado),
+          diferenca: String(diferencaPorForma['dinheiro'] ?? diferenca),
+          valoresInformados: informadoPorForma,
+          esperadoPorForma,
+          diferencaPorForma,
+          fechadaEm: new Date(),
+          fechadaPorId: atorId,
+          obs: dto.obs,
+        })
+        .where(and(eq(caixaSessao.id, s.id), eq(caixaSessao.status, 'aberta')))
+        .returning();
+      if (!row)
+        throw new ConflictException({ message: 'Este caixa acabou de ser fechado (outro fechamento terminou antes).', code: 'CAIXA_JA_FECHADO', codigo: 'CAIXA_JA_FECHADO' });
+      return { row, formas, esperadoPorForma, informadoPorForma, diferencaPorForma, esperado, informado, diferenca, excedeu };
+    });
+    const { row, formas, esperadoPorForma, informadoPorForma, diferencaPorForma, esperado, informado, diferenca, excedeu } = fechou;
 
     await this.auditoria.registrar({
       tenantId,

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { HandCoins } from 'lucide-react';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { lerValorDigitado, valorDigitadoValido } from '@/lib/valor-digitado';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,9 +42,13 @@ export function AcertosSalao() {
   async function baixar(a: any) {
     setSalvando(true);
     try {
-      const centavos = recebido.trim()
-        ? Math.round(Number(recebido.replace(',', '.')) * 100)
-        : undefined;
+      // "1.200,00" é R$ 1.200,00 (antes virava NaN e saía vazio) — texto que não é valor não baixa o acerto (C-05).
+      const lido = lerValorDigitado(recebido);
+      if (lido !== null && !valorDigitadoValido(lido)) {
+        toast.error('O valor recebido não é um valor válido. Digite como 150 ou 1.200,00.');
+        return;
+      }
+      const centavos = lido === null ? undefined : Math.round(lido * 100);
       const r: any = await api.baixarAcerto(a.id, { recebidoCentavos: centavos });
       const dif = Number(r?.diferencaCentavos ?? 0);
       toast.success(
