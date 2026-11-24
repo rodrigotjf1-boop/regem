@@ -54,8 +54,13 @@ import {
   pedidoServe,
   produtoFicou,
   resumoDoPedido,
+  ehCadastro,
 } from './mister-acoes';
+import type { ParametrosDeCadastro } from './mister-acoes-cadastro';
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
+import { FornecedorService } from '../fornecedor/fornecedor.service';
+import { ComprasService } from '../compras/compras.service';
+import { FUSO_SQL } from '../../common/fuso-sql';
 import { MisterNumeroService } from './mister-numero.service';
 import { botoesDaProposta } from './mister-procedimentos';
 import { MisterPropostasService, type PropostaPendente } from './mister-propostas.service';
@@ -113,11 +118,11 @@ const semPermissaoDe = (p: DefinicaoDaAcao['permissao']) =>
         ? TEXTOS_DAS_ACOES.semPermissaoChecklist
         : TEXTOS_DAS_ACOES.semPermissao;
 /** A MESMA conta do `PermissoesGuard`: o estoque é CRUD (a rota do movimento pede `editar`), os outros são chaves simples. */
-const temAPermissao = (perm: Permissoes | undefined | null, p: DefinicaoDaAcao['permissao']) =>
-  p === 'estoque' ? pode(perm, 'estoque', 'editar') : podeAcessar(perm, p);
+const temAPermissao = (perm: Permissoes | undefined | null, p: DefinicaoDaAcao['permissao'], crud: DefinicaoDaAcao['crud'] = 'editar') =>
+  p === 'estoque' ? pode(perm, 'estoque', crud ?? 'editar') : podeAcessar(perm, p);
 /** A permissão da ação: a da rota e, no preço, "Ver valores em R$" (o `exigirVerValores` da rota). O presidente pode tudo. */
 const podeFazer = (e: { nivel: string; permissoes?: Permissoes | null }, def: (typeof ACOES)[AcaoDoMister]) =>
-  e.nivel === 'presidente' || (temAPermissao(e.permissoes, def.permissao) && (!def.pedeVerValores || !!e.permissoes?.ver_financeiro));
+  e.nivel === 'presidente' || (temAPermissao(e.permissoes, def.permissao, def.crud) && (!def.pedeVerValores || !!e.permissoes?.ver_financeiro));
 const NOME_DA_SITUACAO: Record<string, string> = { novo: 'aguardando aceite', confirmado: 'em preparo', pronto: 'pronto', despachado: 'a caminho', concluido: 'concluído', entregue: 'entregue', cancelado: 'cancelado' };
 
 /** A ação conferida, pronta para virar proposta (`propor_acao`) ou um passo do plano (V7c). */
@@ -154,6 +159,9 @@ export class MisterAcoesService implements OnModuleInit {
     @Optional() private readonly estoque?: EstoqueService,
     // Lote 10: a baixa pelo MESMO serviço de Financeiro › Contas a pagar.
     @Optional() private readonly financeiro?: FinanceiroService,
+    // Versão 9, O3: o fornecedor e o pedido de compra pelos MESMOS serviços das telas.
+    @Optional() private readonly fornecedores?: FornecedorService,
+    @Optional() private readonly compras?: ComprasService,
   ) {}
 
   onModuleInit(): void {
@@ -337,6 +345,15 @@ export class MisterAcoesService implements OnModuleInit {
         resumo = resumoDaBaixa(b.baixa);
         alvo = b.id;
       }
+      if (ehCadastro(c.parametros.acao)) {
+        // Versão 9, O3: o insumo, o fornecedor e o pedido pelo nome, conferidos antes da pergunta.
+        const r = await this.prepararCadastro(e, c.parametros as ParametrosDeCadastro, e.lojaUnica && !loja.atual ? null : lojas);
+        if ('erro' in r) return recusa(r.erro);
+        Object.assign(parametros, r.parametros);
+        resumo = r.resumo;
+        alvo = r.alvo;
+        if (r.unidadeId !== undefined) unidadeId = r.unidadeId;
+      }
       if (ehDadoInformado(c.parametros.acao)) {
         // V7f: é da empresa, não de uma loja. O `toque` é a chave da gravação: cada pergunta tem a sua, e repetir o mesmo toque não
         // grava de novo. Informar outro valor é outra pergunta.
@@ -355,6 +372,186 @@ export class MisterAcoesService implements OnModuleInit {
       // M6l: cada pedido de imagem é um alvo (o mesmo pedido repetido é a mesma proposta e não paga de novo).
       if (c.parametros.acao === 'criar_imagem') alvo = `${c.parametros.proporcao}:${c.parametros.pedido}`;
       return { acao: c.parametros.acao, def, unidadeId, parametros, resumo, alvo: `${alvo}:${unidadeId ?? 'empresa'}` };
+    }
+  }
+
+  // ───────────────────────────── versão 9, O3: o cadastro pela conversa ─────────────────────────────
+
+  /** O fornecedor pelo nome, em Cadastros › Fornecedores (o igual vence; senão o único; senão a pessoa escolhe). */
+  private async acharFornecedor(tenantId: string, dito: string): Promise<{ id: string; nome: string } | { erro: string }> {
+    const achados = linhas(
+      await this.db.execute(sql`
+        select id::text as id, nome from fornecedor
+         where tenant_id = ${tenantId}::uuid and deleted_at is null and nome ilike ${comoTexto(dito)}
+         order by nome limit 6`),
+    );
+    return escolherUm(achados, dito, (a) => String(a.nome), 'Não achei esse fornecedor em Cadastros › Fornecedores. Diga o nome como está lá, ou peça para cadastrar.', (n) => `Achei mais de um fornecedor: ${n}. Diga qual.`, (a) => ({ id: a.id, nome: String(a.nome) }));
+  }
+
+  /** Confere o cadastro antes da pergunta: o que já existe, o fornecedor, o insumo e o pedido pelo nome. */
+  private async prepararCadastro(
+    e: EscopoDoMister,
+    x: ParametrosDeCadastro,
+    lojas: string[] | null,
+  ): Promise<{ parametros: Record<string, unknown>; resumo: string; alvo: string; unidadeId?: string | null } | { erro: string }> {
+    const qtd = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+    const fornecedorDito = async (dito: string | null) => (dito ? await this.acharFornecedor(e.tenantId, dito) : null);
+    if (x.acao === 'cadastrar_insumo') {
+      const iguais = linhas(
+        await this.db.execute(sql`
+          select nome from item_estoque where tenant_id = ${e.tenantId}::uuid and deleted_at is null and nome ilike ${comoTexto(x.nome)} limit 20`),
+      );
+      if (iguais.some((a) => semAcento(String(a.nome)) === semAcento(x.nome))) return { erro: `Já existe "${x.nome}" em Estoque › Produtos. Para mudar o que está lá, é alterar_insumo.` };
+      const f = await fornecedorDito(x.fornecedor);
+      if (f && 'erro' in f) return f;
+      const partes = [`em ${x.unidade}`, ...(x.minimo !== null ? [`mínimo de ${qtd(x.minimo)}`] : []), ...(f ? [`fornecedor ${f.nome}`] : []), ...(x.nomeComercial ? [`nome comercial "${x.nomeComercial}"`] : [])];
+      return {
+        parametros: { fornecedorId: f?.id ?? null, nomeDoFornecedor: f?.nome ?? null },
+        resumo: `Cadastrar o insumo "${x.nome}" ${partes.join(', ')}. Ele aparece em Estoque › Produtos.`,
+        alvo: `insumo:${semAcento(x.nome)}`,
+      };
+    }
+    if (x.acao === 'alterar_insumo') {
+      const it = await this.acharItem(e.tenantId, x.item, lojas);
+      if ('erro' in it) return it;
+      const [atual] = linhas(await this.db.execute(sql`select nome_comercial as "nomeComercial", estoque_minimo::float8 as minimo from item_estoque where id = ${it.id}::uuid and tenant_id = ${e.tenantId}::uuid`));
+      if (x.novoNome && semAcento(x.novoNome) !== semAcento(it.nome)) {
+        const [outro] = linhas(
+          await this.db.execute(sql`
+            select nome from item_estoque where tenant_id = ${e.tenantId}::uuid and deleted_at is null and id <> ${it.id}::uuid and nome ilike ${comoTexto(x.novoNome)} limit 20`),
+        ).filter((a) => semAcento(String(a.nome)) === semAcento(x.novoNome!));
+        if (outro) return { erro: `Já existe outro insumo chamado "${x.novoNome}". Escolha outro nome.` };
+      }
+      if (x.conversao && semAcento(x.conversao.unidade) === semAcento(it.unidade)) return { erro: `"${it.nome}" já é contado em ${it.unidade}: a conversão é de outra unidade (caixa, fardo…) para ${it.unidade}.` };
+      const f = await fornecedorDito(x.fornecedor);
+      if (f && 'erro' in f) return f;
+      const linhasDoResumo = [
+        ...(x.novoNome ? [`• o nome: "${it.nome}" → "${x.novoNome}"`] : []),
+        ...(x.nomeComercial ? [`• o nome comercial: ${atual?.nomeComercial ? `"${atual.nomeComercial}"` : 'nenhum'} → "${x.nomeComercial}"`] : []),
+        ...(x.minimo !== null ? [`• o mínimo: ${atual?.minimo != null ? qtd(Number(atual.minimo)) : 'nenhum'} → ${qtd(x.minimo)} ${it.unidade}`] : []),
+        ...(x.conversao ? [`• a conversão: 1 ${x.conversao.unidade} = ${qtd(x.conversao.quantas)} ${it.unidade}`] : []),
+        ...(f ? [`• o fornecedor ${f.nome} entra na lista`] : []),
+      ];
+      return {
+        parametros: { itemId: it.id, nomeDoItem: it.nome, unidadeDoItem: it.unidade, fornecedorId: f?.id ?? null, nomeDoFornecedor: f?.nome ?? null },
+        resumo: `Mudar "${it.nome}" em Estoque › Produtos:\n${linhasDoResumo.join('\n')}`,
+        alvo: `insumo:${it.id}`,
+      };
+    }
+    if (x.acao === 'cadastrar_fornecedor') {
+      const achados = linhas(
+        await this.db.execute(sql`
+          select nome, regexp_replace(coalesce(cnpj, ''), '\\D', '', 'g') as cnpj from fornecedor
+           where tenant_id = ${e.tenantId}::uuid and deleted_at is null
+             and (nome ilike ${comoTexto(x.nome)} ${x.cnpj ? sql`or regexp_replace(coalesce(cnpj, ''), '\\D', '', 'g') = ${x.cnpj}` : sql``})
+           limit 20`),
+      );
+      const mesmoCnpj = x.cnpj ? achados.find((a) => a.cnpj === x.cnpj) : null;
+      if (mesmoCnpj) return { erro: `Esse CNPJ já é do fornecedor "${mesmoCnpj.nome}", em Cadastros › Fornecedores.` };
+      if (achados.some((a) => semAcento(String(a.nome)) === semAcento(x.nome))) return { erro: `Já existe o fornecedor "${x.nome}" em Cadastros › Fornecedores.` };
+      const cnpj = x.cnpj ? `, CNPJ ${x.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')}` : '';
+      return {
+        parametros: {},
+        resumo: `Cadastrar o fornecedor "${x.nome}"${cnpj}${x.contato ? `, contato ${x.contato}` : ''}${x.telefone ? ', com o telefone' : ''}. Ele aparece em Cadastros › Fornecedores.`,
+        alvo: `fornecedor:${semAcento(x.nome)}`,
+      };
+    }
+    // O pedido de compra pelo nome ou pelo fornecedor; "06:12" no texto separa dois do mesmo nome pela hora em que foram criados.
+    const hora = /\b([01]\d|2[0-3]):[0-5]\d\b/.exec(x.pedido)?.[0] ?? null;
+    const dito = x.pedido.replace(/\b([01]\d|2[0-3]):[0-5]\d\b/, '').replace(/\s+/g, ' ').trim() || x.pedido;
+    let achados = linhas(
+      await this.db.execute(sql`
+        select c.id::text as id, c.nome, c.status, f.nome as fornecedor, c.unidade_id::text as "unidadeId",
+               to_char(c.created_at at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as criado,
+               (select count(*)::int from compra_item i where i.lista_id = c.id and i.tenant_id = c.tenant_id) as itens
+          from compra_lista c
+          left join fornecedor f on f.id = c.fornecedor_id and f.tenant_id = c.tenant_id
+         where c.tenant_id = ${e.tenantId}::uuid and c.deleted_at is null and c.created_at > clock_timestamp() - interval '90 days'
+           ${lojas ? sql`and (c.unidade_id is null or c.unidade_id in (${sql.join(lojas.map((l) => sql`${l}::uuid`), sql`, `)}))` : sql``}
+           and (c.nome ilike ${comoTexto(dito)} or f.nome ilike ${comoTexto(dito)})
+         order by c.created_at desc
+         limit 6`),
+    );
+    if (hora) achados = achados.filter((a) => String(a.criado).endsWith(hora));
+    const nomeDoPedido = (a: any) => `${a.nome}${a.fornecedor ? ` (${a.fornecedor})` : ''}, criado em ${a.criado}`;
+    if (achados.length > 1 && !achados.some((a) => semAcento(String(a.nome)) === semAcento(dito) && achados.filter((b) => b.nome === a.nome).length === 1))
+      return { erro: `Achei mais de um pedido: ${achados.map((a) => `"${nomeDoPedido(a)}"`).join('; ')}. Diga qual, com a hora em que foi criado.` };
+    const a = achados.length === 1 ? achados[0] : achados.find((b) => semAcento(String(b.nome)) === semAcento(dito));
+    if (!a) return { erro: 'Não achei esse pedido em Estoque › Pedidos (dos últimos 90 dias). Diga o nome ou o fornecedor como aparece lá.' };
+    if (a.status === 'recebida') return { erro: `O pedido "${a.nome}" já foi recebido: ele não se exclui pela conversa.` };
+    return {
+      parametros: { listaId: a.id, nomeDoPedido: a.nome },
+      resumo: `Excluir o pedido "${nomeDoPedido(a)}", com ${a.itens} ${a.itens === 1 ? 'item' : 'itens'}. Ele sai de Estoque › Pedidos.`,
+      alvo: `pedido:${a.id}`,
+      unidadeId: a.unidadeId ?? null,
+    };
+  }
+
+  /** Faz o cadastro pelo MESMO serviço da tela e confere o efeito. Sem o efeito, "não deu", com o motivo do serviço. */
+  private async aplicarCadastro(
+    p: { id: string; tenantId: string; unidadeId: string | null },
+    x: ParametrosDeCadastro & Record<string, any>,
+    e: EscopoDoMister,
+    quem: string,
+  ): Promise<{ feita: boolean; texto: string }> {
+    const indisponivel = { feita: false, texto: 'esse cadastro não está disponível agora. Nada foi feito.' };
+    const ator = { colaboradorId: quem, categoria: e.nivel } as any;
+    // O presidente mexe na empresa inteira; o gerente, na loja dele (a MESMA regra das rotas).
+    const atual = e.nivel === 'presidente' ? null : (p.unidadeId ?? null);
+    const motivo = (err: any) => String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240);
+    try {
+      if (x.acao === 'cadastrar_insumo') {
+        if (!this.estoque) return indisponivel;
+        const novo: any = await this.estoque.createItem(
+          p.tenantId,
+          { nome: x.nome, unidadeMedida: x.unidade, ...(x.minimo !== null ? { estoqueMinimo: x.minimo } : {}), ...(x.nomeComercial ? { nomeComercial: x.nomeComercial } : {}), ...(x.fornecedorId ? { fornecedorIds: [x.fornecedorId] } : {}) } as any,
+          atual,
+          ator,
+        );
+        const [ok] = linhas(await this.db.execute(sql`select nome from item_estoque where id = ${novo?.id ?? null}::uuid and tenant_id = ${p.tenantId}::uuid and deleted_at is null`));
+        return ok ? { feita: true, texto: `Cadastrei "${ok.nome}" em Estoque › Produtos.` } : { feita: false, texto: 'o cadastro não apareceu em Estoque › Produtos. Confira lá.' };
+      }
+      if (x.acao === 'alterar_insumo') {
+        if (!this.estoque) return indisponivel;
+        const itemId = String(x.itemId);
+        const conv = x.conversao;
+        const conversoes = conv
+          ? [
+              ...linhas(
+                await this.db.execute(sql`select unidade_de as "unidadeDe", fator::float8 as fator, unidade_para as "unidadePara" from item_conversao where tenant_id = ${p.tenantId}::uuid and item_id = ${itemId}::uuid`),
+              ).filter((c) => semAcento(String(c.unidadeDe)) !== semAcento(conv.unidade)),
+              { unidadeDe: conv.unidade, fator: conv.quantas, unidadePara: String(x.unidadeDoItem) },
+            ]
+          : undefined;
+        const fornecedorIds = x.fornecedorId
+          ? [...new Set([...linhas(await this.db.execute(sql`select fornecedor_id::text as id from item_fornecedor where tenant_id = ${p.tenantId}::uuid and item_id = ${itemId}::uuid`)).map((f) => f.id), x.fornecedorId])]
+          : undefined;
+        await this.estoque.updateItem(
+          p.tenantId,
+          itemId,
+          { ...(x.novoNome ? { nome: x.novoNome } : {}), ...(x.nomeComercial ? { nomeComercial: x.nomeComercial } : {}), ...(x.minimo !== null ? { estoqueMinimo: x.minimo } : {}), ...(conversoes ? { conversoes } : {}), ...(fornecedorIds ? { fornecedorIds } : {}) } as any,
+          atual,
+          ator,
+        );
+        const [ok] = linhas(await this.db.execute(sql`select nome, nome_comercial as "nomeComercial" from item_estoque where id = ${itemId}::uuid and tenant_id = ${p.tenantId}::uuid`));
+        if (!ok || (x.novoNome && ok.nome !== x.novoNome)) return { feita: false, texto: 'a mudança não apareceu em Estoque › Produtos. Confira lá.' };
+        return { feita: true, texto: `Mudei "${ok.nome}" em Estoque › Produtos.` };
+      }
+      if (x.acao === 'cadastrar_fornecedor') {
+        if (!this.fornecedores) return indisponivel;
+        const f: any = await this.fornecedores.create(p.tenantId, { nome: x.nome, ...(x.cnpj ? { cnpj: x.cnpj } : {}), ...(x.telefone ? { telefone: x.telefone } : {}), ...(x.contato ? { contato: x.contato } : {}) } as any);
+        return f?.id ? { feita: true, texto: `Cadastrei o fornecedor "${f.nome}" em Cadastros › Fornecedores.` } : { feita: false, texto: 'o fornecedor não apareceu em Cadastros › Fornecedores. Confira lá.' };
+      }
+      if (!this.compras) return indisponivel;
+      await this.compras.removerLista(p.tenantId, String(x.listaId), atual);
+      const [ok] = linhas(await this.db.execute(sql`select deleted_at is not null as excluido from compra_lista where id = ${String(x.listaId)}::uuid and tenant_id = ${p.tenantId}::uuid`));
+      return ok?.excluido ? { feita: true, texto: `Excluí o pedido "${x.nomeDoPedido}" de Estoque › Pedidos.` } : { feita: false, texto: 'o pedido continua em Estoque › Pedidos. Confira lá.' };
+    } catch (err: any) {
+      return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(motivo(err)) };
+    } finally {
+      await this.auditoria
+        ?.registrar({ tenantId: p.tenantId, atorId: quem, atorPerfil: e.nivel, tipo: 'mister', acao: 'mister_acao', entidadeTipo: 'mister_proposta', entidadeId: p.id, origem: 'whatsapp', detalhe: { acao: x.acao } } as any)
+        .catch(() => undefined);
     }
   }
 
@@ -891,6 +1088,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (parametros.acao === 'mudar_horario') return this.aplicarHorario(p, parametros as any, { id: quem, perfil: e.nivel });
     if (parametros.acao === 'pagar_conta') return this.aplicarBaixa(p, parametros as any, e, quem);
     if (ehDadoInformado(parametros.acao)) return this.guardarDado(p, parametros as any, e.nivel, quem);
+    if (ehCadastro(parametros.acao)) return this.aplicarCadastro(p, parametros as any, e, quem);
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };

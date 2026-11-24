@@ -12,6 +12,7 @@ import {
   voltaDaPausa,
 } from '../../common/pausa-do-canal';
 import { dataNoFuso } from '../../common/data';
+import { conferirCadastro, type ParametrosDeCadastro } from './mister-acoes-cadastro';
 import { NOMES_DOS_DIAS, ehHoraDoDia, horasDaJanela, lerDiaDaSemana, textoDaJanela, type JanelaDoDia } from '../../common/horarios-da-loja';
 
 // AS AÇÕES DO MISTER — a porta `propor_acao` (versão 6, M6j; plano aprovado em 20/11/2026, `docs/plano-mister.md` § "Versão
@@ -47,9 +48,17 @@ export const ACOES_DO_MISTER = [
   'informar_saldo',
   'informar_folha',
   'informar_custo_campanha',
+  // Versão 9, O3: o cadastro pela conversa (Estoque › Produtos, Cadastros › Fornecedores, Estoque › Pedidos).
+  'cadastrar_insumo',
+  'alterar_insumo',
+  'cadastrar_fornecedor',
+  'excluir_pedido_compra',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
+/** Versão 9, O3: as ações do cadastro pela conversa. */
+export const ACOES_DE_CADASTRO = ['cadastrar_insumo', 'alterar_insumo', 'cadastrar_fornecedor', 'excluir_pedido_compra'] as const;
+export const ehCadastro = (a: unknown): a is (typeof ACOES_DE_CADASTRO)[number] => (ACOES_DE_CADASTRO as readonly unknown[]).includes(a);
 
 export interface DefinicaoDaAcao {
   id: AcaoDoMister;
@@ -65,6 +74,8 @@ export interface DefinicaoDaAcao {
   pedeVerValores?: boolean;
   /** V7f: só o presidente da empresa inteira faz (nem o gerente com a permissão, nem o presidente preso a uma loja). */
   soPresidente?: boolean;
+  /** Versão 9, O3: no Estoque, o tipo da permissão que a rota pede (criar, editar ou excluir). Sem ele, editar. */
+  crud?: 'criar' | 'editar' | 'excluir';
 }
 
 export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
@@ -93,6 +104,12 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   // V7f: não muda nada na loja, só guarda o que veio da pessoa; por isso é de botão.
   informar_saldo: { id: 'informar_saldo', nivel: 'botao', permissao: 'financeiro', prazoMin: 10, nome: 'guardar o saldo do banco', pedeVerValores: true, soPresidente: true },
   informar_folha: { id: 'informar_folha', nivel: 'botao', permissao: 'financeiro', prazoMin: 10, nome: 'guardar a folha do mês', pedeVerValores: true, soPresidente: true },
+  // Versão 9, O3: as rotas de Estoque › Produtos (criar e editar), de Cadastros › Fornecedores (presidente ou gerente; aqui com o
+  // Estoque) e a exclusão do pedido em Estoque › Pedidos (`estoque.excluir`).
+  cadastrar_insumo: { id: 'cadastrar_insumo', nivel: 'botao', permissao: 'estoque', crud: 'criar', prazoMin: 10, nome: 'cadastrar um insumo' },
+  alterar_insumo: { id: 'alterar_insumo', nivel: 'botao', permissao: 'estoque', crud: 'editar', prazoMin: 10, nome: 'mudar um insumo' },
+  cadastrar_fornecedor: { id: 'cadastrar_fornecedor', nivel: 'botao', permissao: 'estoque', crud: 'criar', prazoMin: 10, nome: 'cadastrar um fornecedor' },
+  excluir_pedido_compra: { id: 'excluir_pedido_compra', nivel: 'botao', permissao: 'estoque', crud: 'excluir', prazoMin: 10, nome: 'excluir um pedido de compra' },
   informar_custo_campanha: { id: 'informar_custo_campanha', nivel: 'botao', permissao: 'financeiro', prazoMin: 10, nome: 'guardar o custo de uma campanha', pedeVerValores: true, soPresidente: true },
 };
 
@@ -425,7 +442,8 @@ export type ParametrosDaAcao =
   | { acao: 'mudar_preco'; produto: string; canais: CanalDoProduto[]; precoNovo: number }
   | { acao: 'mudar_horario'; dias: number[]; janela: JanelaDoDia | null; horarioDe: 'entrega' | 'retirada' | null }
   | { acao: 'pagar_conta'; conta: string; venceEm: string | null; forma: FormaDaBaixa; pagoEm: string | null; valorPago: number | null }
-  | { acao: AcaoDeDadoInformado; centavos: number; dia: string; campanha: string | null };
+  | { acao: AcaoDeDadoInformado; centavos: number; dia: string; campanha: string | null }
+  | ParametrosDeCadastro;
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -435,6 +453,7 @@ const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')
  */
 export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: Date = new Date()): { parametros: ParametrosDaAcao; resumo: string } | { erro: string } {
   if (!ehAcaoDoMister(acao)) return { erro: `Essa ação não existe. As ações são: ${ACOES_DO_MISTER.join(', ')}.` };
+  if (ehCadastro(acao)) return conferirCadastro(acao, en);
   if (acao === 'pausar_canal' || acao === 'reabrir_canal') {
     const brutos = Array.isArray(en.canais) ? en.canais : en.canal !== undefined ? [en.canal] : [];
     const canais = [...new Set(brutos.map(lerCanal))];
