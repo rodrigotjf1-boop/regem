@@ -17,7 +17,7 @@ export const RECURSO_DO_AVISO_ESCRITO = 'mister_aviso_escrito';
 export const PRAZO_DO_AVISO_ESCRITO_MS = 10_000;
 /** O texto escrito cabe nisto; mais que isso, vai o fixo. */
 export const AVISO_ESCRITO_MAX = 700;
-export const SAIDA_DO_AVISO_ESCRITO = 350;
+export const SAIDA_DO_AVISO_ESCRITO = 1500;
 /** Quantos outros avisos abertos da empresa vão no contexto ("é o único?"). */
 export const OUTROS_ABERTOS_MAX = 5;
 

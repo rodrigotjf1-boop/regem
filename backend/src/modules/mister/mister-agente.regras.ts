@@ -45,6 +45,8 @@ export const TETOS = {
   prazoMs: 75_000,
   prazoDaChamadaMs: 30_000,
   maxTokens: 2500,
+  /** A análise mais profunda vai ao Sonnet, em que o raciocínio conta no teto junto com o texto (ERR-593). */
+  maxTokensDaAnalise: 8000,
   /** O que entra da pergunta e o que sai da resposta, em caracteres. */
   pergunta: 1000,
   /** A pergunta que veio de uma foto leva o texto inteiro da leitura. */

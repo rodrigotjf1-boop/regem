@@ -1084,7 +1084,7 @@ export class MisterAvisosService implements OnModuleInit {
         messages: [{ role: 'user', content: JSON.stringify(ctx) }],
         prazoMs: PRAZO_DO_AVISO_ESCRITO_MS,
       });
-      if (r.recusou) return { texto: fixo, reserva: 'vazio' };
+      if (r.recusou || r.parou === 'max_tokens') return { texto: fixo, reserva: 'vazio' };
       const conferido = conferirAvisoEscrito(r.texto, ctx);
       if ('motivo' in conferido) {
         this.logger.warn(`aviso ${a.id} (${a.tipo}): o texto escrito não passou na conferência (${conferido.motivo}) — foi o texto fixo`);

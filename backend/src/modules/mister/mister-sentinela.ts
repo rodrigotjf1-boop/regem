@@ -16,7 +16,7 @@ export const MAX_PROPOSTAS = 5;
 export const NIVEIS_DA_PROPOSTA = ['critico', 'atencao', 'melhoria'] as const;
 export type NivelDaPropostaDaAnalise = (typeof NIVEIS_DA_PROPOSTA)[number];
 /** Quanto a IA pode escrever (as 5 propostas cabem com folga). */
-export const SAIDA_MAX_TOKENS = 1500;
+export const SAIDA_MAX_TOKENS = 6000;
 
 export interface PropostaDaAnalise {
   nivel: NivelDaPropostaDaAnalise;

@@ -42,7 +42,7 @@ export function versaoDoTexto(texto: string): string {
 /** O modelo do Mentor: escrever instrução pede mais que responder pergunta. */
 export const MODELO_DO_MENTOR = 'claude-sonnet-5-5';
 export const RECURSO_DO_MENTOR = 'mister_mentor';
-export const SAIDA_DO_MENTOR = 800;
+export const SAIDA_DO_MENTOR = 4000;
 
 export const INSTRUCOES_DO_MENTOR = [
   'Você é o Mentor do Mister, o administrador virtual do Regem (um sistema de gestão de bares e restaurantes). O Mister responde pelo WhatsApp às perguntas do dono e do gerente, seguindo as instruções que você vai receber, numeradas por linha.',

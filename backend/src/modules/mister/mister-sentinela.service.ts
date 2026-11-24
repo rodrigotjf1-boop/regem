@@ -185,7 +185,7 @@ export class MisterSentinelaService {
         prazoMs: 60_000,
       });
       uso = r.uso;
-      const propostas = r.recusou ? null : lerPropostas(r.texto);
+      const propostas = r.recusou || r.parou === 'max_tokens' ? null : lerPropostas(r.texto);
       if (!propostas) {
         await this.fechar(id, modelo, uso, eventos, 'a IA respondeu fora do formato pedido; nenhuma proposta foi gravada');
         return;
