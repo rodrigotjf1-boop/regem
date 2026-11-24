@@ -68,9 +68,9 @@ async function dentroDoPrazo<T>(promessa: Promise<T>, ms: number): Promise<T | n
  * a foto (ou o PDF) por aqui ANTES dos documentos:
  *  • desligado (`MISTER_MIDIA`), ou figurinha/planilha: segue como antes (os documentos, ou "só leio texto");
  *  • a empresa sem a ligação com o DMS Graph: "só leio texto" com o caminho para ligar (a entrada responde, 1× a cada
- *    meia hora) — sem o Graph não há leitura (decisão 5: a IA da empresa é só a reserva dele);
- *  • com o Graph: baixa a mídia, o Graph lê (até 15 s) e, se ele não ler (demora, franquia, fora do ar), a IA da empresa
- *    lê no que sobrar dos 30 s (V106: prazo total). Nenhum dos dois: "não consegui ver a foto";
+ *    meia hora). A ligação continua sendo a porta da foto, para nenhuma empresa passar a gastar a IA sem ter ligado;
+ *  • com a ligação: baixa a mídia, a IA da empresa (Anthropic) lê e, se ela não ler (sem acesso, prazo, resposta cortada), o
+ *    Graph lê no que sobrar do prazo total (V106). Nenhum dos dois: "não consegui ver a foto";
  *  • boleto ou nota: vai aos documentos (que leem e lançam como sempre); se eles não estiverem ligados, vira pergunta;
  *  • o resto: vira a pergunta (o que a foto mostra + a legenda), que a entrada põe na fila do agente.
  * A foto não fica guardada em lugar nenhum. Nunca lança: a falha fica no registro, com o motivo e sem o conteúdo (V11).
@@ -169,28 +169,31 @@ export class MisterMidiaService implements OnModuleInit {
         return 'tratada';
       }
 
-      // O prazo é da leitura inteira (Graph + reserva), a contar daqui.
+      // Decisão do dono (24/11/2026): a foto vai primeiro à Anthropic. O Graph leu 2 de 6 fotos, e cada falha custava 25 s de
+      // espera antes da leitura que funcionava. Ele fica de reserva, com a sua parte do prazo total.
       const fim = Date.now() + this.prazos.totalMs;
-      const falhaDoGraph: { motivo: string | null } = { motivo: null };
-      let visto: OQueViu | null = await this.graph.analisar(
-        quem.tenantId,
-        lig,
-        { buffer: arquivo.buffer, mime, mensagemId: wamid ?? undefined },
-        Math.min(this.prazos.graphMs, fim - Date.now()),
-        oQueOGraphViu,
-        { mimes: MIMES_DO_MISTER_NO_GRAPH, prefixoDaChave: PREFIXO_DA_CHAVE_DO_MISTER, aoFalhar: (m: string) => (falhaDoGraph.motivo = m) },
-      );
-      let via: 'graph' | 'ia' = 'graph';
+      let via: 'graph' | 'ia' = 'ia';
+      let visto: OQueViu | null = await this.lerPelaIa(quem.tenantId, arquivo.buffer, mime, Math.max(0, this.prazos.totalMs - this.prazos.graphMs)).catch((e: any) => {
+        this.logger.warn(`foto do Mister: a IA da empresa não leu, vai ao DMS Graph (${e instanceof FalhaDaIa ? e.motivo : String(e?.message ?? e).slice(0, 120)})`);
+        return null;
+      });
       if (!visto) {
-        visto = await this.lerPelaIa(quem.tenantId, arquivo.buffer, mime, fim - Date.now());
-        via = 'ia';
+        via = 'graph';
+        visto = await this.graph.analisar(
+          quem.tenantId,
+          lig,
+          { buffer: arquivo.buffer, mime, mensagemId: wamid ?? undefined },
+          Math.min(this.prazos.graphMs, fim - Date.now()),
+          oQueOGraphViu,
+          { mimes: MIMES_DO_MISTER_NO_GRAPH, prefixoDaChave: PREFIXO_DA_CHAVE_DO_MISTER },
+        );
       }
       if (!visto) {
         await this.falar(quem.telefone, TEXTOS_DA_MIDIA.naoViu);
         return 'tratada';
       }
       const notaDaLista = await this.notaDaLista(quem, arquivo.buffer, mime, visto, midia.legenda);
-      return { pergunta: perguntaComFoto(visto, midia.legenda, via, notaDaLista, via === 'ia' ? falhaDoGraph.motivo : null), documento: visto.financeiro };
+      return { pergunta: perguntaComFoto(visto, midia.legenda, via, notaDaLista), documento: visto.financeiro };
     } catch (e: any) {
       const motivo = e instanceof FalhaDaIa ? `IA: ${e.motivo}` : String(e?.code ?? e?.name ?? e?.message ?? e).slice(0, 120);
       this.logger.warn(`foto do Mister não lida (${motivo})`);
@@ -295,6 +298,11 @@ export class MisterMidiaService implements OnModuleInit {
       return null;
     }
     if (r.recusou) return null;
+    // ERR-593: a resposta cortada pelo teto não é leitura.
+    if (r.parou === 'max_tokens') {
+      this.logger.warn(`foto do Mister: a leitura parou no teto de ${MAX_TOKENS_DA_FOTO} tokens`);
+      return null;
+    }
     const visto = lerOQueAIaViu(r.texto);
     if (!visto) this.logger.warn('a leitura da foto do Mister voltou fora do formato');
     return visto;

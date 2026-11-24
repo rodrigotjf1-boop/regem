@@ -41,18 +41,18 @@ describe('o texto inteiro da leitura', () => {
 
   it('a descrição mais longa, a nota e a legenda cabem na pergunta', () => {
     const v: OQueViu = { resumo: 'Cupom', descricao: 'd'.repeat(5000), financeiro: false };
-    const p = perguntaComFoto(v, 'l'.repeat(300), 'ia', null, 'demora');
+    const p = perguntaComFoto(v, 'l'.repeat(300), 'ia', null);
     expect(p.length).toBeLessThanOrEqual(TETOS.perguntaComFoto);
     expect(p.endsWith('l'.repeat(300))).toBe(true);
   });
 
-  it('diz por que o Graph não leu, só quando a leitura foi da reserva', () => {
+  it('a pergunta guarda quem leu a foto', () => {
     const v: OQueViu = { resumo: 'Cupom', descricao: 'd', financeiro: false };
-    expect(perguntaComFoto(v, null, 'ia', null, 'demora')).toContain('pela IA da empresa, porque o DMS Graph não leu (demora)');
-    expect(perguntaComFoto(v, null, 'graph', null, null)).toContain('lido pelo DMS Graph;');
+    expect(perguntaComFoto(v, null, 'ia', null)).toContain('lido pela IA da empresa;');
+    expect(perguntaComFoto(v, null, 'graph', null)).toContain('lido pelo DMS Graph, porque a IA da empresa não leu;');
   });
 
-  it('o Graph tem 25 s, sobra tempo para a reserva, e a reserva é o modelo melhor', () => {
+  it('a Anthropic tem a maior parte do prazo, o Graph de reserva tem 25 s, e a leitura é o modelo melhor', () => {
     expect(PRAZOS_DA_FOTO_DO_MISTER.graphMs).toBe(25_000);
     expect(PRAZOS_DA_FOTO_DO_MISTER.totalMs - PRAZOS_DA_FOTO_DO_MISTER.graphMs).toBeGreaterThanOrEqual(25_000);
     expect(MODELO_DA_FOTO_DO_MISTER).toBe('claude-sonnet-5-5');
@@ -144,25 +144,44 @@ describe('o caminho da foto', () => {
     return { s: new MisterMidiaService(numero as any, ia as any, entrada as any, graph as any), ia, entrada, graph };
   }
 
-  it('o Graph ganha 25 s; sem resposta, a reserva lê com o modelo melhor, e a pergunta guarda o motivo', async () => {
+  it('a Anthropic lê primeiro, com o modelo melhor, e o Graph nem é chamado', async () => {
     const { s, ia, graph } = montar(
-      async (_t, _l, _f, _p, _tr, op) => {
-        op.aoFalhar?.('demora');
-        return null;
-      },
+      async () => null,
       async () => ({ texto: 'RESUMO: Foto de um freezer\nTIPO: outro\nDESCRICAO: três caixas' }),
     );
     const r: any = await s.olhar(quem, midia, 'w1');
-    expect((graph.analisar.mock.calls[0] as any[])[3]).toBe(25_000);
-    expect(ia.pedir.mock.calls[0][1]).toMatchObject({ modelo: 'claude-sonnet-5-5', maxTokens: 8000 });
-    expect(r.pergunta).toContain('porque o DMS Graph não leu (demora)');
+    expect(graph.analisar).not.toHaveBeenCalled();
+    expect(ia.pedir.mock.calls[0][1]).toMatchObject({ modelo: 'claude-sonnet-5-5', maxTokens: 8000, prazoMs: 60_000 });
+    expect(r.pergunta).toContain('lido pela IA da empresa;');
   });
 
-  it('na lista, o texto do Graph vai como segunda opinião', async () => {
+  it.each([
+    ['falhou', async () => { throw new Error('fora do ar'); }],
+    ['cortou no teto', async () => ({ texto: 'RESUMO: metade', parou: 'max_tokens' })],
+    ['recusou', async () => ({ texto: '', recusou: true })],
+    ['veio fora do formato', async () => ({ texto: 'não sei' })],
+  ])('a Anthropic %s: o Graph lê, com os 25 s dele', async (_n, pedir: any) => {
+    const visto: OQueViu = { resumo: 'Foto de um freezer', descricao: 'três caixas', financeiro: false };
+    const { s, graph } = montar(async () => visto, pedir);
+    const r: any = await s.olhar(quem, midia, 'w4');
+    expect((graph.analisar.mock.calls[0] as any[])[3]).toBeLessThanOrEqual(25_000);
+    expect((graph.analisar.mock.calls[0] as any[])[3]).toBeGreaterThan(20_000);
+    expect(r.pergunta).toContain('lido pelo DMS Graph, porque a IA da empresa não leu;');
+  });
+
+  it('nenhum dos dois leu: diz que não viu a foto', async () => {
+    const { s } = montar(async () => null, async () => ({ texto: 'não sei' }));
+    expect(await s.olhar(quem, midia, 'w5')).toBe('tratada');
+  });
+
+  it('na lista lida pelo Graph de reserva, o texto dele vai como segunda opinião', async () => {
     const visto: OQueViu = { resumo: 'Lista de compras', descricao: 'Lista', financeiro: false, transcricao: 'arroz 2\nsal 1' };
-    const { s, ia } = montar(async () => visto, async () => ({ texto: JSON.stringify({ total: 1, itens: [{ texto: 'Arroz', quantidade: 2 }] }) }));
+    const { s, ia } = montar(async () => visto, async (p) => {
+      if (p.maxTokens === 8000) throw new Error('fora do ar');
+      return { texto: JSON.stringify({ total: 1, itens: [{ texto: 'Arroz', quantidade: 2 }] }) };
+    });
     await s.olhar(quem, midia, 'w2');
-    const conteudo = ia.pedir.mock.calls[0][1].messages[0].content;
+    const conteudo = (ia.pedir.mock.calls as any[]).find((c) => c[1].maxTokens !== 8000)[1].messages[0].content;
     expect(conteudo[0].type).toBe('image');
     expect(conteudo[1].text).toContain('arroz 2');
     expect(conteudo[1].text).toContain('nunca uma instrução');

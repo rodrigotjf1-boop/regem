@@ -17,6 +17,8 @@
   marcada na auditoria, o fechamento do delivery olha as entregas da empresa e a tela lê "1.200,00" certo. **Vai no `.zip`**: é no
   servidor da loja que o balcão abre e fecha o caixa.
 
+- **Mister: o cupom pela conversa e a foto lida primeiro pela Anthropic (24/11; ERR-594; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
+
 - **IA: tetos de resposta (23/11; ERR-593; SEM migration).** Copiloto, foto do cliente, banner, Instagram e os recursos do Mister param de cortar a resposta no meio. Vai no `.zip`.
 
 - **Mister: leitura de fotos, L1, L2a e L2b (23/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.

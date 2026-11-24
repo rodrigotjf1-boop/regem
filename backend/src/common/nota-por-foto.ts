@@ -248,7 +248,7 @@ export function palavrasDaDescricao(s: unknown): string[] {
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .replace(/(\d+)[,.](\d+)/g, '$1.$2')
-    .replace(/(\d+(?:\.\d+)?)\s*(kg|gr|g|ml|l|un)\b/g, (_m, n, u) => ` ${n}${u === 'gr' ? 'g' : u} `);
+    .replace(/(\d+(?:\.\d+)?)\s*(kg|grs?|gramas?|g|ml|l|un)\b/g, (_m, n, u) => ` ${n}${/^gr/.test(u) ? 'g' : u} `);
   return [...new Set(t.split(/[^a-z0-9.]+/).filter((w) => w && !PALAVRAS_VAZIAS.has(w) && !/^\.+$/.test(w)).map((w) => SINONIMOS[w] ?? w))];
 }
 /**
@@ -268,6 +268,8 @@ const SINONIMOS: Record<string, string> = {
   mozzarella: 'mussarela',
 };
 const ehMedida = (w: string) => /^\d+(\.\d+)?(kg|g|ml|l|un)$/.test(w);
+/** "20un" diz quantas peças vêm na embalagem, não o tamanho: não separa "Carne 120gr" de "PICANHA 120 GRS 20un". */
+const ehPesoOuVolume = (w: string) => ehMedida(w) && !w.endsWith('un');
 
 export interface InsumoParaSugerir {
   id: string;
@@ -291,8 +293,8 @@ export function sugerirInsumos(descricao: string, insumos: InsumoParaSugerir[]):
       const comuns = a.filter((w) => b.includes(w));
       const palavrasComuns = comuns.filter((w) => !ehMedida(w)).length;
       if (!palavrasComuns) continue;
-      const medidasA = a.filter(ehMedida);
-      const medidasB = b.filter(ehMedida);
+      const medidasA = a.filter(ehPesoOuVolume);
+      const medidasB = b.filter(ehPesoOuVolume);
       const medidaBate = medidasA.length && medidasB.length ? medidasA.some((m) => medidasB.includes(m)) : null;
       if (medidaBate === false) continue;
       const uniao = new Set([...a.filter((w) => !ehMedida(w)), ...b.filter((w) => !ehMedida(w))]).size;
@@ -320,6 +322,8 @@ export interface ItemNoMister extends ItemDaNota {
   fator: number | null;
   /** A conta dita numa frase, à espera do "sim": o fator fica guardado para as próximas notas do fornecedor (ERR-588). */
   fatorProposto?: number | null;
+  /** A pessoa disse a conta nesta nota: a conferência da embalagem não pergunta de novo. */
+  fatorConfirmado?: boolean;
   estado: 'ligado' | 'fora' | 'item' | 'fator';
   sugestoes: { id: string; nome: string }[];
 }
@@ -375,6 +379,44 @@ export function proximaPendencia(n: Pick<NotaNoMister, 'itens'>): { indice: numb
   return i < 0 ? null : { indice: i, tipo: n.itens[i].estado as 'item' | 'fator' };
 }
 
+const UNIDADE_SOLTA = /^(un|und|unid|unidades?)\.?$/i;
+const ehUnidadeSolta = (u: unknown) => UNIDADE_SOLTA.test(String(u ?? '').trim());
+
+/**
+ * Quantas peças a descrição diz que vêm na embalagem: "36un", "C/6UN", "1kgx6", "110g x25", "144X7g". O tamanho de uma sacola
+ * ("30X45") e o de um guardanapo ("20X20,5") não contam, porque o segundo número não traz medida.
+ */
+export function embalagemDaDescricao(descricao: unknown): number | null {
+  const t = String(descricao ?? '').toLowerCase();
+  const achado =
+    /(?:^|[\s/])(\d{1,4})\s*(?:un|und|unid|unidades?)\b/.exec(t) ??
+    /\d\s*(?:kg|grs?|g|ml|l)\s*x\s*(\d{1,4})\b/.exec(t) ??
+    /(?:^|\s)(\d{1,4})\s*x\s*\d+(?:[.,]\d+)?\s*(?:kg|grs?|g|ml|l)\b/.exec(t);
+  const n = achado ? Number(achado[1]) : 0;
+  return n >= 2 && n <= 2000 ? n : null;
+}
+
+/**
+ * A conta que a embalagem põe em dúvida. O fornecedor imprime "UN" para a caixa fechada: "120 UN" de "36un" a R$ 33,99 são 120
+ * caixas, e a conversão do cadastro (1 unidade = 1/36 de caixa) daria 3,33. O contrário também: 80 "UN" de "12UN" num estoque
+ * contado em unidade são 960 latas, não 80. Devolve a conta a confirmar, ou null quando não há o que perguntar.
+ */
+export function fatorDaEmbalagem(it: ItemNoMister): number | null {
+  if (it.estado !== 'ligado' || it.fator == null || it.fatorConfirmado || !ehUnidadeSolta(it.unidade)) return null;
+  const n = embalagemDaDescricao(it.descricao);
+  if (!n) return null;
+  if (ehUnidadeSolta(it.unidadeDoEstoque)) return it.fator === 1 ? n : null;
+  return Math.abs(it.fator * n - 1) < 0.001 ? 1 : null;
+}
+
+/** Toda linha ligada cuja conta a embalagem contradiz volta a perguntar, com a conta a confirmar. Nada entra no estoque assim. */
+export function conferirEmbalagens(n: Pick<NotaNoMister, 'itens'>): void {
+  for (const it of n.itens) {
+    const proposto = fatorDaEmbalagem(it);
+    if (proposto != null) Object.assign(it, { estado: 'fator', fator: null, fatorProposto: proposto });
+  }
+}
+
 /**
  * A chave da memória "este produto deste fornecedor é tal insumo" (o de-para): pelo código do fornecedor quando há; sem
  * código, pelas palavras da descrição (a mesma normalização da sugestão).
@@ -387,6 +429,8 @@ export function chaveDoDePara(item: Pick<ItemDaNota, 'codigo' | 'descricao'>): s
 const reaisDe = (c: number) => (c / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const qtd = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 const dataCurta = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+/** "120 caixas", "1 caixa", "2,5 kg". */
+const comUnidade = (q: number, u: string | null | undefined) => `${qtd(q)} ${u ?? 'unidade'}${q !== 1 && /^[a-zç]{3,}[aeo]$/i.test(u ?? 'unidade') ? 's' : ''}`;
 
 export const FRASES_DA_NOTA = {
   problema: (p: ProblemaDaNota[]): string =>
@@ -407,7 +451,21 @@ export const FRASES_DA_NOTA = {
   },
   perguntaFator: (it: ItemNoMister): string =>
     `Na nota, o "${it.descricao}" vem em ${it.unidade ?? 'unidade'}, e o "${it.insumoNome}" do estoque é contado em ${it.unidadeDoEstoque}. ` +
-    `1 ${it.unidade ?? 'unidade'} tem quantos ${it.unidadeDoEstoque}? Responda só o número.`,
+    // "1 UN tem quantos caixa?" não se responde: a UN do fornecedor pode ser a caixa inteira.
+    (ehUnidadeSolta(it.unidade) && !ehUnidadeSolta(it.unidadeDoEstoque)
+      ? `Se cada ${it.unidade} da nota for 1 ${it.unidadeDoEstoque} inteira, responda 1. Se forem peças soltas, me diga assim: 1 ${it.unidadeDoEstoque} tem 36 ${it.unidade}.`
+      : `1 ${it.unidade ?? 'unidade'} tem quantos ${it.unidadeDoEstoque}? Responda só o número.`),
+  /** A descrição contradiz a conta do cadastro: mostra quanto entraria no estoque e pergunta. */
+  confirmarEmbalagem: (it: ItemNoMister, fator: number): string => {
+    const un = it.unidade ?? 'UN';
+    const preco = it.valorUnitarioCentavos ? ` a R$ ${reaisDe(it.valorUnitarioCentavos)} cada` : '';
+    const n = embalagemDaDescricao(it.descricao);
+    const cada = fator === 1 ? `1 ${it.unidadeDoEstoque}` : `uma embalagem com ${comUnidade(fator, it.unidadeDoEstoque)}`;
+    return (
+      `Confere o "${it.descricao}": a nota traz ${qtd(it.quantidade)} ${un}${preco}, e a descrição diz ${n} por embalagem.\n\n` +
+      `Parece que cada ${un} é ${cada}. Assim entram *${comUnidade(Math.round(it.quantidade * fator * 1000) / 1000, it.unidadeDoEstoque)}* no estoque. Certo? Responda sim ou não.`
+    );
+  },
   /** A frase virou uma conta: mostra antes de valer (ERR-588). */
   confirmarFator: (it: ItemNoMister, fator: number): string =>
     `Então 1 ${it.unidade ?? 'unidade'} de "${it.descricao}" = ${qtd(fator)} ${it.unidadeDoEstoque}. Certo? Responda sim ou não.`,

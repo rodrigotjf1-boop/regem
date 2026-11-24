@@ -258,7 +258,7 @@ export interface ResultadoDaFerramenta {
    * Versão 6, M6g: as mensagens que a ação manda DEPOIS da resposta (a primeira pergunta da lista de compras, com os
    * botões) — NÃO vão ao modelo; o agente as manda na ordem, como a proposta.
    */
-  mensagens?: { texto: string; botoes?: { id: string; titulo: string }[] }[];
+  mensagens?: { texto: string; botoes?: { id: string; titulo: string }[]; /** Com a mesma chave, só a última sai (ERR-594). */ chave?: string }[];
   /** M3d: a imagem da tela do "como faço" (o endereço público do PNG dos roteiros) — NÃO vai ao modelo; vai antes do texto. */
   imagens?: { url: string; legenda: string }[];
   /**
@@ -655,6 +655,10 @@ export class MisterFerramentasService {
         return this.regras ? this.regras(e, en) : Promise.resolve(recusa('As regras de aviso ainda não estão disponíveis neste servidor.'));
       case 'lista_de_compras':
         return this.lista ? this.lista(e, en) : Promise.resolve(recusa('A lista de compras ainda não está disponível neste servidor.'));
+      case 'pedidos_de_compra':
+        return this.pedidosDeCompra(e, en, loja);
+      case 'documento_em_andamento':
+        return this.documento ? this.documento(e, en) : Promise.resolve(recusa('O cupom pela conversa ainda não está disponível neste servidor.'));
       case 'refazer_grafico':
         return Promise.resolve(this.refazerGrafico(e, en));
       case 'propor_acao':
@@ -705,6 +709,56 @@ export class MisterFerramentasService {
   private lista: ((e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>) | null = null;
   registrarLista(f: (e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>): void {
     this.lista = f;
+  }
+
+  // ERR-594: o cupom e a nota em aberto moram no `MisterNotasService` (o mesmo jeito da lista).
+  private documento: ((e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>) | null = null;
+  registrarDocumento(f: (e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>): void {
+    this.documento = f;
+  }
+
+  /**
+   * ERR-594: os pedidos de compra, com quem criou. O Mister disse "não fui eu" sobre um pedido que ele mesmo montou de manhã: a
+   * memória da conversa não alcança outro dia. Só lê, com a permissão do Estoque e a loja da conversa (ou o pedido sem loja).
+   */
+  private async pedidosDeCompra(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'estoque')) return recusa(SEM_PERMISSAO);
+    const termo = semAcentoMin(en.fornecedor).slice(0, 60);
+    const semAcentoSql = (coluna: any) => sql`translate(lower(${coluna}), 'áàâãéêíóôõúç', 'aaaaeeiooouc')`;
+    const rows = linhas(
+      await this.db.execute(sql`
+        select c.nome, c.status, f.nome as fornecedor, to_char(c.created_at at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as criado,
+               (select count(*)::int from compra_item i where i.lista_id = c.id and i.tenant_id = c.tenant_id) as itens,
+               (select coalesce(array_agg(x.nome), '{}') from (
+                  select ie.nome from compra_item i join item_estoque ie on ie.id = i.item_id and ie.tenant_id = i.tenant_id
+                   where i.lista_id = c.id and i.tenant_id = c.tenant_id order by ie.nome limit 30) x) as produtos,
+               m.id is not null as "doMister", col.nome as "quemPediu"
+          from compra_lista c
+          left join fornecedor f on f.id = c.fornecedor_id and f.tenant_id = c.tenant_id
+          left join lateral (select ml.id, ml.colaborador_id from mister_lista_compra ml where ml.tenant_id = c.tenant_id and ml.compra_lista_id = c.id limit 1) m on true
+          left join colaborador col on col.id = m.colaborador_id and col.tenant_id = c.tenant_id
+         where c.tenant_id = ${e.tenantId}::uuid and c.deleted_at is null and c.created_at > clock_timestamp() - interval '30 days'
+           ${loja.atual ? sql`and (c.unidade_id = ${loja.atual}::uuid or c.unidade_id is null)` : sql``}
+           ${termo ? sql`and (${semAcentoSql(sql`f.nome`)} like ${`%${termo}%`} or ${semAcentoSql(sql`c.nome`)} like ${`%${termo}%`})` : sql``}
+         order by (c.status = 'aberta') desc, c.created_at desc
+         limit 8`),
+    );
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        pedidos: rows.map((p) => ({
+          nome: p.nome,
+          fornecedor: p.fornecedor ?? null,
+          situacao: p.status === 'aberta' ? 'aguardando recebimento' : p.status === 'recebida' ? 'recebido' : p.status,
+          criado: p.criado,
+          itens: Number(p.itens),
+          produtos: p.produtos ?? [],
+          quemCriou: p.doMister ? `você (o Mister), a pedido de ${p.quemPediu ?? 'alguém da loja'}` : 'pela tela do Regem',
+        })),
+        ...(rows.length ? {} : { vazio: 'Nenhum pedido de compra assim nos últimos 30 dias.' }),
+      },
+    };
   }
 
   // Versão 6, M6j: as ações (a porta `propor_acao`) moram no `MisterAcoesService` (o mesmo jeito das regras e da lista).

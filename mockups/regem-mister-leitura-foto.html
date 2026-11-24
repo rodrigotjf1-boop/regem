@@ -666,13 +666,14 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
     <div class="cartao">
       <div class="grupo-aj">Conversa <span>Como o Mister lê e responde</span></div>
       <div class="aj"><div><div class="t" id="aj-boleto">Lançar boletos por foto</div><div class="d">Já existe e continua igual.</div></div><div class="ctrl"><button class="liga" role="switch" aria-checked="true" aria-labelledby="aj-boleto"></button></div></div>
-      <div class="aj"><div><div class="t" id="aj-reler">Reler a foto difícil com a IA mais forte <span class="selo info">novo</span></div><div class="d">Só quando a primeira leitura fica em dúvida. A foto boa não passa por aqui.</div><span class="preco">Cerca de R$ 0,12 por foto relida, na chave de IA da empresa</span></div><div class="ctrl"><button class="liga" id="liga-reler" role="switch" aria-checked="false" aria-labelledby="aj-reler"></button></div></div>
+      <div class="aj"><div><div class="t" id="aj-reler">Reler a foto difícil com a IA mais forte <span class="selo info">novo</span></div><div class="d">Só quando a primeira leitura fica em dúvida. A foto boa não passa por aqui.</div><span class="preco">Cerca de R$ 0,15 por foto relida, na chave de IA da empresa</span></div><div class="ctrl"><button class="liga" id="liga-reler" role="switch" aria-checked="false" aria-labelledby="aj-reler"></button></div></div>
       <p class="sub" id="reler-estado" aria-live="polite">Desligada. Quando a leitura fica em dúvida, o Mister pergunta a você.</p>
     </div>
     <div class="cartao">
       <h2>Quanto isso custaria</h2>
       <div class="kv-simples">
-        <div><span>Foto lida pela reserva ou lista copiada, com o Sonnet (já ligado)</span><b>cerca de R$ 0,12</b></div>
+        <div><span>Foto lida pelo Sonnet ou lista copiada (já ligado; desde 24/11 a Anthropic lê primeiro e o Graph fica de reserva)</span><b>cerca de R$ 0,15</b></div>
+        <div><span>Cupom ou nota inteira: a foto, a classificação e a leitura dos itens</span><b>cerca de R$ 0,47</b></div>
         <div><span>Foto relida, uma lista de 40 linhas</span><b>cerca de US$ 0,02</b></div>
         <div><span>30 fotos relidas no mês</span><b>cerca de R$ 3,60</b></div>
         <div><span>Fotos que não precisam de releitura</span><b>R$ 0,00 a mais</b></div>
@@ -719,7 +720,7 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
           <tr><td data-rot="Versão">B · Leitura inteira</td><td data-rot="O que muda">O texto completo do Graph chega ao Mister</td><td data-rot="Custo a mais">nenhum</td><td data-rot="Resultado"><span class="selo neutro">a medir</span></td></tr>
           <tr><td data-rot="Versão">C · B com ajuste de luz</td><td data-rot="O que muda">Clareia só a foto escura, antes de ler</td><td data-rot="Custo a mais">nenhum</td><td data-rot="Resultado"><span class="selo neutro">a medir</span></td></tr>
           <tr><td data-rot="Versão">D · B com fatias</td><td data-rot="O que muda">Cupom comprido lido em pedaços, com sobra entre eles</td><td data-rot="Custo a mais">pouco</td><td data-rot="Resultado"><span class="selo neutro">a medir</span></td></tr>
-          <tr><td data-rot="Versão">E · B com Sonnet na dúvida</td><td data-rot="O que muda">A IA mais forte relê só o que ficou em dúvida</td><td data-rot="Custo a mais">cerca de R$ 0,12 por foto relida</td><td data-rot="Resultado"><span class="selo neutro">a medir</span></td></tr>
+          <tr><td data-rot="Versão">E · B com Sonnet na dúvida</td><td data-rot="O que muda">A IA mais forte relê só o que ficou em dúvida</td><td data-rot="Custo a mais">cerca de R$ 0,15 por foto relida</td><td data-rot="Resultado"><span class="selo neutro">a medir</span></td></tr>
         </tbody>
       </table>
     </div>
@@ -749,7 +750,7 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
     <div class="cartao">
       <h2>As decisões</h2>
       <p class="sub">O dono já escolheu em 23/11: usar o texto inteiro, dar mais tempo ao Graph, trocar o modelo e perguntar quando houver dúvida. As outras seguem a recomendada até ele dizer o contrário.</p>
-      <div class="decisao"><h3>Modelo da leitura</h3><ol><li>Claude Sonnet 5.5 na reserva e na cópia das listas, cerca de R$ 0,12 por foto <span class="rec">escolhida pelo dono</span></li><li>Manter o Haiku</li></ol></div>
+      <div class="decisao"><h3>Modelo da leitura</h3><ol><li>Claude Sonnet 5.5 na leitura da foto e na cópia das listas, cerca de R$ 0,15 por foto (R$ 0,47 o cupom inteiro) <span class="rec">escolhida pelo dono</span></li><li>Manter o Haiku</li></ol></div>
       <div class="decisao"><h3>L-1 · O que o Graph leu</h3><ol><li>Usar a leitura inteira <span class="rec">recomendada</span></li><li>Manter o resumo de 600 letras</li></ol></div>
       <div class="decisao"><h3>L-2 · Tempo do Graph</h3><ol><li>Até 25 s, registrando o motivo de cada falha <span class="rec">recomendada</span></li><li>Manter 15 s e cair mais cedo na reserva</li></ol></div>
       <div class="decisao"><h3>L-3 · Realce da imagem</h3><ol><li>Só o que ganhar no teste com as suas fotos <span class="rec">recomendada</span></li><li>Aplicar sempre, sem medir</li></ol></div>

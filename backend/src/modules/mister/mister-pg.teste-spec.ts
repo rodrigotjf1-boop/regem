@@ -4282,18 +4282,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 87 de 87, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: 89 de 89, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(87);
+        expect(r.total).toBe(89);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 87, acertos: 87, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 89, acertos: 89, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 87, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 87, acertos: 87, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: 89, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 89, acertos: 89, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4313,7 +4313,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 86 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 88 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
@@ -7379,6 +7379,143 @@ export function testesDoMisterComPostgres(): void {
         expect(await titulos()).toHaveLength(1);
       });
 
+      // ERR-594: o cupom real de 23/11. O que a pessoa diz é gravado pela ferramenta, com a linha travada; nada é lançado.
+      describe('o documento em aberto pela conversa', () => {
+        const escopoDe = (o: Record<string, unknown> = {}): any => ({ tenantId: A, colaboradorId: pessoa.ana, empresa: 'A', nome: 'Ana', nivel: 'presidente', lojas: [], lojaUnica: true, presa: null, semLoja: false, permissoes: {}, verValores: true, ...o });
+        const itemDaNota = (o: Record<string, unknown>) => ({ codigo: null, quantidade: 1, unidade: 'UN', valorUnitarioCentavos: 1000, valorTotalCentavos: 1000, insumoId: null, insumoNome: null, unidadeDoEstoque: null, fator: null, estado: 'item', sugestoes: [], ...o });
+        const documento = async (itens: unknown[], colaborador = pessoa.ana, situacao = 'falta', motivo = 'item:0') => {
+          const total = itens.reduce((s: number, x: any) => s + x.valorTotalCentavos, 0);
+          const nota = { chave: null, numero: null, emitenteNome: 'Rucas', emitenteCnpj: CNPJ, valorTotalCentavos: total, duplicatas: [], itens };
+          const [{ id }] = await q(
+            `insert into mister_documento (tenant_id, colaborador_id, telefone_final, tipo, situacao, motivo, valor_centavos, dados) values ($1, $2, '0000', 'nota', $3, $4, $5, $6::jsonb) returning id::text as id`,
+            [A, colaborador, situacao, motivo, total, JSON.stringify({ nota })],
+          );
+          return id as string;
+        };
+        const lida = async (id: string) => (await q(`select situacao, motivo, dados from mister_documento where id = $1`, [id]))[0];
+        const ids: Record<string, string> = {};
+        beforeAll(async () => {
+          [{ id: ids.c120 }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Carne 120gr doc', 'caixa') returning id::text as id`, [A]);
+          [{ id: ids.queijo }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Queijo cheddar doc', 'unidade') returning id::text as id`, [A]);
+        });
+        beforeEach(async () => {
+          process.env.MISTER_NOTAS = '1';
+          await q(`delete from mister_documento where tenant_id = $1`, [A]);
+          await q(`delete from mister_de_para where tenant_id = $1`, [A]);
+          numero.pedidos.length = 0;
+        });
+        afterAll(async () => {
+          delete process.env.MISTER_NOTAS;
+          await q(`delete from mister_documento where tenant_id = $1`, [A]);
+          await q(`delete from mister_de_para where tenant_id = $1`, [A]);
+          await q(`delete from item_estoque where id = any($1::uuid[])`, [[ids.c120, ids.queijo]]);
+        });
+
+        it('vê as linhas, corrige, liga, converte e tira do estoque; só no fim vem o "Lançar", e nada foi lançado', async () => {
+          const id = await documento([
+            itemDaNota({ descricao: 'Confirmado a correção', quantidade: 1, valorTotalCentavos: 221976, valorUnitarioCentavos: 221976 }),
+            itemDaNota({ descricao: 'HAMBURGUER PICANHA 120 GRS 20un', quantidade: 45, valorTotalCentavos: 292455, valorUnitarioCentavos: 6499 }),
+            itemDaNota({ descricao: 'SACOLA 30X45', quantidade: 5, valorTotalCentavos: 11595, valorUnitarioCentavos: 2319 }),
+          ]);
+          const ver: any = await notas.ferramentaDoDocumento(escopoDe(), { acao: 'ver' });
+          expect(ver.dados.linhas).toHaveLength(3);
+          expect(ver.dados.emitente).toBe('Rucas');
+
+          const r: any = await notas.ferramentaDoDocumento(escopoDe(), {
+            acao: 'alterar',
+            alteracoes: [
+              { linha: 1, tipo: 'corrigir', descricao: 'Queijo cheddar fatiado Schreiber', quantidade: 3, valor_total: 2219.76 },
+              { linha: 2, tipo: 'ligar', insumo: 'carne 120GR doc' },
+              { linha: 3, tipo: 'fora' },
+            ],
+          });
+          expect(r.ok).toBe(true);
+          expect(r.dados).toMatchObject({ gravado: true, lancado: false });
+          expect(r.dados.feito[0]).toContain('Queijo cheddar fatiado Schreiber, 3 UN, total R$ 2.219,76');
+          let d = await lida(id);
+          expect(d.dados.nota.itens[0]).toMatchObject({ descricao: 'Queijo cheddar fatiado Schreiber', quantidade: 3, valorTotalCentavos: 221976, valorUnitarioCentavos: 73992, estado: 'item' });
+          expect(d.dados.nota.itens[1]).toMatchObject({ insumoNome: 'Carne 120gr doc', unidadeDoEstoque: 'caixa', estado: 'fator' });
+          expect(d.dados.nota.itens[2]).toMatchObject({ estado: 'fora' });
+          expect(d.motivo).toBe('item:0');
+          // A próxima pergunta sai pelo texto do caminho dos botões, depois da resposta.
+          expect(r.mensagens[0].texto).toContain('Queijo cheddar fatiado Schreiber');
+          expect(r.mensagens[0].botoes.map((b: any) => b.titulo)).toEqual(expect.arrayContaining(['Cadastrar novo', 'Fora do estoque']));
+
+          const fim: any = await notas.ferramentaDoDocumento(escopoDe(), {
+            acao: 'alterar',
+            alteracoes: [
+              { linha: 1, tipo: 'ligar', insumo: 'Queijo cheddar doc' },
+              { linha: 2, tipo: 'conversao', quanto_no_estoque: 1 },
+            ],
+          });
+          expect(fim.ok).toBe(true);
+          d = await lida(id);
+          // Linha 1: UN × unidade dá 1, sem embalagem na descrição. Tudo resolvido: espera o toque.
+          expect(d).toMatchObject({ situacao: 'confirmar', motivo: 'itens_ligados' });
+          expect(d.dados.nota.itens[1]).toMatchObject({ fator: 1, fatorConfirmado: true, estado: 'ligado' });
+          expect(fim.mensagens[0].botoes.map((b: any) => b.titulo)).toEqual(['Lançar', 'Cancelar']);
+          expect(await q(`select id from titulo_financeiro where tenant_id = $1`, [A])).toEqual([]);
+          // A resposta ensinou o fornecedor; a correção do nome, não.
+          const dePara = await q(`select chave, fator::float8 as fator from mister_de_para where tenant_id = $1 order by chave`, [A]);
+          expect(dePara.map((x) => x.chave)).toEqual(expect.arrayContaining([expect.stringContaining('picanha')]));
+          expect(auditados.map((a) => a.acao)).toContain('mister_documento_alterado');
+        });
+
+        it('a linha ligada que a embalagem contradiz volta a perguntar pela conta', async () => {
+          const id = await documento([
+            itemDaNota({ descricao: 'HAMBURGUER CX BOVINO 56G 36un', quantidade: 120, valorUnitarioCentavos: 3399, valorTotalCentavos: 407880, insumoId: ids.c120, insumoNome: 'Carne 120gr doc', unidadeDoEstoque: 'caixa', fator: 1 / 36, estado: 'ligado' }),
+            itemDaNota({ descricao: 'SACOLA 30X45' }),
+          ], pessoa.ana, 'falta', 'item:1');
+          const r: any = await notas.ferramentaDoDocumento(escopoDe(), { acao: 'alterar', alteracoes: [{ linha: 2, tipo: 'fora' }] });
+          expect(r.ok).toBe(true);
+          const d = await lida(id);
+          expect(d.motivo).toBe('fator:0');
+          expect(d.dados.nota.itens[0]).toMatchObject({ estado: 'fator', fatorProposto: 1, fator: null });
+          expect(r.mensagens[0].texto).toContain('*120 caixas*');
+        });
+
+        it('uma alteração recusada não grava nenhuma das outras', async () => {
+          const id = await documento([itemDaNota({ descricao: 'BACON' }), itemDaNota({ descricao: 'TOMATE' })]);
+          const antes = await lida(id);
+          for (const alteracoes of [
+            [{ linha: 1, tipo: 'fora' }, { linha: 9, tipo: 'fora' }],
+            [{ linha: 1, tipo: 'fora' }, { linha: 2, tipo: 'ligar', insumo: 'não existe' }],
+            [{ linha: 1, tipo: 'fora' }, { linha: 2, tipo: 'conversao', quanto_no_estoque: 2 }],
+          ]) expect((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'alterar', alteracoes })).ok).toBe(false);
+          expect((await lida(id)).dados).toEqual(antes.dados);
+          expect(await q(`select 1 from mister_de_para where tenant_id = $1`, [A])).toEqual([]);
+        });
+
+        it('só o presidente, só o documento desta pessoa, nada com o PIN pendente e nada no que já foi lançado', async () => {
+          const id = await documento([itemDaNota({ descricao: 'BACON' })], pessoa.carlos);
+          const fora = { acao: 'alterar', alteracoes: [{ linha: 1, tipo: 'fora' }] };
+          expect((await notas.ferramentaDoDocumento(escopoDe(), fora)).dados.erro).toContain('Não há cupom');
+          expect((await notas.ferramentaDoDocumento(escopoDe({ colaboradorId: pessoa.carlos, nivel: 'gerente' }), fora)).dados.erro).toContain('só com o presidente');
+          expect((await notas.ferramentaDoDocumento(escopoDe({ colaboradorId: pessoa.carlos, pinPendente: true }), fora)).dados.erro).toContain('PIN');
+          expect((await lida(id)).dados.nota.itens[0].estado).toBe('item');
+          const lancado = await documento([itemDaNota({ descricao: 'TOMATE' })], pessoa.ana, 'lancado', 'x');
+          expect((await notas.ferramentaDoDocumento(escopoDe(), fora)).ok).toBe(false);
+          expect((await lida(lancado)).dados.nota.itens[0].estado).toBe('item');
+        });
+
+        it('o aberto há dois dias continua; o de quatro dias, não', async () => {
+          const id = await documento([itemDaNota({ descricao: 'BACON' })]);
+          await q(`update mister_documento set atualizado_em = clock_timestamp() - interval '48 hours' where id = $1`, [id]);
+          expect((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'ver' })).ok).toBe(true);
+          await q(`update mister_documento set atualizado_em = clock_timestamp() - interval '96 hours' where id = $1`, [id]);
+          expect((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'ver' })).ok).toBe(false);
+        });
+
+        it('o toque no botão e a ferramenta ao mesmo tempo: nenhum perde a gravação do outro', async () => {
+          const id = await documento([itemDaNota({ descricao: 'BACON' }), itemDaNota({ descricao: 'TOMATE' })]);
+          await Promise.all([
+            notas.ferramentaDoDocumento(escopoDe(), { acao: 'alterar', alteracoes: [{ linha: 1, tipo: 'fora' }] }),
+            notas.ferramentaDoDocumento(escopoDe(), { acao: 'alterar', alteracoes: [{ linha: 2, tipo: 'fora' }] }),
+          ]);
+          expect((await lida(id)).dados.nota.itens.map((x: any) => x.estado)).toEqual(['fora', 'fora']);
+        });
+      });
+
       // M3g (conversa 22): "o boleto da Distribuidora vence dia 28, não 25" — corrige o vencimento pela conta da tela, com
       // "Desfazer"; o valor nunca; o gerente não; o "Desfazer" só enquanto o vencimento for o corrigido.
       it('corrigir o vencimento do boleto lançado (M3g): pela conta da tela, com "Desfazer"; o gerente não; o Desfazer velho não volta', async () => {
@@ -8608,7 +8745,9 @@ export function testesDoMisterComPostgres(): void {
         expect(baixou()).toBe(0);
       });
 
-      it('o Graph lê: a foto vira a pergunta (o que ela mostra + a legenda, sem o telefone); a resposta abre com "📷 Vi"', async () => {
+      it('a IA da empresa não lê e o Graph de reserva lê: a foto vira a pergunta (o que ela mostra + a legenda, sem o telefone); a resposta abre com "📷 Vi"', async () => {
+        // Desde 24/11 a Anthropic lê primeiro (decisão do dono): aqui o provedor cai e o Graph lê no lugar.
+        ia.roteiro = [{ erro: new Error('o provedor caiu') }];
         const id = novaMidia();
         const antes = (await perguntasDe('ana')).length;
         expect(await foto(telAna, id, 'dá até sábado?')).toBe('pergunta');
@@ -8616,11 +8755,12 @@ export function testesDoMisterComPostgres(): void {
         expect(graph.chamadas).toHaveLength(1);
         expect(graph.chamadas[0]).toMatchObject({ tenantId: A, mime: 'image/jpeg', bytes: `midia-${id}`.length, opcoes: { prefixoDaChave: 'regem-graph-mister' } });
         expect(graph.chamadas[0].opcoes.mimes).toContain('application/pdf');
-        expect(ia.pedidos).toEqual([]); // a reserva não foi chamada
+        expect(ia.pedidos).toHaveLength(1); // a tentativa da Anthropic, que caiu
+        ia.pedidos.length = 0;
         const p = (await perguntasDe('ana')).slice(antes);
         expect(p).toHaveLength(1);
         expect(p[0].pergunta.split('\n')[0]).toBe('⟦foto⟧ Três caixas de blend 56 g num freezer');
-        expect(p[0].pergunta).toContain('lido pelo DMS Graph');
+        expect(p[0].pergunta).toContain('lido pelo DMS Graph, porque a IA da empresa não leu');
         expect(p[0].pergunta).toContain('Texto na imagem: "BLEND 56 g" / "30 un"');
         expect(p[0].pergunta).toContain('A pessoa escreveu junto: dá até sábado?');
         expect(p[0].pergunta).not.toContain('99876');
@@ -8633,7 +8773,7 @@ export function testesDoMisterComPostgres(): void {
         expect((await perguntasDe('ana')).at(-1).resposta).toBe('*Não dá até sábado:* pela foto são ≈ 90 unidades.');
       });
 
-      it('o Graph não lê: a IA da empresa lê no lugar (recurso `mister_foto`, a imagem na chamada), e a pergunta segue', async () => {
+      it('a IA da empresa lê primeiro (recurso `mister_foto`, a imagem na chamada), o Graph nem é chamado, e a pergunta segue', async () => {
         graph.resposta = null;
         // A foto é uma lista: a primeira leitura descreve, e a segunda copia todas as linhas (ERR-584).
         ia.roteiro = [
@@ -8670,6 +8810,7 @@ export function testesDoMisterComPostgres(): void {
         expect(p.pergunta).toContain('pão brioche 10 pct / cheddar 4 kg');
         expect(p.pergunta).toContain('LISTA LIDA DO ARQUIVO: 2 de 2 linhas guardadas');
         expect(p.pergunta).toContain('A pessoa mandou a foto sem escrever nada.');
+        expect(graph.chamadas).toEqual([]);
       });
 
       it('nem o Graph nem a IA: "não consegui ver a foto" e nada na fila; a foto grande demais também', async () => {
@@ -8699,22 +8840,25 @@ export function testesDoMisterComPostgres(): void {
       });
 
       it('boleto ou nota: com os documentos ligados, vão a eles (a leitura dos documentos); desligados, viram pergunta', async () => {
-        graph.resposta = DO_BOLETO;
+        const boleto = falar('RESUMO: Um boleto bancário da Distribuidora.\nTIPO: boleto\nDESCRICAO: valor e vencimento');
         // Desligados: a foto vira pergunta (o Mister conversa sobre o boleto).
+        ia.roteiro = [boleto];
         expect(await foto(telAna, novaMidia())).toBe('pergunta');
-        expect(ia.pedidos).toEqual([]);
+        expect(ia.pedidos).toHaveLength(1);
         // Ligados: os documentos leem e decidem, como sempre (aqui a leitura deles diz "não é documento").
         process.env.MISTER_DOCUMENTOS = '1';
-        ia.roteiro = [falar(JSON.stringify({ tipo: 'outro', linhaDigitavel: null, beneficiario: null, cnpj: null, valor: null, vencimento: null, legivel: true }))];
+        ia.roteiro = [boleto, falar(JSON.stringify({ tipo: 'outro', linhaDigitavel: null, beneficiario: null, cnpj: null, valor: null, vencimento: null, legivel: true }))];
+        ia.pedidos.length = 0;
         numero.pedidos.length = 0;
         expect(await foto(telAna, novaMidia())).toBe('documento');
-        expect(ia.pedidos).toHaveLength(1);
-        expect(ia.pedidos[0].model).toBe('claude-sonnet-5-5');
+        expect(ia.pedidos).toHaveLength(2);
+        expect(ia.pedidos[1].model).toBe('claude-sonnet-5-5');
         // A foto que NÃO é boleto nem nota não passa pelos documentos (não lê duas vezes), mesmo com eles ligados.
-        graph.resposta = DO_FREEZER;
+        ia.roteiro = [falar('RESUMO: Três caixas de blend 56 g num freezer.\nTIPO: outro\nDESCRICAO: três caixas')];
         ia.pedidos.length = 0;
         expect(await foto(telAna, novaMidia())).toBe('pergunta');
-        expect(ia.pedidos).toEqual([]);
+        expect(ia.pedidos).toHaveLength(1);
+        expect(graph.chamadas).toEqual([]);
       });
 
       it('o gerente também manda foto: vira pergunta (os documentos seguem só do presidente)', async () => {
@@ -9406,6 +9550,33 @@ export function testesDoMisterComPostgres(): void {
         for (const t of ['compra_item', 'compra_lista', 'item_fornecedor']) await q(`delete from ${t} where tenant_id = $1`, [A]).catch(() => undefined);
         await q(`delete from item_estoque where tenant_id = $1 and nome in ('Bacon em tiras', 'Tomate', 'guardanapo')`, [A]).catch(() => undefined);
         await q(`delete from fornecedor where tenant_id = $1 and nome in ('Distribuidora Sul', 'Hortifruti Bom')`, [A]).catch(() => undefined);
+      });
+
+      it('ERR-594: "foi você que registrou?" — o pedido da lista do Mister diz quem pediu; o da tela, não; outra empresa nunca', async () => {
+        const [{ id: doMister }] = await q(`insert into compra_lista (tenant_id, nome, fornecedor_id, status) values ($1, 'Lista do Mister · 23/11', $2, 'aberta') returning id`, [A, ids.sul]);
+        const [{ id: daTela }] = await q(`insert into compra_lista (tenant_id, nome, fornecedor_id, status) values ($1, 'Compra da semana', $2, 'recebida') returning id`, [A, ids.horti]);
+        const [{ id: deOutra }] = await q(`insert into compra_lista (tenant_id, nome, status) values ($1, 'Lista do Mister de outra', 'aberta') returning id`, [B]);
+        await q(`insert into compra_item (tenant_id, lista_id, item_id, quantidade) values ($1, $2, $3, 2), ($1, $2, $4, 3)`, [A, doMister, ids.bacon, ids.tomate]);
+        const [{ id: daLista }] = await q(
+          `insert into mister_lista_compra (tenant_id, colaborador_id, origem, situacao, itens, compra_lista_id) values ($1, $2, 'conversa', 'criada', '[]'::jsonb, $3) returning id`,
+          [A, pessoa.ana, doMister],
+        );
+        try {
+          const r: any = await ferramentas.executar(await escopo('ana'), 'pedidos_de_compra', {});
+          expect(r.ok).toBe(true);
+          expect(r.dados.pedidos.map((p: any) => p.nome)).toEqual(['Lista do Mister · 23/11', 'Compra da semana']);
+          expect(r.dados.pedidos[0]).toMatchObject({ fornecedor: 'Distribuidora Sul', situacao: 'aguardando recebimento', itens: 2, produtos: ['Bacon em tiras', 'Tomate'] });
+          expect(r.dados.pedidos[0].quemCriou).toContain('você (o Mister), a pedido de');
+          expect(r.dados.pedidos[1]).toMatchObject({ situacao: 'recebido', quemCriou: 'pela tela do Regem' });
+          // Sem acento e por um pedaço do nome.
+          const f: any = await ferramentas.executar(await escopo('ana'), 'pedidos_de_compra', { fornecedor: 'hortifrúti' });
+          expect(f.dados.pedidos.map((p: any) => p.nome)).toEqual(['Compra da semana']);
+          const nada: any = await ferramentas.executar(await escopo('ana'), 'pedidos_de_compra', { fornecedor: 'ninguém' });
+          expect(nada.dados).toMatchObject({ pedidos: [], vazio: expect.any(String) });
+        } finally {
+          await q(`delete from mister_lista_compra where id = $1`, [daLista]);
+          await q(`delete from compra_lista where id = any($1::uuid[])`, [[doMister, daTela, deOutra]]);
+        }
       });
 
       it('pela conversa: liga cada linha, pergunta a marca, o fator (por texto), o que não existe e o fornecedor; "Criar o pedido" cria pela tela de Pedidos, uma vez', async () => {

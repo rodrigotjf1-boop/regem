@@ -20,11 +20,17 @@ describe('a lista de compras lida de um arquivo', () => {
   const lista = (n: number) => ({ total: n, itens: Array.from({ length: n }, (_, i) => ({ texto: `Produto ${i + 1}`, quantidade: i + 1, unidade: 'caixas' })) });
 
   function montar(visto: OQueViu, pedir: (p: any) => Promise<any>, guardou = true) {
-    const ia = { temAcesso: jest.fn(async () => true), pedir: jest.fn(pedir) };
+    // A primeira leitura (o que a foto mostra) é da Anthropic; aqui se conta só a cópia das linhas.
+    const daLista = jest.fn(pedir);
+    const ia = {
+      temAcesso: jest.fn(async () => true),
+      pedir: daLista,
+    };
+    const pedirDeVerdade = async (t: any, p: any) => (p?.maxTokens === 8000 ? { texto: `RESUMO: ${visto.resumo}\nTIPO: ${visto.financeiro ? 'boleto' : 'outro'}\nDESCRICAO: ${visto.descricao}` } : (daLista as any)(t, p));
     const entrada = { registrarMidia: jest.fn(), guardarListaLida: jest.fn(async () => guardou) };
     const numero = { baixarMidia: jest.fn(async () => ({ buffer: Buffer.from('pdf'), mime: 'application/pdf' })), enviar: jest.fn(async () => ({ wamid: null })) };
     const graph = { ligacaoParaFoto: jest.fn(async () => ({})), analisar: jest.fn(async () => visto) };
-    return { s: new MisterMidiaService(numero as any, ia as any, entrada as any, graph as any), ia, entrada };
+    return { s: new MisterMidiaService(numero as any, { ...ia, pedir: pedirDeVerdade } as any, entrada as any, graph as any), ia, entrada };
   }
   const VISTO: OQueViu = { resumo: 'Lista de compras em PDF com cerca de 36 itens', descricao: `Itens: ${'Produto, '.repeat(70)}…`, financeiro: false };
 

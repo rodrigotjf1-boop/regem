@@ -48,6 +48,17 @@ export function numeroDaResposta(texto: unknown): number | 'varios' | null {
 
 export type RespostaDaDuvida = 'ok' | 'repete' | 'outro';
 
+const CONVERSA_NAO_E_PRODUTO = /\b(confirm\w*|correc\w*|corrig\w*|certo|certa|ok|isso|sim|nao|pode|anotad\w*|registr\w*|vincul\w*|lancar|lanca|lancado|obrigad\w*|entendi|perfeito|beleza)\b/;
+
+/** "Confirmado a correção" virou o nome de uma linha do cupom real: confirmação é conversa, nunca nome de produto. */
+export const pareceConversa = (texto: unknown): boolean =>
+  CONVERSA_NAO_E_PRODUTO.test(
+    String(texto ?? '')
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '')
+      .toLowerCase(),
+  );
+
 /**
  * Aplica a resposta à linha em dúvida. `outro` = não é resposta (segue como conversa com o Mister); `repete` = parece resposta,
  * mas não dá para saber qual; `ok` = a linha foi corrigida e saiu da dúvida.
@@ -57,7 +68,7 @@ export function responderDuvidaDoItem(it: ItemDaNota, texto: unknown): RespostaD
   if (!d) return 'outro';
   if (d.campo === 'descricao') {
     const t = String(texto ?? '').replace(/\s+/g, ' ').trim();
-    if (t.length < 2 || t.length > MAX_DA_RESPOSTA || t.includes('?') || t.split(' ').length > 6 || !/\p{L}/u.test(t)) return 'outro';
+    if (t.length < 2 || t.length > MAX_DA_RESPOSTA || t.includes('?') || t.split(' ').length > 6 || !/\p{L}/u.test(t) || pareceConversa(t)) return 'outro';
     it.descricao = t;
     it.duvida = null;
     return 'ok';
