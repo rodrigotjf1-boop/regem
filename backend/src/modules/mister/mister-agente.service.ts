@@ -358,7 +358,7 @@ export class MisterAgenteService implements OnModuleInit {
     // Versão 5, M5d.2: os gráficos que `mostrar_grafico` montou (não vão ao modelo; a imagem vai antes do texto).
     const graficos: PlanoDoGrafico[] = [];
     // Versão 6, M6g: as mensagens que uma ação manda depois da resposta (não vão ao modelo).
-    const mensagens: { texto: string; botoes?: { id: string; titulo: string }[] }[] = [];
+    const mensagens: { texto: string; botoes?: { id: string; titulo: string }[]; chave?: string }[] = [];
     // M2b: o texto no ar. A leitura que falha não segura a resposta: vai o texto do código (e o log diz por quê).
     const instrucoes = this.instrucoes
       ? await this.instrucoes.noAr().then(
@@ -387,7 +387,12 @@ export class MisterAgenteService implements OnModuleInit {
           for (const im of r.imagens ?? []) if (!imagens.some((x) => x.url === im.url)) imagens.push(im);
           if (r.linkPublico) links.push(r.linkPublico);
           for (const g of r.graficos ?? []) if (graficos.length < IMAGENS_POR_RESPOSTA) graficos.push(g);
-          for (const m of r.mensagens ?? []) mensagens.push(m);
+          // ERR-594: duas alterações no mesmo documento numa resposta mandam só a última "próxima pergunta".
+          for (const m of r.mensagens ?? []) {
+            const ja = m.chave ? mensagens.findIndex((x) => x.chave === m.chave) : -1;
+            if (ja >= 0) mensagens[ja] = m;
+            else mensagens.push(m);
+          }
           if (r.anexo) {
             const ja = anexos.find((a) => botaoDoPdf(a.pedido) === botaoDoPdf(r.anexo!.pedido));
             if (ja) ja.enviarPdf = ja.enviarPdf || r.anexo.enviarPdf;

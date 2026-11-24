@@ -16,6 +16,7 @@ import type { ResultadoDaFerramenta } from './mister-ferramentas.service';
 import type { FimDaPergunta } from './mister-laco';
 import { GUIA_DE_USO, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { conferirMemoria } from './mister-memoria';
+import { lerAlteracoes } from './mister-documento-conversa';
 import { canalDito, conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
 import { AVISOS_QUE_NAO_SE_CALAM, Regra, conferirRegra, descreverRegra, fraseDoQueDeixaDeChegar } from './mister-regra';
 import { lerPedidos } from './mister-lista';
@@ -438,6 +439,36 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         ligadas: 0,
         perguntas: pedidos.length,
         orientacao: 'Diga em uma frase quantas linhas entraram e que as dúvidas vêm a seguir, com botões. Não repita a lista.',
+      });
+    }
+    case 'pedidos_de_compra':
+      // ERR-594: o pedido que o próprio Mister montou de manhã.
+      return ok({
+        loja: LOJA,
+        pedidos: [{ nome: 'Lista do Mister · 23/11', fornecedor: 'Felipão da Penha', situacao: 'aguardando recebimento', criado: '23/11 06:12', itens: 19, produtos: ['Bacon', 'Carne 120gr', 'Queijo cheddar'], quemCriou: 'você (o Mister), a pedido de Ana' }],
+      });
+    case 'documento_em_andamento': {
+      // ERR-594: a mesma conferência da de verdade; na avaliação nada é gravado.
+      if (perfil.nivel !== 'presidente') return recusa('Mexer em nota por foto, por enquanto, é só com o presidente.');
+      if (en.acao === 'alterar') {
+        const l = lerAlteracoes(en.alteracoes);
+        if ('erro' in l) return recusa(l.erro);
+        return ok({
+          gravado: true,
+          feito: l.alteracoes.map((a) => (a.tipo === 'corrigir' && a.valorTotalCentavos ? `Linha ${a.linha} corrigida, total R$ ${(a.valorTotalCentavos / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.` : `Linha ${a.linha} gravada.`)),
+          faltam: 1,
+          lancado: false,
+          siga: 'Diga em uma frase o que foi gravado, como está em "feito". A próxima pergunta do documento sai sozinha logo depois da sua resposta: não repita nem pergunte. Nada foi lançado.',
+        });
+      }
+      return ok({
+        documento: 'Cupom fiscal',
+        emitente: 'Distribuidora Sul',
+        situacao: 'faltam respostas',
+        linhas: [
+          { linha: 1, produto: 'BATATA 7MM 2250gx8', quantidade: 35, unidade: 'UN', ...(perfil.verValores ? { valorTotal: 7277.2 } : {}), situacao: 'Caixa de batata 7mm (1 UN = 1 caixa)' },
+          { linha: 5, produto: 'QUEIJO CHEDDAR FATIADO', quantidade: 3, unidade: 'UN', ...(perfil.verValores ? { valorTotal: 2219.76 } : {}), situacao: 'falta dizer qual insumo é' },
+        ],
       });
     }
     case 'escrever_recado':
@@ -1201,6 +1232,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 8, R2: o caixa pelo extrato do banco.
   { id: 'c86', pergunta: 'Pelo extrato, quanto tempo de caixa eu tenho?', perfil: { nivel: 'presidente', verValores: true, extrato: 'encolhendo' }, consultas: ['indicadores_financeiros'], numeros: ['38.420,00|38.420', '6.250,00|6.250', '6,1'], contem: ['12/11'] },
   { id: 'c87', pergunta: 'Pelo extrato, a loja está queimando caixa?', perfil: { nivel: 'presidente', verValores: true, extrato: 'gerando' }, consultas: ['indicadores_financeiros'], numeros: ['2.176,67'], contem: ['gerando|crescendo|sobr'] },
+  // ERR-594: o que a pessoa diz sobre o cupom em aberto é gravado, e "quem criou o pedido" se consulta.
+  { id: 'c88', pergunta: 'No cupom que mandei, a linha 5 é queijo cheddar fatiado Schreiber: 3 caixas, total de R$ 2.219,76. Corrige.', consultas: ['documento_em_andamento'], numeros: ['2.219,76'], contem: ['linha 5|queijo'] },
+  { id: 'c89', pergunta: 'Foi você quem registrou o pedido do Felipão que está em Estoque › Pedidos?', consultas: ['pedidos_de_compra'], contem: ['Felipão', 'fui eu|eu mesmo|montei|registrei|criei|sim'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

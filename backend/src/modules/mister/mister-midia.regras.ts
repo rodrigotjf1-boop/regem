@@ -248,12 +248,12 @@ const MARCA_DA_FOTO = '⟦foto⟧';
  * A pergunta que entra na fila: a marca com o resumo (a linha do "📷 Vi"), o que a foto mostra e a legenda. O texto da
  * imagem vai marcado como "só o que está escrito" — a foto é de quem pergunta, mas pode trazer texto de terceiros.
  */
-export function perguntaComFoto(v: OQueViu, legenda: unknown, via: 'graph' | 'ia', notaDaLista: string | null = null, motivoDoGraph: string | null = null): string {
+export function perguntaComFoto(v: OQueViu, legenda: unknown, via: 'graph' | 'ia', notaDaLista: string | null = null): string {
   const leg = textoDe(legenda).slice(0, 300);
   // Com a nota da lista, a descrição encurta: as linhas já estão guardadas, e a legenda da pessoa não pode ser cortada.
   const descricao = notaDaLista ? cortar(v.descricao, DESCRICAO_COM_LISTA_MAX) : v.descricao;
-  // O motivo fica na pergunta (30 dias): é como se mede por que o Graph não leu, sem acesso ao log do servidor.
-  const quemLeu = via === 'graph' ? 'pelo DMS Graph' : `pela IA da empresa${motivoDoGraph ? `, porque o DMS Graph não leu (${textoDe(motivoDoGraph).slice(0, 40)})` : ''}`;
+  // Fica na pergunta (30 dias): é como se mede quem leu cada foto, sem acesso ao log do servidor.
+  const quemLeu = via === 'graph' ? 'pelo DMS Graph, porque a IA da empresa não leu' : 'pela IA da empresa';
   return [
     `${MARCA_DA_FOTO} ${v.resumo}`,
     ...(notaDaLista ? [notaDaLista] : []),

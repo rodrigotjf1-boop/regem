@@ -8,7 +8,7 @@
 > `node backend/scripts/exportar-verificacao-rapida.mjs` (o script recusa CPF, CNPJ, telefone, e-mail, IP, valor,
 > chave e caminho de usuário). Lido pelo vigia de código na nuvem a cada PR que entra na `main`.
 
-109 regras (V1–V109).
+110 regras (V1–V110).
 
 | # | Pergunta | Se sim… | Erros |
 |---|---|---|---|
@@ -121,3 +121,4 @@
 | V107 | Caminho novo abre caso por `abrirChamado`/`abrirChamadoPeloRobo` com um tipo que o robô não usa? | O tipo entra em `TIPOS_DO_CHAMADO` no mesmo PR (o que não está lá vira `humano`, calado); o teste confere o `tipo` GRAVADO na linha; conferir o placar (`grupoDoPlacar`), a gaveta da Central e o `CASO_DA_PLATAFORMA`. | ERR-528 |
 | V108 | Confere algo DEPOIS de gravar e desfaz por `where status = '<inicial>'` (limite, vaga), ou testa esse caminho com um serviço FALSO? | Listar tudo o que muda a situação entre a gravação e a conferência (o aceite automático do `ingest`, gatilho, rotina) e adiá-lo para DEPOIS da conferência (`naoAutoAceitar` + `aceitarSeAutomatico`); o desfazer só diz "desfiz" com a linha desfeita. O serviço falso do spec reproduz os efeitos do real que o caminho atravessa (aceite, status), e o real tem teste à parte. Dado do cliente que passa por uma conta ANTES da validação: a conta aceita o inválido sem lançar (nada de `!` em `null`). | ERR-531, ERR-532 |
 | V109 | Um número que vem do cliente (quantidade, gorjeta, troco, desconto, parcelas) entra numa conta de dinheiro, sobretudo em rota pública sem DTO? | Conferir no servidor ANTES da conta: inteiro quando é contagem, positivo, com teto, e recusar o pedido inteiro (400, nada gravado) — `Number(x) \|\| padrão` não é validação: negativo, fração e gigante passam (a quantidade −1 virou desconto no cardápio). Regra num arquivo só (`cardapio/quantidade-do-cardapio.ts`), teste com cada valor ruim e contraprova no código antigo. | ERR-533 |
+| V110 | O agente de IA (Mister) vai responder sobre um trabalho que corre por outro caminho (documento por foto, botão, lista), ou dizer que "anotou", "registrou", "vinculou"? | O que ele promete precisa de uma ferramenta que grave e devolva "gravado"; sem ela, a instrução proíbe dizer que fez. O bloco da conversa traz os dados que a pessoa vai citar (as linhas numeradas), não só um resumo, e o trabalho aberto vale enquanto estiver aberto (72 h), não a janela da memória. Conversão de unidade de nota confere a embalagem da descrição ("36un", "1kgx6") antes de valer. | ERR-594 |
