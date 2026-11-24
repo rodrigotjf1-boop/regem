@@ -342,6 +342,9 @@ export class VendasService {
     terminalId?: string | null,
     ator?: { id: string; categoria: string } | null,
   ): Promise<string | null> {
+    // `for share`: o caixa não fecha no meio desta venda, e a que chega durante um fechamento espera, relê e encontra o
+    // caixa fechado (C-01 da revisão de 24/11/2026 — antes ela gravava num caixa já fechado, fora do esperado). Dentro
+    // da transação a trava dura até o fim da venda; fora dela (abrir mesa só confere) solta na hora.
     const [s] = await tx
       .select({ id: caixaSessao.id, abertaPorId: caixaSessao.abertaPorId })
       .from(caixaSessao)
@@ -354,7 +357,8 @@ export class VendasService {
             ? eq(caixaSessao.terminalId, terminalId)
             : isNull(caixaSessao.terminalId),
         ),
-      );
+      )
+      .for('share');
     if (!s) return null;
     // S2c (RBAC de modo): na NUVEM, registrar/alterar no turno aberto por OUTRA
     // pessoa é exclusivo do presidente (dono). No SERVIDOR LOCAL (edge) não há
@@ -3836,7 +3840,8 @@ export class VendasService {
             ),
           )
           .orderBy(desc(caixaSessao.abertaEm))
-          .limit(1);
+          .limit(1)
+          .for('share'); // o estorno não cai num caixa que fecha no meio (C-01)
         sessaoId = s?.id ?? null;
       }
       if (!sessaoId)
