@@ -1,5 +1,5 @@
 import type { LinhaDaLista } from './mister-lista';
-import { lerAlteracoesDaLista, lerBotaoDasSugestoes, listaPelaIa, perguntasJuntas } from './mister-lista-ia';
+import { juntarLinhas, lerAlteracoesDaLista, lerBotaoDasSugestoes, listaPelaIa, perguntasJuntas } from './mister-lista-ia';
 
 // Versão 9, O4: a lista de compras pela IA e pela conversa.
 
@@ -69,5 +69,40 @@ describe('a lista pela IA (O4)', () => {
     });
     for (const ruim of [[], [{ tipo: 'fora' }], [{ linha: 1, tipo: 'quantidade', quantidade: -2 }], [{ linha: 1, tipo: 'quantidade', quantidade: 2, medida: 'xpto' }], [{ linha: 1, tipo: 'cadastrar', nome: 'confirmado' }], [{ linha: 1, tipo: 'apagar' }]])
       expect(lerAlteracoesDaLista(ruim)).toHaveProperty('erro');
+  });
+});
+
+describe('24/11: o pedido com o abaixo do mínimo e os itens ditos; adicionar na lista aberta', () => {
+  it('"adicionar" não tem linha: o produto como a pessoa disse, a quantidade e a medida, conferidos', () => {
+    expect(lerAlteracoesDaLista([{ tipo: 'adicionar', texto: ' hambúrguer  56 g ', quantidade: 50 }, { tipo: 'adicionar', texto: 'batata 7mm', quantidade: 30, medida: 'caixas' }])).toEqual({
+      alteracoes: [
+        { linha: 0, tipo: 'adicionar', texto: 'hambúrguer 56 g', quantidade: 50, medida: null },
+        { linha: 0, tipo: 'adicionar', texto: 'batata 7mm', quantidade: 30, medida: 'caixa' },
+      ],
+    });
+    for (const ruim of [
+      [{ tipo: 'adicionar', texto: '50', quantidade: 50 }],
+      [{ tipo: 'adicionar', texto: 'batata', quantidade: 0 }],
+      [{ tipo: 'adicionar', texto: 'batata', quantidade: '30' }],
+      [{ tipo: 'adicionar', texto: 'batata', quantidade: 3, medida: 'xpto' }],
+      [{ tipo: 'adicionar', texto: 'pode adicionar', quantidade: 3 }],
+    ])
+      expect(lerAlteracoesDaLista(ruim)).toHaveProperty('erro');
+  });
+
+  it('juntar: o insumo que já está na lista fica com a quantidade dita; o novo entra no fim; a linha que saiu não conta', () => {
+    const tomate = linha({ texto: 'Tomate', quantidade: 20, unidade: null, itemId: 'i-tomate', itemNome: 'Tomate', unidadeDoEstoque: 'kg', fator: 1, estado: 'ligado' });
+    const cebola = linha({ texto: 'Cebola', quantidade: 5, itemId: 'i-cebola', itemNome: 'Cebola', unidadeDoEstoque: 'kg', fator: 1, estado: 'fora' });
+    const tomate50 = linha({ texto: 'tomate', quantidade: 50, itemId: 'i-tomate', itemNome: 'Tomate', unidadeDoEstoque: 'kg', fator: 1, estado: 'ligado' });
+    const cebola3 = linha({ texto: 'cebola', quantidade: 3, itemId: 'i-cebola', itemNome: 'Cebola', unidadeDoEstoque: 'kg', fator: 1, estado: 'ligado' });
+    const novo = linha({ texto: 'coisa nova', quantidade: 2, unidade: null });
+    const r = juntarLinhas([tomate, cebola], [tomate50, cebola3, novo]);
+    expect(r.linhas.map((l) => [l.texto, l.quantidade, l.estado])).toEqual([
+      ['tomate', 50, 'ligado'],
+      ['Cebola', 5, 'fora'],
+      ['cebola', 3, 'ligado'],
+      ['coisa nova', 2, 'item'],
+    ]);
+    expect(r.feito).toEqual(['Linha 1 (Tomate): agora 50 kg.', 'Entrou na linha 3: "cebola" (3 kg) → Cebola.', 'Entrou na linha 4: "coisa nova" (2), com uma pergunta.']);
   });
 });

@@ -16,36 +16,10 @@ import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { MisterCompraModelosService } from './mister-compra-modelos.service';
 import { chaveDoApelido, viraApelido } from './mister-compra-modelos';
 import { MAX_TOKENS_DA_LIGACAO, MODELO_DA_LIGACAO, PRAZO_DA_LIGACAO_MS, RECURSO_DA_LIGACAO, catalogoDaLigacao, instrucoesDaLigacao, lerLigacao, pedidoDaLigacao } from './mister-ligacao';
-import { lerAlteracoesDaLista, lerBotaoDasSugestoes, listaPelaIa, perguntasJuntas } from './mister-lista-ia';
+import { lerAlteracoesDaLista, lerBotaoDasSugestoes, listaPelaIa, perguntasJuntas, juntarLinhas, type AlteracaoDaLista } from './mister-lista-ia';
 import { acharInsumo } from './mister-documento-conversa';
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
-import {
-  InsumoDaLista,
-  LEITURA_VALE_H,
-  LISTA_VALE_H,
-  MAX_LINHAS_DA_LISTA,
-  LinhaDaLista,
-  ListaLida,
-  PREFIXO_DA_LISTA,
-  PedidoDaLinha,
-  TEXTOS_DA_LISTA,
-  aplicarFator,
-  comAsRespostas,
-  duvidaDoFator,
-  ehParteDaLeitura,
-  lerBotaoDaLista,
-  lerPedidos,
-  ligarAoInsumo,
-  marcaDoTexto,
-  montarLinha,
-  pedidosDaPlanilha,
-  perguntaDaLinha,
-  perguntaDoFornecedor,
-  proximaPendencia,
-  quantidadeNoEstoque,
-  resumoDaLista,
-  textoDaLeitura,
-} from './mister-lista';
+import { InsumoDaLista, LEITURA_VALE_H, LISTA_VALE_H, MAX_LINHAS_DA_LISTA, LinhaDaLista, ListaLida, PREFIXO_DA_LISTA, PedidoDaLinha, TEXTOS_DA_LISTA, aplicarFator, comAsRespostas, duvidaDoFator, ehParteDaLeitura, lerBotaoDaLista, lerPedidos, ligarAoInsumo, marcaDoTexto, montarLinha, pedidosDaPlanilha, perguntaDaLinha, perguntaDoFornecedor, proximaPendencia, quantidadeNoEstoque, resumoDaLista, textoDaLeitura } from './mister-lista';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { lerRespostaDoFator, simOuNao } from './resposta-do-fator';
 
@@ -129,8 +103,11 @@ export class MisterListaService implements OnModuleInit {
     if (en.acao === 'do_minimo') {
       origem = 'minimo';
       const sug: any[] = await this.compras.sugerir(e.tenantId, loja);
-      if (!sug.length) return { ok: true, dados: { vazia: true, mensagem: TEXTOS_DA_LISTA.nadaNoMinimo } };
-      prontas = sug.slice(0, 40).map((s) => {
+      // 24/11 (o dono): "levante os itens abaixo do estoque, e vamos adicionar 50 hambúrguer 56 g, 30 caixas de batata": os itens
+      // ditos entram junto. O mesmo insumo da sugestão fica com a quantidade dita (é o que a pessoa quer pedir).
+      const ditos = lerPedidos(en.itens);
+      if (!sug.length && !ditos.length) return { ok: true, dados: { vazia: true, mensagem: TEXTOS_DA_LISTA.nadaNoMinimo } };
+      prontas = sug.slice(0, MAX_LINHAS_DA_LISTA).map((s) => {
         const marcas: string[] = Array.isArray(s.marcas) ? s.marcas.filter(Boolean) : [];
         return {
           texto: String(s.nomeComercial || s.nome),
@@ -146,6 +123,7 @@ export class MisterListaService implements OnModuleInit {
           estado: marcas.length >= 2 ? 'marca' : 'ligado',
         } satisfies LinhaDaLista;
       });
+      if (ditos.length) prontas = juntarLinhas(prontas, await this.montar(e.tenantId, loja, ditos)).linhas;
       pedidos = [];
     } else if (en.acao === 'da_leitura') {
       // As linhas guardadas do arquivo: a IA não copia nenhuma (ERR-584).
@@ -617,6 +595,18 @@ export class MisterListaService implements OnModuleInit {
     const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
     const lidas = lerAlteracoesDaLista(en.alteracoes);
     if ('erro' in lidas) return recusa(lidas.erro);
+    const aAdicionar = lidas.alteracoes.filter((a): a is Extract<AlteracaoDaLista, { tipo: 'adicionar' }> => a.tipo === 'adicionar');
+    let novas: LinhaDaLista[] = [];
+    if (aAdicionar.length) {
+      const [aberta] = linhas(
+        await this.db.execute(sql`
+          select unidade_id::text as "unidadeId" from mister_lista_compra
+           where tenant_id = ${e.tenantId}::uuid and colaborador_id = ${e.colaboradorId}::uuid and situacao in ('montando', 'confirmar') and vence_em > clock_timestamp()
+           order by atualizada_em desc limit 1`),
+      );
+      if (!aberta) return recusa('Não há lista de compras aberta desta pessoa. Para começar, monte a lista.');
+      novas = await this.montar(e.tenantId, aberta.unidadeId ?? null, aAdicionar.map((a) => ({ texto: a.texto, quantidade: a.quantidade, unidade: a.medida })));
+    }
     const r = await this.db.transaction(async (tx: any): Promise<{ erro: string } | { id: string; feito: string[] }> => {
       const [l] = linhas(
         await tx.execute(sql`
@@ -631,6 +621,7 @@ export class MisterListaService implements OnModuleInit {
       const insumos = await this.insumos(e.tenantId, l.unidadeId ?? null, null, tx);
       const feito: string[] = [];
       for (const a of lidas.alteracoes) {
+        if (a.tipo === 'adicionar') continue;
         const ln = itens[a.linha - 1];
         if (!ln) return { erro: `A lista tem ${itens.length} linhas: não há a linha ${a.linha}.` };
         if (a.tipo === 'cadastrar') continue;
@@ -689,8 +680,16 @@ export class MisterListaService implements OnModuleInit {
         itens[a.linha - 1] = { ...ligarAoInsumo(ln, insumo, []), propostaDaIa: false };
         feito.push(`Linha ${a.linha}: cadastrei "${insumo.nome}" em Estoque › Produtos.`);
       }
+      // O "adicionar" por último: os números das linhas de antes não mudam. O insumo que já está na lista fica com a quantidade dita.
+      let final = itens;
+      if (novas.length) {
+        const j = juntarLinhas(itens, novas);
+        if (j.linhas.length > MAX_LINHAS_DA_LISTA) return { erro: `A lista vai até ${MAX_LINHAS_DA_LISTA} linhas.` };
+        final = j.linhas;
+        feito.push(...j.feito);
+      }
       // Mudou: volta a montar, e o resumo sai de novo com o que mudou.
-      await tx.execute(sql`update mister_lista_compra set itens = ${JSON.stringify(itens)}::jsonb, situacao = 'montando', atualizada_em = clock_timestamp() where id = ${l.id}::uuid`);
+      await tx.execute(sql`update mister_lista_compra set itens = ${JSON.stringify(final)}::jsonb, situacao = 'montando', atualizada_em = clock_timestamp() where id = ${l.id}::uuid`);
       return { id: String(l.id), feito };
     });
     if ('erro' in r) return recusa(r.erro);

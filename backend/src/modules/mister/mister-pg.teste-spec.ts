@@ -10132,6 +10132,55 @@ export function testesDoMisterComPostgres(): void {
         });
       });
 
+      it('24/11: "monta um pedido com o que está abaixo do estoque e adiciona…" numa chamada; "adiciona" na lista aberta', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const antes = (await q(`select estoque_minimo from item_estoque where id = $1`, [ids.tomate]))[0].estoque_minimo;
+        await q(`update item_estoque set estoque_minimo = 20 where id = $1`, [ids.tomate]);
+        try {
+          // O tomate está abaixo do mínimo (sugere 20); a pessoa disse 50 kg de tomate e 3 kg de bacon: o tomate fica 50, o bacon entra.
+          const r: any = await ferramentas.executar(await escopo('ana'), 'lista_de_compras', {
+            acao: 'do_minimo',
+            itens: [
+              { texto: 'tomate', quantidade: 50, unidade: 'kg' },
+              { texto: 'bacon em tiras', quantidade: 3, unidade: 'kg' },
+            ],
+          });
+          expect(r.ok).toBe(true);
+          let l = await ultima();
+          expect(l.origem).toBe('minimo');
+          const doTomate = l.itens.filter((x: any) => x.itemId === ids.tomate);
+          expect(doTomate).toHaveLength(1);
+          expect(doTomate[0]).toMatchObject({ quantidade: 50, estado: 'ligado' });
+          expect(l.itens.at(-1)).toMatchObject({ itemId: ids.bacon, quantidade: 3, estado: 'marca' });
+          // Só os itens ditos, sem nada abaixo do mínimo, também monta.
+          await q(`update item_estoque set estoque_minimo = 0 where id = $1`, [ids.tomate]);
+          const so: any = await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'do_minimo', itens: [{ texto: 'tomate', quantidade: 7, unidade: 'kg' }] });
+          expect(so.ok).toBe(true);
+          l = await ultima();
+          expect(l.itens.map((x: any) => [x.itemId, x.quantidade])).toEqual([[ids.tomate, 7]]);
+          // "Adiciona 2 kg de bacon e mais 9 kg de tomate": o bacon entra no fim; o tomate, que já está, fica 9.
+          const ad: any = await ferramentas.executar(await escopo('ana'), 'lista_de_compras', {
+            acao: 'alterar',
+            alteracoes: [
+              { tipo: 'adicionar', texto: 'bacon em tiras', quantidade: 2, medida: 'kg' },
+              { tipo: 'adicionar', texto: 'tomate', quantidade: 9, medida: 'kg' },
+            ],
+          });
+          expect(ad.ok).toBe(true);
+          expect(ad.dados.feito).toEqual(['Entrou na linha 2: "bacon em tiras" (2 kg), com uma pergunta.', 'Linha 1 (Tomate): agora 9 kg.']);
+          l = await ultima();
+          expect(l.itens.map((x: any) => [x.itemId, x.quantidade])).toEqual([[ids.tomate, 9], [ids.bacon, 2]]);
+          expect(l.situacao).toBe('montando');
+          // Sem lista aberta, o "adicionar" pede para montar.
+          await q(`update mister_lista_compra set situacao = 'descartada' where id = $1`, [l.id]);
+          expect((await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'alterar', alteracoes: [{ tipo: 'adicionar', texto: 'tomate', quantidade: 1 }] })).dados.erro).toContain('Não há lista de compras aberta');
+        } finally {
+          await q(`update item_estoque set estoque_minimo = $2 where id = $1`, [ids.tomate, antes]);
+          await q(`delete from mister_lista_compra where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]);
+        }
+      });
+
       it('ERR-584: a frase do dono não vira 840: a dúvida pergunta de novo, a conta aparece e o "sim" fecha em 70', async () => {
         const tel = telefone();
         await ligar('ana', tel);

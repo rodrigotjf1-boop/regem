@@ -54,7 +54,9 @@ export type AlteracaoDaLista =
   | { linha: number; tipo: 'fora' }
   | { linha: number; tipo: 'cadastrar'; nome: string | null; medida: string | null }
   | { linha: number; tipo: 'marca'; marca: string }
-  | { linha: number; tipo: 'conversao'; quantoNoEstoque: number };
+  | { linha: number; tipo: 'conversao'; quantoNoEstoque: number }
+  /** 24/11 (o dono): "vamos adicionar 50 hambúrguer 56 g" — uma linha nova no fim da lista aberta (sem número de linha). */
+  | { linha: 0; tipo: 'adicionar'; texto: string; quantidade: number; medida: string | null };
 
 const MAX_ALTERACOES = 20;
 const MAX_QUANTIDADE = 100_000;
@@ -63,10 +65,19 @@ const positivo = (v: unknown, teto: number): v is number => typeof v === 'number
 
 /** O que o agente pediu para mudar na lista aberta, conferido inteiro antes de qualquer gravação. */
 export function lerAlteracoesDaLista(entrada: unknown): { alteracoes: AlteracaoDaLista[] } | { erro: string } {
-  if (!Array.isArray(entrada) || !entrada.length) return { erro: 'Diga o que mudar: alteracoes, cada uma com a linha e o tipo.' };
+  if (!Array.isArray(entrada) || !entrada.length) return { erro: 'Diga o que mudar: alteracoes, cada uma com a linha e o tipo (adicionar não tem linha).' };
   if (entrada.length > MAX_ALTERACOES) return { erro: `No máximo ${MAX_ALTERACOES} linhas de uma vez.` };
   const r: AlteracaoDaLista[] = [];
   for (const a of entrada as any[]) {
+    if (a?.tipo === 'adicionar') {
+      const texto = emTexto(a.texto).slice(0, 120);
+      if (texto.length < 2 || !/\p{L}/u.test(texto) || pareceConversa(texto)) return { erro: 'adicionar: diga o produto como a pessoa disse ("hambúrguer 56 g").' };
+      if (!positivo(a.quantidade, MAX_QUANTIDADE)) return { erro: `adicionar "${texto}": a quantidade não é válida.` };
+      const medida = emTexto(a.medida) ? normalizarUnidade(emTexto(a.medida)) : null;
+      if (emTexto(a.medida) && !medida) return { erro: `adicionar "${texto}": não conheço a medida "${emTexto(a.medida)}".` };
+      r.push({ linha: 0, tipo: 'adicionar', texto, quantidade: Math.round(a.quantidade * 1000) / 1000, medida });
+      continue;
+    }
     const linha = Number(a?.linha);
     if (!Number.isInteger(linha) || linha < 1 || linha > 40) return { erro: 'Cada alteração precisa do número da linha da lista.' };
     if (a?.tipo === 'fora') r.push({ linha, tipo: 'fora' });
@@ -92,7 +103,28 @@ export function lerAlteracoesDaLista(entrada: unknown): { alteracoes: AlteracaoD
     } else if (a?.tipo === 'conversao') {
       if (!positivo(a.quanto_no_estoque, MAX_QUANTIDADE)) return { erro: `Linha ${linha}: diga quanto do estoque vem em 1 da unidade pedida.` };
       r.push({ linha, tipo: 'conversao', quantoNoEstoque: a.quanto_no_estoque });
-    } else return { erro: 'tipo precisa ser ligar, quantidade, fora, cadastrar, marca ou conversao.' };
+    } else return { erro: 'tipo precisa ser ligar, quantidade, fora, cadastrar, marca, conversao ou adicionar.' };
   }
   return { alteracoes: r };
+}
+
+/**
+ * 24/11 (o dono): junta as linhas novas (ditas) às da lista. O insumo que já está na lista (e não saiu) fica com a quantidade e a
+ * unidade ditas — é o que a pessoa quer pedir; o resto entra no fim, na ordem. Devolve o que aconteceu com cada uma.
+ */
+export function juntarLinhas(atuais: LinhaDaLista[], novas: LinhaDaLista[]): { linhas: LinhaDaLista[]; feito: string[] } {
+  const linhas = atuais.map((l) => ({ ...l }));
+  const feito: string[] = [];
+  for (const n of novas) {
+    const i = n.itemId ? linhas.findIndex((l) => l.itemId === n.itemId && l.estado !== 'fora') : -1;
+    if (i >= 0) {
+      const marca = linhas[i].marca;
+      linhas[i] = { ...n, ...(marca && n.marcas.includes(marca) ? { marca, estado: n.estado === 'marca' ? 'ligado' : n.estado } : {}) };
+      feito.push(`Linha ${i + 1} (${n.itemNome ?? n.texto}): agora ${quanto(n)}.`);
+    } else {
+      linhas.push(n);
+      feito.push(`Entrou na linha ${linhas.length}: "${n.texto}" (${quanto(n)})${n.estado === 'ligado' ? ` → ${n.itemNome}` : ', com uma pergunta'}.`);
+    }
+  }
+  return { linhas, feito };
 }
