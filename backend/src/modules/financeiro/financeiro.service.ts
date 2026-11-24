@@ -158,8 +158,11 @@ export class FinanceiroService {
         recorrencia: dto.recorrencia ?? 'nenhuma',
         fotoRef: dto.fotoRef ?? null,
       })
-      .where(and(eq(tituloFinanceiro.id, id), eq(tituloFinanceiro.tenantId, tenantId)))
+      // Só a conta AINDA aberta (F-01 da revisão de 24/11/2026): a baixa que entrou entre a leitura e esta gravação faz a
+      // edição ser recusada — antes, o título pago mudava de valor e de tipo com a saída do caixa já lançada.
+      .where(and(eq(tituloFinanceiro.id, id), eq(tituloFinanceiro.tenantId, tenantId), eq(tituloFinanceiro.status, 'aberto')))
       .returning();
+    if (!row) throw new BadRequestException('Só é possível editar contas em aberto.');
     await this.auditoria.registrar({
       tenantId,
       atorId,
@@ -182,10 +185,14 @@ export class FinanceiroService {
     if (!t) throw new NotFoundException('Título não encontrado');
     if (t.status !== 'aberto')
       throw new BadRequestException('Só é possível excluir contas em aberto.');
-    await this.db
+    // Só a conta AINDA aberta (F-01): cancelar no meio de uma baixa deixava o título cancelado com a saída no caixa — e um
+    // título cancelado não se estorna pelo caminho normal.
+    const [cancelou] = await this.db
       .update(tituloFinanceiro)
       .set({ status: 'cancelado' })
-      .where(and(eq(tituloFinanceiro.id, id), eq(tituloFinanceiro.tenantId, tenantId)));
+      .where(and(eq(tituloFinanceiro.id, id), eq(tituloFinanceiro.tenantId, tenantId), eq(tituloFinanceiro.status, 'aberto')))
+      .returning({ id: tituloFinanceiro.id });
+    if (!cancelou) throw new BadRequestException('Só é possível excluir contas em aberto.');
     await this.auditoria.registrar({
       tenantId,
       atorId,

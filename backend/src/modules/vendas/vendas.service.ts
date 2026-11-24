@@ -99,6 +99,22 @@ import { custoMedioDaSaida } from '../../common/custo-loja';
 // Etapa sem máximo: até quantas vezes a mesma opção pode ser repetida num item.
 const MAX_REPETICAO_SEM_LIMITE = 99;
 
+/** O teto da quantidade de uma linha (unidade, quilo ou litro). */
+export const QUANTIDADE_MAXIMA_DA_LINHA = 100_000;
+
+/**
+ * A quantidade de uma linha da venda do balcão ou da comanda (A-04 da revisão de 24/11/2026). Antes era
+ * `Number(q) || 1`: zero virava UMA unidade cobrada e o negativo era pulado em silêncio — a venda fechava vazia, de R$ 0.
+ * Agora: número finito, maior que zero e até o teto; a fração vale (produto por peso). Fora disso, a venda inteira é
+ * recusada antes de gravar.
+ */
+export function quantidadeDaLinha(q: unknown): number {
+  const n = typeof q === 'number' ? q : Number(q);
+  if (!Number.isFinite(n) || n <= 0 || n > QUANTIDADE_MAXIMA_DA_LINHA)
+    throw new BadRequestException(`Quantidade inválida: use um número maior que zero (até ${QUANTIDADE_MAXIMA_DA_LINHA.toLocaleString('pt-BR')}).`);
+  return n;
+}
+
 @Injectable()
 export class VendasService {
   private readonly logger = new Logger('Vendas');
@@ -963,6 +979,8 @@ export class VendasService {
   ) {
     if (!dto.itens?.length)
       throw new BadRequestException('Adicione ao menos um item.');
+    // Toda quantidade conferida ANTES de gravar qualquer coisa (A-04).
+    for (const it of dto.itens) quantidadeDaLinha(it?.quantidade);
 
     // Terminal de PDV (F2): a venda pertence ao terminal — a unidade da comanda
     // e o caixa a receber derivam dele (fecha o multi-unidade e o multi-balcão).
@@ -1057,7 +1075,7 @@ export class VendasService {
           .from(produto)
           .where(and(eq(produto.id, it.produtoId), eq(produto.tenantId, tenantId)));
         if (!p) throw new BadRequestException('Produto inválido');
-        const qtd = Number(it.quantidade) || 1;
+        const qtd = quantidadeDaLinha(it.quantidade);
 
         // Atacado + encomenda (mig 185): com data de entrega e item de atacado
         // produzível (tem ficha), o que passa do estoque disponível AGORA vira
@@ -1183,9 +1201,13 @@ export class VendasService {
       );
 
       const totalComTaxa = total * (1 + taxa / 100);
+      // Tudo em centavos (A-03 da revisão de 24/11/2026): o total gravado na venda e a soma do que entra no caixa são o
+      // MESMO número. Antes, a comanda ficava com R$ 50,00 e o caixa com R$ 49,96 (a tolerância de 5 centavos aceitava a
+      // soma e cada parte era gravada como veio).
+      const totalCent = Math.round(totalComTaxa * 100);
       await tx
         .update(comanda)
-        .set({ total: String(totalComTaxa.toFixed(2)) })
+        .set({ total: (totalCent / 100).toFixed(2) })
         .where(eq(comanda.id, cmd.id));
 
       const pagamentos = (dto as any).pagamentos as
@@ -1193,19 +1215,26 @@ export class VendasService {
         | undefined;
       const descBase = dto.mesa ? `Venda balcão · mesa ${dto.mesa}` : 'Venda balcão';
       if (pagamentos?.length) {
-        // Dividir conta / multi-pagamento: soma tem de bater com o total.
-        const somaPag = pagamentos.reduce((s, p) => s + (Number(p.valor) || 0), 0);
-        if (Math.abs(somaPag - totalComTaxa) > 0.05)
+        // Dividir conta / multi-pagamento: cada parte maior que zero, e a soma bate com o total. Até 5 centavos de
+        // diferença (arredondamento da tela) vão para a maior parte — o caixa soma exatamente o total da venda.
+        const partes = pagamentos.map((p) => Math.round(Number(p.valor) * 100));
+        if (partes.some((c) => !Number.isFinite(c) || c <= 0))
+          throw new BadRequestException('Cada forma de pagamento precisa de um valor maior que zero.');
+        const somaCent = partes.reduce((s, c) => s + c, 0);
+        if (Math.abs(somaCent - totalCent) > 5)
           throw new BadRequestException(
-            `A soma dos pagamentos (${somaPag.toFixed(2)}) não bate com o total (${totalComTaxa.toFixed(2)}).`,
+            `A soma dos pagamentos (${(somaCent / 100).toFixed(2)}) não bate com o total (${(totalCent / 100).toFixed(2)}).`,
           );
-        for (const p of pagamentos) {
+        const maior = partes.indexOf(Math.max(...partes));
+        partes[maior] += totalCent - somaCent;
+        for (const [i, p] of pagamentos.entries()) {
+          const valorDaParte = (partes[i] / 100).toFixed(2);
           await tx.insert(comandaPagamento).values({
             tenantId,
             comandaId: cmd.id,
             forma: p.forma,
             formaPagamentoId: p.formaPagamentoId ?? null,
-            valor: String(Number(p.valor).toFixed(2)),
+            valor: valorDaParte,
           });
           // Um lançamento de caixa por forma → fechamento "por forma" correto.
           await tx.insert(lancamentoCaixa).values({
@@ -1214,7 +1243,7 @@ export class VendasService {
             sessaoId,
             comandaId: cmd.id,
             tipo: 'entrada',
-            valor: String(Number(p.valor).toFixed(2)),
+            valor: valorDaParte,
             data: hojeISO(),
             categoria: 'venda',
             forma: p.forma,
@@ -1229,7 +1258,7 @@ export class VendasService {
           sessaoId,
           comandaId: cmd.id,
           tipo: 'entrada',
-          valor: String(totalComTaxa.toFixed(2)),
+          valor: (totalCent / 100).toFixed(2),
           data: hojeISO(),
           categoria: 'venda',
           forma: dto.forma,
@@ -1244,7 +1273,7 @@ export class VendasService {
         senhaPrefixo: dto.mesa ? null : PREFIXO_BALCAO,
         subtotal: Number(total.toFixed(2)),
         taxaServicoPct: taxa,
-        total: Number(totalComTaxa.toFixed(2)),
+        total: totalCent / 100,
         producaoPayloads,
         viaClienteItens,
         unidadeId: dto.unidadeId ?? null,
@@ -3116,14 +3145,24 @@ export class VendasService {
       dto.complementos ?? [],
     );
     preco += precoDelta;
-    const qtd = Number(dto.quantidade) || 1;
+    const qtd = quantidadeDaLinha(dto.quantidade);
     // Atacado por volume (mig 184): desconto por quantidade nesta linha da comanda.
     if (p.atacadoAtivo) {
       const faixas = await this.faixasAtacadoDe(this.db, tenantId, p.id);
       preco = precoComAtacado(preco, faixas, qtd);
     }
     const obs = dto.observacao || null;
-    const [item] = await this.db
+    // O item, as escolhas e o pedido da cozinha entram juntos, com a comanda travada e ainda ABERTA (B-01 da revisão de
+    // 24/11/2026): antes, a conferência de "aberta" era uma leitura solta — o item lançado enquanto outra pessoa fechava a
+    // conta entrava numa comanda já fechada, fora do valor cobrado e da baixa, e ia para a cozinha.
+    const { item, payloads } = await this.db.transaction(async (tx: any) => {
+    const [aberta] = await tx
+      .select({ id: comanda.id })
+      .from(comanda)
+      .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId), eq(comanda.status, 'aberta')))
+      .for('share');
+    if (!aberta) throw new BadRequestException('Comanda não está aberta');
+    const [item] = await tx
       .insert(comandaItem)
       .values({
         tenantId,
@@ -3140,7 +3179,7 @@ export class VendasService {
       })
       .returning();
     for (const s of snapshots) {
-      await this.db.insert(comandaItemComplemento).values({
+      await tx.insert(comandaItemComplemento).values({
         tenantId,
         comandaItemId: item.id,
         opcaoId: s.opcaoId,
@@ -3155,9 +3194,10 @@ export class VendasService {
     }
 
     // Cozinha começa já (o pedido de produção vai ao destino ao lançar, não ao fechar).
+    let payloads: any[] = [];
     if (p.vaiParaProducao) {
-      const payloads = await this.producao.criarPedidos(
-        this.db,
+      payloads = await this.producao.criarPedidos(
+        tx,
         {
           tenantId,
           unidadeId: c.unidadeId,
@@ -3181,8 +3221,11 @@ export class VendasService {
           },
         ],
       );
-      this.producao.emitirNovos(payloads);
     }
+    return { item, payloads };
+    });
+    // A cozinha é avisada só depois de gravar.
+    if (payloads.length) this.producao.emitirNovos(payloads);
 
     // Se a comanda pertence a uma mesa, avisa em tempo real o PDV dono (garçom → PDV).
     if (c.mesaId) {
@@ -3225,22 +3268,26 @@ export class VendasService {
       .from(comandaItem)
       .where(and(eq(comandaItem.id, itemId), eq(comandaItem.tenantId, tenantId)));
     if (!it) throw new NotFoundException('Item não encontrado');
-    const [c] = await this.db
-      .select({ status: comanda.status })
-      .from(comanda)
-      .where(eq(comanda.id, it.comandaId));
-    if (!c) throw new NotFoundException('Comanda não encontrada');
-    if (c.status !== 'aberta')
-      throw new BadRequestException(
-        'Só é possível alterar itens de comanda aberta. Para venda fechada, use o cancelamento.',
-      );
-
-    await this.db
-      .delete(comandaItemComplemento)
-      .where(eq(comandaItemComplemento.comandaItemId, itemId));
-    await this.db
-      .delete(comandaItem)
-      .where(and(eq(comandaItem.id, itemId), eq(comandaItem.tenantId, tenantId)));
+    // Com a comanda travada e ainda aberta (B-01): o item tirado enquanto outra pessoa fecha a conta não some de uma venda
+    // já cobrada — ou a remoção vem antes do fechamento, ou é recusada depois dele.
+    await this.db.transaction(async (tx: any) => {
+      const [c] = await tx
+        .select({ status: comanda.status })
+        .from(comanda)
+        .where(and(eq(comanda.id, it.comandaId), eq(comanda.tenantId, tenantId)))
+        .for('share');
+      if (!c) throw new NotFoundException('Comanda não encontrada');
+      if (c.status !== 'aberta')
+        throw new BadRequestException(
+          'Só é possível alterar itens de comanda aberta. Para venda fechada, use o cancelamento.',
+        );
+      await tx
+        .delete(comandaItemComplemento)
+        .where(eq(comandaItemComplemento.comandaItemId, itemId));
+      await tx
+        .delete(comandaItem)
+        .where(and(eq(comandaItem.id, itemId), eq(comandaItem.tenantId, tenantId)));
+    });
 
     // Marca o item nos pedidos de produção como removido (cancela o pedido se vazio).
     await this.producao.removerItemComanda(tenantId, itemId);
@@ -3293,14 +3340,35 @@ export class VendasService {
     terminalId?: string | null,
   ) {
     const caixaTerminalId = await this.terminalCaixa(tenantId, terminalId);
+    // O valor recebido que o caixa digita: centavos inteiros, não negativos (antes, um NaN ou um negativo iam direto ao caixa).
+    if (dto.recebidoCentavos != null && !(Number.isSafeInteger(dto.recebidoCentavos) && dto.recebidoCentavos >= 0))
+      throw new BadRequestException('Informe o valor recebido em centavos (número inteiro, zero ou mais).');
     const res = await this.db.transaction(async (tx) => {
+      const [lido] = await tx
+        .select({ comandaId: acertoSubpdv.comandaId })
+        .from(acertoSubpdv)
+        .where(and(eq(acertoSubpdv.id, id), eq(acertoSubpdv.tenantId, tenantId)));
+      if (!lido) throw new NotFoundException('Acerto não encontrado.');
+      // Travas na ordem comanda → acerto, a mesma do cancelamento (sem impasse entre os dois). A venda cancelada enquanto o
+      // garçom ainda devia o valor não entra mais no caixa (D-02); duas baixas juntas do mesmo acerto: a segunda espera,
+      // relê "baixado" e é recusada (B-03 — antes, as duas lançavam a entrada).
+      const [venda] = lido.comandaId
+        ? await tx
+            .select({ status: comanda.status })
+            .from(comanda)
+            .where(and(eq(comanda.id, lido.comandaId), eq(comanda.tenantId, tenantId)))
+            .for('share')
+        : [{ status: 'fechada' }];
       const [a] = await tx
         .select()
         .from(acertoSubpdv)
-        .where(and(eq(acertoSubpdv.id, id), eq(acertoSubpdv.tenantId, tenantId)));
+        .where(and(eq(acertoSubpdv.id, id), eq(acertoSubpdv.tenantId, tenantId)))
+        .for('update');
       if (!a) throw new NotFoundException('Acerto não encontrado.');
       if (a.status !== 'pendente')
-        throw new BadRequestException('Este acerto já foi baixado.');
+        throw new BadRequestException(a.status === 'cancelado' ? 'A venda deste acerto foi cancelada.' : 'Este acerto já foi baixado.');
+      if (!venda || venda.status === 'cancelada')
+        throw new BadRequestException('A venda deste acerto foi cancelada.');
 
       // O dinheiro entra na sessão aberta AGORA (não na de quando fechou a mesa):
       // é neste momento que ele fisicamente chega ao caixa.
@@ -3367,10 +3435,14 @@ export class VendasService {
     const caixaTerminalId = await this.terminalCaixa(tenantId, terminalId);
     const salao = await this.pontoSalao(tenantId, terminalId);
     const res = await this.db.transaction(async (tx) => {
+      // `for update` (B-01 da revisão de 24/11/2026): o segundo fechamento da mesma comanda — outro caixa, outra aba —
+      // espera este terminar, relê "fechada" e é recusado; quem lança ou tira item espera e encontra a conta fechada.
+      // Antes, os dois liam "aberta" e lançavam a entrada no caixa duas vezes.
       const [c] = await tx
         .select()
         .from(comanda)
-        .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
+        .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)))
+        .for('update');
       if (!c) throw new NotFoundException('Comanda não encontrada');
       if (c.status !== 'aberta')
         throw new BadRequestException('Comanda não está aberta');
@@ -3801,10 +3873,15 @@ export class VendasService {
     let cancelada: any = null; // a venda e se havia insumo a estornar — para o comprovante
     let houveBaixa = false;
     await this.db.transaction(async (tx) => {
+      // `for update` (D-01 da revisão de 24/11/2026): dois cancelamentos do mesmo cupom — dois caixas, dois toques — não
+      // devolvem o dinheiro duas vezes: o segundo espera, relê "cancelada" e ouve "Já cancelado.". Antes, os dois liam
+      // "fechada" e cada um lançava a saída do estorno (a conferência de "já estornado" não enxerga o que o outro ainda
+      // não gravou).
       const [c] = await tx
         .select()
         .from(comanda)
-        .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
+        .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)))
+        .for('update');
       if (!c) throw new NotFoundException('Cupom não encontrado');
       if (c.status !== 'fechada')
         throw new BadRequestException(
@@ -3896,6 +3973,12 @@ export class VendasService {
       // Estorna o caixa: TODOS os lançamentos de entrada da venda, cada um na sua forma,
       // no caixa aberto (sessaoId).
       await this.estornarLancamentos(tx, tenantId, comandaId, sessaoId, 'Estorno · cancelamento venda', atorId);
+      // Venda fechada no ponto do salão com o valor ainda com o garçom (D-02): o acerto pendente sai da fila e não pode
+      // mais entrar no caixa. O acerto já baixado tem a entrada no caixa, e ela foi estornada logo acima.
+      await tx
+        .update(acertoSubpdv)
+        .set({ status: 'cancelado', updatedAt: new Date() })
+        .where(and(eq(acertoSubpdv.tenantId, tenantId), eq(acertoSubpdv.comandaId, comandaId), eq(acertoSubpdv.status, 'pendente')));
 
       await tx
         .update(comanda)

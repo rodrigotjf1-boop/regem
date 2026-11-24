@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Venda, comanda, acerto e conta a pagar uma vez só (24/11; ERR-601; SEM migration).** Lote 1 da revisão do PDV (D-01, D-02, B-01,
+  B-03, F-01, A-03, A-04): cancelar e fechar a mesma comanda em dois caixas vale uma vez, o item não entra em comanda fechada, o acerto
+  do garçom não entra duas vezes nem depois do cancelamento, a conta paga não vira cancelada, a venda dividida soma exatamente o total e
+  a quantidade 0 ou negativa é recusada. **Vai no `.zip`.**
+
 - **Mister: a contagem do estoque pela conversa, versão 9 O3 segunda parte (24/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
 
 - **Mister: classificar o lançamento do extrato pela conversa, versão 9 O5 (24/11; SEM migration).** Só na nuvem (Banco e repasses é só da nuvem). Vai no `.zip` sem efeito na loja.
