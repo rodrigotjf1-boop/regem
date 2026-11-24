@@ -7,6 +7,9 @@ import { FinanceiroService } from '../financeiro/financeiro.service';
 import { FiscalService } from '../fiscal/fiscal.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { VendasService } from './vendas.service';
+import { EVENTO_CANCELADOS_NA_BAIXA } from '../delivery/pendencias-turno';
+import { pedidoVale } from '../../common/faturamento';
+import { sql } from 'drizzle-orm';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -92,7 +95,7 @@ descrever('venda, comanda, acerto e conta a pagar uma vez só (Postgres)', () =>
     await Promise.all(Array.from({ length: 12 }, () => pool.query('select pg_sleep(0.05)')));
   });
   afterAll(async () => {
-    for (const t of ['producao_pedido', 'acerto_subpdv', 'comanda_pagamento', 'comanda_item_complemento', 'comanda_item', 'lancamento_caixa', 'movimento_estoque', 'comanda', 'titulo_financeiro', 'caixa_sessao', 'equipamento', 'produto', 'colaborador', 'funcao', 'unidade'])
+    for (const t of ['producao_pedido', 'pedido_externo', 'acerto_subpdv', 'comanda_pagamento', 'comanda_item_complemento', 'comanda_item', 'lancamento_caixa', 'movimento_estoque', 'comanda', 'titulo_financeiro', 'caixa_sessao', 'equipamento', 'produto', 'colaborador', 'funcao', 'unidade'])
       await q(`delete from ${t} where tenant_id = $1`, [T]).catch(() => undefined);
     await q(`delete from empresa where id = $1`, [T]).catch(() => undefined);
     await pool.end();
@@ -110,6 +113,26 @@ descrever('venda, comanda, acerto e conta a pagar uma vez só (Postgres)', () =>
       { forma: 'dinheiro', valor: '20.00' },
       { forma: 'pix', valor: '30.00' },
     ]);
+  });
+
+  it('D-03: cancelar no PDV a venda de um pedido de delivery JÁ concluído tira o pedido do faturamento e devolve os benefícios', async () => {
+    const v: any = await vender();
+    const [{ id: pedido }] = await q(
+      `insert into pedido_externo (tenant_id, unidade_id, canal, tipo, status, total, comanda_id, cliente_telefone) values ($1, $2, 'cardapio', 'entrega', 'concluido', 50, $3, '21900000101') returning id`,
+      [T, loja, v.comandaId],
+    );
+    const conta = async () => {
+      const r: any = await db.execute(sql`select count(*)::int as n from pedido_externo pe where pe.id = ${pedido} and ${pedidoVale('pe')}`);
+      return (r.rows ?? r)[0].n;
+    };
+    expect(await conta()).toBe(1);
+    const avisados: any[] = [];
+    eventos.on(EVENTO_CANCELADOS_NA_BAIXA, (p: any) => avisados.push(p));
+    await vendas.cancelar(T, ator, P, v.comandaId, { motivo: 'cliente devolveu' }, caixa1);
+    // O pedido segue "concluído" (a sincronização dá precedência a ele), mas não conta mais como venda.
+    expect((await q(`select status from pedido_externo where id = $1`, [pedido]))[0].status).toBe('concluido');
+    expect(await conta()).toBe(0);
+    expect(avisados).toEqual([{ tenantId: T, pedidos: [{ id: pedido, clienteTelefone: '21900000101' }] }]);
   });
 
   it('D-02: a venda do salão cancelada com o valor ainda com o garçom tira o acerto da fila — e ele não entra mais no caixa', async () => {

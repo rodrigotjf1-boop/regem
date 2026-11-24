@@ -21,7 +21,9 @@ const NOME_DO_CANAL: Record<string, string> = {
  * da tela. Cancelar a venda pelo PDV ("Cupons") deixava o pedido ativo no painel e no canal, sem nenhum estorno.
  *
  * Fica de fora o pedido do TOTEM: ele se cancela por aqui mesmo, com o aviso de estorno ao GoGeM. E o pedido já
- * concluído: o painel não cancela pedido concluído, e a venda dele segue cancelável aqui (devolução depois da entrega).
+ * concluído: o painel não cancela pedido concluído, e a venda dele segue cancelável aqui (devolução depois da entrega) —
+ * o pedido segue "concluído", sai do faturamento pela venda cancelada (`pedidoVale`) e o `VendasService.cancelar`
+ * devolve o cashback e os pontos junto (D-03).
  *
  * `db` = o banco ou a transação do cancelamento.
  */

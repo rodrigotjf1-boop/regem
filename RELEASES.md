@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Devolução de delivery concluído pelo PDV (24/11; ERR-603; SEM migration).** D-03 da revisão do PDV: o pedido cuja venda foi
+  cancelada no PDV sai do faturamento oficial (`pedidoVale`) e o cashback e os pontos voltam. O pedido segue "concluído" (o sync dá
+  precedência a ele). **Vai no `.zip`.**
+
 - **Relatórios e números oficiais (24/11; ERR-602; SEM migration).** Lote 2 da revisão do PDV (G-01, G-02, G-04, G-05, F-02, B-04):
   a venda do último segundo do dia entra no relatório, a venda dividida aparece em cada forma, a série por mês usa a conta oficial,
   a DRE não conta sangria, suprimento nem gorjeta, a comanda vazia da mesa não vira venda e a Visão C&O soma a venda sem loja. **Vai
