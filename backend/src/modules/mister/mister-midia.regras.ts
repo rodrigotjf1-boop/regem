@@ -17,12 +17,12 @@ export const RECURSO_DA_FOTO_DO_MISTER = 'mister_foto';
 /** O modelo da leitura de reserva e da cópia das listas (o mesmo das notas: foto ruim pede precisão); `MISTER_FOTO_MODELO` troca. */
 export const MODELO_DA_FOTO_DO_MISTER = 'claude-sonnet-5-5';
 /** O prazo da leitura INTEIRA (Graph + reserva, V106): o Graph tem até 25 s; a IA só é chamada com 6 s ou mais pela frente. */
-export const PRAZOS_DA_FOTO_DO_MISTER = { totalMs: 55_000, graphMs: 25_000, minimoDaIaMs: 6_000 } as const;
-/** O tamanho da resposta da leitura de reserva: o documento inteiro, linha por linha. */
-export const MAX_TOKENS_DA_FOTO = 2500;
-/** O prazo TOTAL de copiar as linhas de uma lista, depois da leitura (V106), e o tamanho da resposta: 40 linhas com folga. */
-export const PRAZO_DA_LISTA_LIDA_MS = 45_000;
-export const MAX_TOKENS_DA_LISTA_LIDA = 6000;
+export const PRAZOS_DA_FOTO_DO_MISTER = { totalMs: 85_000, graphMs: 25_000, minimoDaIaMs: 6_000 } as const;
+/** O tamanho da resposta da reserva. No Sonnet 5.5 o raciocínio conta no teto, junto com o texto (ERR-593). */
+export const MAX_TOKENS_DA_FOTO = 8000;
+/** O prazo TOTAL de copiar as linhas de uma lista, depois da leitura (V106), e o teto da resposta, com o raciocínio. */
+export const PRAZO_DA_LISTA_LIDA_MS = 60_000;
+export const MAX_TOKENS_DA_LISTA_LIDA = 12_000;
 /** O começo da chave de idempotência no Graph: a foto do Mister nunca divide o resultado guardado com a do cliente. */
 export const PREFIXO_DA_CHAVE_DO_MISTER = 'regem-graph-mister';
 /** O que vai ao Graph: as imagens que ele aceita e o PDF. */

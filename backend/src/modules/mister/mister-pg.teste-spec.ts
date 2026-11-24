@@ -8323,6 +8323,20 @@ export function testesDoMisterComPostgres(): void {
           expect(await foto(telAna, novaMidia())).toBe('documento');
           expect(await ultimo()).toMatchObject({ situacao: 'recusado' });
           expect(await titulos()).toEqual([]);
+
+          // 8) ERR-593: a resposta cortada pelo teto não é foto ruim, nem na leitura da nota nem na primeira leitura.
+          ia.pedidos.length = 0;
+          ia.roteiro = [leitura({ tipo: 'nota' }), { ...nota(), stop_reason: 'max_tokens' }];
+          numero.pedidos.length = 0;
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          expect(ia.pedidos.map((p) => p.max_tokens)).toEqual([2000, 12_000]);
+          expect(await ultimo()).toMatchObject({ tipo: 'nota', situacao: 'recusado', motivo: 'leitura_cortada' });
+          expect(ultimaFala().texto).toBe('A leitura parou no meio por um limite do nosso lado, não pela sua foto. Manda de novo, por favor.');
+          ia.roteiro = [{ ...leitura({ tipo: 'nota' }), stop_reason: 'max_tokens' }];
+          numero.pedidos.length = 0;
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          expect(await ultimo()).toMatchObject({ tipo: 'outro', situacao: 'recusado', motivo: 'leitura_cortada' });
+          expect(ultimaFala().texto).toContain('não pela sua foto');
         } finally {
           delete process.env.MISTER_NOTAS;
           for (const t of ['mister_de_para', 'item_estoque'])
@@ -8636,7 +8650,7 @@ export function testesDoMisterComPostgres(): void {
         const antes = (await perguntasDe('ana')).length;
         expect(await foto(telAna, id)).toBe('pergunta');
         expect(ia.pedidos).toHaveLength(2);
-        expect(ia.pedidos[1].max_tokens).toBe(6000);
+        expect(ia.pedidos[1].max_tokens).toBe(12_000);
         expect(guardadas).toEqual([
           {
             total: 2,

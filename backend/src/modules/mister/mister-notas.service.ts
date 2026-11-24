@@ -19,7 +19,7 @@ import {
   proximaPendencia,
   sugerirInsumos,
 } from '../../common/nota-por-foto';
-import { RECURSO_DO_DOCUMENTO, cupomNaInstalacao, notasNaInstalacao } from '../../common/documento-por-foto';
+import { FRASE_DA_LEITURA_CORTADA, MAX_TOKENS_DA_NOTA, RECURSO_DO_DOCUMENTO, cupomNaInstalacao, notasNaInstalacao } from '../../common/documento-por-foto';
 import {
   FRASES_DA_LEITURA,
   botaoLancarAssim,
@@ -101,19 +101,28 @@ export class MisterNotasService {
   /** A foto que a primeira leitura disse ser nota: lê os itens, confere e começa a conversa. */
   async receber(quem: QuemMandou, wamid: string | null, bloco: any, modelo: string): Promise<void> {
     let saida: string;
+    let cortada = false;
     try {
       const r = await this.ia.pedir(quem.tenantId, {
         recurso: RECURSO_DO_DOCUMENTO,
         modelo,
-        maxTokens: 3000,
+        maxTokens: MAX_TOKENS_DA_NOTA,
         system: instrucoesDaNota(),
         messages: [{ role: 'user', content: [bloco, { type: 'text', text: 'Leia esta nota fiscal.' }] }],
         prazoMs: PRAZO_DA_NOTA_MS,
       });
       saida = r.texto;
+      cortada = r.parou === 'max_tokens';
     } catch (e: any) {
       this.logger.warn(`nota de ${quem.tenantId.slice(0, 8)}: a IA não leu (${e instanceof FalhaDaIa ? e.motivo : e?.message ?? e})`);
       await this.falar(quem.telefone, { texto: 'Para ler a foto eu preciso da IA, e ela está parada agora. Tente de novo mais tarde.' });
+      return;
+    }
+    // ERR-593: o JSON cortado pelo teto não é foto ruim. Nada do que veio pela metade é aproveitado.
+    if (cortada) {
+      this.logger.warn(`nota de ${quem.tenantId.slice(0, 8)}: a leitura parou no teto de ${MAX_TOKENS_DA_NOTA} tokens`);
+      await this.gravar(quem, wamid, 'recusado', 'leitura_cortada', null, null);
+      await this.falar(quem.telefone, { texto: FRASE_DA_LEITURA_CORTADA });
       return;
     }
     const leitura = lerLeituraDaNota(saida);

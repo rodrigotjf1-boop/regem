@@ -32,7 +32,7 @@ describe('a lista de compras lida de um arquivo', () => {
     const { s, ia, entrada } = montar(VISTO, async () => ({ texto: JSON.stringify(lista(36)) }));
     const r: any = await s.olhar(quem, midia, 'w1');
     expect(ia.pedir).toHaveBeenCalledTimes(1);
-    expect((ia.pedir.mock.calls as any[])[0][1]).toMatchObject({ maxTokens: 6000 });
+    expect((ia.pedir.mock.calls as any[])[0][1]).toMatchObject({ maxTokens: 12_000 });
     const guardada = (entrada.guardarListaLida.mock.calls as any[])[0][1];
     expect(guardada.total).toBe(36);
     expect(guardada.pedidos).toHaveLength(36);
