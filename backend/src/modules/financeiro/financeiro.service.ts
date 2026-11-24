@@ -31,6 +31,8 @@ import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.servic
 import { proximaData } from '../../common/regras-negocio';
 import { uuidDeChave } from '../../common/id-deterministico';
 import { sqlUnidade, condUnidade } from '../../common/filtro-unidade';
+import { gorjetaComanda } from '../../common/faturamento';
+import { instanteDe } from '../../common/fuso-sql';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { PagarTituloDto } from './dto/pagar-titulo.dto';
@@ -445,22 +447,31 @@ export class FinanceiroService {
       select estorno_de from lancamento_caixa
       where tenant_id=${tenantId} and estorno_de is not null
     `;
-    const rec: any = await this.db.execute(sql`
-      select coalesce(sum(valor),0) as v from lancamento_caixa
-      where tenant_id=${tenantId} and tipo='entrada' and estorno_de is null
+    // Sangria e suprimento só mudam o dinheiro de lugar (gaveta ↔ cofre): não são receita nem despesa (F-02 da revisão de
+    // 24/11/2026 — antes, um suprimento de R$ 100 e uma sangria de R$ 60 davam R$ 40 de "resultado").
+    const naoInterno = sql`coalesce(categoria, '') not in ('sangria', 'suprimento')`;
+    const entradas = sql`
+      from lancamento_caixa
+      where tenant_id=${tenantId} and tipo='entrada' and estorno_de is null and ${naoInterno}
         and id not in (${estornados})
-        and data between ${inicio} and ${fim} ${sqlUnidade('unidade_id', atual)}
-    `);
+        and data between ${inicio} and ${fim} ${sqlUnidade('unidade_id', atual)}`;
+    const rec: any = await this.db.execute(sql`select coalesce(sum(valor),0) as v ${entradas}`);
+    // A gorjeta (taxa de serviço) entra no caixa junto com a venda, mas é repasse ao funcionário, não receita
+    // (`common/faturamento.ts`): sai das receitas e aparece à parte — a de cada comanda uma vez, mesmo dividida em formas.
+    const gorj: any = await this.db.execute(sql`
+      select coalesce(sum(${gorjetaComanda('c')}), 0) as v from comanda c
+       where c.tenant_id = ${tenantId} and c.id in (select comanda_id ${entradas} and comanda_id is not null)`);
     const desp: any = await this.db.execute(sql`
       select coalesce(categoria,'outros') as categoria, coalesce(sum(valor),0) as v
       from lancamento_caixa
-      where tenant_id=${tenantId} and tipo='saida' and estorno_de is null
+      where tenant_id=${tenantId} and tipo='saida' and estorno_de is null and ${naoInterno}
         and id not in (${estornados})
         and data between ${inicio} and ${fim} ${sqlUnidade('unidade_id', atual)}
       group by coalesce(categoria,'outros')
       order by v desc
     `);
-    const receitas = Number((rec.rows ?? rec)[0].v);
+    const gorjeta = Number((gorj.rows ?? gorj)[0].v);
+    const receitas = Number((Number((rec.rows ?? rec)[0].v) - gorjeta).toFixed(2));
     const despesas = (desp.rows ?? desp).map((d: any) => ({
       categoria: d.categoria,
       valor: Number(d.v),
@@ -469,6 +480,8 @@ export class FinanceiroService {
     return {
       periodo: { inicio, fim },
       receitas,
+      // Repasse ao funcionário que passou pelo caixa — fora das receitas e do resultado.
+      gorjeta: Number(gorjeta.toFixed(2)),
       despesas,
       totalDespesas,
       resultado: Number((receitas - totalDespesas).toFixed(2)),
@@ -1172,8 +1185,10 @@ export class FinanceiroService {
     const cond = [eq(caixaSessao.tenantId, tenantId), eq(caixaSessao.status, 'fechada')];
     const cu = condUnidade(caixaSessao.unidadeId, atual);
     if (cu) cond.push(cu);
-    if (inicio) cond.push(sql`${caixaSessao.fechadaEm} >= ${inicio}`);
-    if (fim) cond.push(sql`${caixaSessao.fechadaEm} <= ${fim + ' 23:59:59'}`);
+    // O dia da operação (fuso da loja) até o último microssegundo — como os relatórios (G-02, ERR-120): antes o texto cru
+    // era lido no fuso da sessão do banco (UTC na nuvem) e o corte em 23:59:59 perdia o fim do dia.
+    if (inicio) cond.push(sql`${caixaSessao.fechadaEm} >= ${instanteDe(`${inicio.slice(0, 10)} 00:00:00`)}`);
+    if (fim) cond.push(sql`${caixaSessao.fechadaEm} <= ${instanteDe(`${fim.slice(0, 10)} 23:59:59.999999`)}`);
     return this.db
       .select({
         id: caixaSessao.id,

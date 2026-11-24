@@ -62,12 +62,14 @@ export class RelatoriosService {
     const hoje = hojeISO();
     const comHoraIni = (d?: string) =>
       !d ? null : d.length <= 10 ? `${d} 00:00:00` : d;
+    // Até o último MICROSSEGUNDO do dia (G-02 da revisão de 24/11/2026): o instante guarda fração de segundo, e o corte em
+    // 23:59:59 deixava de fora a venda das 23:59:59,5 — que o Painel conta no mesmo dia.
     const comHoraFim = (d?: string) =>
-      !d ? null : d.length <= 10 ? `${d} 23:59:59` : d;
+      !d ? null : d.length <= 10 ? `${d} 23:59:59.999999` : d;
     const ini =
       comHoraIni(inicio) ||
       `${somarDias(hoje, -29)} 00:00:00`;
-    return { ini, fim: comHoraFim(fim) || `${hoje} 23:59:59` };
+    return { ini, fim: comHoraFim(fim) || `${hoje} 23:59:59.999999` };
   }
   private async rows(q: any): Promise<any[]> {
     const r: any = await this.db.execute(q);
@@ -105,9 +107,21 @@ export class RelatoriosService {
       where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status='cancelada'
         and ${noPeriodo('c.cancelada_em', ini, f)}`);
 
+    // Por forma (G-05 da revisão de 24/11/2026): a venda dividida aparece em CADA forma que pagou, com o faturamento
+    // rateado pelo valor de cada parte (`comanda_pagamento`) — antes caía inteira em "Múltiplo". A venda de forma única
+    // segue na forma da comanda. A quantidade de cada forma conta as vendas que usaram essa forma.
     const porForma = await this.rows(sql`
-      select coalesce(c.forma,'—') as forma, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
-      ${base} group by 1 order by 3 desc`);
+      with v as (
+        select c.id, c.forma, ${fat} as fat,
+               (select coalesce(sum(p.valor), 0) from comanda_pagamento p where p.comanda_id = c.id) as partes
+        ${base}
+      ), f as (
+        select coalesce(v.forma, '—') as forma, v.id, v.fat as total from v where v.partes = 0
+        union all
+        select coalesce(p.forma, '—'), v.id, v.fat * p.valor / v.partes
+          from v join comanda_pagamento p on p.comanda_id = v.id where v.partes > 0
+      )
+      select forma, count(distinct id)::int as qtd, coalesce(sum(total), 0) as total from f group by 1 order by 3 desc`);
     const porCanal = await this.rows(sql`
       select case when c.mesa_id is not null then 'mesa'
                   when c.forma='online' then 'delivery/app'
@@ -393,24 +407,22 @@ export class RelatoriosService {
   // Faturamento por mês e por trimestre DENTRO do período (respeita De/Até).
   async faturamentoPeriodo(tenantId: string, inicio?: string, fim?: string, atual: string | null = null) {
     const { ini, fim: f } = this.periodo(inicio, fim);
-    // Série histórica de faturamento, também sem a gorjeta. A recomposição é retroativa
-    // e vem de `taxa_servico_pct`, que é gravado em cada comanda — a série inteira desce
-    // junto, sem degrau artificial no meio do gráfico.
-    const rows = await this.rows(sql`
-      select to_char(${noFuso('c.fechada_em')}, 'YYYY-MM') as ym,
-             coalesce(sum(${faturamentoComanda('c')}),0) as total,
-             coalesce(sum(${gorjetaComanda('c')}),0) as gorjeta,
-             count(*)::int as vendas
-      from comanda c
-      where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status = 'fechada'
-        and ${noPeriodo('c.fechada_em', ini, f)}
-      group by 1 order by 1`);
-    const porMes = rows.map((r) => ({
-      ym: r.ym as string,
-      total: Number(r.total),
-      gorjeta: Number(r.gorjeta ?? 0),
-      vendas: Number(r.vendas),
-    }));
+    // Série histórica pela conta OFICIAL (G-01 da revisão de 24/11/2026): as mesmas linhas de `vendasOficiais`, do Painel e
+    // da Visão C&O — balcão e mesa pela comanda, canal pelo pedido, com a taxa de entrega da loja e sem a gorjeta. Antes a
+    // série somava só as comandas: o mesmo mês saía com outro faturamento que o total oficial.
+    const linhas = await this.linhasDaVendaOficial(tenantId, ini, f, atual);
+    const meses = new Map<string, { total: number; gorjeta: number; vendas: number }>();
+    for (const l of linhas) {
+      const ym = String(l.chave).slice(0, 7);
+      const m = meses.get(ym) ?? { total: 0, gorjeta: 0, vendas: 0 };
+      m.total += Math.round(Number(l.fat) * 100);
+      m.gorjeta += Math.round(Number(l.gorj) * 100);
+      m.vendas += Number(l.qtd);
+      meses.set(ym, m);
+    }
+    const porMes = [...meses.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([ym, m]) => ({ ym, total: m.total / 100, gorjeta: m.gorjeta / 100, vendas: m.vendas }));
     // Trimestres agrupados por ano-Qn (funciona mesmo cruzando anos).
     const tri = new Map<string, { trimestre: string; total: number; gorjeta: number; vendas: number }>();
     for (const m of porMes) {

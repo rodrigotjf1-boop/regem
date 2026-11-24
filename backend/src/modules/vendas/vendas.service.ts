@@ -3052,11 +3052,18 @@ export class VendasService {
         const r = await this.fecharComanda(tenantId, atorId, atorPerfil, c.id, dto, terminalId);
         cupons.push(r);
       } else {
-        // Comanda vazia: fecha sem cupom (não gera lançamento).
+        // Comanda vazia (B-04 da revisão de 24/11/2026): sai, como na exclusão da mesa. Antes ela ficava "fechada" com R$ 0 e
+        // contava como VENDA nos relatórios (a mesa com uma comanda de R$ 60 e uma vazia dava 2 vendas e tíquete de R$ 30).
+        // Se algo ainda aponta para ela (o pedido da cozinha de um item que foi tirado), fica cancelada com o motivo.
         await this.db
-          .update(comanda)
-          .set({ status: 'fechada', fechadaEm: new Date() })
-          .where(eq(comanda.id, c.id));
+          .delete(comanda)
+          .where(and(eq(comanda.id, c.id), eq(comanda.tenantId, tenantId), eq(comanda.status, 'aberta')))
+          .catch(() =>
+            this.db
+              .update(comanda)
+              .set({ status: 'cancelada', canceladaEm: new Date(), canceladaPorId: atorId, motivoCancelamento: 'Comanda vazia, encerrada com a mesa' })
+              .where(and(eq(comanda.id, c.id), eq(comanda.status, 'aberta'))),
+          );
       }
     }
     await this.db
