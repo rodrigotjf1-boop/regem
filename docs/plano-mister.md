@@ -2460,9 +2460,11 @@ dúvida" o Mister informa e pergunta, e a pessoa responde o certo ou manda outra
 | L0 · O teste | 20 fotos reais com a resposta certa, comparando as versões | espera as fotos do dono |
 | L1 · Leitura inteira | Texto inteiro até 5.000 letras, Graph com 25 s, o motivo da falha na pergunta, Sonnet 5.5 na reserva e na lista | no ar (#1296) |
 | L2a · Dúvida na lista e na foto | A linha em dúvida fica fora do pedido, o Mister pergunta, a resposta entra | no ar (#1296) |
-| L2b · Dúvida na nota e no cupom | Guarda o que leu e pergunta a linha, o total ou o que faltou. "Lançar assim" segue com a soma aberta. Nada é lançado antes da resposta | neste PR |
+| L2b · Dúvida na nota e no cupom | Guarda o que leu e pergunta a linha, o total ou o que faltou. "Lançar assim" segue com a soma aberta. Nada é lançado antes da resposta | no ar (#1297) |
+| L2c · O cupom pela conversa (ERR-594) | O agente vê as linhas do cupom aberto e grava o que a pessoa diz (corrigir, ligar ao insumo, conversão, fora do estoque); lançar só no botão. O aberto vale 72 h. A embalagem da descrição ("36un") confere a conversão. "Foi você que registrou?" consulta os pedidos de compra | neste PR |
+| Ordem da leitura (decisão do dono, 24/11) | A foto vai primeiro à Anthropic; o Graph fica de reserva. Medido antes: o Graph leu 2 de 6 fotos, e cada falha custava 25 s de espera. O áudio continua no Graph | neste PR |
 | L3 · Foto ruim e grande | Medir luz e tremido, documento até 20 MB, cupom em partes | depende de L0 e de biblioteca de imagem |
 | L4 · Releitura | O Sonnet relê a foto em dúvida. Nasce desligada, com o preço ao lado | depende de L0 |
 
-**Custo:** o Sonnet custa cerca de US$ 0,02 (uns R$ 0,12) por foto que cai na reserva ou lista copiada, contra menos de um centavo de
-dólar do Haiku, na chave de IA da empresa. `MISTER_FOTO_MODELO` volta ao modelo anterior.
+**Custo (medido em 23/11, na chave de IA da empresa):** cada foto lida pelo Sonnet custa cerca de US$ 0,026 (uns R$ 0,15). O cupom ou a
+nota inteira, com a classificação e a leitura dos itens, cerca de US$ 0,085 (uns R$ 0,47). `MISTER_FOTO_MODELO` volta ao modelo anterior.

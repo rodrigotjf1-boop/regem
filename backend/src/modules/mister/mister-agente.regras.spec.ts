@@ -284,6 +284,9 @@ describe('Mister — o que o modelo recebe', () => {
       'regras',
       // Versão 6, M6g (mig 475): a lista de compras pela conversa.
       'lista_de_compras',
+      // ERR-594: quem criou o pedido, e o cupom em aberto pela conversa.
+      'pedidos_de_compra',
+      'documento_em_andamento',
       // Versão 6, M6i: o "refazer" do último gráfico.
       'refazer_grafico',
       // Versão 6, M6j: a porta das ações.

@@ -12,6 +12,8 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: o cupom pela conversa e a foto lida primeiro pela Anthropic (24/11; ERR-594; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
+
 - **IA: tetos de resposta (23/11; ERR-593; SEM migration).** Copiloto, foto do cliente, banner, Instagram e os recursos do Mister param de cortar a resposta no meio. Vai no `.zip`.
 
 - **Mister: leitura de fotos, L1, L2a e L2b (23/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
