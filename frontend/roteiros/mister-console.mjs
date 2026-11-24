@@ -461,6 +461,10 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
         const dias = Number(url.searchParams.get('dias')) === 30 ? 30 : 7;
         return responder(route, { ...S.qualidade, dias, perguntas: dias === 30 ? S.qualidade.perguntas * 3 : S.qualidade.perguntas });
       }
+      // A conferência dos aparelhos (versão 6, M6.0): desligada e sem telefones. Sem ela, o `[]` do fim derrubava a aba inteira
+      // ("Algo deu errado"): o roteiro tinha ficado para trás quando o quadro entrou.
+      if (p === '/distribuicao/mister/aparelho' && route.request().method() === 'GET')
+        return responder(route, { disponivel: true, ligado: false, em: null, por: null, vistos: 0, mudaram: 0, telefones: [] });
       // A avaliação (F5.3): a rodada pedida anda 20 perguntas a cada leitura, até as 40.
       if (p === '/distribuicao/mister/avaliacoes' && route.request().method() === 'POST') {
         S.avaliacoes.rodadas.unshift(RODADA({ id: 'av3', situacao: 'rodando', iniciadaEm: new Date().toISOString(), terminadaEm: null, feitas: 0, acertos: 0, custoUsd: null }));
@@ -996,6 +1000,34 @@ export default async function roteiroMisterConsole({ nav, base, ok, foto, largur
     await sec.locator('li:has-text("40 de 40")').waitFor({ timeout: 20000 });
     ok((await sec.locator('button:has-text("Rodar a avaliação")').isEnabled()) && feitos(S, 'GET', '/distribuicao/mister/avaliacoes').length >= 3, 'avaliação: o andamento relido até terminar, e o botão volta');
     ok(erros.length === 0, `avaliação: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  // A lista curta (pedido do dono, 24/11): com as 10 rodadas que o servidor guarda, aparecem as 3 mais novas; "Ver as 7 anteriores" abre o resto.
+  {
+    const dez = Array.from({ length: 10 }, (_, i) => RODADA({ id: `av-l${i}`, iniciadaEm: `2026-11-${String(24 - i).padStart(2, '0')}T12:00:00-03:00`, versao: `v${i}`, total: 40, feitas: 40, acertos: 40 - (i % 2), falhas: i % 2, oQueFalhou: i % 2 ? [{ pergunta: `Pergunta da rodada ${i}`, falha: 'a resposta não traz 10,00' }] : [] }));
+    const { ctx, page, erros } = await abrir(1280, 900, { numero: conectado(), liberado: true, avaliacoes: AVALIACOES({ rodadas: dez }) });
+    await naAba(page);
+    const sec = page.locator('section[aria-labelledby="mister-avaliacao"]');
+    const rodadas = sec.locator('#mister-avaliacao-rodadas > li');
+    await rodadas.first().waitFor({ timeout: 20000 });
+    ok((await rodadas.count()) === 3, `avaliação curta: só as 3 mais novas aparecem (${await rodadas.count()})`);
+    ok((await rodadas.first().innerText()).includes('v0') && (await sec.innerText()).includes('Ver as 7 anteriores'), 'avaliação curta: a mais nova primeiro e "Ver as 7 anteriores"');
+    const botao = sec.locator('button[aria-controls="mister-avaliacao-rodadas"]');
+    ok((await botao.getAttribute('aria-expanded')) === 'false', 'avaliação curta: o botão diz que está fechado');
+    await botao.click();
+    await sec.locator('text=Mostrar só as 3 últimas').waitFor();
+    ok((await rodadas.count()) === 10 && (await botao.getAttribute('aria-expanded')) === 'true', 'avaliação curta: abre as 10, e o botão diz que está aberto');
+    await botao.click();
+    await sec.locator('text=Ver as 7 anteriores').waitFor();
+    ok((await rodadas.count()) === 3, 'avaliação curta: "Mostrar só as 3 últimas" fecha de novo');
+    for (const w of [320, 375, 768]) {
+      await page.setViewportSize({ width: w, height: 820 });
+      await botao.click();
+      const m = await medir(page);
+      ok(m.length === 0, `avaliação curta: ${w}px com as 10 abertas, sem barra lateral (${m.join(' | ')})`);
+      await botao.click();
+    }
+    ok(erros.length === 0, `avaliação curta: sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
   {
