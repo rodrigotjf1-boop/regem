@@ -15,6 +15,7 @@ import { HistoricoDosAvisos } from '@/components/mister/historico';
 import { IaEUso } from '@/components/mister/ia-e-uso';
 import { JeitoDoMister } from '@/components/mister/jeito';
 import { MemoriaDoMister } from '@/components/mister/memoria';
+import { ModelosDeCompra } from '@/components/mister/modelos';
 import { PessoasDoMister } from '@/components/mister/pessoas';
 import { RegrasDoMister } from '@/components/mister/regras';
 import { ResumoDoMister } from '@/components/mister/resumo';
@@ -33,7 +34,9 @@ import { ResumoDoMister } from '@/components/mister/resumo';
 // um na sua fase. Só o presidente.
 // "Regras" (versão 6, M6f, `mockups/regem-mister-v6.html`, aprovado em 20/11/2026): as regras de aviso de cada pessoa. O
 // presidente vê as de todos; o gerente, as dele — por isso o gerente também tem as partes (Pessoas e Regras).
-type Parte = 'resumo' | 'pessoas' | 'regras' | 'ia' | 'avisos' | 'documentos' | 'historico' | 'jeito';
+// "Modelos de compra" (versão 9, O2, `mockups/regem-mister-v9.html`, aprovado em 24/11/2026, mig 503): o que cada fornecedor manda e
+// a que insumo vai, e os apelidos da empresa. Só o presidente.
+type Parte = 'resumo' | 'pessoas' | 'regras' | 'ia' | 'avisos' | 'documentos' | 'modelos' | 'historico' | 'jeito';
 const TITULO: Record<Parte, string> = {
   resumo: 'Resumo',
   pessoas: 'Pessoas',
@@ -41,6 +44,7 @@ const TITULO: Record<Parte, string> = {
   ia: 'IA e uso',
   avisos: 'Avisos e relatórios',
   documentos: 'Documentos',
+  modelos: 'Modelos de compra',
   historico: 'Histórico',
   jeito: 'Jeito e memória',
 };
@@ -77,7 +81,7 @@ export default function MisterPage() {
     setCat(c);
     // Um link pode abrir direto numa parte (`/mister?parte=ia`). Só o presidente tem a parte da IA.
     const pedida = new URLSearchParams(window.location.search).get('parte');
-    if (c === 'presidente' && (pedida === 'pessoas' || pedida === 'regras' || pedida === 'ia' || pedida === 'avisos' || pedida === 'documentos' || pedida === 'historico' || pedida === 'jeito')) setParte(pedida);
+    if (c === 'presidente' && (pedida === 'pessoas' || pedida === 'regras' || pedida === 'ia' || pedida === 'avisos' || pedida === 'documentos' || pedida === 'modelos' || pedida === 'historico' || pedida === 'jeito')) setParte(pedida);
     if (c === 'gerente' && pedida === 'regras') setParte('regras');
     if ((c === 'presidente' || c === 'gerente') && !NO_SERVIDOR_DA_LOJA) void lerModulo();
   }, [lerModulo]);
@@ -140,6 +144,7 @@ export default function MisterPage() {
               { key: 'ia', label: TITULO.ia },
               { key: 'avisos', label: TITULO.avisos },
               { key: 'documentos', label: TITULO.documentos },
+              { key: 'modelos', label: TITULO.modelos },
               { key: 'historico', label: TITULO.historico },
               { key: 'jeito', label: TITULO.jeito },
             ]}
@@ -157,6 +162,8 @@ export default function MisterPage() {
           <AvisosDoMister />
         ) : aberta === 'documentos' ? (
           <DocumentosDoMister />
+        ) : aberta === 'modelos' ? (
+          <ModelosDeCompra />
         ) : aberta === 'historico' ? (
           <HistoricoDosAvisos />
         ) : aberta === 'jeito' ? (

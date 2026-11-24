@@ -32,6 +32,8 @@ import { MisterLinkPublicoService } from './mister-link-publico.service';
 import { MisterPontoDoMesService } from './mister-ponto-do-mes.service';
 import { MisterVigiaService } from './mister-vigia.service';
 import { MisterRegrasService } from './mister-regras.service';
+import { MisterCompraModelosController } from './mister-compra-modelos.controller';
+import { MisterCompraModelosService } from './mister-compra-modelos.service';
 import { MisterRegrasController } from './mister-regras.controller';
 import { MisterListaService } from './mister-lista.service';
 import { MisterPadroesService } from './mister-padroes.service';
@@ -141,13 +143,16 @@ import { MisterModule } from './mister.module';
     MisterMidiaService,
     // Versão 5, M5e (mig 461): o resumo com "📄 PDF" e "📊 Ver gráficos" e o toque nesses botões.
     MisterResumoArquivoService,
+    // Versão 9, O2 (mig 503): os modelos de compra e os apelidos — a tela, o "Mudou:" da nota e os apelidos da lista.
+    MisterCompraModelosService,
   ],
   // F4.2a (mig 433): as rotas públicas da página do link com PIN (`/m/<código>`), que respondem pelo serviço das propostas.
   // M3a parte 3: a parte "Documentos" do Mister na loja (a lista e o "Desfazer o lançamento").
   // M3c.4: a página do relatório por insumo ("Ver no Regem") e o PDF dela.
   // M3c (mig 443): as rotas públicas da página do link para encaminhar (`/m/r/<código>`).
   // Versão 6, M6f: a parte "Regras" do Mister na loja (a lista, pausar, retomar e apagar).
-  controllers: [MisterLinkController, MisterDocumentosController, MisterRelatorioController, MisterLinkPublicoController, MisterRegrasController],
+  // Versão 9, O2: a parte "Modelos de compra" do Mister na loja.
+  controllers: [MisterLinkController, MisterDocumentosController, MisterRelatorioController, MisterLinkPublicoController, MisterRegrasController, MisterCompraModelosController],
   exports: [MisterAgenteService, MisterAvisosService],
 })
 export class MisterAgenteModule {}

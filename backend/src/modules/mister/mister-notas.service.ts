@@ -45,6 +45,8 @@ import { DOCUMENTO_ABERTO_H, acharInsumo, corrigirLinha, fraseDoFeito, lerAltera
 import { QuemMandou, QuemTocou } from './mister-entrada.service';
 import { MisterFerramentasService, type EscopoDoMister, type ResultadoDaFerramenta } from './mister-ferramentas.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
+import { MisterCompraModelosService } from './mister-compra-modelos.service';
+import { mudancasDoModelo, type UltimaVez } from './mister-compra-modelos';
 import {
   MAX_TOKENS_DA_LIGACAO,
   MODELO_DA_LIGACAO,
@@ -114,6 +116,8 @@ export class MisterNotasService implements OnModuleInit {
     @Optional() private readonly ferramentas?: MisterFerramentasService,
     // Versão 9, O1: o ajuste "Ligar as linhas pela IA" da empresa.
     @Optional() private readonly conversa?: MisterConversaConfigService,
+    // Versão 9, O2: o modelo do fornecedor (o "Mudou:" e a última vez). Opcional: sem ele, a nota de sempre.
+    @Optional() private readonly modelos?: MisterCompraModelosService,
   ) {}
 
   /** ERR-594: o agente vê e corrige o documento aberto (o mesmo jeito da lista de compras). */
@@ -201,6 +205,12 @@ export class MisterNotasService implements OnModuleInit {
     // Versão 9, O1: o que a memória do fornecedor não ligou, a IA liga (com o ajuste ligado). Falhou: a sugestão pelas palavras fica.
     if (nota.itens.some((x) => x.estado === 'item') && (await this.ligarPelaIaLigado(quem.tenantId))) {
       nota.ligadaPelaIa = await this.ligarPelaIa(quem.tenantId, nota, insumos);
+    }
+    // Versão 9, O2: o que o modelo do fornecedor já conhecia e o que mudou desde a última nota (com o ajuste ligado).
+    if (this.modelos && memoria.size && (await this.modelos.ligado(quem.tenantId))) {
+      const ultimas = await this.modelos.ultimasVezes(quem.tenantId, leitura.emitenteCnpj, [...memoria.keys()]).catch(() => new Map<string, UltimaVez>());
+      const conhecidos = nota.itens.filter((it) => memoria.has(chaveDoDePara(it)));
+      nota.modelo = { conhecidos: conhecidos.length, mudancas: mudancasDoModelo(conhecidos.map((it) => ({ ...it, ultima: ultimas.get(chaveDoDePara(it)) ?? null }))) };
     }
     conferirEmbalagens(nota);
     const daLeitura = pendenciaDaLeitura(nota);
@@ -922,6 +932,15 @@ export class MisterNotasService implements OnModuleInit {
       .catch(() => undefined);
     // Versão 9, O1: o que a IA ligou e a pessoa lançou vira memória do fornecedor (a próxima nota já vem ligada).
     for (const it of nota.itens) if (it.pelaIa) await this.lembrar(this.db, tenantId, nota.emitenteCnpj, it, colaboradorId).catch(() => undefined);
+    // Versão 9, O2: a nota lançada vira a "última vez" dos produtos do modelo do fornecedor (o "Mudou:" da próxima e a tela).
+    await this.modelos
+      ?.registrarNota(
+        tenantId,
+        nota.emitenteCnpj,
+        nota.emitenteNome,
+        nota.itens.filter((it) => it.estado === 'ligado' || it.estado === 'fora').map((it) => ({ chave: chaveDoDePara(it), descricao: it.descricao, quantidade: it.quantidade, valorUnitarioCentavos: it.valorUnitarioCentavos })),
+      )
+      .catch((e: any) => this.logger.warn(`nota ${documentoId}: a última vez do modelo não foi registrada (${e?.message ?? e})`));
     // M3b.3: o custo que mudou com a entrada (o protótipo: "O quilo da carne 56 g passou de R$ 31,90 para R$ 33,00").
     const depois = antes ? await lerCustos() : null;
     const mudancas: Array<{ insumo: string; unidade: string; antes: number; depois: number }> = [];

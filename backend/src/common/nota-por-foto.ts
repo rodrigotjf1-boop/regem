@@ -353,7 +353,28 @@ export interface NotaNoMister {
   semSomar?: boolean;
   /** Versão 9, O1: as linhas foram ligadas pela IA — as dúvidas vão juntas numa mensagem, não uma por vez. */
   ligadaPelaIa?: boolean;
+  /**
+   * Versão 9, O2 (mig 503): o que o modelo do fornecedor já conhecia e o que mudou desde a última nota lançada (com o ajuste
+   * "Aprender o modelo de cada fornecedor" ligado). Ausente = o resumo de sempre.
+   */
+  modelo?: { conhecidos: number; mudancas: string[] } | null;
 }
+
+/** Versão 9, O2: até quantas mudanças a linha do modelo mostra. */
+export const MAX_MUDANCAS_DO_MODELO = 4;
+/** A linha do resumo com o modelo do fornecedor (o protótipo: "16 já conheço pelo modelo da Rucas. Mudou: …"). Sem modelo, vazia. */
+export function linhaDoModelo(m: NotaNoMister['modelo']): string {
+  if (!m || m.conhecidos < 1) return '';
+  const mostradas = m.mudancas.slice(0, MAX_MUDANCAS_DO_MODELO);
+  const mais = m.mudancas.length > MAX_MUDANCAS_DO_MODELO ? ` e mais ${m.mudancas.length - MAX_MUDANCAS_DO_MODELO}` : '';
+  const conhecidos = m.conhecidos === 1 ? '1 produto já conheço' : `${m.conhecidos} produtos já conheço`;
+  return `📚 ${conhecidos} pelo modelo deste fornecedor.${mostradas.length ? ` Mudou: ${mostradas.join('; ')}${mais}.` : ' Nada mudou na quantidade nem no preço.'}`;
+}
+/** A linha do modelo já com a quebra antes (o resumo de sempre quando não há modelo). */
+const comModelo = (n: NotaNoMister) => {
+  const l = linhaDoModelo(n.modelo);
+  return l ? `\n${l}` : '';
+};
 
 // ───────────────────────────── o cupom fiscal de compra (versão 6, M6h) ─────────────────────────────
 // Protótipo `mockups/regem-mister-v6.html`, "Ações e apresentação": a foto do cupom vira a leitura conferida e a pergunta
@@ -485,7 +506,7 @@ export const FRASES_DA_NOTA = {
     const pagamento = n.duplicatas.length
       ? `Pagamento: ${n.duplicatas.map((d) => `R$ ${reaisDe(d.valorCentavos)} para ${dataCurta(d.vencimento)}`).join('; ')}.`
       : 'Sem parcelas na nota: a conta a pagar entra sem vencimento.';
-    return `${FRASES_DA_NOTA.cabecalho(n)}\n${linhas.join('\n')}\n\n${pagamento}\n\nLanço a entrada no estoque e a conta a pagar de R$ ${reaisDe(n.valorTotalCentavos)}?`;
+    return `${FRASES_DA_NOTA.cabecalho(n)}${comModelo(n)}\n${linhas.join('\n')}\n\n${pagamento}\n\nLanço a entrada no estoque e a conta a pagar de R$ ${reaisDe(n.valorTotalCentavos)}?`;
   },
   lancada: (n: NotaNoMister, contas: number, custos: string[] = []): string =>
     `Lancei em Estoque › Recebimento e nas contas a pagar${contas > 1 ? ` (${contas} parcelas)` : ''}: ${n.itens.filter((x) => x.estado === 'ligado').length} itens no estoque.` +
@@ -513,7 +534,7 @@ export const FRASES_DA_NOTA = {
       return `${FRASES_DA_NOTA.cabecalhoDoCupom(n)}\n\nLanço a despesa de R$ ${reaisDe(n.valorTotalCentavos)} como já paga${forma}${n.dataEmissao ? ` em ${dataCurta(n.dataEmissao)}` : ''}? O estoque não muda.`;
     }
     const linhas = destinosDosItens(n).map((d) => `• ${d.descricao}, ${d.quanto} → ${d.destino}`);
-    return `${FRASES_DA_NOTA.cabecalhoDoCupom(n)}\n${linhas.join('\n')}\n\nLanço a entrada no estoque e a despesa de R$ ${reaisDe(n.valorTotalCentavos)} como já paga${forma}?`;
+    return `${FRASES_DA_NOTA.cabecalhoDoCupom(n)}${comModelo(n)}\n${linhas.join('\n')}\n\nLanço a entrada no estoque e a despesa de R$ ${reaisDe(n.valorTotalCentavos)} como já paga${forma}?`;
   },
   cupomLancado: (n: NotaNoMister, custos: string[] = []): string =>
     (n.comoLancar === 'estoque'
@@ -545,7 +566,7 @@ export const FRASES_DA_NOTA = {
     const mostradas = pendentes.slice(0, 10).map(linha);
     const mais = pendentes.length > 10 ? `\n• e mais ${pendentes.length - 10}` : '';
     return (
-      `${cab}\n\nLiguei ${ligadas} de ${n.itens.length} ao seu estoque. ${pendentes.length} ${pendentes.length === 1 ? 'precisa' : 'precisam'} de você:\n\n${mostradas.join('\n')}${mais}\n\n` +
+      `${cab}${comModelo(n)}\n\nLiguei ${ligadas} de ${n.itens.length} ao seu estoque. ${pendentes.length} ${pendentes.length === 1 ? 'precisa' : 'precisam'} de você:\n\n${mostradas.join('\n')}${mais}\n\n` +
       'Responda numa frase (ex.: "4 sim, o 5 é a fatia de cheddar, cadastra o 7") ou toque em "Aceitar as sugestões". Nada foi lançado.'
     );
   },

@@ -73,6 +73,12 @@ export interface ConversaDoMister {
    * andamento, a resposta usa o modelo maior; no resto, o de sempre. Nasce desligado; só o presidente muda.
    */
   iaForteNasTarefas: boolean;
+  /**
+   * Versão 9, O2 (mig 503, decisão V9-4): "Aprender o modelo de cada fornecedor" — o resumo da nota diz o que o modelo do
+   * fornecedor já conhecia e o que mudou, e a lista usa e grava os apelidos da empresa. Sem custo; nasce desligado (recurso novo);
+   * só o presidente muda. A memória do fornecedor de antes (mig 441) não depende dele.
+   */
+  aprenderModelos: boolean;
 }
 /** As horas que o PIN da sessão vale (a escolha do presidente). */
 export const HORAS_DO_PIN = [6, 12, 24] as const;
@@ -94,6 +100,7 @@ export const CONVERSA_PADRAO: ConversaDoMister = {
   vozComEmocao: false,
   ligarPelaIa: false,
   iaForteNasTarefas: false,
+  aprenderModelos: false,
 };
 
 /** O jeito como vai ao banco e às instruções: uma linha, espaços apertados; vazio vira null. */
@@ -168,6 +175,11 @@ export function conferirConversa(dto: unknown): Partial<ConversaDoMister> | { er
     if (typeof d.iaForteNasTarefas !== 'boolean') return { erro: 'IA mais forte nas tarefas: diga se fica ligada ou desligada.' };
     fora.iaForteNasTarefas = d.iaForteNasTarefas;
   }
+  if (d.aprenderModelos !== undefined) {
+    // V15: liga/desliga só com booleano de verdade.
+    if (typeof d.aprenderModelos !== 'boolean') return { erro: 'Aprender o modelo de cada fornecedor: diga se fica ligado ou desligado.' };
+    fora.aprenderModelos = d.aprenderModelos;
+  }
   if (!Object.keys(fora).length) return { erro: 'Nada para salvar.' };
   return fora;
 }
@@ -189,6 +201,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
   vozComEmocao: { coluna: 'voz_com_emocao', valor: (v) => sql`${v}::boolean` },
   ligarPelaIa: { coluna: 'ligar_pela_ia', valor: (v) => sql`${v}::boolean` },
   iaForteNasTarefas: { coluna: 'ia_forte_nas_tarefas', valor: (v) => sql`${v}::boolean` },
+  aprenderModelos: { coluna: 'aprender_modelos', valor: (v) => sql`${v}::boolean` },
 };
 
 /**
@@ -196,6 +209,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
  * lê as da anterior. Nunca devolver o padrão de um campo que está salvo (o "perguntar" dos documentos, o perfil).
  */
 const LEITURAS = [
+  sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao", ligar_pela_ia as "ligarPelaIa", ia_forte_nas_tarefas as "iaForteNasTarefas", aprender_modelos as "aprenderModelos"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao", ligar_pela_ia as "ligarPelaIa", ia_forte_nas_tarefas as "iaForteNasTarefas"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao", ligar_pela_ia as "ligarPelaIa"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao"`,
@@ -244,6 +258,7 @@ export class MisterConversaConfigService {
         vozComEmocao: l.vozComEmocao === true,
         ligarPelaIa: l.ligarPelaIa === true,
         iaForteNasTarefas: l.iaForteNasTarefas === true,
+        aprenderModelos: l.aprenderModelos === true,
       };
     } catch (e: any) {
       // Sem a 440 (a migration ainda não entrou, ou o servidor da loja): o padrão, que não muda nada.

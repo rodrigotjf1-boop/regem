@@ -42,6 +42,8 @@ export interface LinhaDaLista extends PedidoDaLinha {
   estado: EstadoDaLinha;
   /** Versão 9, O4: ligada pela IA com certeza alta. */
   pelaIa?: boolean;
+  /** Versão 9, O2: ligada pelo apelido da empresa (o nome que a pessoa já usou para este insumo). */
+  peloApelido?: boolean;
   /** Versão 9, O4: a primeira opção é a proposta da IA (a pessoa confirma). */
   propostaDaIa?: boolean;
   /** Versão 9, O4: o nome limpo que a IA propôs para o cadastro novo. */

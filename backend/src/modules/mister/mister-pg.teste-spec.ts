@@ -20,6 +20,7 @@ import { EstoqueService } from '../estoque/estoque.service';
 import { ComprasService } from '../compras/compras.service';
 import { FornecedorService } from '../fornecedor/fornecedor.service';
 import { MisterListaService } from './mister-lista.service';
+import { MisterCompraModelosService } from './mister-compra-modelos.service';
 import { RecebimentoService } from '../recebimento/recebimento.service';
 import { montarChave } from '../fiscal/chave';
 import { MisterNotasService } from './mister-notas.service';
@@ -515,7 +516,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '501_mister_ligar_pela_ia.sql', '502_mister_ia_forte_nas_tarefas.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '501_mister_ligar_pela_ia.sql', '502_mister_ia_forte_nas_tarefas.sql', '503_mister_modelos_de_compra.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -7901,7 +7902,7 @@ export function testesDoMisterComPostgres(): void {
 
       it('o ajuste da empresa: "pergunta antes" segura o boleto que lançaria sozinho; desligado, a foto segue como antes; o salvar confere', async () => {
         // Versão 4 (mig 447): o jeito vem junto, no padrão (nada muda). M4d (mig 452): o "fica de olho" nasce desligado.
-        const SEM_JEITO = { analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null };
+        const SEM_JEITO = { analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null };
         expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'sozinho', ...SEM_JEITO });
         await expect(conversa.salvar(usuario('ana'), { documentosModo: 'sempre' })).rejects.toBeInstanceOf(BadRequestException);
         await expect(conversa.salvar(usuario('ana'), { documentosLigado: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
@@ -7955,12 +7956,12 @@ export function testesDoMisterComPostgres(): void {
         await expect(conversa.salvar(usuario('ana'), { avisosEscritos: 'loja' })).rejects.toBeInstanceOf(BadRequestException);
         // O jeito vira uma linha só, com os espaços apertados; os grupos saem na ordem da tela, sem repetir.
         const r = await conversa.salvar(usuario('ana'), { perfil: 'descontraido', jeito: '  Fale como sócio,\n sem formalidade.  ', avisosEscritos: ['fiscal', 'loja', 'loja'] });
-        expect(r.conversa).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
+        expect(r.conversa).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         expect(auditados.filter((a) => a.acao === 'mister_conversa_alterada').at(-1)).toMatchObject({ detalhe: { antes: { perfil: 'hoje', jeito: null }, depois: { perfil: 'descontraido' } } });
         // Salvar só o perfil não apaga o jeito, os grupos nem o ajuste dos documentos.
         await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' });
         await conversa.salvar(usuario('ana'), { perfil: 'objetivo' });
-        expect(await conversa.daEmpresa(A)).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
+        expect(await conversa.daEmpresa(A)).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         // M4d (mig 452): o "fica de olho" liga e desliga só com booleano (V15), sem mexer no resto.
         await expect(conversa.salvar(usuario('ana'), { ficaDeOlho: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
         expect((await conversa.salvar(usuario('ana'), { ficaDeOlho: true })).conversa).toMatchObject({ ficaDeOlho: true, perfil: 'objetivo', avisosEscritos: ['loja', 'fiscal'] });
@@ -8514,6 +8515,109 @@ export function testesDoMisterComPostgres(): void {
           delete process.env.MISTER_NOTAS;
           for (const t of ['movimento_estoque', 'lote', 'recebimento_item', 'recebimento', 'mister_de_para', 'item_estoque_unidade', 'item_conversao', 'item_fornecedor', 'item_estoque'])
             await q(`delete from ${t} where tenant_id = $1`, [A]).catch(() => undefined);
+        }
+      });
+
+      it('versão 9, O2: o modelo do fornecedor — o "Mudou:" no resumo (só com o ajuste), a última vez no lançamento e a tela Modelos de compra', async () => {
+        const daNota = (o: Record<string, unknown> = {}) =>
+          falar(
+            JSON.stringify({
+              chave: null,
+              emitenteNome: 'Distribuidora Carne Boa',
+              emitenteCnpj: CNPJ,
+              numero: '50001',
+              valorTotal: '2.640,00',
+              duplicatas: [{ vencimento: '2026-12-16', valor: '2.640,00' }],
+              itens: [
+                { descricao: 'BLEND BOVINO 56G', codigo: '1001', quantidade: '40', unidade: 'KG', valorUnitario: '33,00', valorTotal: '1.320,00' },
+                { descricao: 'BACON EM TIRAS DEFUMADO', codigo: '2001', quantidade: '5', unidade: 'KG', valorUnitario: '48,00', valorTotal: '240,00' },
+                { descricao: 'DETERGENTE NEUTRO', codigo: '9001', quantidade: '10', unidade: 'UN', valorUnitario: '108,00', valorTotal: '1.080,00' },
+              ],
+              legivel: true,
+              ...o,
+            }),
+          );
+        const [{ id: carne }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Carne 56 g O2', 'kg') returning id::text as id`, [A]);
+        const [{ id: bacon }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Bacon em tiras O2', 'pacote') returning id::text as id`, [A]);
+        const [{ id: deB }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Carne de B O2', 'kg') returning id::text as id`, [B]);
+        // O modelo que a primeira nota deixou (a memória da mig 441 com a última vez da 503).
+        await q(
+          `insert into mister_de_para (tenant_id, fornecedor_cnpj, chave, item_id, fator, unidade_nota, ultima_quantidade, ultimo_preco_centavos, vezes)
+           values ($1, $2, 'cod:1001', $3, 1, 'KG', 30, 3100, 2), ($1, $2, 'cod:2001', $4, 2, 'KG', 5, 4800, 2), ($1, $2, 'cod:9001', null, null, 'UN', null, null, 2)`,
+          [A, CNPJ, carne, bacon],
+        );
+        const modelos = new MisterCompraModelosService(db, conversa, auditoria);
+        (notas as any).modelos = modelos;
+        process.env.MISTER_NOTAS = '1';
+        try {
+          // Com o ajuste desligado: o resumo de sempre.
+          ia.roteiro = [leitura({ tipo: 'nota' }), daNota()];
+          numero.pedidos.length = 0;
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          expect(numero.enviadas.at(-1)!.texto).toContain('🧾 Nota 50001');
+          expect(numero.enviadas.at(-1)!.texto).not.toContain('📚');
+          await tocar(telAna, `doc:outra:${(await docs()).at(-1).id}`);
+          // Ligado: o que o modelo já conhecia e o que mudou desde a última nota.
+          await q(`insert into mister_conversa_config (tenant_id, aprender_modelos) values ($1, true) on conflict (tenant_id) do update set aprender_modelos = true`, [A]);
+          ia.roteiro = [leitura({ tipo: 'nota' }), daNota({ numero: '50002' })];
+          numero.pedidos.length = 0;
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          const resumo = numero.enviadas.at(-1)!;
+          expect(resumo.texto).toContain('📚 3 produtos já conheço pelo modelo deste fornecedor. Mudou: Carne 56 g O2 de 30 para 40 KG; Carne 56 g O2 de R$ 31,00 para R$ 33,00.');
+          expect(resumo.texto).toContain('• BLEND BOVINO 56G, 40 KG → Carne 56 g O2');
+          const d = (await docs()).at(-1);
+          expect(d).toMatchObject({ situacao: 'confirmar', motivo: 'itens_ligados' });
+          // "Lançar": a nota vira a última vez de cada produto do modelo.
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:lancar:${d.id}`)).toBe('respondeu_proposta');
+          expect((await docs()).at(-1)).toMatchObject({ situacao: 'lancado' });
+          expect(
+            await q(`select chave, descricao, fornecedor_nome as nome, ultima_quantidade::float8 as q, ultimo_preco_centavos::int as p, vezes, usado_em is not null as usado from mister_de_para where tenant_id = $1 order by chave`, [A]),
+          ).toEqual([
+            { chave: 'cod:1001', descricao: 'BLEND BOVINO 56G', nome: 'Distribuidora Carne Boa', q: 40, p: 3300, vezes: 3, usado: true },
+            { chave: 'cod:2001', descricao: 'BACON EM TIRAS DEFUMADO', nome: 'Distribuidora Carne Boa', q: 5, p: 4800, vezes: 3, usado: true },
+            { chave: 'cod:9001', descricao: 'DETERGENTE NEUTRO', nome: 'Distribuidora Carne Boa', q: 10, p: 10800, vezes: 3, usado: true },
+          ]);
+
+          // A tela: o modelo pelo fornecedor do cadastro (o CNPJ confere), cada produto com a última vez; outra empresa não vê.
+          const lista = await modelos.listar(A);
+          expect(lista).toMatchObject({ ligado: true, apelidos: 0 });
+          expect(lista.modelos).toEqual([{ fornecedor: CNPJ, nome: 'Distribuidora Carne Boa', produtos: 3, comDuvida: 0, vezes: 3, usadoEm: expect.any(String), parado: false }]);
+          expect((await modelos.listar(B)).modelos).toEqual([]);
+          await expect(modelos.detalhe(B, CNPJ)).rejects.toThrow('não tem modelo');
+          await expect(modelos.detalhe(A, "1'; drop table x; --")).rejects.toThrow('Fornecedor inválido');
+          const det = await modelos.detalhe(A, CNPJ);
+          expect(det.nome).toBe('Distribuidora Carne Boa');
+          expect(det.linhas.map((l) => [l.chave, l.itemNome, l.fator, l.ultimaQuantidade, l.ultimoPrecoCentavos, l.insumoSumiu])).toEqual([
+            ['cod:2001', 'Bacon em tiras O2', 2, 5, 4800, false],
+            ['cod:1001', 'Carne 56 g O2', 1, 40, 3300, false],
+            ['cod:9001', null, null, 10, 10800, false],
+          ]);
+          // O insumo que saiu do estoque vira "com dúvida".
+          await q(`update item_estoque set deleted_at = now() where id = $1`, [bacon]);
+          expect((await modelos.listar(A)).modelos[0].comDuvida).toBe(1);
+          expect((await modelos.detalhe(A, CNPJ)).linhas[0]).toMatchObject({ chave: 'cod:2001', itemNome: null, insumoSumiu: true });
+          // "Mudar": o insumo de outra empresa, fora do estoque com conversão e a conversão zero são recusados; o certo grava e audita.
+          await expect(modelos.mudarLinha(A, pessoa.ana, 'presidente', CNPJ, { chave: 'cod:2001', itemId: deB })).rejects.toThrow('não está no seu estoque');
+          await expect(modelos.mudarLinha(A, pessoa.ana, 'presidente', CNPJ, { chave: 'cod:2001', itemId: null, fator: 2 })).rejects.toThrow('Fora do estoque');
+          await expect(modelos.mudarLinha(A, pessoa.ana, 'presidente', CNPJ, { chave: 'cod:2001', itemId: carne, fator: 0 })).rejects.toThrow('conversão');
+          expect(await modelos.mudarLinha(A, pessoa.ana, 'presidente', CNPJ, { chave: 'cod:2001', itemId: carne, fator: 2.5 })).toEqual({ ok: true });
+          expect(await q(`select item_id::text as i, fator::float8 as f, alterado_por::text as quem from mister_de_para where tenant_id = $1 and chave = 'cod:2001'`, [A])).toEqual([{ i: carne, f: 2.5, quem: pessoa.ana }]);
+          expect(auditados.find((a) => a.acao === 'mister_modelo_mudado')).toMatchObject({ tenantId: A, atorId: pessoa.ana, detalhe: { fornecedor: CNPJ, chave: 'cod:2001' } });
+          // Outra empresa não muda nem esquece o modelo de A.
+          await expect(modelos.mudarLinha(B, pessoa.ana, 'presidente', CNPJ, { chave: 'cod:2001', itemId: deB })).rejects.toThrow('não está mais no modelo');
+          expect(await modelos.esquecer(B, pessoa.ana, 'presidente', CNPJ, { tudo: true })).toEqual({ esquecidos: 0 });
+          // "Esquecer": sem a chave nem o "tudo" dito, nada; um produto; depois o modelo inteiro.
+          await expect(modelos.esquecer(A, pessoa.ana, 'presidente', CNPJ, {})).rejects.toThrow('Diga o produto');
+          expect(await modelos.esquecer(A, pessoa.ana, 'presidente', CNPJ, { chave: 'cod:9001' })).toEqual({ esquecidos: 1 });
+          expect(await modelos.esquecer(A, pessoa.ana, 'presidente', CNPJ, { tudo: true })).toEqual({ esquecidos: 2 });
+          expect((await modelos.listar(A)).modelos).toEqual([]);
+        } finally {
+          delete (notas as any).modelos;
+          delete process.env.MISTER_NOTAS;
+          for (const t of ['movimento_estoque', 'lote', 'recebimento_item', 'recebimento', 'mister_de_para', 'item_estoque_unidade', 'item_conversao', 'item_fornecedor', 'item_estoque'])
+            await q(`delete from ${t} where tenant_id = $1`, [A]).catch(() => undefined);
+          await q(`delete from item_estoque where id = $1`, [deB]).catch(() => undefined);
         }
       });
 
@@ -9830,6 +9934,66 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from mister_lista_compra where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]);
           if (pedidoAntigo) await q(`delete from compra_lista where id = $1`, [pedidoAntigo]);
           if (novo) await q(`delete from item_estoque where id = $1`, [novo]);
+        }
+      });
+
+      it('versão 9, O2: os apelidos da empresa — o nome diferente vira apelido no "Criar o pedido" e liga a próxima lista, só com o ajuste', async () => {
+        const conversaCfg = new MisterConversaConfigService(db, auditoria);
+        const modelos = new MisterCompraModelosService(db, conversaCfg, auditoria);
+        const listaM = new MisterListaService(db, ferramentas, numero, compras, new EstoqueService(db, auditoria), entrada, auditoria, undefined, conversaCfg, modelos);
+        const pedidos: string[] = [];
+        let listaId: string | null = null;
+        try {
+          // Desligado: o nome diferente não liga e o pedido não ensina nada.
+          let m: any[] = await (listaM as any).montar(A, null, [{ texto: 'tomatinho cereja O2', quantidade: 2, unidade: 'kg' }]);
+          expect(m[0]).toMatchObject({ estado: 'item' });
+          await q(`insert into mister_conversa_config (tenant_id, aprender_modelos) values ($1, true) on conflict (tenant_id) do update set aprender_modelos = true`, [A]);
+          // Ligado: o "Criar o pedido" grava o nome diferente do cadastro; o nome igual não ensina nada.
+          [{ id: listaId }] = await q(
+            `insert into mister_lista_compra (tenant_id, colaborador_id, origem, situacao, itens) values ($1, $2, 'conversa', 'criada', '[]'::jsonb) returning id::text as id`,
+            [A, pessoa.ana],
+          );
+          const itens = [
+            { texto: 'tomatinho cereja O2', quantidade: 2, unidade: 'kg', itemId: ids.tomate, itemNome: 'Tomate', unidadeDoEstoque: 'kg', fator: 1, marcas: [], marca: null, opcoes: [], estado: 'ligado' },
+            { texto: 'tomate', quantidade: 1, unidade: 'kg', itemId: ids.tomate, itemNome: 'Tomate', unidadeDoEstoque: 'kg', fator: 1, marcas: [], marca: null, opcoes: [], estado: 'ligado' },
+          ];
+          const r = await (listaM as any).criarPedido({ id: listaId, tenantId: A, unidadeId: null, colaboradorId: pessoa.ana, fornecedorId: null }, itens);
+          expect(r.texto).toContain('Lista do Mister');
+          pedidos.push(...(await q(`select compra_lista_id::text as id from mister_lista_compra where id = $1`, [listaId])).map((x) => x.id));
+          expect(await q(`select chave, texto, item_id::text as item, vezes, alterado_por::text as quem from mister_apelido where tenant_id = $1`, [A])).toEqual([
+            { chave: 'tomatinho cereja o2', texto: 'tomatinho cereja O2', item: ids.tomate, vezes: 1, quem: pessoa.ana },
+          ]);
+          // A próxima lista: o apelido liga antes da IA (sem acento, maiúscula ou não).
+          m = await (listaM as any).montar(A, null, [{ texto: 'Tomatinho Cereja o2', quantidade: 3, unidade: 'kg' }]);
+          expect(m[0]).toMatchObject({ estado: 'ligado', itemId: ids.tomate, peloApelido: true, quantidade: 3 });
+          // Outra empresa não usa o apelido de A.
+          expect(await modelos.acharApelidos(B, ['tomatinho cereja O2'])).toEqual(new Map());
+          // A tela: a lista, mudar o insumo (o de outra empresa não) e esquecer.
+          expect((await modelos.apelidos(A)).apelidos).toEqual([expect.objectContaining({ chave: 'tomatinho cereja o2', itemNome: 'Tomate', insumoSumiu: false, vezes: 1 })]);
+          expect((await modelos.listar(A)).apelidos).toBe(1);
+          const [{ id: deB }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Tomate de B O2', 'kg') returning id::text as id`, [B]);
+          try {
+            await expect(modelos.mudarApelido(A, pessoa.ana, 'presidente', { chave: 'tomatinho cereja o2', itemId: deB })).rejects.toThrow('não está no seu estoque');
+          } finally {
+            await q(`delete from item_estoque where id = $1`, [deB]);
+          }
+          expect(await modelos.mudarApelido(A, pessoa.ana, 'presidente', { chave: 'tomatinho cereja o2', itemId: ids.bacon })).toEqual({ ok: true });
+          // O mesmo nome confirmado de novo para o outro insumo recomeça a contagem.
+          await modelos.gravarApelidos(A, pessoa.ana, [{ chave: 'tomatinho cereja o2', texto: 'tomatinho cereja O2', itemId: ids.tomate }]);
+          expect(await q(`select item_id::text as item, vezes from mister_apelido where tenant_id = $1`, [A])).toEqual([{ item: ids.tomate, vezes: 1 }]);
+          await modelos.gravarApelidos(A, pessoa.ana, [{ chave: 'tomatinho cereja o2', texto: 'tomatinho cereja O2', itemId: ids.tomate }]);
+          expect(await q(`select vezes from mister_apelido where tenant_id = $1`, [A])).toEqual([{ vezes: 2 }]);
+          expect(await modelos.esquecerApelido(B, pessoa.ana, 'presidente', { chave: 'tomatinho cereja o2' })).toEqual({ esquecidos: 0 });
+          expect(await modelos.esquecerApelido(A, pessoa.ana, 'presidente', { chave: 'tomatinho cereja o2' })).toEqual({ esquecidos: 1 });
+          expect((await modelos.apelidos(A)).apelidos).toEqual([]);
+        } finally {
+          await q(`update mister_conversa_config set aprender_modelos = false where tenant_id = $1`, [A]);
+          await q(`delete from mister_apelido where tenant_id = any($1::uuid[])`, [[A, B]]);
+          if (listaId) await q(`delete from mister_lista_compra where id = $1`, [listaId]);
+          for (const p of pedidos.filter(Boolean)) {
+            await q(`delete from compra_item where lista_id = $1`, [p]);
+            await q(`delete from compra_lista where id = $1`, [p]);
+          }
         }
       });
 
