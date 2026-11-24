@@ -1073,7 +1073,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/25 ajustes em 10 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os quatro relatórios e o 'Como mandar o resumo' (M5e) , a conversa (M3a, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d) e as análises (V7e)");
+    ok(/26 ajustes em 10 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os quatro relatórios e o 'Como mandar o resumo' (M5e) , a conversa (M3a, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d) e as análises (V7e e o 'Ligar as linhas pela IA' da versão 9, O1)");
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
     ok(t0.includes('O de fichas novas e o boletim do ramo não usam a IA.') && t0.includes('No boletim do ramo, esse convite é opcional.'), 'relatórios: a nota diz que o das fichas novas e o boletim não usam a IA, e que o convite do boletim é opcional');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
@@ -1324,7 +1324,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t = await page.locator('main').innerText();
-    ok(/25 ajustes em 10 grupos/.test(t), "conversa: o grupo Conversa entra com três ajustes (o do boleto, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, Relatórios com o 'Como mandar o resumo' (M5e) e Análises com o ajuste da V7e");
+    ok(/26 ajustes em 10 grupos/.test(t), "conversa: o grupo Conversa entra com três ajustes (o do boleto, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, Relatórios com o 'Como mandar o resumo' (M5e) e Análises com o ajuste da V7e e o da O1");
     ok(/Documentos e dinheiro[\s\S]*Boleto perto de vencer[\s\S]*Já paguei/.test(t), 'boleto: o aviso novo no grupo "Documentos e dinheiro", com o "Já paguei"');
     ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
     const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');
@@ -1406,6 +1406,9 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(/Análises mais profundas[\s\S]*De cerca de US\$ 0,001 para cerca de US\$ 0,01 a US\$ 0,08 por análise/.test(t), 'análises: o ajuste traz o preço ao lado');
     const analises = page.locator('button[role="switch"][aria-label*="Análises mais profundas"]');
     ok((await analises.getAttribute('aria-checked')) === 'false', 'análises: nasce desligada');
+    // Versão 9, O1 (mig 501): "Ligar as linhas pela IA" nasce desligado, com o preço ao lado.
+    ok(/Ligar as linhas pela IA[\s\S]*Cerca de R\$ 0,20 por cupom, nota ou lista/.test(t), 'O1: o ajuste traz o preço ao lado');
+    ok((await page.locator('button[role="switch"][aria-label*="Ligar as linhas pela IA"]').getAttribute('aria-checked')) === 'false', 'O1: nasce desligado');
     await analises.click();
     // Ligar pede a confirmação com o preço; "Cancelar" não manda nada.
     const antesDaConfirmacao = S.salvamentosConv.length;

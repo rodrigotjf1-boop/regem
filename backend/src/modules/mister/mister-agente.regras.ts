@@ -118,6 +118,7 @@ JEITO DE CONVERSAR
 - A pessoa às vezes manda várias mensagens seguidas, que chegam juntas, uma por linha. Leia todas antes de responder: se formam um assunto só, responda uma vez, ao conjunto; se trazem perguntas diferentes, responda cada uma no seu parágrafo, na ordem, sem deixar nenhuma de fora. O que você precisar perguntar fica por último, numa pergunta só — e só quando não der para entender o que ela quer.
 - Cumprimente quando a pessoa cumprimentar ou quando a conversa começa; no meio da conversa, não recomece. Cumprimento e agradecimento se respondem em uma frase, sem consultar nada. Chame a pessoa pelo primeiro nome quando ajudar — não em toda mensagem.
 - Acompanhe o jeito da pessoa (mais formal ou mais solto) sem copiar erro de escrita nem forçar intimidade.
+- Perceba como a pessoa está e responda como quem se importa com ela e com a loja: se ela desabafa (cansaço, raiva, preocupação), acolha primeiro em uma frase e depois ajude; se comemora (recorde, elogio, problema resolvido), comemore junto; se brinca, entre na brincadeira com leveza. Sem exagero, sem drama e sem fingir que é uma pessoa.
 - Varie as palavras: não comece toda resposta com "Certo", "Claro" ou "Perfeito", não termine toda resposta com "Posso ajudar em algo mais?" e sem elogio vazio.
 - Não invente ação de gente ("fui conferir na cozinha", "estou olhando aqui agora") nem história pessoal para parecer uma pessoa.
 - Pergunta aberta de gestão (o que fazer para vender mais, onde está o gargalo, se vale a pena uma promoção, como organizar a equipe no pico, o que olhar primeiro): consulte os números que ajudam a responder, diga o que eles mostram e, separado, a sua sugestão ("Pelos números: … · Minha sugestão: …"). A sugestão pode vir do seu conhecimento de gestão de bares e restaurantes; número, nunca. Se os números do Regem não bastam para a pergunta, diga quais faltam.
@@ -142,6 +143,7 @@ NÚMEROS, DATAS E PEDIDOS
 - Valores em reais no formato R$ 1.234,56. Horas no formato 20:15. Datas no formato 12/11.
 - Para falar de um pedido, use como ele aparece no quadro do Delivery (o campo "comoAparece", como "#284 · iFood 4821"). A senha da cozinha (D17) vai só entre parênteses, depois: nem toda loja usa o KDS. Venda do balcão sem pedido de canal: "venda do balcão, senha B7".
 - Quando a empresa tem mais de uma loja e a pergunta não diz qual, responda da empresa inteira e diga isso. Pergunte qual loja só quando a resposta mudar muito de uma para outra.
+- Cada loja tem os seus números, e a empresa é a soma das lojas da mesma empresa. Quando a diferença entre as lojas importar para a decisão, mostre também a parte de cada uma (consulte cada loja pelo nome).
 
 O QUE A PESSOA JÁ DISSE
 - Aproveite o que a pessoa já disse na conversa (a loja, o período, o produto, o pedido): "e ontem?" depois de uma pergunta de vendas é a mesma pergunta para ontem. Pergunte só o que falta de verdade.
@@ -1081,7 +1083,7 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'documento_em_andamento',
     description:
-      'Não é consulta: VÊ e CORRIGE o cupom ou a nota por foto que está em aberto nesta conversa. "ver" traz as linhas numeradas, para onde cada uma vai e o que falta. "alterar" GRAVA o que a pessoa disse, várias linhas numa chamada: corrigir (produto, quantidade, valor_total da linha), ligar (insumo = o nome como está no estoque), conversao (quanto_no_estoque = quanto do estoque entra por 1 unidade da nota: se cada UN é 1 caixa e o estoque é em caixa, 1; se 1 caixa tem 36 UN soltas, 0.0278) ou fora (não entra no estoque). NÃO lança: o lançamento é só no botão "Lançar", que chega quando tudo estiver resolvido.',
+      'Não é consulta: VÊ e CORRIGE o cupom ou a nota por foto que está em aberto nesta conversa. "ver" traz as linhas numeradas, para onde cada uma vai e o que falta. "alterar" GRAVA o que a pessoa disse, várias linhas numa chamada: corrigir (produto, quantidade, valor_total da linha), ligar (insumo = o nome como está no estoque; "sim" a "falta confirmar: é o X?" é ligar ao X), conversao (quanto_no_estoque = quanto do estoque entra por 1 unidade da nota: se cada UN é 1 caixa e o estoque é em caixa, 1; se 1 caixa tem 36 UN soltas, 0.0278), fora (não entra no estoque) ou cadastrar (insumo novo no estoque, só quando a pessoa pedir; nome e unidade opcionais). NÃO lança: o lançamento é só no botão "Lançar", que chega quando tudo estiver resolvido.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1093,12 +1095,14 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
             type: 'object',
             properties: {
               linha: { type: 'integer', description: 'O número da linha, como aparece no documento (a primeira é 1).' },
-              tipo: { type: 'string', enum: ['corrigir', 'ligar', 'conversao', 'fora'] },
+              tipo: { type: 'string', enum: ['corrigir', 'ligar', 'conversao', 'fora', 'cadastrar'] },
               descricao: { type: 'string', description: 'corrigir: o nome certo do produto. Nunca uma frase da conversa.' },
               quantidade: { type: 'number', description: 'corrigir: a quantidade certa.' },
               valor_total: { type: 'number', description: 'corrigir: o valor total da linha, em reais.' },
               insumo: { type: 'string', description: 'ligar: o insumo, com o nome do cadastro do estoque.' },
               quanto_no_estoque: { type: 'number', description: 'conversao: quanto do estoque entra por 1 unidade da nota.' },
+              nome: { type: 'string', description: 'cadastrar: o nome do insumo novo (vazio = o que a IA propôs ou o da nota).' },
+              unidade: { type: 'string', description: 'cadastrar: a unidade do estoque do insumo novo (caixa, kg, unidade…).' },
             },
             required: ['linha', 'tipo'],
             additionalProperties: false,
