@@ -9,6 +9,8 @@ import { Gaveta } from '@/components/ui/sobreposto';
 // uma conferida por regra (a consulta, os números, nada inventado, nada fora do que a pessoa pode ver). Rodar gasta a
 // chave da DMS: só pelo botão. Enquanto uma rodada anda, o cartão relê o andamento a cada 4 s (a ação que a pessoa
 // começou); parada, não relê.
+// A lista mostra as 3 rodadas mais novas (VISIVEIS); as anteriores (o servidor guarda as 10 últimas) abrem por "Ver as N anteriores" —
+// o pedido do dono em 24/11/2026: "organizar para não ficar muito extensa depois".
 
 type Rodada = {
   id: string;
@@ -42,6 +44,8 @@ const BOTAO = 'min-h-10 rounded-md border border-slate-600 px-3 text-sm font-sem
 const quando = (iso: string | null) => (iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
 const usd = (v: number) => `US$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: v < 0.1 ? 4 : 2 })}`;
 const ESTIMATIVA_USD = 0.05;
+/** Quantas rodadas aparecem sem abrir as anteriores (a mais nova primeiro; a que está rodando é sempre a mais nova). */
+const VISIVEIS = 3;
 
 function Selo({ r }: { r: Rodada }) {
   const [texto, cor] =
@@ -61,6 +65,7 @@ export function AvaliacaoDoMister() {
   const [pedindo, setPedindo] = useState(false);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [aberta, setAberta] = useState<Rodada | null>(null);
+  const [todas, setTodas] = useState(false);
   const leitura = useRef(0);
 
   const carregar = useCallback(async () => {
@@ -139,8 +144,8 @@ export function AvaliacaoDoMister() {
           {lista.rodadas.length === 0 ? (
             <p className="text-sm text-slate-400">Nenhuma avaliação ainda. Rode a primeira para ter a linha de base.</p>
           ) : (
-            <ul className="divide-y divide-slate-800" aria-label="As últimas avaliações">
-              {lista.rodadas.map((r) => {
+            <ul id="mister-avaliacao-rodadas" className="divide-y divide-slate-800" aria-label="As últimas avaliações">
+              {(todas ? lista.rodadas : lista.rodadas.slice(0, VISIVEIS)).map((r) => {
                 const oQue =
                   r.situacao === 'falhou' || r.situacao === 'interrompida'
                     ? r.motivo ?? '—'
@@ -163,6 +168,17 @@ export function AvaliacaoDoMister() {
                 );
               })}
             </ul>
+          )}
+          {lista.rodadas.length > VISIVEIS && (
+            <button
+              type="button"
+              className="min-h-10 text-sm font-semibold text-slate-300 underline-offset-4 hover:underline"
+              aria-expanded={todas}
+              aria-controls="mister-avaliacao-rodadas"
+              onClick={() => setTodas((v) => !v)}
+            >
+              {todas ? `Mostrar só as ${VISIVEIS} últimas` : `Ver as ${lista.rodadas.length - VISIVEIS} anteriores`}
+            </button>
           )}
           <div className="flex flex-wrap items-center gap-3">
             <button
