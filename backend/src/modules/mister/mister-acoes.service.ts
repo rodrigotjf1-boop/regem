@@ -55,7 +55,10 @@ import {
   produtoFicou,
   resumoDoPedido,
   ehCadastro,
+  ehDaLoja,
 } from './mister-acoes';
+import { resumoDaConta, descontoDoCupom, reaisBr, type ParametrosDaLoja } from './mister-acoes-loja';
+import { ModuleRef } from '@nestjs/core';
 import type { ParametrosDeCadastro } from './mister-acoes-cadastro';
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
 import { FornecedorService } from '../fornecedor/fornecedor.service';
@@ -110,6 +113,8 @@ const semPermissaoDe = (p: DefinicaoDaAcao['permissao']) =>
     ? TEXTOS_DAS_ACOES.semPermissaoConta
     : p === 'estoque'
     ? TEXTOS_DAS_ACOES.semPermissaoEstoque
+    : p === 'cupons'
+    ? TEXTOS_DAS_ACOES.semPermissaoCupons
     : p === 'meu_dia'
     ? TEXTOS_DAS_ACOES.semPermissaoTarefas
     : p === 'loja'
@@ -162,6 +167,8 @@ export class MisterAcoesService implements OnModuleInit {
     // Versão 9, O3: o fornecedor e o pedido de compra pelos MESMOS serviços das telas.
     @Optional() private readonly fornecedores?: FornecedorService,
     @Optional() private readonly compras?: ComprasService,
+    // Versão 9, O5: o serviço dos cupons é achado na hora (o módulo do cardápio não entra neste, para não fechar um ciclo).
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
 
   onModuleInit(): void {
@@ -221,9 +228,9 @@ export class MisterAcoesService implements OnModuleInit {
       if (def.soPresidente && e.presa) return recusa(TEXTOS_DAS_ACOES.dadoEmpresaInteira);
       if (def.soPresidente && !e.verValores) return recusa(TEXTOS_DAS_ACOES.dadoPedePin);
       if (!podeFazer(e, def))
-        return recusa(def.id === 'mudar_horario' ? TEXTOS_DAS_ACOES.semPermissaoHorario : def.id === 'mudar_preco' ? TEXTOS_DAS_ACOES.semPermissaoPreco : semPermissaoDe(def.permissao));
+        return recusa(def.id === 'mudar_horario' ? TEXTOS_DAS_ACOES.semPermissaoHorario : def.id === 'mudar_preco' ? TEXTOS_DAS_ACOES.semPermissaoPreco : def.id === 'lancar_conta' ? TEXTOS_DAS_ACOES.semPermissaoLancarConta : semPermissaoDe(def.permissao));
       // Lote 10: quem autoriza dinheiro VÊ o valor. Com o PIN da sessão vencido, o link da sessão vai depois desta resposta.
-      if (c.parametros.acao === 'pagar_conta' && !e.verValores) return recusa(TEXTOS_DAS_ACOES.contaPedePin);
+      if ((c.parametros.acao === 'pagar_conta' || c.parametros.acao === 'lancar_conta') && !e.verValores) return recusa(TEXTOS_DAS_ACOES.contaPedePin);
       if (c.parametros.acao === 'criar_imagem' && !imagemLigada()) return recusa(TEXTOS_DAS_ACOES.imagemDesligada);
       // A de PIN vai pelo link, que também sai pela conexão por QR Code (escrito na mensagem).
       if (def.nivel === 'botao' && this.numero && (await this.numero.ler()).provedor === 'evolution') return recusa(ehDadoInformado(def.id) ? TEXTOS_DAS_ACOES.dadoSemBotao : TEXTOS_DAS_ACOES.semBotao);
@@ -344,6 +351,14 @@ export class MisterAcoesService implements OnModuleInit {
         parametros.baixa = b.baixa;
         resumo = resumoDaBaixa(b.baixa);
         alvo = b.id;
+      }
+      if (ehDaLoja(c.parametros.acao)) {
+        // Versão 9, O5: o cupom pelo código e o fornecedor da conta pelo nome, conferidos antes da pergunta.
+        const r = await this.prepararDaLoja(e, c.parametros as ParametrosDaLoja);
+        if ('erro' in r) return recusa(r.erro);
+        Object.assign(parametros, r.parametros);
+        if (r.resumo) resumo = r.resumo;
+        alvo = r.alvo;
       }
       if (ehCadastro(c.parametros.acao)) {
         // Versão 9, O3: o insumo, o fornecedor e o pedido pelo nome, conferidos antes da pergunta.
@@ -485,6 +500,91 @@ export class MisterAcoesService implements OnModuleInit {
       alvo: `pedido:${a.id}`,
       unidadeId: a.unidadeId ?? null,
     };
+  }
+
+  // ───────────────────────────── versão 9, O5: o cupom e a conta a pagar ─────────────────────────────
+
+  /** O serviço dos cupons (o mesmo de PDV · Balcão › Cupons), achado na hora. Os testes trocam por `cuponsDeTeste`. */
+  cuponsDeTeste: { criarCupom: (t: string, u: string | null, dto: any) => Promise<any>; removerCupom: (t: string, id: string) => Promise<any> } | null = null;
+  private async servicoDeCupons() {
+    if (this.cuponsDeTeste) return this.cuponsDeTeste;
+    if (!this.moduleRef) return null;
+    const { CardapioService } = await import('../cardapio/cardapio.service');
+    return this.moduleRef.get(CardapioService, { strict: false }) as any;
+  }
+
+  private async prepararDaLoja(e: EscopoDoMister, x: ParametrosDaLoja): Promise<{ parametros: Record<string, unknown>; resumo: string; alvo: string } | { erro: string }> {
+    if (x.acao === 'criar_cupom' || x.acao === 'remover_cupom') {
+      const [ja] = linhas(await this.db.execute(sql`select id::text as id, ativo from cupom where tenant_id = ${e.tenantId}::uuid and upper(codigo) = ${x.codigo} limit 1`));
+      if (x.acao === 'criar_cupom') {
+        if (ja) return { erro: `Já existe o cupom ${x.codigo} em PDV · Balcão › Cupons. Para mudar o que ele dá, faça por lá; ou escolha outro código.` };
+        return { parametros: {}, resumo: '', alvo: `cupom:${x.codigo}` };
+      }
+      if (!ja) return { erro: `Não achei o cupom ${x.codigo} em PDV · Balcão › Cupons.` };
+      return { parametros: { cupomId: ja.id }, resumo: `Tirar o cupom ${x.codigo}: ele deixa de valer no cardápio e no balcão. Sai de PDV · Balcão › Cupons.`, alvo: `cupom:${x.codigo}` };
+    }
+    let fornecedorId: string | null = null;
+    let nomeDoFornecedor: string | null = null;
+    if (x.fornecedor) {
+      const f = await this.acharFornecedor(e.tenantId, x.fornecedor);
+      if ('erro' in f) return f;
+      fornecedorId = f.id;
+      nomeDoFornecedor = f.nome;
+    }
+    return { parametros: { fornecedorId, nomeDoFornecedor }, resumo: resumoDaConta(x, nomeDoFornecedor), alvo: `conta:${x.descricao}:${x.valor}:${x.vencimento}` };
+  }
+
+  private async aplicarDaLoja(
+    p: { id: string; tenantId: string; unidadeId: string | null },
+    x: ParametrosDaLoja & Record<string, any>,
+    e: EscopoDoMister,
+    quem: string,
+  ): Promise<{ feita: boolean; texto: string }> {
+    const indisponivel = { feita: false, texto: 'isso não está disponível agora. Nada foi feito.' };
+    const motivo = (err: any) => String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240);
+    try {
+      if (x.acao === 'criar_cupom' || x.acao === 'remover_cupom') {
+        const cupons = await this.servicoDeCupons();
+        if (!cupons) return indisponivel;
+        if (x.acao === 'criar_cupom') {
+          const [ja] = linhas(await this.db.execute(sql`select 1 from cupom where tenant_id = ${p.tenantId}::uuid and upper(codigo) = ${x.codigo}`));
+          if (ja) return { feita: false, texto: `o cupom ${x.codigo} já existe. Nada foi mudado.` };
+          // A tela de Cupons não manda a loja: o cupom vale para a empresa inteira. O Mister faz igual.
+          await cupons.criarCupom(p.tenantId, null, {
+            codigo: x.codigo,
+            tipo: x.tipo,
+            valor: x.valor,
+            ...(x.minimo ? { minimo: x.minimo } : {}),
+            ...(x.validoAte ? { validade: x.validoAte } : {}),
+            ...(x.usosMaximos ? { maxUsos: x.usosMaximos } : {}),
+            ...(x.soClientesNovos ? { somenteNovos: true } : {}),
+            ...(x.nome ? { nome: x.nome } : {}),
+          });
+          const [ok] = linhas(await this.db.execute(sql`select codigo from cupom where tenant_id = ${p.tenantId}::uuid and upper(codigo) = ${x.codigo} and ativo`));
+          return ok ? { feita: true, texto: `Criei o cupom ${x.codigo} (${descontoDoCupom(x)}). Ele já vale no cardápio e no balcão.` } : { feita: false, texto: 'o cupom não apareceu em PDV · Balcão › Cupons. Confira lá.' };
+        }
+        await cupons.removerCupom(p.tenantId, String(x.cupomId));
+        const [ainda] = linhas(await this.db.execute(sql`select 1 from cupom where id = ${String(x.cupomId)}::uuid and tenant_id = ${p.tenantId}::uuid`));
+        return ainda ? { feita: false, texto: 'o cupom continua em PDV · Balcão › Cupons. Confira lá.' } : { feita: true, texto: `Tirei o cupom ${x.codigo}: ele não vale mais.` };
+      }
+      if (!this.financeiro) return indisponivel;
+      const t: any = await this.financeiro.criar(
+        p.tenantId,
+        quem,
+        e.nivel,
+        { tipo: 'pagar', descricao: x.descricao, valor: x.valor, vencimento: x.vencimento, ...(x.fornecedorId ? { fornecedorId: x.fornecedorId } : {}), ...(x.categoria ? { categoria: x.categoria } : {}) } as any,
+        p.unidadeId ?? null,
+        { origem: 'mister' },
+      );
+      const [ok] = linhas(await this.db.execute(sql`select status from titulo_financeiro where id = ${t?.id ?? null}::uuid and tenant_id = ${p.tenantId}::uuid`));
+      return ok ? { feita: true, texto: `Lancei a conta "${x.descricao}" de ${reaisBr(x.valor)} em Financeiro › Contas a pagar, em aberto.` } : { feita: false, texto: 'a conta não apareceu em Financeiro › Contas a pagar. Confira lá.' };
+    } catch (err: any) {
+      return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(motivo(err)) };
+    } finally {
+      await this.auditoria
+        ?.registrar({ tenantId: p.tenantId, atorId: quem, atorPerfil: e.nivel, tipo: 'mister', acao: 'mister_acao', entidadeTipo: 'mister_proposta', entidadeId: p.id, origem: 'whatsapp', detalhe: { acao: x.acao } } as any)
+        .catch(() => undefined);
+    }
   }
 
   /** Faz o cadastro pelo MESMO serviço da tela e confere o efeito. Sem o efeito, "não deu", com o motivo do serviço. */
@@ -1089,6 +1189,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (parametros.acao === 'pagar_conta') return this.aplicarBaixa(p, parametros as any, e, quem);
     if (ehDadoInformado(parametros.acao)) return this.guardarDado(p, parametros as any, e.nivel, quem);
     if (ehCadastro(parametros.acao)) return this.aplicarCadastro(p, parametros as any, e, quem);
+    if (ehDaLoja(parametros.acao)) return this.aplicarDaLoja(p, parametros as any, e, quem);
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };
