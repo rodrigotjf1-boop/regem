@@ -2468,3 +2468,37 @@ dúvida" o Mister informa e pergunta, e a pessoa responde o certo ou manda outra
 
 **Custo (medido em 23/11, na chave de IA da empresa):** cada foto lida pelo Sonnet custa cerca de US$ 0,026 (uns R$ 0,15). O cupom ou a
 nota inteira, com a classificação e a leitura dos itens, cerca de US$ 0,085 (uns R$ 0,47). `MISTER_FOTO_MODELO` volta ao modelo anterior.
+
+## Versão 9 — o Mister operador (a aprovar)
+
+Pedido do dono em 24/11: "o Mister não está usando o recurso da IA, só segue regras de código; se não está no código ele não consegue
+fazer". Ele tem acesso a quase todo o Regem e não consegue fazer um pedido a partir da foto de uma lista. A ideia: usar a IA para
+entender, perguntar e ligar o nome da nota ao cadastro; guardar o que se aprendeu como modelo; e fazer pela conversa o que a pessoa faria
+clicando nas telas. Protótipo: `mockups/regem-mister-v9.html`.
+
+**O que o levantamento mostrou (23/11).** A lista liga o nome ao cadastro comparando palavras, sem IA e sem memória: duas listas (31 e 19
+linhas) ficaram com zero linhas ligadas. O cupom faz o mesmo e pergunta linha por linha. O Mister faz 17 ações, e nenhuma cadastra ou
+altera insumo, fornecedor ou conversão, nem recebe ou exclui pedido de compra. A memória do fornecedor (`mister_de_para`) só vale para
+nota, só pelo código, e tem 3 linhas. A loja tem 162 insumos e 17 fornecedores: o catálogo inteiro cabe numa chamada de IA.
+
+**O princípio.** A IA entende, planeja e monta a proposta. O Regem confere (o insumo existe, o número é válido, o perfil pode) e faz pela
+mesma porta da tela, com a auditoria de origem "Mister". A pessoa confirma: botão em toda gravação, PIN em dinheiro e preço.
+
+| Fase | O que entra | Migration |
+|---|---|---|
+| O1 · Ligar pela IA | Nota, cupom e lista: a IA vê as linhas e os insumos e propõe a ligação de cada uma, com a certeza e a conversão. O Regem confere os ids. As dúvidas vão juntas numa mensagem; a resposta em frase vale como o botão | não |
+| O2 · Modelo de compra | Por fornecedor (produto, insumo, conversão, última quantidade e preço) e apelidos da empresa. Tela Mister › Modelos de compra | sim, 1, só na nuvem (classificar no `sync-daemon`: vai no próximo `.exe`) |
+| O3 · Cadastro pela conversa | Cadastrar e mudar insumo (nome, apelido, unidade, conversão, mínimo, fornecedor) e fornecedor, pelos serviços das telas, com botão | não |
+| O4 · Pedido de ponta a ponta | Lista da foto vira pedido numa mensagem; mudar, repetir, receber com o cupom e excluir pedido | não |
+| O5 · A porta do Regem | Catálogo de operações com a validação (DTO) e a permissão das rotas; cresce por área: cardápio, tarefas e escala, financeiro. Cada área entra na avaliação | não |
+| O6 · IA mais forte nas tarefas | O Sonnet responde enquanto há tarefa em andamento; ajuste com o preço em Avisos e relatórios › Conversa | sim, o ajuste |
+
+**Decisões, a recomendada primeiro.** V9-1: a IA propõe todas as ligações e a pessoa confirma de uma vez. V9-2: certeza alta entra ligada e
+aparece no resumo antes do "Lançar". V9-3: produto que não existe: propor o parecido com o nome mudado ou o cadastro novo. V9-4: modelo por
+fornecedor e apelidos da empresa, com a tela. V9-5: cadastro e mudança sempre com botão; dinheiro e preço com PIN. V9-6: um catálogo com a
+validação e a permissão das rotas. V9-7: Sonnet só durante a tarefa (uns R$ 35 por mês no uso de hoje; Haiku sempre, uns R$ 5; Sonnet
+sempre, uns R$ 100). V9-8: estoque e compras primeiro, depois cardápio, tarefas e escala, financeiro. V9-9: nunca pela conversa: senha,
+PIN, perfil e permissão; integrações e chaves; nota fiscal; excluir em massa; outra loja.
+
+**Custo (tabela do Claude, dólar a R$ 5,50, 114 perguntas em 7 dias).** Pergunta comum no Haiku: cerca de R$ 0,01. Resposta no Sonnet:
+cerca de R$ 0,20. Ligar um documento pela IA: cerca de R$ 0,15.
