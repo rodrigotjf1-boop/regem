@@ -31,6 +31,8 @@ describe('Mister · ações — o catálogo e os canais', () => {
       'pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa', 'criar_imagem', 'movimentar_estoque', 'mudar_preco', 'mudar_horario', 'pagar_conta', 'informar_saldo', 'informar_folha', 'informar_custo_campanha',
       // Versão 9, O3: o cadastro pela conversa.
       'cadastrar_insumo', 'alterar_insumo', 'cadastrar_fornecedor', 'excluir_pedido_compra',
+      // Versão 9, O5: o cupom e a conta a pagar.
+      'criar_cupom', 'remover_cupom', 'lancar_conta',
     ]);
     expect(ACOES.criar_tarefa).toMatchObject({ nivel: 'botao', permissao: 'checklist' });
     for (const a of ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] as const)

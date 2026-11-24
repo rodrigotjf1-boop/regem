@@ -49,6 +49,7 @@ import {
   TEXTOS_DA_SESSAO,
 } from './mister-procedimentos';
 import { estadoDaSessao } from './mister-sessao';
+import { apresentacaoDaConta, apresentacaoDoCupom } from './mister-acoes-loja';
 import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDaBaixa, apresentacaoDoHorario, apresentacaoDoPreco, ehAcaoDoMister, ehDadoInformado } from './mister-acoes';
 import { PROCEDIMENTO_DO_PLANO, RESULTADO_DO_PLANO_TROCADO, TEXTOS_DO_PLANO } from './mister-plano';
 
@@ -773,6 +774,9 @@ export class MisterPropostasService implements OnModuleInit {
     if (p.procedimento === 'mudar_preco' && p.parametros?.mudanca) apresentacao = apresentacaoDoPreco(p.parametros.mudanca);
     if (p.procedimento === 'mudar_horario' && p.parametros?.mudancaDeHorario) apresentacao = apresentacaoDoHorario(p.parametros.mudancaDeHorario);
     if (p.procedimento === 'pagar_conta' && p.parametros?.baixa) apresentacao = apresentacaoDaBaixa(p.parametros.baixa);
+    // Versão 9, O5: o cupom e a conta a pagar.
+    if (p.procedimento === 'criar_cupom' && p.parametros?.codigo) apresentacao = apresentacaoDoCupom(p.parametros);
+    if (p.procedimento === 'lancar_conta' && p.parametros?.descricao) apresentacao = apresentacaoDaConta(p.parametros);
     return {
       estado: estadoDoLink(p),
       empresa: String(p.empresa ?? ''),

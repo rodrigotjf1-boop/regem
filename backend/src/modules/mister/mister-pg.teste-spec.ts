@@ -46,6 +46,7 @@ import { RECUSAS_DA_MEMORIA } from './mister-memoria';
 import { MisterVigiaService } from './mister-vigia.service';
 import { fimDaNoite } from './mister-vigia';
 import { FinanceiroService } from '../financeiro/financeiro.service';
+import { CardapioService } from '../cardapio/cardapio.service';
 import { FRASES_DO_DOCUMENTO } from '../../common/documento-por-foto';
 import { botoesDoComoLancar } from '../../common/nota-por-foto';
 import { crc16Pix } from '../../common/boleto';
@@ -4152,6 +4153,8 @@ export function testesDoMisterComPostgres(): void {
         c92: { acao: 'cadastrar_insumo', nome: 'Molho especial da casa', medidaDoEstoque: 'kg', minimo: 5 },
         c93: { acao: 'alterar_insumo', item: 'bacon', conversaoDe: 'caixa', conversaoQuantas: 10 },
         c94: { acao: 'repetir', fornecedor: 'Felipão' },
+        c95: { acao: 'criar_cupom', codigoDoCupom: 'NATAL15', tipoDoDesconto: 'percentual', valorDoDesconto: 15, pedidoMinimo: 50 },
+        c96: { acao: 'lancar_conta', descricaoDaConta: 'Conta de luz', valorDaConta: 412.35, vencimentoDaConta: '2099-12-10' },
         c51: { periodo: 'este_mes' },
         c52: { periodo: 'este_mes', pessoa: 'Bruna' },
         c55: { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'kg' },
@@ -11803,6 +11806,89 @@ export function testesDoMisterComPostgres(): void {
           for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
           await q(`delete from lancamento_caixa where titulo_id in (select id from titulo_financeiro where tenant_id = any($1::uuid[]) and descricao like 'Lote10 %')`, [[A, B]]);
           await q(`delete from titulo_financeiro where tenant_id = any($1::uuid[]) and descricao like 'Lote10 %'`, [[A, B]]);
+        }
+      });
+
+      it('versão 9, O5: criar e tirar um cupom e lançar uma conta a pagar — o cupom e a conta só com o PIN, pelos serviços das telas', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const pinsAntes = await q(`select id, pin_hash from colaborador where id = $1`, [pessoa.ana]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        const u = {} as any;
+        (acoes as any).cuponsDeTeste = new CardapioService(db, u, u, u, u, u, { emit: () => true } as any, u);
+        (acoes as any).financeiro = new FinanceiroService(db, auditoria, {} as any);
+        const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+        const autorizarComPin = async (r: any) => {
+          const c = codigo(await propostasDasAcoes.enviarLink(r.proposta!.id, pessoa.ana, tel, r.proposta!.pergunta));
+          const vista = await propostasDasAcoes.verPeloLink(c);
+          await propostasDasAcoes.autorizarPeloLink(c, '2580');
+          return { vista, fim: await esperarFim(r.proposta!.id) };
+        };
+        const cupomDe = (cod: string) => q(`select tenant_id::text as t, unidade_id, tipo, valor::float8 as valor, minimo::float8 as minimo, validade::text as validade, max_usos, somente_novos, ativo from cupom where upper(codigo) = $1`, [cod]);
+        try {
+          const [{ id: forn }] = await q(`insert into fornecedor (tenant_id, nome) values ($1, 'Fornecedor O5 Luz') returning id::text as id`, [A]);
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          // O cupom: nada é criado antes do PIN; o botão montado à mão não autoriza.
+          const r = await ferramentas.executar(e, 'propor_acao', { acao: 'criar_cupom', codigoDoCupom: 'o5smash', tipoDoDesconto: 'percentual', valorDoDesconto: 10, pedidoMinimo: 40, validoAte: '2099-12-31', usosMaximos: 50 });
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toBe('Criar o cupom O5SMASH: 10% de desconto, pedido mínimo de R$ 40,00, até 31/12/2099, até 50 usos. Ele passa a valer no cardápio e no balcão (PDV · Balcão › Cupons).');
+          expect(r.proposta).toMatchObject({ procedimento: 'criar_cupom', nivel: 'pin', botoes: [] });
+          await propostasDasAcoes.responder(`prop:${r.proposta!.id}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await cupomDe('O5SMASH')).toEqual([]);
+          const { vista, fim } = await autorizarComPin(r);
+          expect(vista).toMatchObject({ titulo: 'Criar o cupom O5SMASH', botao: 'Criar o cupom', valor: null });
+          expect(vista.itens).toEqual(['10% de desconto', 'Pedido mínimo: R$ 40,00', 'Vale até 31/12/2099', 'Até 50 usos']);
+          expect(fim).toMatchObject({ situacao: 'feita', resultado: 'Criei o cupom O5SMASH (10% de desconto). Ele já vale no cardápio e no balcão.' });
+          // Pela mesma porta da tela: a empresa inteira (sem loja), ativo, com as condições.
+          expect(await cupomDe('O5SMASH')).toEqual([{ t: A, unidade_id: null, tipo: 'percentual', valor: 10, minimo: 40, validade: '2099-12-31', max_usos: 50, somente_novos: false, ativo: true }]);
+          // O código repetido para na pergunta (a tela trocaria o cupom existente calada).
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'criar_cupom', codigoDoCupom: 'O5SMASH', valorDoDesconto: 50 })).dados.erro).toContain('Já existe o cupom O5SMASH');
+          // Criado pela tela entre a pergunta e o PIN: não troca o da tela.
+          const r2 = await ferramentas.executar(e, 'propor_acao', { acao: 'criar_cupom', codigoDoCupom: 'O5FRETE', tipoDoDesconto: 'fretegratis' });
+          await q(`insert into cupom (tenant_id, codigo, tipo, valor) values ($1, 'O5FRETE', 'valor', 3)`, [A]);
+          expect((await autorizarComPin(r2)).fim).toMatchObject({ situacao: 'nao_deu', resultado: 'o cupom O5FRETE já existe. Nada foi mudado.' });
+          expect(await cupomDe('O5FRETE')).toMatchObject([{ tipo: 'valor', valor: 3 }]);
+          // O cupom de outra empresa não se acha nem se tira.
+          await q(`insert into cupom (tenant_id, codigo, tipo, valor) values ($1, 'O5DEFORA', 'percentual', 5)`, [B]);
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'remover_cupom', codigoDoCupom: 'O5DEFORA' })).dados.erro).toBe('Não achei o cupom O5DEFORA em PDV · Balcão › Cupons.');
+          // Tirar o cupom é de botão.
+          const rr = await ferramentas.executar(e, 'propor_acao', { acao: 'remover_cupom', codigoDoCupom: 'o5smash' });
+          expect(rr.mensagens![0].botoes!.map((b) => b.titulo)).toEqual(['Autorizar', 'Não agora']);
+          expect(await cupomDe('O5SMASH')).toHaveLength(1);
+          const idR = idDaProposta(rr);
+          await propostasDasAcoes.responder(`prop:${idR}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(idR)).toMatchObject({ situacao: 'feita', resultado: 'Tirei o cupom O5SMASH: ele não vale mais.' });
+          expect(await cupomDe('O5SMASH')).toEqual([]);
+          expect(await cupomDe('O5DEFORA')).toHaveLength(1);
+
+          // A conta a pagar: o fornecedor pelo nome, o valor em destaque na página do PIN, em aberto e com a origem.
+          const rc = await ferramentas.executar(e, 'propor_acao', { acao: 'lancar_conta', descricaoDaConta: 'O5 Conta de luz', valorDaConta: 412.35, vencimentoDaConta: '2099-12-10', fornecedor: 'fornecedor o5 luz', categoriaDaConta: 'Energia' });
+          expect(rc.dados.oQueVouFazer).toBe('Lançar a conta a pagar "O5 Conta de luz" de R$ 412,35, vencendo em 10/12/2099, do fornecedor Fornecedor O5 Luz, na categoria Energia. Ela fica em aberto em Financeiro › Contas a pagar.');
+          expect(await q(`select 1 from titulo_financeiro where descricao = 'O5 Conta de luz'`)).toEqual([]);
+          const conta = await autorizarComPin(rc);
+          expect(conta.vista).toMatchObject({ titulo: 'Lançar a conta "O5 Conta de luz"', valor: 412.35, botao: 'Lançar a conta' });
+          expect(conta.vista.itens).toEqual(['Vence em 10/12/2099', 'Fornecedor: Fornecedor O5 Luz', 'Categoria: Energia']);
+          expect(conta.fim).toMatchObject({ situacao: 'feita', resultado: 'Lancei a conta "O5 Conta de luz" de R$ 412,35 em Financeiro › Contas a pagar, em aberto.' });
+          expect(await q(`select tenant_id::text as t, unidade_id::text as u, tipo, valor::float8 as valor, vencimento::text as venc, status, origem, fornecedor_id::text as forn, categoria, criado_por_id::text as quem from titulo_financeiro where descricao = 'O5 Conta de luz'`)).toEqual([
+            { t: A, u: lojaDeA, tipo: 'pagar', valor: 412.35, venc: '2099-12-10', status: 'aberto', origem: 'mister', forn, categoria: 'Energia', quem: pessoa.ana },
+          ]);
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'lancar_conta', descricaoDaConta: 'O5 Outra', valorDaConta: 10, vencimentoDaConta: '2099-12-10', fornecedor: 'Ninguém O5 Assim' })).ok).toBe(false);
+          // A permissão: Cupons para o cupom; Financeiro e "Ver valores em R$" para a conta.
+          const telC = telefone();
+          await ligar('carlos', telC, A, 'gerente');
+          const g = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
+          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, cupons: false } } as any, 'propor_acao', { acao: 'criar_cupom', codigoDoCupom: 'O5G', valorDoDesconto: 5 })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCupons } });
+          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, cupons: false } } as any, 'propor_acao', { acao: 'remover_cupom', codigoDoCupom: 'O5FRETE' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCupons } });
+          const enConta = { acao: 'lancar_conta', descricaoDaConta: 'O5 Gás', valorDaConta: 90, vencimentoDaConta: '2099-12-10' };
+          for (const perm of [{ financeiro: false, ver_financeiro: true }, { financeiro: true, ver_financeiro: false }])
+            expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, ...perm } } as any, 'propor_acao', enConta)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoLancarConta } });
+        } finally {
+          delete (acoes as any).cuponsDeTeste;
+          delete (acoes as any).financeiro;
+          for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
+          await q(`delete from cupom where upper(codigo) like 'O5%'`);
+          await q(`delete from titulo_financeiro where tenant_id = any($1::uuid[]) and descricao like 'O5 %'`, [[A, B]]);
+          await q(`delete from fornecedor where tenant_id = $1 and nome = 'Fornecedor O5 Luz'`, [A]);
         }
       });
 

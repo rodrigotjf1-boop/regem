@@ -1266,6 +1266,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c93', pergunta: 'O bacon agora vem em caixa com 10 kg. Põe essa conversão no cadastro do Bacon.', consultas: ['propor_acao'], contem: ['caixa', '10', 'Autorizar'] },
   // Versão 9, O4: repetir o último pedido de um fornecedor pela conversa.
   { id: 'c94', pergunta: 'Repete o último pedido do Felipão.', consultas: ['lista_de_compras'], contem: ['Felipão', 'Criar o pedido'] },
+  // Versão 9, O5: o cupom e a conta a pagar pela conversa, com o PIN.
+  { id: 'c95', pergunta: 'Cria o cupom NATAL15 com 15% de desconto e pedido mínimo de R$ 50.', consultas: ['propor_acao'], contem: ['NATAL15', 'PIN'] },
+  { id: 'c96', pergunta: 'Lança a conta de luz de R$ 412,35, que vence no dia 10 do mês que vem.', consultas: ['propor_acao'], contem: ['412,35', 'PIN'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

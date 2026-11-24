@@ -12,6 +12,8 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: cupom e conta a pagar pela conversa, versão 9 O5 (24/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
+
 - **Mister: a lista de compras pela IA e pela conversa, versão 9 O4 (24/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
 
 - **Mister: cadastro pela conversa, versão 9 O3 (24/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
