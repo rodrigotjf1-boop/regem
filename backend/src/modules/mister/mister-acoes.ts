@@ -14,6 +14,7 @@ import {
 import { dataNoFuso } from '../../common/data';
 import { conferirCadastro, type ParametrosDeCadastro } from './mister-acoes-cadastro';
 import { conferirAcaoDaLoja, type ParametrosDaLoja } from './mister-acoes-loja';
+import { conferirClassificacao, type ParametrosDaClassificacao } from './mister-acoes-banco';
 import { NOMES_DOS_DIAS, ehHoraDoDia, horasDaJanela, lerDiaDaSemana, textoDaJanela, type JanelaDoDia } from '../../common/horarios-da-loja';
 
 // AS AÇÕES DO MISTER — a porta `propor_acao` (versão 6, M6j; plano aprovado em 20/11/2026, `docs/plano-mister.md` § "Versão
@@ -63,6 +64,8 @@ export const ACOES_DO_MISTER = [
   'mudar_fornecedor',
   'trocar_turno',
   'folga_na_escala',
+  // Versão 9, O5: classificar o lançamento do extrato (Financeiro › Banco e repasses), com o PIN. Só o presidente.
+  'classificar_banco',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -133,6 +136,8 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   mudar_fornecedor: { id: 'mudar_fornecedor', nivel: 'botao', permissao: 'cadastros', prazoMin: 10, nome: 'mudar um fornecedor' },
   trocar_turno: { id: 'trocar_turno', nivel: 'botao', permissao: 'escalas', crud: 'editar', prazoMin: 10, nome: 'trocar a pessoa de um turno' },
   folga_na_escala: { id: 'folga_na_escala', nivel: 'botao', permissao: 'escalas', crud: 'editar', prazoMin: 10, nome: 'dar folga na escala' },
+  // A rota de Banco e repasses é só do presidente (V8-2); a classificação mexe na conta do caixa: PIN, com "Ver valores em R$".
+  classificar_banco: { id: 'classificar_banco', nivel: 'pin', permissao: 'financeiro', prazoMin: 15, nome: 'classificar um lançamento do banco', pedeVerValores: true },
   excluir_pedido_compra: { id: 'excluir_pedido_compra', nivel: 'botao', permissao: 'estoque', crud: 'excluir', prazoMin: 10, nome: 'excluir um pedido de compra' },
   informar_custo_campanha: { id: 'informar_custo_campanha', nivel: 'botao', permissao: 'financeiro', prazoMin: 10, nome: 'guardar o custo de uma campanha', pedeVerValores: true, soPresidente: true },
 };
@@ -468,7 +473,8 @@ export type ParametrosDaAcao =
   | { acao: 'pagar_conta'; conta: string; venceEm: string | null; forma: FormaDaBaixa; pagoEm: string | null; valorPago: number | null }
   | { acao: AcaoDeDadoInformado; centavos: number; dia: string; campanha: string | null }
   | ParametrosDeCadastro
-  | ParametrosDaLoja;
+  | ParametrosDaLoja
+  | ParametrosDaClassificacao;
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -480,6 +486,7 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
   if (!ehAcaoDoMister(acao)) return { erro: `Essa ação não existe. As ações são: ${ACOES_DO_MISTER.join(', ')}.` };
   if (ehCadastro(acao)) return conferirCadastro(acao, en);
   if (ehDaLoja(acao)) return conferirAcaoDaLoja(acao, en, dataNoFuso(agora));
+  if (acao === 'classificar_banco') return conferirClassificacao(en, dataNoFuso(agora));
   if (acao === 'pausar_canal' || acao === 'reabrir_canal') {
     const brutos = Array.isArray(en.canais) ? en.canais : en.canal !== undefined ? [en.canal] : [];
     const canais = [...new Set(brutos.map(lerCanal))];
@@ -698,6 +705,10 @@ export const TEXTOS_DAS_ACOES = {
   mesmaPessoa: 'Quem entra é a mesma pessoa que sai: diga quem vai no lugar.',
   escalaMudou: 'A escala desse turno mudou desde a pergunta (pela tela ou por outra conversa). Nada foi feito: peça de novo se ainda for preciso.',
   fornecedorComEsseNome: (nome: string) => `Já existe o fornecedor "${nome}". Escolha outro nome.`,
+  bancoSoPresidente: 'Financeiro › Banco e repasses é só do presidente: essa ação não sai por aqui.',
+  lancamentoNaoAchado: (valor: string, dia: string) => `Não achei lançamento de ${valor} no dia ${dia} em Financeiro › Banco e repasses. Confira o dia e o valor no extrato.`,
+  lancamentosDemais: (lista: string) => `Achei mais de um lançamento com esse dia e valor: ${lista}. Diga um pedaço da descrição de qual é.`,
+  lancamentoMudou: 'O lançamento mudou ou saiu de Financeiro › Banco e repasses desde a pergunta. Nada foi feito.',
   semPermissaoLancarConta: 'O seu perfil no Regem não permite lançar conta a pagar: falta o acesso ao Financeiro ou "Ver valores em R$". Quem muda o perfil é o presidente.',
   tarefaNaoAchada: 'Não achei essa tarefa na lista de hoje das suas lojas. Diga o título como aparece na lista de tarefas.',
   tarefasDemais: (titulos: string) => `Achei mais de uma tarefa de hoje com esse nome: ${titulos}. Diga qual.`,

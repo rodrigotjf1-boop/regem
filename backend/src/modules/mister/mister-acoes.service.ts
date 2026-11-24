@@ -59,6 +59,7 @@ import {
 } from './mister-acoes';
 import { resumoDaConta, descontoDoCupom, reaisBr, resumoDoProduto, resumoDoFornecedor, resumoDaTroca, resumoDaFolga, diaComSemana, type ParametrosDaLoja } from './mister-acoes-loja';
 import { EscalaService } from '../escala/escala.service';
+import { resumoDaClassificacao, type ParametrosDaClassificacao } from './mister-acoes-banco';
 import { ModuleRef } from '@nestjs/core';
 import type { ParametrosDeCadastro } from './mister-acoes-cadastro';
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
@@ -237,7 +238,9 @@ export class MisterAcoesService implements OnModuleInit {
       if (!podeFazer(e, def))
         return recusa(def.id === 'mudar_horario' ? TEXTOS_DAS_ACOES.semPermissaoHorario : def.id === 'mudar_preco' ? TEXTOS_DAS_ACOES.semPermissaoPreco : def.id === 'lancar_conta' ? TEXTOS_DAS_ACOES.semPermissaoLancarConta : semPermissaoDe(def.permissao));
       // Lote 10: quem autoriza dinheiro VÊ o valor. Com o PIN da sessão vencido, o link da sessão vai depois desta resposta.
-      if ((c.parametros.acao === 'pagar_conta' || c.parametros.acao === 'lancar_conta') && !e.verValores) return recusa(TEXTOS_DAS_ACOES.contaPedePin);
+      if ((c.parametros.acao === 'pagar_conta' || c.parametros.acao === 'lancar_conta' || c.parametros.acao === 'classificar_banco') && !e.verValores) return recusa(TEXTOS_DAS_ACOES.contaPedePin);
+      // Banco e repasses é só do presidente, como a rota (V8-2): o gerente não recebe nem a contagem.
+      if (c.parametros.acao === 'classificar_banco' && e.nivel !== 'presidente') return recusa(TEXTOS_DAS_ACOES.bancoSoPresidente);
       if (c.parametros.acao === 'criar_imagem' && !imagemLigada()) return recusa(TEXTOS_DAS_ACOES.imagemDesligada);
       // A de PIN vai pelo link, que também sai pela conexão por QR Code (escrito na mensagem).
       if (def.nivel === 'botao' && this.numero && (await this.numero.ler()).provedor === 'evolution') return recusa(ehDadoInformado(def.id) ? TEXTOS_DAS_ACOES.dadoSemBotao : TEXTOS_DAS_ACOES.semBotao);
@@ -367,6 +370,34 @@ export class MisterAcoesService implements OnModuleInit {
         if (r.resumo) resumo = r.resumo;
         alvo = r.alvo;
         if (r.unidadeId !== undefined) unidadeId = r.unidadeId;
+      }
+      if (c.parametros.acao === 'classificar_banco') {
+        // Versão 9, O5: o lançamento pelo dia e pelo valor (e um pedaço da descrição quando há dois), nas lojas da conversa.
+        const x = c.parametros as ParametrosDaClassificacao;
+        const doBanco = e.lojaUnica && !loja.atual ? null : lojas;
+        const achados = linhas(
+          await this.db.execute(sql`
+            select l.id::text as id, l.unidade_id::text as "unidadeId", l.data::text as data, l.descricao, l.valor_centavos::bigint as valor
+              from banco_lancamento l
+             where l.tenant_id = ${e.tenantId}::uuid and l.data = ${x.dia}::date and abs(l.valor_centavos) = ${x.valorCentavos}
+               ${x.trecho ? sql`and l.descricao ilike ${comoTexto(x.trecho.toUpperCase())}` : sql``}
+               ${doBanco ? sql`and l.unidade_id in (${sql.join(doBanco.map((u) => sql`${u}::uuid`), sql`, `)})` : sql``}
+             order by l.descricao
+             limit 6`).catch((err: any) => {
+            // Sem a tabela do extrato (a mig 499 ainda não entrou): nada a classificar, como sem lançamento.
+            if (semTabela(err)) return [];
+            throw err;
+          }),
+        );
+        const reaisDe = (c: number) => `R$ ${(c / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const diaBr = `${x.dia.slice(8, 10)}/${x.dia.slice(5, 7)}`;
+        if (!achados.length) return recusa(TEXTOS_DAS_ACOES.lancamentoNaoAchado(reaisDe(x.valorCentavos), diaBr));
+        if (achados.length > 1) return recusa(TEXTOS_DAS_ACOES.lancamentosDemais(achados.map((l) => `"${l.descricao}"`).join(', ')));
+        const l = achados[0];
+        Object.assign(parametros, { lancamentoId: l.id, data: l.data, descricao: String(l.descricao), valorCentavos: Number(l.valor) });
+        resumo = resumoDaClassificacao({ data: l.data, descricao: String(l.descricao), valorCentavos: Number(l.valor) }, x.tipo, x.lembrar);
+        alvo = `banco:${l.id}`;
+        unidadeId = l.unidadeId;
       }
       if (ehCadastro(c.parametros.acao)) {
         // Versão 9, O3: o insumo, o fornecedor e o pedido pelo nome, conferidos antes da pergunta.
@@ -704,6 +735,41 @@ export class MisterAcoesService implements OnModuleInit {
         ?.registrar({ tenantId: p.tenantId, atorId: quem, atorPerfil: e.nivel, tipo: 'mister', acao: 'mister_acao', entidadeTipo: 'mister_proposta', entidadeId: p.id, origem: 'whatsapp', detalhe: { acao: x.acao } } as any)
         .catch(() => undefined);
     }
+  }
+
+  /** O serviço de Banco e repasses (só na nuvem), achado na hora. Os testes trocam por `bancoDeTeste`. */
+  bancoDeTeste: { classificar: (user: any, atual: string | null, id: string, dto: { tipo?: string | null; lembrar?: boolean }) => Promise<any> } | null = null;
+  private async servicoDoBanco() {
+    if (this.bancoDeTeste) return this.bancoDeTeste;
+    if (!this.moduleRef) return null;
+    try {
+      const { BancoRepassesService } = await import('../banco-repasses/banco-repasses.service');
+      return this.moduleRef.get(BancoRepassesService, { strict: false }) as any;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Classifica pelo MESMO serviço da tela ("Isso é o quê?") e confere o tipo gravado. A auditoria é a do serviço. */
+  private async aplicarClassificacao(
+    p: { id: string; tenantId: string; unidadeId: string | null },
+    x: ParametrosDaClassificacao & { lancamentoId: string; valorCentavos: number; descricao: string },
+    e: EscopoDoMister,
+    quem: string,
+  ): Promise<{ feita: boolean; texto: string }> {
+    const banco = await this.servicoDoBanco();
+    if (!banco) return { feita: false, texto: 'isso não está disponível agora. Nada foi feito.' };
+    // O lançamento que a pessoa viu: o mesmo valor, ainda lá.
+    const [agora] = linhas(await this.db.execute(sql`select valor_centavos::bigint as v from banco_lancamento where id = ${x.lancamentoId}::uuid and tenant_id = ${p.tenantId}::uuid`));
+    if (!agora || Number(agora.v) !== Number(x.valorCentavos)) return { feita: false, texto: TEXTOS_DAS_ACOES.lancamentoMudou };
+    try {
+      await banco.classificar({ tenantId: p.tenantId, colaboradorId: quem, categoria: e.nivel }, p.unidadeId, x.lancamentoId, { tipo: x.tipo, lembrar: x.lembrar });
+    } catch (err: any) {
+      return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240)) };
+    }
+    const [ok] = linhas(await this.db.execute(sql`select tipo from banco_lancamento where id = ${x.lancamentoId}::uuid and tenant_id = ${p.tenantId}::uuid`));
+    if (ok?.tipo !== x.tipo) return { feita: false, texto: 'o lançamento não ficou com esse tipo. Confira em Financeiro › Banco e repasses.' };
+    return { feita: true, texto: `Classifiquei o lançamento "${x.descricao}" em Financeiro › Banco e repasses${x.lembrar ? ', e os próximos iguais já entram assim' : ''}.` };
   }
 
   /** A pessoa pelo nome, entre os colaboradores ativos das lojas da conversa (ou sem loja); `null` = todas as lojas da empresa. */
@@ -1321,6 +1387,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (ehDadoInformado(parametros.acao)) return this.guardarDado(p, parametros as any, e.nivel, quem);
     if (ehCadastro(parametros.acao)) return this.aplicarCadastro(p, parametros as any, e, quem);
     if (ehDaLoja(parametros.acao)) return this.aplicarDaLoja(p, parametros as any, e, quem);
+    if (parametros.acao === 'classificar_banco') return this.aplicarClassificacao(p, parametros as any, e, quem);
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };
