@@ -101,8 +101,8 @@ export class IaDasMarcacoes {
   /** A chamada ao modelo (à parte: o teste a troca). Recusa = texto vazio. */
   protected async chamarModelo(system: string, conteudo: any[]): Promise<string> {
     this.cliente ??= new Anthropic({ apiKey: String(process.env.ANTHROPIC_API_KEY ?? '').trim(), timeout: 20_000, maxRetries: 1 });
-    const r = await this.cliente.messages.create({ model: this.modelo(), max_tokens: 400, system, messages: [{ role: 'user', content: conteudo }] });
-    if (r.stop_reason === 'refusal') return '';
+    const r = await this.cliente.messages.create({ model: this.modelo(), max_tokens: 2000, system, messages: [{ role: 'user', content: conteudo }] });
+    if (r.stop_reason === 'refusal' || r.stop_reason === 'max_tokens') return '';
     const partes: string[] = [];
     for (const b of r.content) if (b.type === 'text') partes.push(b.text);
     return partes.join('\n').trim();

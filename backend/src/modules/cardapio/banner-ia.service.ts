@@ -66,7 +66,7 @@ export class BannerIaService {
       resposta = await this.ia.pedir(tenantId, {
         recurso: RECURSO_DE_MELHORAR,
         modelo: MODELO_DE_MELHORAR,
-        maxTokens: 200,
+        maxTokens: 1500,
         system: INSTRUCAO_DE_MELHORAR,
         messages: [{ role: 'user', content: `<pedido>${pedido}</pedido>` }],
         prazoMs: PRAZO_DE_MELHORAR_MS,
@@ -75,7 +75,7 @@ export class BannerIaService {
       this.log.warn(`melhorar o pedido falhou (${String(e?.status ?? e?.code ?? e?.name ?? 'erro').slice(0, 40)})`);
       throw new ServiceUnavailableException('Não deu para melhorar o pedido agora. Você pode criar o banner com o seu texto.');
     }
-    const novo = resposta?.recusou ? null : pedidoMelhorado(resposta?.texto);
+    const novo = resposta?.recusou || resposta?.parou === 'max_tokens' ? null : pedidoMelhorado(resposta?.texto);
     if (!novo) throw new ServiceUnavailableException('Não deu para melhorar o pedido agora. Você pode criar o banner com o seu texto.');
     return { pedido: novo };
   }

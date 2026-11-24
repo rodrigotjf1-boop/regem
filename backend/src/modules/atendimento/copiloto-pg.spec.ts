@@ -192,7 +192,7 @@ descrever('copiloto do atendimento (Postgres)', () => {
     expect(await real.estado(T)).toEqual({ ligado: true, disponivel: true });
     expect((await real.sugerir(gerente(lojaA), c, tela)).texto).toBe('Já estamos vendo, Carlos.');
     expect(pedidos[0].tenantId).toBe(T);
-    expect(pedidos[0].p).toMatchObject({ recurso: 'copiloto', modelo: process.env.COPILOTO_MODELO?.trim() || 'claude-haiku-5-5', maxTokens: 400 });
+    expect(pedidos[0].p).toMatchObject({ recurso: 'copiloto', modelo: process.env.COPILOTO_MODELO?.trim() || 'claude-haiku-5-5', maxTokens: 2000 });
     expect(pedidos[0].p.system).toContain('Burger da Praça');
     expect(pedidos[0].p.messages).toEqual([{ role: 'user', content: expect.stringContaining('Cadê meu lanche?') }]);
     expect(JSON.stringify(pedidos[0].p)).not.toContain('98765'); // o telefone da conversa não vai ao modelo

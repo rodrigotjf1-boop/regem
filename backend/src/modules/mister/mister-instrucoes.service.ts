@@ -217,7 +217,7 @@ export class MisterInstrucoesService {
     try {
       const r = await this.ia.pedirPelaDistribuicao({ recurso: RECURSO_DO_MENTOR, modelo, maxTokens: SAIDA_DO_MENTOR, system: INSTRUCOES_DO_MENTOR, messages: mensagensDoMentor(noAr.texto, erradas), prazoMs: 60_000 });
       this.logger.log(`mentor: candidata pedida (${custoEstimadoUsd(modelo, r.uso) ?? '?'} US$)`);
-      resposta = r.recusou ? '' : r.texto;
+      resposta = r.recusou || r.parou === 'max_tokens' ? '' : r.texto;
     } catch (e: any) {
       if (e instanceof FalhaDaIa) throw new ServiceUnavailableException(MOTIVO_DA_IA[e.motivo] ?? 'A IA não respondeu. Tente de novo daqui a pouco.');
       throw e;

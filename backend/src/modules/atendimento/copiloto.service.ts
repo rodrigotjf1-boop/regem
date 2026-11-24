@@ -200,11 +200,11 @@ export class CopilotoService {
       const r = await this.ia.pedir(tenantId, {
         recurso: 'copiloto',
         modelo: this.modelo(),
-        maxTokens: 400,
+        maxTokens: 2000,
         system,
         messages: [{ role: 'user', content: conteudo }],
       });
-      return r.recusou ? '' : r.texto;
+      return r.recusou || r.parou === 'max_tokens' ? '' : r.texto;
     } catch (e: any) {
       if (e instanceof FalhaDaIa) {
         if (e.motivo === 'limite_por_minuto') throw new ServiceUnavailableException('O copiloto está ocupado agora. Tente de novo em instantes.');

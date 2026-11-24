@@ -130,7 +130,7 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
           // O relatório (mig 420) passa o recurso dele: cada um soma no seu no "Uso da IA".
           recurso: portas.recurso ?? RECURSO_DAS_PERGUNTAS,
           modelo,
-          maxTokens: TETOS.maxTokens,
+          maxTokens: modelo === portas.modelo ? TETOS.maxTokens : TETOS.maxTokensDaAnalise,
           system,
           tools: portas.todasAsFerramentas ? FERRAMENTAS : ferramentasDaConversa(),
           messages,

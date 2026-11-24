@@ -128,7 +128,7 @@ export class FotoDoClienteService {
           this.ia.pedir(tenantId, {
             recurso: RECURSO_DA_FOTO,
             modelo: this.modelo(),
-            maxTokens: 300,
+            maxTokens: 2000,
             system: instrucoesDaFoto(msg?.loja?.nome ?? null),
             messages: [
               {
@@ -147,7 +147,7 @@ export class FotoDoClienteService {
           this.logger.warn('foto não lida: a IA da empresa não respondeu no prazo da leitura');
           return null;
         }
-        if (r.recusou) return null;
+        if (r.recusou || r.parou === 'max_tokens') return null;
         analise = lerAnaliseDaFoto(r.texto);
       }
       if (!analise) this.logger.warn('a leitura da foto voltou fora do formato: a foto segue sem descrição');

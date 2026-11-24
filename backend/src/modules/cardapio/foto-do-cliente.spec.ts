@@ -114,7 +114,7 @@ describe('a leitura da foto do cliente (serviço)', () => {
     expect(l.pedidos).toHaveLength(1);
     const { tenantId, p } = l.pedidos[0];
     expect(tenantId).toBe('t1');
-    expect(p).toMatchObject({ recurso: 'foto_do_cliente', modelo: 'claude-haiku-5-5', maxTokens: 300 });
+    expect(p).toMatchObject({ recurso: 'foto_do_cliente', modelo: 'claude-haiku-5-5', maxTokens: 2000 });
     expect(p.system).toContain('atendente da Mister Burguer');
     expect(p.messages[0].content[0]).toMatchObject({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg' } });
     expect(p.messages[0].content[0].source.data).toBe(Buffer.alloc(2048, 7).toString('base64'));
