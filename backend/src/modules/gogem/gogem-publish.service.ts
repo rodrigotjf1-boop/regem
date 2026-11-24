@@ -6,27 +6,27 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { notarEnvioAoGogem, registroDoGogem, tokenDoGogem } from './credencial-gogem';
+import { notarEnvioAoGogem, registroDoGogem } from './credencial-gogem';
 import { CONTRATO_AVISO_ASSINADO, TIPO_ASSINADO } from './aviso-gogem';
 import { cabecalhosDoAviso } from '../integracao-api/webhook-integracao';
 import { causaDeRede } from '../../common/causa-de-rede';
 
-// A API do GoGeM é multi-tenant numa URL só; o tenant é identificado pelo
-// X-Sync-Token (o da integração dele). Configurável por env se mudar.
-const GOGEM_URL_PADRAO =
-  'https://api.gogem.com.br/api/v1/sync/regem/publicar';
 const TIMEOUT_MS = 15_000;
+
+/** Sem o registro do GoGeM para a loja: a publicação não tem para onde ir (e o Regem não chuta outro caminho). */
+export const MSG_PUBLICAR_SEM_REGISTRO =
+  'O GoGeM ainda não ligou os avisos desta loja, então a publicação não tem para onde ir. ' +
+  'Confira a integração no painel do GoGeM e tente de novo.';
 
 /**
  * "Publicar no GoGeM": empurra na hora as pausas/edições deste tenant para o
- * GoGeM (que re-sincroniza os produtos linkados e republica o cardápio). Usa o
- * token do equipamento que o GoGeM marcou como a credencial dele (mig 290) —
- * nunca "um servidor_local qualquer", que o GoGeM recusa (ERR-108). Best-effort
- * com erro claro.
+ * GoGeM (que re-sincroniza os produtos linkados e republica o cardápio).
  *
- * Fase 2 (`docs/integracao-gogem/AVISOS-ASSINADOS.md` §5): se o GoGeM registrou o
- * endereço de aviso da loja em uso, sai ASSINADO para lá (`catalogo.publicar`),
- * com o `X-Sync-Token` junto até a fase 4. Sem registro, o caminho de antes.
+ * Sai ASSINADO (`catalogo.publicar`) para o endereço que o GoGeM registrou para a
+ * loja em uso (`docs/integracao-gogem/AVISOS-ASSINADOS.md` §5). Desde a fase 4
+ * (24/11/2026, P-7 do "Fim das portas antigas") o caminho antigo
+ * (`/sync/regem/publicar` com o `X-Sync-Token`) não é mais chamado e o token antigo
+ * não vai junto. Best-effort com erro claro.
  */
 @Injectable()
 export class GogemPublishService {
@@ -37,54 +37,34 @@ export class GogemPublishService {
     tenantId: string,
     unidadeId: string | null = null,
   ): Promise<{ ok: true; alterados?: number }> {
-    const token = await tokenDoGogem(this.db, tenantId);
     const registro = await registroDoGogem(this.db, tenantId, unidadeId);
-    if (!token && !registro) {
-      this.logger.warn(`Publicar no GoGeM: o GoGeM ainda não se identificou para a empresa ${tenantId}`);
-      throw new BadRequestException(
-        'O GoGeM ainda não se identificou para esta empresa — ele faz isso sozinho na próxima ' +
-          'sincronização do cardápio. Tente de novo em alguns minutos; se continuar, confira a ' +
-          'integração no painel do GoGeM.',
-      );
+    if (!registro) {
+      this.logger.warn(`Publicar no GoGeM: sem o registro dos avisos (empresa ${tenantId})`);
+      throw new BadRequestException(MSG_PUBLICAR_SEM_REGISTRO);
     }
 
-    let url: string;
-    let body: string;
-    let headers: Record<string, string>;
-    if (registro) {
-      url = registro.url;
-      body = JSON.stringify({
-        tipo: TIPO_ASSINADO.publicar,
-        contrato: CONTRATO_AVISO_ASSINADO,
-        loja_id: registro.lojaId ?? unidadeId,
-        pedido_em: new Date().toISOString(),
-      });
-      headers = {
-        ...cabecalhosDoAviso(registro.chave, `publicar_${randomUUID()}`, body),
-        Accept: 'application/json',
-        ...(token ? { 'X-Sync-Token': token } : {}),
-      };
-    } else {
-      url = process.env.GOGEM_PUBLISH_URL ?? GOGEM_URL_PADRAO;
-      body = '{}';
-      headers = {
-        'X-Sync-Token': token as string,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      };
-    }
+    const body = JSON.stringify({
+      tipo: TIPO_ASSINADO.publicar,
+      contrato: CONTRATO_AVISO_ASSINADO,
+      loja_id: registro.lojaId ?? unidadeId,
+      pedido_em: new Date().toISOString(),
+    });
+    const headers: Record<string, string> = {
+      ...cabecalhosDoAviso(registro.chave, `publicar_${randomUUID()}`, body),
+      Accept: 'application/json',
+    };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
-      const res = await fetch(url, {
+      const res = await fetch(registro.url, {
         method: 'POST',
         headers,
         body,
         signal: controller.signal,
         // O endereço registrado foi conferido no registro: redirecionamento não se segue.
-        ...(registro ? { redirect: 'manual' as const } : {}),
+        redirect: 'manual',
       });
-      if (registro) await notarEnvioAoGogem(this.db, registro.tokenId, res.status);
+      await notarEnvioAoGogem(this.db, registro.tokenId, res.status);
       if (!res.ok) {
         const corpo = await res.text().catch(() => '');
         throw new BadRequestException(

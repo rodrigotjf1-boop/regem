@@ -3,6 +3,11 @@
 **Versão do contrato:** 1, de 19/10/2026 · **Do lado do Regem:** fase 2 da credencial própria do GoGeM
 (`docs/pedido-hub-dms-credencial-propria-do-gogem.md`) · **Do lado do GoGeM:** fase 3.
 
+**Situação em 24/11/2026: fase 4 FEITA** (P-7 do "Fim das portas antigas"). O Regem não chama mais os dois caminhos
+antigos e não manda mais o `X-Sync-Token` nos avisos: tudo sai assinado, para o endereço registrado (§7). Pré-condição
+conferida em produção, só lendo, no dia: uma empresa com o GoGeM, uma loja, com o registro vivo (refeito às 04:53) e o
+último aviso assinado entregue com 200 (16/11); nenhum aviso preso na fila.
+
 Este arquivo é o que a sessão do GoGeM precisa para receber os dois avisos que o Regem manda hoje com o `X-Sync-Token`.
 Os avisos passam a sair assinados no padrão **Standard Webhooks**, o mesmo que o Regem já usa com o Liame e o Farol e
 que o Padrão DMS de integração adotou (§9 do `C:\HubDMS\docs\padrao-dms-integracao.md`).
@@ -59,7 +64,8 @@ Content-Type: application/json
   antigo por mais 10 minutos, por causa de um aviso que já estava saindo.
 - **O registro é preso ao token:** token novo (troca ou revogação) apaga o registro e o segredo.
   - Ao trocar o token, o GoGeM faz o `PUT` de novo, logo em seguida.
-  - Sem registro, até a fase 4, o Regem volta ao caminho antigo, com o `X-Sync-Token`.
+  - Sem registro, o aviso espera (desde a fase 4, 24/11/2026). Antes dela, o Regem voltava ao caminho antigo, com o
+    `X-Sync-Token`.
 
 ## 3. O envio
 
@@ -70,7 +76,7 @@ user-agent: Regem-Integracao/1
 webhook-id: aviso_5d9f1c2e-7b3a-4c1d-9e8f-0a1b2c3d4e5f
 webhook-timestamp: 1792444445
 webhook-signature: v1,ptXiUjnIMoVdbiTiJkj9V/XYm5Ya3FXl7p5o2yd610g=
-X-Sync-Token: <o token de hoje>          ← só até a fase 4 (§7); não use para autenticar a rota nova
+X-Sync-Token: <o token de hoje>          ← só até a fase 4 (§7): não vai mais desde 24/11/2026
 ```
 
 - `webhook-signature` = `v1,` + base64 do HMAC-SHA256 de `"<webhook-id>.<webhook-timestamp>.<corpo>"`.
@@ -187,7 +193,7 @@ Até 13/11/2026 o vetor não tinha o `canceladoPor` (§4); com o mesmo segredo, 
 | --- | --- | --- | --- |
 | 2 | Regem | Passa a assinar quando houver registro. Sem registro, nada muda. | nenhum: nenhuma loja tem registro |
 | 3 | GoGeM | Cria `POST /sync/regem/avisos/:id`, que confere a assinatura (§3), atende os dois `tipo` e responde como no §4 e no §5. Também troca o `X-Sync-Token` pelo `Bearer rgm_it_` nas 5 rotas. Só então faz o `PUT` de cada loja. | baixo: liga loja por loja; o `DELETE` desfaz na hora |
-| 4 | Regem | Desliga o caminho antigo e para de mandar o `X-Sync-Token` | só depois de todas as lojas registradas e de um período combinado com o dono |
+| 4 | Regem | Desliga o caminho antigo e para de mandar o `X-Sync-Token` — **feita em 24/11/2026** | só depois de todas as lojas registradas e de um período combinado com o dono |
 
 **Como provar a fase 3, numa loja:**
 
@@ -200,8 +206,12 @@ Até 13/11/2026 o vetor não tinha o `canceladoPor` (§4); com o mesmo segredo, 
 ## 7. Depois da fase 4
 
 - O `X-Sync-Token` some dos avisos e os dois caminhos antigos param de ser chamados.
-- Loja sem registro: o cancelamento fica "aguardando a integração", com a mesma mensagem e o mesmo prazo de 7 dias
-  de hoje, e sai assim que o GoGeM fizer o `PUT`. A linha do GoGeM no "Publicar nas integrações" diz que a
-  integração não está ligada.
+- Loja sem registro: o cancelamento fica "aguardando a integração", com o mesmo prazo de 7 dias, e sai assim que o
+  GoGeM fizer o `PUT`. O operador lê: "O estorno do cartão/PIX será pedido ao GoGeM assim que ele ligar os avisos
+  desta loja — o Regem tenta sozinho."
+- O GoGeM só aparece no "Publicar nas integrações" com o registro. O "Publicar no GoGeM" sem registro recusa com
+  "O GoGeM ainda não ligou os avisos desta loja, então a publicação não tem para onde ir…".
+- Falha passageira ao ler o registro no banco do Regem não segura o estorno por 6 horas: o aviso tenta de novo no
+  recuo de sempre, como numa queda de rede.
 - Versão nova do contrato (`contrato: 2`) só com aviso ao GoGeM e com as duas versões valendo juntas por um tempo
   combinado.

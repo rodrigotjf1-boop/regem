@@ -198,6 +198,19 @@ descrever('"Publicar nas integrações" (Postgres real)', () => {
   const gogemMarcado = (t: string, u: string | null) =>
     q(`insert into equipamento (tenant_id, unidade_id, nome, tipo, token, ativo, integrador, integrador_visto_em)
        values ($1,$2,'GoGeM','servidor_local',$3,true,'gogem', now())`, [t, u, randomBytes(24).toString('hex')]);
+  /**
+   * O GoGeM registrou os avisos da empresa (fase 4: é o que liga a linha) — o token dele (de venda, não de leitura do
+   * cardápio, para não entrar em "quem lê pela porta") e o registro com o segredo cifrado, lido pelo `registroDoGogem`.
+   */
+  const gogemRegistrado = async (t: string) => {
+    const tk = await token(t, null, 'gogem', ['totem.vendas.lancar']);
+    await q(`insert into integracao_webhook (token_id, tenant_id, unidade_id, cliente, url, segredo_cifrado) values ($1, $2, null, 'gogem', $3, $4)`, [
+      tk,
+      t,
+      'https://api.gogem.com.br/api/v1/sync/regem/avisos/teste',
+      cifrar(`whsec_${randomBytes(32).toString('base64')}`),
+    ]);
+  };
 
   it('empresa sem integração do cardápio: nenhuma linha, nada a publicar (o botão não aparece)', async () => {
     const { t, us } = await empresa();
@@ -254,9 +267,12 @@ descrever('"Publicar nas integrações" (Postgres real)', () => {
     }
   });
 
-  it('GoGeM marcado: aparece, e o Publicar chama o GoGeM com a loja em uso; a recusa vira a frase', async () => {
+  it('GoGeM registrado: aparece, e o Publicar chama o GoGeM com a loja em uso; a recusa vira a frase', async () => {
     const { t, us } = await empresa();
+    // Fase 4 (P-7): só o equipamento marcado (o token antigo) não liga mais a linha.
     await gogemMarcado(t, null);
+    expect((await svc.situacao(t, us[0])).linhas).toEqual([]);
+    await gogemRegistrado(t);
     const s = await svc.situacao(t, us[0]);
     expect(s.linhas.map((l) => l.chave)).toEqual(['gogem']);
     expect(s.podePublicar).toBe(true);
@@ -312,7 +328,7 @@ descrever('"Publicar nas integrações" (Postgres real)', () => {
 
   it('uma fonte que falha vira "não deu para ler" e as outras seguem (V37)', async () => {
     const { t, us } = await empresa();
-    await gogemMarcado(t, null);
+    await gogemRegistrado(t);
     const espiao = jest.spyOn(svc, 'leitoresDaPorta').mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '57014' }));
     try {
       const s = await svc.situacao(t, us[0]);
@@ -327,7 +343,7 @@ descrever('"Publicar nas integrações" (Postgres real)', () => {
 
   it('publicar pela tela audita quem publicou e o resultado de cada integração', async () => {
     const { t, us } = await empresa();
-    await gogemMarcado(t, null);
+    await gogemRegistrado(t);
     const ator = { id: randomUUID(), perfil: 'gerente' };
     await svc.publicarDaTela(t, us[0], ator);
     expect(auditados).toEqual([
