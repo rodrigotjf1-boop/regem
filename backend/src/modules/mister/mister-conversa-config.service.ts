@@ -68,6 +68,11 @@ export interface ConversaDoMister {
    * dúvidas juntas numa mensagem. Nasce desligado (custo, regra do dono de 20/11); só o presidente muda.
    */
   ligarPelaIa: boolean;
+  /**
+   * Versão 9, O6 (mig 502; o dono: "intercalar Haiku e Sonnet"): "IA mais forte nas tarefas" — com um cupom, uma nota ou uma lista em
+   * andamento, a resposta usa o modelo maior; no resto, o de sempre. Nasce desligado; só o presidente muda.
+   */
+  iaForteNasTarefas: boolean;
 }
 /** As horas que o PIN da sessão vale (a escolha do presidente). */
 export const HORAS_DO_PIN = [6, 12, 24] as const;
@@ -88,6 +93,7 @@ export const CONVERSA_PADRAO: ConversaDoMister = {
   analisesProfundas: false,
   vozComEmocao: false,
   ligarPelaIa: false,
+  iaForteNasTarefas: false,
 };
 
 /** O jeito como vai ao banco e às instruções: uma linha, espaços apertados; vazio vira null. */
@@ -157,6 +163,11 @@ export function conferirConversa(dto: unknown): Partial<ConversaDoMister> | { er
     if (typeof d.ligarPelaIa !== 'boolean') return { erro: 'Ligar as linhas pela IA: diga se fica ligado ou desligado.' };
     fora.ligarPelaIa = d.ligarPelaIa;
   }
+  if (d.iaForteNasTarefas !== undefined) {
+    // V15: liga/desliga só com booleano de verdade.
+    if (typeof d.iaForteNasTarefas !== 'boolean') return { erro: 'IA mais forte nas tarefas: diga se fica ligada ou desligada.' };
+    fora.iaForteNasTarefas = d.iaForteNasTarefas;
+  }
   if (!Object.keys(fora).length) return { erro: 'Nada para salvar.' };
   return fora;
 }
@@ -177,6 +188,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
   analisesProfundas: { coluna: 'analises_profundas', valor: (v) => sql`${v}::boolean` },
   vozComEmocao: { coluna: 'voz_com_emocao', valor: (v) => sql`${v}::boolean` },
   ligarPelaIa: { coluna: 'ligar_pela_ia', valor: (v) => sql`${v}::boolean` },
+  iaForteNasTarefas: { coluna: 'ia_forte_nas_tarefas', valor: (v) => sql`${v}::boolean` },
 };
 
 /**
@@ -184,6 +196,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
  * lê as da anterior. Nunca devolver o padrão de um campo que está salvo (o "perguntar" dos documentos, o perfil).
  */
 const LEITURAS = [
+  sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao", ligar_pela_ia as "ligarPelaIa", ia_forte_nas_tarefas as "iaForteNasTarefas"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao", ligar_pela_ia as "ligarPelaIa"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas"`,
@@ -230,6 +243,7 @@ export class MisterConversaConfigService {
         analisesProfundas: l.analisesProfundas === true,
         vozComEmocao: l.vozComEmocao === true,
         ligarPelaIa: l.ligarPelaIa === true,
+        iaForteNasTarefas: l.iaForteNasTarefas === true,
       };
     } catch (e: any) {
       // Sem a 440 (a migration ainda não entrou, ou o servidor da loja): o padrão, que não muda nada.

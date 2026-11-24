@@ -85,6 +85,11 @@ export interface PortasDoLaco {
    * pergunta inteira fica em `modelo`. Cada chamada é medida pelo modelo que ela usou de fato.
    */
   modeloDaAnalise?: string | null;
+  /**
+   * Versão 9, O6 ("IA mais forte nas tarefas", o dono: "intercalar Haiku e Sonnet"): com um cupom, uma nota ou uma lista em
+   * andamento e o ajuste ligado, a pergunta inteira começa neste modelo. Se ele falhar, segue no `modelo`.
+   */
+  modeloDaTarefa?: string | null;
   /** O recurso no medidor (o relatório passa o dele). */
   recurso?: string;
   /** O bloco "Esta conversa", já montado (`blocoDaConversa`). */
@@ -106,7 +111,7 @@ export type FimDaPergunta = { texto: string; motivo: null; trilha: Trilha; resul
  * ferramentas trouxeram — ou o motivo de não haver resposta. Não lança por falha da IA.
  */
 export async function responderComFerramentas(portas: PortasDoLaco, memoria: TrocaDaMemoria[], pergunta: string): Promise<FimDaPergunta> {
-  let modelo = portas.modelo;
+  let modelo = portas.modeloDaTarefa ?? portas.modelo;
   const trilha: Required<Omit<Trilha, 'conferencia'>> = { modelo, chamadas: 0, tokensEntrada: 0, tokensSaida: 0, ferramentas: [] };
   const resultados: unknown[] = [];
   const inicio = Date.now();

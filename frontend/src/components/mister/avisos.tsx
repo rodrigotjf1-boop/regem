@@ -54,7 +54,7 @@ type RelatorioNaTela = {
 type ModoDoBoleto = 'sozinho' | 'perguntar';
 /** Versão 5, M5e (mig 462): "Como mandar o resumo" — a mesma lista do servidor (`FORMAS_DE_ENTREGA_DO_RESUMO`). */
 type FormaDoResumo = 'botoes' | 'pdf' | 'link' | 'texto';
-type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean; analisesProfundas?: boolean; vozComEmocao?: boolean; ligarPelaIa?: boolean };
+type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean; analisesProfundas?: boolean; vozComEmocao?: boolean; ligarPelaIa?: boolean; iaForteNasTarefas?: boolean };
 const CONV = 'conversa:documentos';
 const CONV_RESUMO = 'conversa:resumo';
 const CONV_VOZ = 'conversa:voz';
@@ -63,6 +63,9 @@ const CONV_ANALISES = 'conversa:analises';
 /** Versão 9, O1 (mig 501): "Ligar as linhas pela IA" — nasce desligado, com o preço ao lado (a mesma frase do servidor). */
 const CONV_LIGAR = 'conversa:ligar';
 const PRECO_DA_LIGACAO = 'Cerca de R$ 0,20 por cupom, nota ou lista, na chave de IA da empresa';
+/** Versão 9, O6 (mig 502): "IA mais forte nas tarefas" — o dono: "intercalar Haiku e Sonnet". Nasce desligado, com o preço. */
+const CONV_FORTE = 'conversa:forte';
+const PRECO_DA_IA_FORTE = 'De cerca de R$ 0,01 para cerca de R$ 0,20 por resposta, só enquanto há um cupom, uma nota ou uma lista em andamento';
 const FORMAS_DO_RESUMO: { v: FormaDoResumo; rotulo: string }[] = [
   { v: 'botoes', rotulo: 'texto com os botões PDF e link' },
   { v: 'pdf', rotulo: 'texto e o PDF junto' },
@@ -314,8 +317,9 @@ export function AvisosDoMister() {
     const analises = c.analisesProfundas === true ? '1' : '0';
     const emocao = c.vozComEmocao === true ? '1' : '0';
     const ligar = c.ligarPelaIa === true ? '1' : '0';
-    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar }));
-    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar }));
+    const forte = c.iaForteNasTarefas === true ? '1' : '0';
+    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar, [CONV_FORTE]: forte }));
+    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar, [CONV_FORTE]: forte }));
   }, []);
 
   const ler = useCallback(async () => {
@@ -770,6 +774,28 @@ export function AvisosDoMister() {
                 </span>
               ),
             },
+            {
+              id: CONV_FORTE,
+              rotulo: 'IA mais forte nas tarefas',
+              tipo: 'livre' as const,
+              palavras: 'ia forte modelo maior sonnet haiku tarefa cupom nota lista conversa',
+              ajuda: (
+                <>
+                  <span className="block">
+                    Enquanto há um cupom, uma nota ou uma lista em andamento, o Mister responde com o modelo maior, que entende melhor o que você explica. Nas perguntas do dia a dia, continua o de sempre.
+                  </span>
+                  <span className="mt-1 block text-xs font-semibold" data-preco-da-ia-forte>
+                    {PRECO_DA_IA_FORTE}
+                  </span>
+                </>
+              ),
+              desenhar: (v: Valor, mudar: (x: Valor) => void) => (
+                <span className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                  <span className={`text-sm ${texto2}`}>{v === '1' ? 'Ligada' : 'Desligada'}</span>
+                  <Chave ligada={v === '1'} comTexto={false} rotulo="IA mais forte nas tarefas" aoMudar={(l) => mudar(l ? '1' : '0')} />
+                </span>
+              ),
+            },
           ],
         };
     // Versão 8, E3: o aviso da véspera sai do grupo Relatórios e fica em "Clima e eventos", com a linha "Amanhã" do resumo.
@@ -838,6 +864,7 @@ export function AvisosDoMister() {
         ...(conversa && valores[CONV_EMOCAO] !== salvos[CONV_EMOCAO] ? { vozComEmocao: valores[CONV_EMOCAO] === '1' } : {}),
         ...(conversa && valores[CONV_ANALISES] !== salvos[CONV_ANALISES] ? { analisesProfundas: valores[CONV_ANALISES] === '1' } : {}),
         ...(conversa && valores[CONV_LIGAR] !== salvos[CONV_LIGAR] ? { ligarPelaIa: valores[CONV_LIGAR] === '1' } : {}),
+        ...(conversa && valores[CONV_FORTE] !== salvos[CONV_FORTE] ? { iaForteNasTarefas: valores[CONV_FORTE] === '1' } : {}),
       };
       const conv = Object.keys(partesDaConversa).length ? partesDaConversa : null;
       if (regras.length) aplicar((await api.patch('/mister/avisos', { regras })) as DaTela);
@@ -860,6 +887,7 @@ export function AvisosDoMister() {
   const ligandoAnalises = !!conversa && valores[CONV_ANALISES] === '1' && salvos[CONV_ANALISES] !== '1';
   const ligandoVoz = !!conversa && valores[CONV_EMOCAO] === '1' && salvos[CONV_EMOCAO] !== '1';
   const ligandoLigacao = !!conversa && valores[CONV_LIGAR] === '1' && salvos[CONV_LIGAR] !== '1';
+  const ligandoForte = !!conversa && valores[CONV_FORTE] === '1' && salvos[CONV_FORTE] !== '1';
 
   if (erroLeitura)
     return (
@@ -882,7 +910,7 @@ export function AvisosDoMister() {
         salvos={salvos}
         aoMudar={(k: string, v: Valor) => setValores((x) => ({ ...x, [k]: v }))}
         aoSalvar={() => {
-          if (ligandoAnalises || ligandoVoz || ligandoLigacao) setConfirmandoCusto(true);
+          if (ligandoAnalises || ligandoVoz || ligandoLigacao || ligandoForte) setConfirmandoCusto(true);
           else void salvar();
         }}
         aoDescartar={() => {
@@ -932,6 +960,11 @@ export function AvisosDoMister() {
           {ligandoLigacao && (
             <p className={`text-sm ${ligandoAnalises ? 'mt-3' : ''}`}>
               <b>Ligar as linhas pela IA:</b> {PRECO_DA_LIGACAO.charAt(0).toLowerCase() + PRECO_DA_LIGACAO.slice(1)}.
+            </p>
+          )}
+          {ligandoForte && (
+            <p className={`text-sm ${ligandoAnalises || ligandoLigacao ? 'mt-3' : ''}`}>
+              <b>IA mais forte nas tarefas:</b> {PRECO_DA_IA_FORTE.charAt(0).toLowerCase() + PRECO_DA_IA_FORTE.slice(1)}.
             </p>
           )}
           {ligandoVoz && (

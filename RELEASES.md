@@ -12,6 +12,8 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: IA mais forte nas tarefas, versão 9 O6 (24/11; mig 502, só nuvem, já aplicada).** Só na nuvem. Vai no `.zip` sem efeito na loja.
+
 - **Mister: ligar as linhas da nota pela IA, versão 9 O1 (24/11; mig 501, só nuvem, já aplicada).** Só na nuvem. Vai no `.zip` sem efeito na loja.
 
 - **Caixa: abrir, movimentar e fechar com o caixa travado (24/11; ERR-595; SEM migration).** Achados C-01 a C-06 da revisão do PDV:
