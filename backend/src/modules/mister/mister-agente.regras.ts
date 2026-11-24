@@ -397,7 +397,9 @@ export type NomeDaFerramenta =
   | 'documento_em_andamento'
   | 'refazer_grafico'
   | 'propor_acao'
-  | 'propor_plano';
+  | 'propor_plano'
+  // O link para abrir uma tela do Regem ou uma notícia do boletim (`mister-abrir.ts`): o endereço sai do código.
+  | 'abrir_no_regem';
 
 // ───────────────────────────── as conversas anteriores (versão 4) ─────────────────────────────
 // O padrão do Hermes de procurar nas conversas antigas, sobre o texto que `mister_pergunta` já guarda por 30 dias.
@@ -486,6 +488,11 @@ export const FERRAMENTA_DE_REFAZER = 'refazer_grafico' as const;
 export const FERRAMENTA_DAS_ACOES = 'propor_acao' as const;
 /** Versão 7, V7c: várias ações num pedido, com um botão só (cada passo pelo mesmo caminho de `propor_acao`). */
 export const FERRAMENTA_DO_PLANO = 'propor_plano' as const;
+/**
+ * O link para ABRIR uma tela do Regem (pelo guia de uso) ou uma notícia do boletim (pelo id que `noticias_do_ramo` trouxe).
+ * Não lê dado da loja para a resposta: o endereço sai do código e vai no fim da resposta, depois do filtro de saída.
+ */
+export const FERRAMENTA_DE_ABRIR = 'abrir_no_regem' as const;
 /** As ferramentas que NÃO são consulta: anotam, propõem, mandam, corrigem ou criam — não trazem dado da loja para a resposta. */
 export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DO_QUE_FALTA,
@@ -504,6 +511,7 @@ export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DE_REFAZER,
   FERRAMENTA_DAS_ACOES,
   FERRAMENTA_DO_PLANO,
+  FERRAMENTA_DE_ABRIR,
 ];
 // F4.2b: cancelar_pedido (de PIN) nasce da pergunta, preso ao pedido que a pessoa disse — não a um aviso.
 export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota', 'cancelar_pedido'] as const;
@@ -686,7 +694,7 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'noticias_do_ramo',
     description:
-      'As NOTÍCIAS DO RAMO de bares e restaurantes dos últimos dias, do boletim do Regem: impostos, trabalho, medidas do governo, economia e custos, e as novidades do setor (tendências, tecnologia, plataformas de delivery), com os indicadores (IPCA e Selic). Use para "teve novidade de imposto?", "o que saiu sobre a escala?", "quais as tendências do setor?", "como está a Selic?". Sem "dias", os últimos 7. Conte só o que veio, citando a fonte de cada notícia. O que vem com "emDiscussao" ainda NÃO é lei: diga isso. Não diga o efeito na loja nem quanto a pessoa vai pagar: para isso, oriente falar com o contador. Não escreva link: termine dizendo que os links estão em Relatórios › Notícias do ramo.',
+      'As NOTÍCIAS DO RAMO de bares e restaurantes dos últimos dias, do boletim do Regem: impostos, trabalho, medidas do governo, economia e custos, e as novidades do setor (tendências, tecnologia, plataformas de delivery), com os indicadores (IPCA e Selic). Use para "teve novidade de imposto?", "o que saiu sobre a escala?", "quais as tendências do setor?", "como está a Selic?". Sem "dias", os últimos 7. Conte só o que veio, citando a fonte de cada notícia. O que vem com "emDiscussao" ainda NÃO é lei: diga isso. Não diga o efeito na loja nem quanto a pessoa vai pagar: para isso, oriente falar com o contador. Nunca escreva link: termine dizendo que os links estão em Relatórios › Notícias do ramo, a não ser que vá mandar o link pela ferramenta abrir_no_regem.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1146,14 +1154,32 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
       additionalProperties: false,
     },
   },
+  {
+    name: FERRAMENTA_DE_ABRIR,
+    description:
+      'Não é consulta: manda o LINK para abrir no Regem. Você nunca escreve endereço: o Regem escreve os links no fim da sua resposta. "tela" = o assunto da tela, como a pessoa diria ("contas a pagar", "escala", "notícias do ramo"); o Regem acha a tela pelo guia e confere se esta pessoa abre. "noticias" = os "id" das notícias que noticias_do_ramo trouxe (até 5), quando a pessoa pede o link da matéria. Use quando a pessoa pedir o link ou quiser abrir a tela agora. Depois, diga em uma frase o que vai abaixo (a tela ou as notícias), sem escrever o endereço. Se vier recusado, diga o motivo como veio.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        tela: { type: 'string', description: 'O assunto da tela do Regem (ex.: "contas a pagar", "pausar canais", "notícias do ramo").' },
+        noticias: { type: 'array', items: { type: 'string' }, description: 'Os "id" das notícias, como noticias_do_ramo trouxe (até 5).' },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 export const ehFerramenta = (n: unknown): n is NomeDaFerramenta => FERRAMENTAS.some((f) => f.name === n);
 
 /** Fase N3: a consulta das notícias só entra na conversa com a variável ligada, depois da avaliação de perguntas. */
 export const noticiasNoMister = (): boolean => process.env.MISTER_NOTICIAS_RAMO === '1';
+/** O link para abrir (`abrir_no_regem`) também nasce desligado: entra na conversa com `MISTER_LINKS=1`, depois da avaliação. */
+export const linksNoMister = (): boolean => process.env.MISTER_LINKS === '1';
 /** O que o modelo recebe numa conversa de verdade; a avaliação recebe todas, para medir antes de ligar. */
-export const ferramentasDaConversa = (): typeof FERRAMENTAS => (noticiasNoMister() ? FERRAMENTAS : FERRAMENTAS.filter((f) => f.name !== 'noticias_do_ramo'));
+export const ferramentasDaConversa = (): typeof FERRAMENTAS => {
+  const fora = [...(noticiasNoMister() ? [] : ['noticias_do_ramo']), ...(linksNoMister() ? [] : [FERRAMENTA_DE_ABRIR])];
+  return fora.length ? FERRAMENTAS.filter((f) => !fora.includes(f.name)) : FERRAMENTAS;
+};
 
 /** As ferramentas que leem dado (todas, menos as de `FERRAMENTAS_QUE_NAO_SAO_CONSULTA`): é o que conta como "consulta". */
 export const ehConsulta = (n: unknown): n is NomeDaFerramenta => ehFerramenta(n) && !FERRAMENTAS_QUE_NAO_SAO_CONSULTA.includes(n);
@@ -1566,7 +1592,8 @@ export function entradaDoGraficoPorHora(en: Record<string, unknown>): Record<str
 /**
  * O filtro de saída: o texto do modelo vira o que vai para o WhatsApp.
  *  • nada que pareça segredo sai (a resposta inteira é trocada pela frase fixa);
- *  • link não sai (o Mister não manda link; um texto de cadastro não consegue plantar um);
+ *  • link não sai (a IA nunca escreve link; um texto de cadastro não consegue plantar um). O link que o Mister manda
+ *    (`abrir_no_regem`, "Ver no Regem", o link para encaminhar) é escrito pelo código, depois deste filtro;
  *  • o formato vira o do WhatsApp — pelo MESMO formatador do atendente virtual (`whatsapp/formato-da-resposta.ts`) — e o
  *    tamanho é cortado em fim de linha;
  *  • a linha `REACAO: 👍` (versão 4, como no atendente) sai do texto e volta à parte; sobrando só ela, o texto vem vazio e

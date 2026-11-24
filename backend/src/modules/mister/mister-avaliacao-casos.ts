@@ -24,6 +24,7 @@ import { ACOES, conferirAcao, resumoDoPedido, sigaDaAcao } from './mister-acoes'
 import { botoesDoPlano, lerPassos, textoDoPlano } from './mister-plano';
 import { ehTipoDeAviso } from './mister-avisos.regras';
 import { montarNoticias, pedidoDasNoticias } from './mister-noticias';
+import { montarLinks, pedidoDoLink } from './mister-abrir';
 import type { BoletimDoRamo, NoticiaDoBoletim } from '../pulso/pulso.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -770,6 +771,13 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       const p = pedidoDasNoticias(en, '2026-11-13');
       return 'erro' in p ? recusa(p.erro) : ok(montarNoticias([BOLETIM_DA_AVALIACAO], p));
     }
+    // O link para abrir: a MESMA montagem da ferramenta de verdade, com o guia e o boletim da loja de teste. O gerente de
+    // teste tem as permissões das telas que não são só do presidente.
+    case 'abrir_no_regem': {
+      const p = pedidoDoLink(en);
+      if ('erro' in p) return recusa(p.erro);
+      return montarLinks(p, { abre: (s) => perfil.nivel === 'presidente' || !s.soPresidente, veNoticias: true }, 'https://app.dmsregem.com', [BOLETIM_DA_AVALIACAO]);
+    }
     case 'insumo_vendido': {
       // M3c: os números da conversa 15 do protótipo (versão 3) — "carne 56 g" hoje; "carne" sozinha pede a escolha.
       const pedido = String(en.insumo ?? '').toLowerCase();
@@ -1227,6 +1235,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Fase N3: as notícias do ramo. O que está no Congresso não é lei, e o efeito na loja é com o contador.
   { id: 'c83', pergunta: 'Teve novidade de imposto essa semana?', consultas: ['noticias_do_ramo'], contem: ['CBS', 'MEI', 'não é lei|em discussão', 'contador', 'Notícias do ramo'] },
   { id: 'c84', pergunta: 'Quais as tendências do setor de restaurantes?', consultas: ['noticias_do_ramo'], contem: ['cardápio menor', 'iFood', 'Notícias do ramo'] },
+  // O link para abrir (pedido do dono em 24/11): a notícia pede o id que a consulta das notícias traz; a tela vem do guia.
+  { id: 'c90', pergunta: 'Me manda o link da notícia do MEI.', consultas: ['noticias_do_ramo', 'abrir_no_regem'] },
+  { id: 'c91', pergunta: 'Me manda o link da tela de contas a pagar.', consultas: ['abrir_no_regem'] },
   // Versão 8, E3: a regra pela conversa, com a fonte agenda.
   { id: 'c85', pergunta: 'Me avisa um dia antes de cada jogo do Botafogo, às 18h.', consultas: ['regras'], contem: ['Botafogo|botafogo', 'Confirmar'] },
   // Versão 8, R2: o caixa pelo extrato do banco.

@@ -17,6 +17,8 @@
   marcada na auditoria, o fechamento do delivery olha as entregas da empresa e a tela lê "1.200,00" certo. **Vai no `.zip`**: é no
   servidor da loja que o balcão abre e fecha o caixa.
 
+- **Mister: o link para abrir a tela ou a notícia (24/11; SEM migration).** Ferramenta `abrir_no_regem`, só na nuvem e desligada até `MISTER_LINKS=1` no `regem-api`. Vai no `.zip` sem efeito na loja.
+
 - **Mister: o cupom pela conversa e a foto lida primeiro pela Anthropic (24/11; ERR-594; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
 
 - **IA: tetos de resposta (23/11; ERR-593; SEM migration).** Copiloto, foto do cliente, banner, Instagram e os recursos do Mister param de cortar a resposta no meio. Vai no `.zip`.

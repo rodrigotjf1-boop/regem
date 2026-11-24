@@ -28,7 +28,8 @@ import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.servic
 import { RelatoriosService } from '../relatorios/relatorios.service';
 import { VendasService } from '../vendas/vendas.service';
 import { pessoaVale } from './mister-vinculo.service';
-import { consultarNoticias } from './mister-noticias';
+import { DIAS_DAS_NOTICIAS_MAX, boletinsDaEmpresa, consultarNoticias } from './mister-noticias';
+import { LinkParaAbrir, montarLinks, pedidoDoLink } from './mister-abrir';
 import { estadoDaSessao } from './mister-sessao';
 import {
   PedidoDoRelatorio,
@@ -132,6 +133,9 @@ import {
   atrasoNaCozinha,
   FERRAMENTA_DE_LEMBRAR,
   FERRAMENTA_DO_QUE_FALTA,
+  FERRAMENTA_DE_ABRIR,
+  linksNoMister,
+  noticiasNoMister,
   NivelDoMister,
   NomeDaFerramenta,
   diaDaFerramenta,
@@ -261,6 +265,11 @@ export interface ResultadoDaFerramenta {
   mensagens?: { texto: string; botoes?: { id: string; titulo: string }[]; /** Com a mesma chave, só a última sai (ERR-594). */ chave?: string }[];
   /** M3d: a imagem da tela do "como faço" (o endereço público do PNG dos roteiros) — NÃO vai ao modelo; vai antes do texto. */
   imagens?: { url: string; legenda: string }[];
+  /**
+   * Os links para abrir (`abrir_no_regem`): a tela do Regem ou a matéria da notícia — NÃO vão ao modelo; o agente os
+   * escreve no fim da resposta, depois do filtro de saída.
+   */
+  abrir?: LinkParaAbrir[];
   /**
    * M3c (mig 443): o link para encaminhar a quem não tem usuário — NÃO vai ao modelo (o endereço leva o código que abre
    * o relatório sem login): o agente o escreve no fim da resposta.
@@ -549,6 +558,8 @@ export class MisterFerramentasService {
     if (!ehFerramenta(nome)) return recusa('Essa consulta não existe.');
     // O guia de uso não lê dado de loja nenhuma: responde também a quem ainda está sem loja.
     if (nome === 'como_usar_o_regem') return this.comoUsarORegem(e, entrada);
+    // O link para abrir uma tela também não depende de loja (a notícia é da empresa, pelo ramo).
+    if (nome === FERRAMENTA_DE_ABRIR) return this.abrirNoRegem(e, entrada);
     // A anotação do que falta (F5.2) também não lê dado: o tema fica na trilha da pergunta (quem grava é o agente).
     if (nome === FERRAMENTA_DO_QUE_FALTA) return { ok: true, dados: { anotado: true, siga: 'Responda agora: diga que você ainda não tem acesso a essa informação e, em uma frase, o que você consegue responder hoje.' } };
     // Versão 4: as conversas anteriores são da própria pessoa, não de uma loja — respondem também a quem está sem loja.
@@ -625,6 +636,8 @@ export class MisterFerramentasService {
         return this.clientesEmNumeros(e, loja);
       case 'como_usar_o_regem':
         return this.comoUsarORegem(e, en);
+      case 'abrir_no_regem':
+        return this.abrirNoRegem(e, en);
       case 'conversas_anteriores':
         return this.conversasAnteriores(e, en);
       case 'anotar_o_que_falta':
@@ -1728,11 +1741,7 @@ export class MisterFerramentasService {
     if (!achadas.length) {
       return { ok: true, dados: { encontrado: false, assunto, assuntosDoGuia: GUIA_DE_USO.map((s) => s.titulo) } };
     }
-    const abre = (s: SecaoDoGuia): boolean => {
-      if (e.nivel === 'presidente') return true;
-      if (s.soPresidente) return false;
-      return s.perm ? this.pode(e, s.perm) : true;
-    };
+    const abre = (s: SecaoDoGuia): boolean => this.abreATela(e, s);
     // M3d: a imagem da tela (o primeiro assunto que tem e que a pessoa abre) vai antes do texto, pelo endereço público.
     const comImagem = achadas.find((s) => s.imagem && abre(s));
     return {
@@ -1764,6 +1773,28 @@ export class MisterFerramentasService {
         })),
       },
     };
+  }
+
+  /** A régua do menu: o presidente abre tudo; o gerente, pela permissão do perfil — a tela só do presidente, nunca. */
+  private abreATela(e: EscopoDoMister, s: SecaoDoGuia): boolean {
+    if (e.nivel === 'presidente') return true;
+    if (s.soPresidente) return false;
+    return s.perm ? this.pode(e, s.perm) : true;
+  }
+
+  /**
+   * `abrir_no_regem`: o link da tela (pelo guia, se esta pessoa abre) ou da matéria (pelo id, das cópias do boletim dos
+   * últimos 30 dias). Nasce desligado (`MISTER_LINKS=1`); a notícia também pede a consulta das notícias ligada.
+   */
+  private async abrirNoRegem(e: EscopoDoMister, entrada: unknown): Promise<ResultadoDaFerramenta> {
+    if (!linksNoMister()) return recusa('Esta função ainda não está ligada no Regem.');
+    const en = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
+    const pedido = pedidoDoLink(en);
+    if ('erro' in pedido) return recusa(pedido.erro);
+    const veNoticias = noticiasNoMister() && this.pode(e, 'noticias_ramo');
+    const hoje = hojeISO();
+    const copias = pedido.noticias.length && veNoticias ? await boletinsDaEmpresa(this.db, e.tenantId, somarDias(hoje, 1 - DIAS_DAS_NOTICIAS_MAX), hoje) : null;
+    return montarLinks(pedido, { abre: (s) => this.abreATela(e, s), veNoticias }, enderecoDoApp(), copias);
   }
 
   // ───────────────────────────── cada ferramenta ─────────────────────────────
