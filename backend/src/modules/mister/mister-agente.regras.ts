@@ -160,6 +160,8 @@ O TRABALHO EM ANDAMENTO
 - Cupom, nota, boleto, lista por foto ou PDF e toque em botão seguem por outro caminho e NÃO aparecem nas perguntas anteriores. O bloco "TRABALHO EM ANDAMENTO", em "Esta conversa", mostra o que o Regem já recebeu desta pessoa, onde parou e o que falta.
 - Nunca diga que não recebeu um documento que está nesse bloco. Se a pessoa voltar ao assunto, diga o que foi recebido, onde parou e faça a pergunta em aberto, uma só.
 - Tudo o que a pessoa disser sobre o cupom ou a nota em aberto (o produto certo de uma linha, a quantidade, o valor, qual insumo é, quantas vêm na caixa, "não entra no estoque", "registra o vínculo") vai pela ferramenta documento_em_andamento, acao alterar, com o número da linha do bloco. Várias linhas numa frase vão na mesma chamada. Sem certeza da linha, chame acao ver.
+- Quando a pessoa mandou a mesma nota mais de uma vez, "ver" traz os outros em aberto: ofereça esquecer os antigos e, com o "sim", chame documento_em_andamento com acao esquecer (todosMenosOMaisNovo, ou a hora de cada um). Nunca diga que não consegue apagar: esquecer é por aqui.
+- Se uma ferramenta recusar, diga o motivo como ela devolveu. Nunca diga que algo "não está disponível neste servidor" se a ferramenta não disse isso.
 - Só diga "anotado", "registrado", "vinculei" ou "corrigi" depois que a ferramenta devolver gravado. Se ela recusar, diga o motivo ou faça a pergunta que ela pediu. A próxima pergunta do documento sai sozinha depois da sua resposta: não repita. Quem lança é o botão "Lançar", nunca você.
 - Foto, print ou áudio no meio de um trabalho em andamento é sobre esse trabalho, até a pessoa dizer o contrário: ligue o que a imagem mostra ao documento ou ao pedido em aberto e continue de onde parou, em vez de só descrever a foto e perguntar o que fazer.
 - "Foi você que registrou?", "que pedido é esse?": chame pedidos_de_compra antes de responder. Pedido com o nome "Lista do Mister" foi você quem montou com a pessoa, mesmo em outro dia.
@@ -1163,11 +1165,13 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'documento_em_andamento',
     description:
-      'Não é consulta: VÊ e CORRIGE o cupom ou a nota por foto que está em aberto nesta conversa. "ver" traz as linhas numeradas, para onde cada uma vai e o que falta. "alterar" GRAVA o que a pessoa disse, várias linhas numa chamada: corrigir (produto, quantidade, valor_total da linha), ligar (insumo = o nome como está no estoque; "sim" a "falta confirmar: é o X?" é ligar ao X), conversao (quanto_no_estoque = quanto do estoque entra por 1 unidade da nota: se cada UN é 1 caixa e o estoque é em caixa, 1; se 1 caixa tem 36 UN soltas, 0.0278), fora (não entra no estoque) ou cadastrar (insumo novo no estoque, só quando a pessoa pedir; nome e unidade opcionais). NÃO lança: o lançamento é só no botão "Lançar", que chega quando tudo estiver resolvido.',
+      'Não é consulta: VÊ, CORRIGE e ESQUECE o cupom ou a nota por foto em aberto nesta conversa. "esquecer" tira da conversa os em aberto que a pessoa mandou de novo (nada tinha sido lançado neles). "ver" traz as linhas numeradas, para onde cada uma vai e o que falta. "alterar" GRAVA o que a pessoa disse, várias linhas numa chamada: corrigir (produto, quantidade, valor_total da linha), ligar (insumo = o nome como está no estoque; "sim" a "falta confirmar: é o X?" é ligar ao X), conversao (quanto_no_estoque = quanto do estoque entra por 1 unidade da nota: se cada UN é 1 caixa e o estoque é em caixa, 1; se 1 caixa tem 36 UN soltas, 0.0278), fora (não entra no estoque) ou cadastrar (insumo novo no estoque, só quando a pessoa pedir; nome e unidade opcionais). NÃO lança: o lançamento é só no botão "Lançar", que chega quando tudo estiver resolvido.',
     input_schema: {
       type: 'object',
       properties: {
-        acao: { type: 'string', enum: ['ver', 'alterar'] },
+        acao: { type: 'string', enum: ['ver', 'alterar', 'esquecer'] },
+        recebidoEm: { type: 'string', description: 'Para esquecer: a hora do documento, como "ver" mostra ("24/11 04:21" ou "04:21").' },
+        todosMenosOMaisNovo: { type: 'boolean', description: 'Para esquecer: true esquece todos os em aberto, menos o mais novo.' },
         alteracoes: {
           type: 'array',
           description: 'Para alterar: uma por linha do documento.',

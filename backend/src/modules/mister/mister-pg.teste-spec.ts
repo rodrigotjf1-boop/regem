@@ -7477,6 +7477,37 @@ export function testesDoMisterComPostgres(): void {
           expect(auditados.map((a) => a.acao)).toContain('mister_documento_alterado');
         });
 
+        it('24/11: a chamada vazia é "ver" (a IA tinha dito "não está disponível"); "ver" mostra os outros em aberto; "esquecer" tira os antigos, só desta pessoa', async () => {
+          const velho1 = await documento([itemDaNota({ descricao: 'BACON' })]);
+          const velho2 = await documento([itemDaNota({ descricao: 'BACON' })]);
+          const novo = await documento([itemDaNota({ descricao: 'BACON' }), itemDaNota({ descricao: 'TOMATE' })]);
+          const doCarlos = await documento([itemDaNota({ descricao: 'BACON' })], pessoa.carlos);
+          // Sem a ação: é o "ver", com o mais novo e os outros dois em aberto.
+          const ver: any = await notas.ferramentaDoDocumento(escopoDe(), {});
+          expect(ver.ok).toBe(true);
+          expect(ver.dados.linhas).toHaveLength(2);
+          expect(ver.dados.outrosEmAberto).toHaveLength(2);
+          expect(ver.dados.sobreOsOutros).toContain('esquecer');
+          // Esquecer pede a hora ou "todos menos o mais novo"; ação desconhecida diz as três.
+          expect((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'esquecer' })).dados.erro).toContain('Diga qual documento esquecer');
+          expect((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'apagar' })).dados.erro).toBe('acao precisa ser ver, alterar ou esquecer.');
+          const r: any = await notas.ferramentaDoDocumento(escopoDe(), { acao: 'esquecer', todosMenosOMaisNovo: true });
+          expect(r).toMatchObject({ ok: true, dados: { gravado: true } });
+          expect(r.dados.esquecidos).toHaveLength(2);
+          expect((await lida(velho1))).toMatchObject({ situacao: 'recusado', motivo: 'cancelado' });
+          expect((await lida(velho2))).toMatchObject({ situacao: 'recusado', motivo: 'cancelado' });
+          expect((await lida(novo)).situacao).toBe('falta');
+          // O de outra pessoa não é tocado; o "ver" agora não tem outros.
+          expect((await lida(doCarlos)).situacao).toBe('falta');
+          expect(((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'ver' })) as any).dados.outrosEmAberto).toBeUndefined();
+          expect((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'esquecer', todosMenosOMaisNovo: true })).dados.erro).toBe('Só há um documento em aberto: não há antigo para esquecer.');
+          // Pela hora, como o "ver" mostra: o mais novo também sai, e então não há nada em aberto.
+          const hora = ver.dados.recebidoEm as string;
+          expect(((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'esquecer', recebidoEm: hora.slice(-5) })) as any).dados.esquecidos).toEqual([hora]);
+          expect((await notas.ferramentaDoDocumento(escopoDe(), {})).dados.erro).toContain('Não há cupom nem nota em aberto');
+          expect(auditados.filter((a) => a.acao === 'mister_documento_esquecido').length).toBeGreaterThanOrEqual(2);
+        });
+
         it('a linha ligada que a embalagem contradiz volta a perguntar pela conta', async () => {
           const id = await documento([
             itemDaNota({ descricao: 'HAMBURGUER CX BOVINO 56G 36un', quantidade: 120, valorUnitarioCentavos: 3399, valorTotalCentavos: 407880, insumoId: ids.c120, insumoNome: 'Carne 120gr doc', unidadeDoEstoque: 'caixa', fator: 1 / 36, estado: 'ligado' }),
