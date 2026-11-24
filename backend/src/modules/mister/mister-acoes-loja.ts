@@ -2,7 +2,8 @@
 // sempre que se cria cupom, promoção… porém temos que conseguir fazer tudo via conversa". Cupom e conta a pagar mexem com dinheiro:
 // PIN pelo link, como o preço. Tirar um cupom é de botão. Aqui só a conferência e o que a página do PIN mostra; sem banco.
 
-export type ParametrosDaLoja =
+export type ParametrosDaLoja = ParametrosDaLojaBase | ParametrosDaLojaExtra;
+export type ParametrosDaLojaBase =
   | {
       acao: 'criar_cupom';
       codigo: string;
@@ -33,6 +34,7 @@ export function descontoDoCupom(p: { tipo: string; valor: number }): string {
 }
 
 export function conferirAcaoDaLoja(acao: ParametrosDaLoja['acao'], en: Record<string, unknown>, hoje: string): { parametros: ParametrosDaLoja; resumo: string } | { erro: string } {
+  if (acao === 'mudar_produto' || acao === 'mudar_fornecedor' || acao === 'trocar_turno' || acao === 'folga_na_escala') return conferirAcaoExtra(acao, en, hoje);
   if (acao === 'criar_cupom' || acao === 'remover_cupom') {
     const codigo = texto(en.codigoDoCupom).toUpperCase();
     if (!/^[A-Z0-9_-]{3,20}$/.test(codigo)) return { erro: 'O código do cupom vai com 3 a 20 letras ou números, sem espaço (ex.: SMASH10).' };
@@ -98,4 +100,91 @@ export function apresentacaoDaConta(p: Extract<ParametrosDaLoja, { acao: 'lancar
     valor: p.valor,
     botao: 'Lançar a conta',
   };
+}
+
+// ───────────────────────────── versão 9, O5 segunda parte: o cardápio, o fornecedor e a escala ─────────────────────────────
+// O catálogo do protótipo ("O que ele faz"): mudar a descrição e a categoria do produto, mudar o contato do fornecedor, trocar a
+// pessoa de um turno e dar folga (a vaga fica aberta). Tudo com o botão, pelos serviços de Cadastros › Cardápio, Fornecedores e Escala.
+
+export type ParametrosDaLojaExtra =
+  | { acao: 'mudar_produto'; produto: string; nomeNovo: string | null; descricao: string | null; categoria: string | null }
+  | { acao: 'mudar_fornecedor'; fornecedor: string; nomeNovo: string | null; contato: string | null; telefone: string | null; email: string | null }
+  | { acao: 'trocar_turno'; quemSai: string; quemEntra: string; dia: string; turno: string | null }
+  | { acao: 'folga_na_escala'; quem: string; dia: string; turno: string | null };
+
+const opcionalTexto = (v: unknown, max: number): string | null => {
+  const t = texto(v);
+  return t ? t.slice(0, max) : null;
+};
+const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,24}$/;
+const diaDaSemana = (iso: string) => ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'][new Date(`${iso}T12:00:00Z`).getUTCDay()];
+export const diaComSemana = (iso: string) => `${diaDaSemana(iso)}, ${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+export function conferirAcaoExtra(acao: ParametrosDaLojaExtra['acao'], en: Record<string, unknown>, hoje: string): { parametros: ParametrosDaLojaExtra; resumo: string } | { erro: string } {
+  if (acao === 'mudar_produto') {
+    const produto = texto(en.produto);
+    if (produto.length < 2 || produto.length > 80) return { erro: 'Diga o produto como aparece no cardápio.' };
+    const nomeNovo = opcionalTexto(en.nomeNovoDoProduto, 80);
+    if (nomeNovo !== null && (nomeNovo.length < 2 || !/\p{L}/u.test(nomeNovo))) return { erro: 'O nome novo do produto precisa de letras.' };
+    const descricao = opcionalTexto(en.descricaoDoProduto, 500);
+    const categoria = opcionalTexto(en.categoriaDoProduto, 60);
+    if (!nomeNovo && !descricao && !categoria) return { erro: 'Diga o que mudar no produto: o nome, a descrição ou a categoria.' };
+    return { parametros: { acao, produto, nomeNovo, descricao, categoria }, resumo: '' };
+  }
+  if (acao === 'mudar_fornecedor') {
+    const fornecedor = texto(en.fornecedor);
+    if (fornecedor.length < 2 || fornecedor.length > 80) return { erro: 'Diga o fornecedor como está cadastrado.' };
+    const nomeNovo = opcionalTexto(en.nomeNovoDoFornecedor, 80);
+    if (nomeNovo !== null && (nomeNovo.length < 2 || !/\p{L}/u.test(nomeNovo))) return { erro: 'O nome novo do fornecedor precisa de letras.' };
+    const contato = opcionalTexto(en.contato, 80);
+    const fone = texto(en.foneDoFornecedor).replace(/\D/g, '');
+    if (fone && (fone.length < 10 || fone.length > 13)) return { erro: 'O telefone do fornecedor vai com o DDD (10 a 13 números).' };
+    const email = opcionalTexto(en.emailDoFornecedor, 254);
+    if (email !== null && !EMAIL.test(email)) return { erro: 'Esse e-mail não parece certo.' };
+    if (!nomeNovo && !contato && !fone && !email) return { erro: 'Diga o que mudar no fornecedor: o nome, o contato, o telefone ou o e-mail.' };
+    return { parametros: { acao, fornecedor, nomeNovo, contato, telefone: fone || null, email }, resumo: '' };
+  }
+  const dia = texto(en.diaDaEscala);
+  if (!dataValida(dia)) return { erro: 'Diga o dia da escala em AAAA-MM-DD.' };
+  if (dia < hoje) return { erro: 'Esse dia já passou: a escala de dias passados muda só na tela.' };
+  const turno = opcionalTexto(en.turnoDaEscala, 40);
+  if (acao === 'trocar_turno') {
+    const quemSai = texto(en.quemSai);
+    const quemEntra = texto(en.quemEntra);
+    if (quemSai.length < 2 || quemEntra.length < 2) return { erro: 'Diga quem sai e quem entra no turno.' };
+    return { parametros: { acao, quemSai: quemSai.slice(0, 80), quemEntra: quemEntra.slice(0, 80), dia, turno }, resumo: '' };
+  }
+  const quem = texto(en.quemSai);
+  if (quem.length < 2) return { erro: 'Diga quem fica de folga.' };
+  return { parametros: { acao: 'folga_na_escala', quem: quem.slice(0, 80), dia, turno }, resumo: '' };
+}
+
+/** O resumo da mudança do produto, com o nome do cadastro (o achado) e a categoria achada. */
+export function resumoDoProduto(nome: string, p: { nomeNovo: string | null; descricao: string | null }, categoria: string | null): string {
+  const partes = [
+    ...(p.nomeNovo ? [`o nome para "${p.nomeNovo}"`] : []),
+    ...(p.descricao ? [`a descrição para "${p.descricao.length > 120 ? `${p.descricao.slice(0, 117)}…` : p.descricao}"`] : []),
+    ...(categoria ? [`a categoria para ${categoria}`] : []),
+  ];
+  const lista = partes.length > 1 ? `${partes.slice(0, -1).join(', ')} e ${partes.at(-1)}` : partes[0];
+  return `Mudar ${lista} do produto "${nome}" em Cadastros › Cardápio. Vale no cardápio digital e no balcão; o iFood e a 99 seguem o que a Gestão do catálogo manda.`;
+}
+
+export function resumoDoFornecedor(nome: string, p: { nomeNovo: string | null; contato: string | null; telefone: string | null; email: string | null }): string {
+  const partes = [
+    ...(p.nomeNovo ? [`o nome para "${p.nomeNovo}"`] : []),
+    ...(p.contato ? [`o contato para ${p.contato}`] : []),
+    ...(p.telefone ? [`o telefone para o número terminado em ${p.telefone.slice(-4)}`] : []),
+    ...(p.email ? [`o e-mail para ${p.email}`] : []),
+  ];
+  const lista = partes.length > 1 ? `${partes.slice(0, -1).join(', ')} e ${partes.at(-1)}` : partes[0];
+  return `Mudar ${lista} do fornecedor "${nome}" em Fornecedores.`;
+}
+
+export function resumoDaTroca(quemSai: string, quemEntra: string, dia: string, turno: { nome: string; inicio: string; fim: string }): string {
+  return `Trocar ${quemSai} por ${quemEntra} na escala de ${diaComSemana(dia)}, turno ${turno.nome} (${turno.inicio}–${turno.fim}). As regras da CLT são conferidas antes de gravar.`;
+}
+
+export function resumoDaFolga(quem: string, dia: string, turno: { nome: string; inicio: string; fim: string }): string {
+  return `Dar folga a ${quem} em ${diaComSemana(dia)}: sai do turno ${turno.nome} (${turno.inicio}–${turno.fim}) e a vaga fica aberta na escala para outra pessoa.`;
 }

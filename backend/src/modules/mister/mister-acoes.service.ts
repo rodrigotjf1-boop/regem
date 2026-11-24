@@ -57,7 +57,8 @@ import {
   ehCadastro,
   ehDaLoja,
 } from './mister-acoes';
-import { resumoDaConta, descontoDoCupom, reaisBr, type ParametrosDaLoja } from './mister-acoes-loja';
+import { resumoDaConta, descontoDoCupom, reaisBr, resumoDoProduto, resumoDoFornecedor, resumoDaTroca, resumoDaFolga, diaComSemana, type ParametrosDaLoja } from './mister-acoes-loja';
+import { EscalaService } from '../escala/escala.service';
 import { ModuleRef } from '@nestjs/core';
 import type { ParametrosDeCadastro } from './mister-acoes-cadastro';
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
@@ -115,6 +116,10 @@ const semPermissaoDe = (p: DefinicaoDaAcao['permissao']) =>
     ? TEXTOS_DAS_ACOES.semPermissaoEstoque
     : p === 'cupons'
     ? TEXTOS_DAS_ACOES.semPermissaoCupons
+    : p === 'cadastros'
+    ? TEXTOS_DAS_ACOES.semPermissaoCadastros
+    : p === 'escalas'
+    ? TEXTOS_DAS_ACOES.semPermissaoEscalas
     : p === 'meu_dia'
     ? TEXTOS_DAS_ACOES.semPermissaoTarefas
     : p === 'loja'
@@ -122,9 +127,9 @@ const semPermissaoDe = (p: DefinicaoDaAcao['permissao']) =>
       : p === 'checklist'
         ? TEXTOS_DAS_ACOES.semPermissaoChecklist
         : TEXTOS_DAS_ACOES.semPermissao;
-/** A MESMA conta do `PermissoesGuard`: o estoque é CRUD (a rota do movimento pede `editar`), os outros são chaves simples. */
+/** A MESMA conta do `PermissoesGuard`: o estoque e a escala são CRUD (as rotas pedem `criar`/`editar`), os outros são chaves simples. */
 const temAPermissao = (perm: Permissoes | undefined | null, p: DefinicaoDaAcao['permissao'], crud: DefinicaoDaAcao['crud'] = 'editar') =>
-  p === 'estoque' ? pode(perm, 'estoque', crud ?? 'editar') : podeAcessar(perm, p);
+  p === 'estoque' || p === 'escalas' ? pode(perm, p, crud ?? 'editar') : podeAcessar(perm, p);
 /** A permissão da ação: a da rota e, no preço, "Ver valores em R$" (o `exigirVerValores` da rota). O presidente pode tudo. */
 const podeFazer = (e: { nivel: string; permissoes?: Permissoes | null }, def: (typeof ACOES)[AcaoDoMister]) =>
   e.nivel === 'presidente' || (temAPermissao(e.permissoes, def.permissao, def.crud) && (!def.pedeVerValores || !!e.permissoes?.ver_financeiro));
@@ -169,6 +174,8 @@ export class MisterAcoesService implements OnModuleInit {
     @Optional() private readonly compras?: ComprasService,
     // Versão 9, O5: o serviço dos cupons é achado na hora (o módulo do cardápio não entra neste, para não fechar um ciclo).
     @Optional() private readonly moduleRef?: ModuleRef,
+    // Versão 9, O5 segunda parte: trocar a pessoa de um turno e dar folga pelo MESMO serviço da Escala (as regras da CLT dele).
+    @Optional() private readonly escala?: EscalaService,
   ) {}
 
   onModuleInit(): void {
@@ -354,11 +361,12 @@ export class MisterAcoesService implements OnModuleInit {
       }
       if (ehDaLoja(c.parametros.acao)) {
         // Versão 9, O5: o cupom pelo código e o fornecedor da conta pelo nome, conferidos antes da pergunta.
-        const r = await this.prepararDaLoja(e, c.parametros as ParametrosDaLoja);
+        const r = await this.prepararDaLoja(e, c.parametros as ParametrosDaLoja, e.lojaUnica && !loja.atual ? null : lojas);
         if ('erro' in r) return recusa(r.erro);
         Object.assign(parametros, r.parametros);
         if (r.resumo) resumo = r.resumo;
         alvo = r.alvo;
+        if (r.unidadeId !== undefined) unidadeId = r.unidadeId;
       }
       if (ehCadastro(c.parametros.acao)) {
         // Versão 9, O3: o insumo, o fornecedor e o pedido pelo nome, conferidos antes da pergunta.
@@ -513,7 +521,73 @@ export class MisterAcoesService implements OnModuleInit {
     return this.moduleRef.get(CardapioService, { strict: false }) as any;
   }
 
-  private async prepararDaLoja(e: EscopoDoMister, x: ParametrosDaLoja): Promise<{ parametros: Record<string, unknown>; resumo: string; alvo: string } | { erro: string }> {
+  private async prepararDaLoja(
+    e: EscopoDoMister,
+    x: ParametrosDaLoja,
+    lojas: string[] | null,
+  ): Promise<{ parametros: Record<string, unknown>; resumo: string; alvo: string; unidadeId?: string | null } | { erro: string }> {
+    if (x.acao === 'mudar_produto') {
+      const pr = await this.acharProduto(e.tenantId, x.produto, lojas);
+      if ('erro' in pr) return pr;
+      let categoria: { id: string; nome: string } | null = null;
+      if (x.categoria) {
+        const achadas = linhas(
+          await this.db.execute(sql`
+            select id::text as id, nome from categoria_produto
+             where tenant_id = ${e.tenantId}::uuid and deleted_at is null and coalesce(ativo, true) and nome ilike ${comoTexto(x.categoria)}
+             order by nome limit 6`),
+        );
+        const r = escolherUm(achadas, x.categoria, (a) => String(a.nome), TEXTOS_DAS_ACOES.categoriaNaoAchada, TEXTOS_DAS_ACOES.categoriasDemais, (a) => ({ id: String(a.id), nome: String(a.nome) }));
+        if ('erro' in r) return r;
+        categoria = r;
+      }
+      return {
+        parametros: { produtoId: pr.id, produtoNome: pr.nome, categoriaId: categoria?.id ?? null, categoriaNome: categoria?.nome ?? null },
+        resumo: resumoDoProduto(pr.nome, x, categoria?.nome ?? null),
+        alvo: `produto:${pr.id}`,
+      };
+    }
+    if (x.acao === 'mudar_fornecedor') {
+      const f = await this.acharFornecedor(e.tenantId, x.fornecedor);
+      if ('erro' in f) return f;
+      if (x.nomeNovo && x.nomeNovo.toLowerCase() !== f.nome.toLowerCase()) {
+        const [ja] = linhas(await this.db.execute(sql`select nome from fornecedor where tenant_id = ${e.tenantId}::uuid and deleted_at is null and lower(nome) = lower(${x.nomeNovo}) and id <> ${f.id}::uuid limit 1`));
+        if (ja) return { erro: TEXTOS_DAS_ACOES.fornecedorComEsseNome(String(ja.nome)) };
+      }
+      return { parametros: { fornecedorId: f.id, fornecedorNome: f.nome }, resumo: resumoDoFornecedor(f.nome, x), alvo: `fornecedor:${f.id}` };
+    }
+    if (x.acao === 'trocar_turno' || x.acao === 'folga_na_escala') {
+      const quem = await this.acharPessoaDaLoja(e.tenantId, x.acao === 'trocar_turno' ? x.quemSai : x.quem, lojas);
+      if ('erro' in quem) return quem;
+      const turnos = linhas(
+        await this.db.execute(sql`
+          select a.id::text as id, a.unidade_id::text as "unidadeId", t.nome,
+                 to_char(coalesce(a.hora_inicio_override, t.hora_inicio), 'HH24:MI') as inicio, to_char(coalesce(a.hora_fim_override, t.hora_fim), 'HH24:MI') as fim
+            from escala_alocacao a
+            join turno t on t.id = a.turno_id
+           where a.tenant_id = ${e.tenantId}::uuid and a.colaborador_id = ${quem.id}::uuid and a.data = ${x.dia}::date and a.deleted_at is null
+             ${lojas ? sql`and a.unidade_id in (${sql.join(lojas.map((l) => sql`${l}::uuid`), sql`, `)})` : sql``}
+           order by coalesce(a.hora_inicio_override, t.hora_inicio)`),
+      );
+      if (!turnos.length) return { erro: TEXTOS_DAS_ACOES.foraDaEscala(quem.nome, diaComSemana(x.dia)) };
+      const dito = x.turno ? semAcento(x.turno) : null;
+      const escolhidos = turnos.length === 1 ? turnos : dito ? turnos.filter((t) => semAcento(String(t.nome)).includes(dito) || String(t.inicio).startsWith(dito.replace(/h$/, '').padStart(2, '0'))) : [];
+      if (escolhidos.length !== 1)
+        return { erro: TEXTOS_DAS_ACOES.turnosDemais(quem.nome, turnos.map((t) => `${t.nome} (${t.inicio}–${t.fim})`).join(', ')) };
+      const a = escolhidos[0];
+      const turno = { nome: String(a.nome), inicio: String(a.inicio), fim: String(a.fim) };
+      if (x.acao === 'folga_na_escala')
+        return { parametros: { alocacaoId: a.id, quemId: quem.id, quemNome: quem.nome, turnoNome: turno.nome }, resumo: resumoDaFolga(quem.nome, x.dia, turno), alvo: `escala:${a.id}`, unidadeId: a.unidadeId };
+      const entra = await this.acharPessoaDaLoja(e.tenantId, x.quemEntra, [a.unidadeId]);
+      if ('erro' in entra) return entra;
+      if (entra.id === quem.id) return { erro: TEXTOS_DAS_ACOES.mesmaPessoa };
+      return {
+        parametros: { alocacaoId: a.id, quemId: quem.id, quemNome: quem.nome, entraId: entra.id, entraNome: entra.nome, turnoNome: turno.nome },
+        resumo: resumoDaTroca(quem.nome, entra.nome, x.dia, turno),
+        alvo: `escala:${a.id}`,
+        unidadeId: a.unidadeId,
+      };
+    }
     if (x.acao === 'criar_cupom' || x.acao === 'remover_cupom') {
       const [ja] = linhas(await this.db.execute(sql`select id::text as id, ativo from cupom where tenant_id = ${e.tenantId}::uuid and upper(codigo) = ${x.codigo} limit 1`));
       if (x.acao === 'criar_cupom') {
@@ -543,6 +617,51 @@ export class MisterAcoesService implements OnModuleInit {
     const indisponivel = { feita: false, texto: 'isso não está disponível agora. Nada foi feito.' };
     const motivo = (err: any) => String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240);
     try {
+      if (x.acao === 'mudar_produto') {
+        if (!this.produtos) return indisponivel;
+        const dto = { ...(x.nomeNovo ? { nome: x.nomeNovo } : {}), ...(x.descricao ? { descricao: x.descricao } : {}), ...(x.categoriaId ? { categoriaId: x.categoriaId } : {}) };
+        await (this.produtos as any).atualizar(p.tenantId, String(x.produtoId), dto);
+        const [ok] = linhas(
+          await this.db.execute(sql`
+            select 1 from produto where id = ${String(x.produtoId)}::uuid and tenant_id = ${p.tenantId}::uuid
+               and (${x.nomeNovo ?? null}::text is null or nome = ${x.nomeNovo ?? null}::text)
+               and (${x.descricao ?? null}::text is null or descricao = ${x.descricao ?? null}::text)
+               and (${x.categoriaId ?? null}::uuid is null or categoria_id = ${x.categoriaId ?? null}::uuid)`),
+        );
+        return ok
+          ? { feita: true, texto: `Mudei o produto "${x.nomeNovo ?? x.produtoNome}" em Cadastros › Cardápio.` }
+          : { feita: false, texto: 'o produto não ficou como pedido. Confira em Cadastros › Cardápio.' };
+      }
+      if (x.acao === 'mudar_fornecedor') {
+        if (!this.fornecedores) return indisponivel;
+        const dto: any = { ...(x.nomeNovo ? { nome: x.nomeNovo } : {}), ...(x.contato ? { contato: x.contato } : {}), ...(x.telefone ? { telefone: x.telefone } : {}), ...(x.email ? { email: x.email } : {}) };
+        await this.fornecedores.update(p.tenantId, String(x.fornecedorId), dto);
+        const [ok] = linhas(
+          await this.db.execute(sql`
+            select 1 from fornecedor where id = ${String(x.fornecedorId)}::uuid and tenant_id = ${p.tenantId}::uuid and deleted_at is null
+               and (${x.nomeNovo ?? null}::text is null or nome = ${x.nomeNovo ?? null}::text)
+               and (${x.contato ?? null}::text is null or contato = ${x.contato ?? null}::text)
+               and (${x.telefone ?? null}::text is null or telefone = ${x.telefone ?? null}::text)
+               and (${x.email ?? null}::text is null or email = ${x.email ?? null}::text)`),
+        );
+        return ok ? { feita: true, texto: `Mudei o fornecedor "${x.nomeNovo ?? x.fornecedorNome}" em Fornecedores.` } : { feita: false, texto: 'o fornecedor não ficou como pedido. Confira em Fornecedores.' };
+      }
+      if (x.acao === 'trocar_turno' || x.acao === 'folga_na_escala') {
+        if (!this.escala) return indisponivel;
+        // A escala que a pessoa viu: quem estava no turno continua lá (senão, alguém mudou pela tela no meio).
+        const [agora] = linhas(await this.db.execute(sql`select colaborador_id::text as c from escala_alocacao where id = ${String(x.alocacaoId)}::uuid and tenant_id = ${p.tenantId}::uuid and deleted_at is null`));
+        if (!agora || agora.c !== x.quemId) return { feita: false, texto: TEXTOS_DAS_ACOES.escalaMudou };
+        const novo = x.acao === 'trocar_turno' ? String(x.entraId) : null;
+        await this.escala.alterar(p.tenantId, String(x.alocacaoId), { colaboradorId: novo });
+        await this.auditoria
+          ?.registrar({ tenantId: p.tenantId, atorId: quem, atorPerfil: e.nivel, tipo: 'escala', acao: 'alterou_alocacao', entidadeTipo: 'alocacao', entidadeId: String(x.alocacaoId), origem: 'whatsapp', detalhe: { colaboradorId: novo, pelo: 'mister' } } as any)
+          .catch(() => undefined);
+        const [depois] = linhas(await this.db.execute(sql`select colaborador_id::text as c from escala_alocacao where id = ${String(x.alocacaoId)}::uuid and tenant_id = ${p.tenantId}::uuid`));
+        if ((depois?.c ?? null) !== novo) return { feita: false, texto: 'a escala não ficou como pedido. Confira em Escala.' };
+        return x.acao === 'trocar_turno'
+          ? { feita: true, texto: `Troquei: ${x.entraNome} entra no lugar de ${x.quemNome} no turno ${x.turnoNome}. Já está em Escala.` }
+          : { feita: true, texto: `Feito: ${x.quemNome} está de folga no turno ${x.turnoNome}, e a vaga ficou aberta em Escala.` };
+      }
       if (x.acao === 'criar_cupom' || x.acao === 'remover_cupom') {
         const cupons = await this.servicoDeCupons();
         if (!cupons) return indisponivel;
@@ -585,6 +704,18 @@ export class MisterAcoesService implements OnModuleInit {
         ?.registrar({ tenantId: p.tenantId, atorId: quem, atorPerfil: e.nivel, tipo: 'mister', acao: 'mister_acao', entidadeTipo: 'mister_proposta', entidadeId: p.id, origem: 'whatsapp', detalhe: { acao: x.acao } } as any)
         .catch(() => undefined);
     }
+  }
+
+  /** A pessoa pelo nome, entre os colaboradores ativos das lojas da conversa (ou sem loja); `null` = todas as lojas da empresa. */
+  private async acharPessoaDaLoja(tenantId: string, dito: string, lojas: string[] | null): Promise<{ id: string; nome: string } | { erro: string }> {
+    const achados = linhas(
+      await this.db.execute(sql`
+        select c.id::text as id, c.nome from colaborador c
+         where c.tenant_id = ${tenantId}::uuid and c.deleted_at is null and c.status = 'ativo' and c.nome ilike ${comoTexto(dito)}
+           ${lojas ? sql`and (c.unidade_id is null or c.unidade_id in (${sql.join(lojas.map((l) => sql`${l}::uuid`), sql`, `)}))` : sql``}
+         order by c.nome limit 6`),
+    );
+    return escolherUm(achados, dito, (a) => String(a.nome), TEXTOS_DAS_ACOES.pessoaNaoAchada, TEXTOS_DAS_ACOES.pessoasDemais, (a) => ({ id: String(a.id), nome: String(a.nome) }));
   }
 
   /** Faz o cadastro pelo MESMO serviço da tela e confere o efeito. Sem o efeito, "não deu", com o motivo do serviço. */
