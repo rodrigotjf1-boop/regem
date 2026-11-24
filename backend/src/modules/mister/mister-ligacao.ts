@@ -22,7 +22,7 @@ export type CertezaDaIa = 'alta' | 'media' | 'baixa';
 export interface InsumoDaLigacao {
   id: string;
   nome: string;
-  nomeComercial: string | null;
+  nomeComercial?: string | null;
   unidadeMedida: string;
 }
 export interface LinhaParaLigar {

@@ -228,6 +228,8 @@ A LISTA DE COMPRAS
 - "Pede 10 kg de bacon e 5 caixas de tomate", a foto de uma lista escrita, "faz a lista do que está abaixo do mínimo": chame lista_de_compras (montar com as linhas, na ordem, cada uma com o texto do produto como a pessoa disse, a quantidade e a unidade; ou do_minimo). Não invente quantidade: a linha sem quantidade, pergunte antes.
 - Depois de montar, diga em uma frase quantas linhas entraram e que as dúvidas (o insumo, a unidade, a marca, o fornecedor) vêm a seguir, com botões. Não repita a lista nem prometa o pedido: ele só sai com o "Criar o pedido".
 - A planilha que a pessoa manda o Regem lê sozinho: você não precisa montar.
+- Resposta sobre a lista aberta ("o 3 é o cheddar", "o 5 são 20 pacotes", "tira o 7", "cadastra o 9"): chame lista_de_compras com acao alterar, com o número da linha da mensagem. Várias numa chamada. Só diga que mudou depois que a ferramenta devolver gravado.
+- "Repete o pedido do Felipão", "o mesmo da semana passada": chame lista_de_compras com acao repetir (e o fornecedor, se a pessoa disser). Se ela pediu mudanças junto ("10 caixas a mais", "sem o óleo"), chame alterar em seguida, antes de responder.
 - Se a foto ou o PDF veio com "LISTA LIDA DO ARQUIVO" e a pessoa quer o pedido (ou diz "usa a lista inteira"), chame lista_de_compras com acao da_leitura, sem itens: o Regem já guardou todas as linhas. Nunca copie as linhas do resumo da foto. Use montar só se a pessoa pedir uma parte dela.
 - Se veio com "LINHAS EM DÚVIDA": antes de montar, diga quais linhas ficaram em dúvida e o que você leu em cada uma, e pergunte. A pessoa pode responder o certo ou mandar outra foto mais nítida: diga as duas opções. Nunca escolha por ela. Com a resposta, chame da_leitura levando em "itens" SÓ as linhas que ela respondeu. Se ela disser para seguir sem elas, chame da_leitura sem itens.
 - Se veio com "LISTA NÃO LIDA INTEIRA", não monte: diga que não conseguiu ler todas as linhas e peça uma planilha ou uma foto mais nítida.
@@ -1056,11 +1058,31 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'lista_de_compras',
     description:
-      'Não é consulta: monta a LISTA DE COMPRAS (versão 6) que vira o pedido em Estoque › Pedidos. "montar" com as linhas que a pessoa pediu (por texto, áudio ou a foto de uma lista): cada uma com o texto do produto como ela disse, a quantidade e a unidade, se disse. "do_minimo" monta com o que está abaixo do mínimo do estoque. "da_leitura" monta com TODAS as linhas do arquivo que o Regem já leu (quando a foto ou o PDF veio com "LISTA LIDA DO ARQUIVO"); em itens, só as linhas em dúvida que a pessoa respondeu. O Regem liga cada linha a um insumo, e o que tiver dúvida (o insumo, a unidade, a marca, o fornecedor) ele pergunta com botões logo depois da sua resposta; no fim, o resumo e "Criar o pedido". Nada vira pedido sem o "Criar o pedido". Até 40 linhas.',
+      'Não é consulta: monta a LISTA DE COMPRAS (versão 6) que vira o pedido em Estoque › Pedidos. "montar" com as linhas que a pessoa pediu (por texto, áudio ou a foto de uma lista): cada uma com o texto do produto como ela disse, a quantidade e a unidade, se disse. "do_minimo" monta com o que está abaixo do mínimo do estoque. "da_leitura" monta com TODAS as linhas do arquivo que o Regem já leu (quando a foto ou o PDF veio com "LISTA LIDA DO ARQUIVO"); em itens, só as linhas em dúvida que a pessoa respondeu. O Regem liga cada linha a um insumo, e o que tiver dúvida (o insumo, a unidade, a marca, o fornecedor) ele pergunta com botões logo depois da sua resposta; no fim, o resumo e "Criar o pedido". "alterar" (versão 9) muda a lista aberta pelo que a pessoa disse, várias linhas numa chamada: ligar (insumo = o nome como está no estoque; "sim" a "é o X?" é ligar ao X), quantidade (e a medida, se mudou), fora (tira a linha), cadastrar (insumo novo, só quando a pessoa pedir), marca ou conversao. "repetir" (versão 9) monta a lista com o último pedido de compra (do fornecedor, se disser), já ligado. Nada vira pedido sem o "Criar o pedido". Até 40 linhas.',
     input_schema: {
       type: 'object',
       properties: {
-        acao: { type: 'string', enum: ['montar', 'do_minimo', 'da_leitura'] },
+        acao: { type: 'string', enum: ['montar', 'do_minimo', 'da_leitura', 'alterar', 'repetir'] },
+        fornecedor: { type: 'string', description: 'Para repetir: o fornecedor do pedido, como a pessoa disse; vazio = o último pedido.' },
+        alteracoes: {
+          type: 'array',
+          description: 'Para alterar: uma por linha da lista aberta.',
+          items: {
+            type: 'object',
+            properties: {
+              linha: { type: 'integer', description: 'O número da linha, como aparece na mensagem (a primeira é 1).' },
+              tipo: { type: 'string', enum: ['ligar', 'quantidade', 'fora', 'cadastrar', 'marca', 'conversao'] },
+              insumo: { type: 'string', description: 'ligar: o insumo, com o nome do cadastro do estoque.' },
+              quantidade: { type: 'number', description: 'quantidade: a nova quantidade.' },
+              medida: { type: 'string', description: 'quantidade ou cadastrar: a medida (caixa, kg, pacote), se a pessoa disser.' },
+              nome: { type: 'string', description: 'cadastrar: o nome do insumo novo (vazio = o que a IA propôs ou o da lista).' },
+              marca: { type: 'string', description: 'marca: a marca, como está no cadastro.' },
+              quanto_no_estoque: { type: 'number', description: 'conversao: quanto do estoque vem em 1 da medida pedida.' },
+            },
+            required: ['linha', 'tipo'],
+            additionalProperties: false,
+          },
+        },
         itens: {
           type: 'array',
           description: 'Para montar: as linhas, na ordem.',

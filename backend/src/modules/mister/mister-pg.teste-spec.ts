@@ -4151,6 +4151,7 @@ export function testesDoMisterComPostgres(): void {
         c49: { acao: 'pausar_canal', canais: ['ifood'], motivo: 'pedidos', minutos: 30 },
         c92: { acao: 'cadastrar_insumo', nome: 'Molho especial da casa', medidaDoEstoque: 'kg', minimo: 5 },
         c93: { acao: 'alterar_insumo', item: 'bacon', conversaoDe: 'caixa', conversaoQuantas: 10 },
+        c94: { acao: 'repetir', fornecedor: 'Felipão' },
         c51: { periodo: 'este_mes' },
         c52: { periodo: 'este_mes', pessoa: 'Bruna' },
         c55: { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'kg' },
@@ -9733,6 +9734,99 @@ export function testesDoMisterComPostgres(): void {
         } finally {
           await q(`delete from mister_lista_compra where id = $1`, [daLista]);
           await q(`delete from compra_lista where id = any($1::uuid[])`, [[doMister, daTela, deOutra]]);
+        }
+      });
+
+      it('versão 9, O4: a lista ligada pela IA, as dúvidas juntas, "Aceitar as sugestões", alterar pela conversa e repetir o pedido', async () => {
+        const conversaCfg = new MisterConversaConfigService(db, auditoria);
+        const listaIa = new MisterListaService(db, ferramentas, numero, compras, new EstoqueService(db, auditoria), entrada, auditoria, ia, conversaCfg);
+        comIa();
+        const tel = telefone();
+        await ligar('ana', tel);
+        const e = await escopo('ana');
+        const tocou = { telefone: tel, vinculos: [{ tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente' as const, empresa: 'A' }], wamid: null };
+        const insumos: { id: string }[] = await (listaIa as any).insumos(A, (listaIa as any).lojaDa(e), null);
+        const cod = (id: string) => `i${insumos.findIndex((x) => x.id === id) + 1}`;
+        let novo: string | null = null;
+        let pedidoAntigo: string | null = null;
+        await q(`insert into mister_conversa_config (tenant_id, ligar_pela_ia) values ($1, true) on conflict (tenant_id) do update set ligar_pela_ia = true`, [A]);
+        try {
+          ia.roteiro = [
+            falar(
+              JSON.stringify({
+                linhas: [
+                  { linha: 1, insumo: cod(ids.bacon), certeza: 'alta', outros: [] },
+                  { linha: 2, insumo: cod(ids.tomate), certeza: 'media', outros: [] },
+                  { linha: 3, insumo: null, certeza: 'baixa', outros: [], novo: 'Coisa nova O4' },
+                ],
+              }),
+            ),
+          ];
+          ia.pedidos.length = 0;
+          const r: any = await (listaIa as any).ferramenta(e, {
+            acao: 'montar',
+            itens: [
+              { texto: 'baconzinho defumado', quantidade: 2, unidade: 'kg' },
+              { texto: 'tomatinho italiano', quantidade: 3, unidade: 'kg' },
+              { texto: 'coisa que não existe', quantidade: 1 },
+            ],
+          });
+          expect(r.ok).toBe(true);
+          expect(ia.pedidos).toHaveLength(1);
+          expect(ia.pedidos[0].system).toContain('MESMO produto');
+          const msg = r.mensagens[0];
+          expect(msg.texto).toContain('Liguei 0 de 3 linhas ao seu estoque. 3 precisam de você');
+          expect(msg.texto).toContain('Linha 1 · "baconzinho defumado" (2 kg): o Bacon em tiras tem as marcas Sadia, Seara. Qual vai?');
+          expect(msg.texto).toContain('Linha 2 · "tomatinho italiano" (3 kg): é o *Tomate*?');
+          expect(msg.texto).toContain('Cadastro *Coisa nova O4*');
+          expect(msg.botoes.map((b: any) => b.titulo)).toEqual(['Aceitar as sugestões', 'Cancelar']);
+          const l = await ultima();
+
+          // "Aceitar as sugestões": o tomate fica ligado; a marca e o cadastro seguem em aberto.
+          numero.pedidos.length = 0;
+          expect(await listaIa.tocou(`lc:${l.id}:ia`, tocou)).toBe(true);
+          let agora = await ultima();
+          expect(agora.itens[1]).toMatchObject({ estado: 'ligado', itemId: ids.tomate });
+          expect(numero.enviadas.at(-1)!.texto).toContain('Liguei 1 de 3');
+
+          // Pela conversa: a marca, o cadastro e a quantidade, numa chamada.
+          const alt: any = await (listaIa as any).ferramenta(e, {
+            acao: 'alterar',
+            alteracoes: [
+              { linha: 1, tipo: 'marca', marca: 'sadia' },
+              { linha: 3, tipo: 'cadastrar', medida: 'unidade' },
+              { linha: 2, tipo: 'quantidade', quantidade: 5 },
+            ],
+          });
+          expect(alt.ok).toBe(true);
+          agora = await ultima();
+          [{ id: novo }] = await q(`select id::text as id from item_estoque where tenant_id = $1 and nome = 'Coisa nova O4'`, [A]);
+          expect(agora.itens.map((x: any) => [x.estado, x.itemId, x.quantidade, x.marca])).toEqual([
+            ['ligado', ids.bacon, 2, 'Sadia'],
+            ['ligado', ids.tomate, 5, null],
+            ['ligado', novo, 1, null],
+          ]);
+          // Tudo ligado: a próxima mensagem é a do fornecedor (o bacon é da Sul, o tomate é do Horti).
+          expect(alt.mensagens[0].texto).toBe('Para qual fornecedor é o pedido?');
+          // Linha que não existe: nada muda.
+          expect((await (listaIa as any).ferramenta(e, { acao: 'alterar', alteracoes: [{ linha: 9, tipo: 'fora' }] })).dados.erro).toContain('não há a linha 9');
+
+          // Repetir: o último pedido do Horti, já ligado e com o fornecedor; a lista aberta antes sai.
+          [{ id: pedidoAntigo }] = await q(`insert into compra_lista (tenant_id, nome, fornecedor_id, status) values ($1, 'Pedido do Horti O4', $2, 'recebida') returning id::text as id`, [A, ids.horti]);
+          await q(`insert into compra_item (tenant_id, lista_id, item_id, quantidade) values ($1, $2, $3, 4)`, [A, pedidoAntigo, ids.tomate]);
+          const rep: any = await (listaIa as any).ferramenta(e, { acao: 'repetir', fornecedor: 'hortifruti' });
+          expect(rep.ok).toBe(true);
+          expect(rep.dados).toMatchObject({ repetido: 'Pedido do Horti O4', fornecedor: 'Hortifruti Bom', linhas: 1 });
+          const repetida = await ultima();
+          expect(repetida).toMatchObject({ situacao: 'confirmar', fornecedor_id: ids.horti, fornecedor_escolhido: true });
+          expect(repetida.itens.map((x: any) => [x.estado, x.itemId, x.quantidade])).toEqual([['ligado', ids.tomate, 4]]);
+          expect((await q(`select situacao from mister_lista_compra where id = $1`, [l.id]))[0].situacao).toBe('descartada');
+          expect(rep.mensagens.at(-1).botoes.map((b: any) => b.titulo)).toContain('Criar o pedido');
+        } finally {
+          await q(`update mister_conversa_config set ligar_pela_ia = false where tenant_id = $1`, [A]);
+          await q(`delete from mister_lista_compra where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]);
+          if (pedidoAntigo) await q(`delete from compra_lista where id = $1`, [pedidoAntigo]);
+          if (novo) await q(`delete from item_estoque where id = $1`, [novo]);
         }
       });
 
