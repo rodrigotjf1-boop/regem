@@ -40,6 +40,12 @@ export interface LinhaDaLista extends PedidoDaLinha {
   /** Os insumos parecidos para escolher (até 2 nos botões). */
   opcoes: { id: string; nome: string }[];
   estado: EstadoDaLinha;
+  /** Versão 9, O4: ligada pela IA com certeza alta. */
+  pelaIa?: boolean;
+  /** Versão 9, O4: a primeira opção é a proposta da IA (a pessoa confirma). */
+  propostaDaIa?: boolean;
+  /** Versão 9, O4: o nome limpo que a IA propôs para o cadastro novo. */
+  nomeNovo?: string | null;
 }
 
 export interface InsumoDaLista extends InsumoParaSugerir {

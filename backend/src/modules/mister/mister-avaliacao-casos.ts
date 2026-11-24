@@ -17,6 +17,7 @@ import type { FimDaPergunta } from './mister-laco';
 import { GUIA_DE_USO, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { conferirMemoria } from './mister-memoria';
 import { lerAlteracoes } from './mister-documento-conversa';
+import { lerAlteracoesDaLista } from './mister-lista-ia';
 import { canalDito, conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
 import { AVISOS_QUE_NAO_SE_CALAM, Regra, conferirRegra, descreverRegra, fraseDoQueDeixaDeChegar } from './mister-regra';
 import { lerPedidos } from './mister-lista';
@@ -431,7 +432,21 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       // Versão 6, M6g: a mesma leitura das linhas da de verdade; na avaliação nenhuma lista é guardada nem pedida.
       if (en.acao === 'do_minimo') return ok({ vazia: true, mensagem: 'Nada está abaixo do mínimo no estoque agora: não há o que pôr na lista.' });
       if (en.acao === 'da_leitura') return recusa('Não tenho uma lista lida nas últimas 2 horas: peça para a pessoa mandar o arquivo de novo.');
-      if (en.acao !== 'montar') return recusa('acao precisa ser montar, da_leitura ou do_minimo.');
+      // Versão 9, O4: repetir o último pedido e mudar a lista aberta (na avaliação nada é gravado).
+      if (en.acao === 'repetir')
+        return ok({
+          repetido: 'Lista do Mister · 24/11',
+          de: '24/11',
+          fornecedor: 'Felipão da Penha',
+          linhas: 19,
+          orientacao: 'Diga em uma frase de qual pedido veio; o resumo com "Criar o pedido" sai sozinho logo depois. Nada foi pedido.',
+        });
+      if (en.acao === 'alterar') {
+        const l = lerAlteracoesDaLista(en.alteracoes);
+        if ('erro' in l) return recusa(l.erro);
+        return ok({ gravado: true, feito: l.alteracoes.map((a) => `Linha ${a.linha} mudou.`), siga: 'Diga em uma frase o que mudou. Nada foi pedido.' });
+      }
+      if (en.acao !== 'montar') return recusa('acao precisa ser montar, da_leitura, do_minimo, alterar ou repetir.');
       const pedidos = lerPedidos(en.itens);
       if (!pedidos.length) return recusa('Não entendi as linhas da lista: mande cada produto com a quantidade (ex.: "10 kg de bacon, 5 caixas de tomate").');
       return ok({
@@ -1249,6 +1264,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 9, O3: o cadastro pela conversa, proposto com o botão.
   { id: 'c92', pergunta: 'Cadastra no estoque o insumo Molho especial da casa, em kg, com mínimo de 5.', consultas: ['propor_acao'], contem: ['Molho especial da casa', 'Autorizar'] },
   { id: 'c93', pergunta: 'O bacon agora vem em caixa com 10 kg. Põe essa conversão no cadastro do Bacon.', consultas: ['propor_acao'], contem: ['caixa', '10', 'Autorizar'] },
+  // Versão 9, O4: repetir o último pedido de um fornecedor pela conversa.
+  { id: 'c94', pergunta: 'Repete o último pedido do Felipão.', consultas: ['lista_de_compras'], contem: ['Felipão', 'Criar o pedido'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

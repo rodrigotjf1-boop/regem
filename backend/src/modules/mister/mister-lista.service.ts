@@ -11,11 +11,17 @@ import { EstoqueService } from '../estoque/estoque.service';
 import { lerTabela } from '../estoque/produtos-planilha';
 import { normalizarUnidade } from '../estoque/unidades';
 import { MidiaDoMister, MisterEntradaService, QuemMandou, QuemTocou } from './mister-entrada.service';
+import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
+import { MisterConversaConfigService } from './mister-conversa-config.service';
+import { MAX_TOKENS_DA_LIGACAO, MODELO_DA_LIGACAO, PRAZO_DA_LIGACAO_MS, RECURSO_DA_LIGACAO, catalogoDaLigacao, instrucoesDaLigacao, lerLigacao, pedidoDaLigacao } from './mister-ligacao';
+import { lerAlteracoesDaLista, lerBotaoDasSugestoes, listaPelaIa, perguntasJuntas } from './mister-lista-ia';
+import { acharInsumo } from './mister-documento-conversa';
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
 import {
   InsumoDaLista,
   LEITURA_VALE_H,
   LISTA_VALE_H,
+  MAX_LINHAS_DA_LISTA,
   LinhaDaLista,
   ListaLida,
   PREFIXO_DA_LISTA,
@@ -77,6 +83,9 @@ export class MisterListaService implements OnModuleInit {
     private readonly estoque: EstoqueService,
     @Optional() private readonly entrada?: MisterEntradaService,
     @Optional() private readonly auditoria?: AuditoriaService,
+    // Versão 9, O4: a ligação pela IA (o mesmo ajuste "Ligar as linhas pela IA" da nota).
+    @Optional() private readonly ia?: IaEmpresaService,
+    @Optional() private readonly conversa?: MisterConversaConfigService,
   ) {}
 
   onModuleInit(): void {
@@ -143,6 +152,10 @@ export class MisterListaService implements OnModuleInit {
       lida = { ...lida, lista: comAsRespostas(lida.lista, lerPedidos(en.itens)) };
       pedidos = lida.lista.pedidos;
       if (!pedidos.length) return recusa(TEXTOS_DA_LISTA.semLinhas);
+    } else if (en.acao === 'alterar') {
+      return this.alterarLista(e, en);
+    } else if (en.acao === 'repetir') {
+      return this.repetirPedido(e, en, loja);
     } else if (en.acao === 'montar') {
       origem = 'conversa';
       pedidos = lerPedidos(en.itens);
@@ -151,7 +164,7 @@ export class MisterListaService implements OnModuleInit {
       const guardada = await this.ultimaLida(e).catch(() => null);
       if (guardada && ehParteDaLeitura(pedidos, guardada.lista.pedidos)) parcial = TEXTOS_DA_LISTA.parcial(pedidos.length, guardada.lista.total);
     } else {
-      return recusa('acao precisa ser montar, da_leitura ou do_minimo.');
+      return recusa('acao precisa ser montar, da_leitura, do_minimo, alterar ou repetir.');
     }
     const r = await this.abrir(e, loja, origem, prontas ?? (await this.montar(e.tenantId, loja, pedidos)));
     if (lida) await this.db.execute(sql`update mister_lista_compra set situacao = 'descartada', atualizada_em = clock_timestamp() where id = ${lida.id}::uuid and situacao = 'lida'`);
@@ -306,6 +319,8 @@ export class MisterListaService implements OnModuleInit {
 
   /** O toque num botão da lista. Só a dona da lista; devolve false quando a lista não é das empresas de quem tocou. */
   async tocou(botaoId: string, quem: QuemTocou): Promise<boolean> {
+    const sugestoes = lerBotaoDasSugestoes(botaoId);
+    if (sugestoes) return this.aceitarSugestoes(sugestoes, quem);
     const b = lerBotaoDaLista(botaoId);
     if (!b || !quem.vinculos.length) return false;
     const pessoas = quem.vinculos.map((v) => v.colaboradorId);
@@ -484,7 +499,258 @@ export class MisterListaService implements OnModuleInit {
   private async montar(tenantId: string, loja: string | null, pedidos: PedidoDaLinha[]): Promise<LinhaDaLista[]> {
     const insumos = await this.insumos(tenantId, loja, null);
     const conversoes = await this.conversoes(tenantId, insumos.map((i) => i.id));
-    return pedidos.map((p) => montarLinha(p, insumos, conversoes));
+    const montadas = pedidos.map((p) => montarLinha(p, insumos, conversoes));
+    // Versão 9, O4: o que as palavras não ligaram, a IA liga (com o ajuste ligado). Falhou: a pergunta de sempre, linha por linha.
+    if (montadas.some((l) => l.estado === 'item') && (await this.ligarPelaIaLigado(tenantId))) await this.ligarPelaIa(tenantId, montadas, insumos, conversoes);
+    return montadas;
+  }
+
+  private async ligarPelaIaLigado(tenantId: string): Promise<boolean> {
+    if (!this.conversa || !this.ia) return false;
+    return this.conversa.daEmpresa(tenantId).then(
+      (c) => c.ligarPelaIa === true,
+      () => false,
+    );
+  }
+
+  /** A IA liga as linhas sem insumo; certeza alta liga, o resto vira a proposta. Na lista, "fora" não tira nada: a pessoa pediu. */
+  private async ligarPelaIa(tenantId: string, montadas: LinhaDaLista[], insumos: InsumoDaLista[], conversoes: Map<string, Conversao[]>): Promise<void> {
+    const alvo = montadas.map((l, i) => ({ l, i })).filter(({ l }) => l.estado === 'item');
+    const paraIa = alvo.map(({ l }) => ({ descricao: l.texto, quantidade: l.quantidade, unidade: l.unidade, valorUnitarioCentavos: null }));
+    const catalogo = catalogoDaLigacao(paraIa, insumos);
+    if (!alvo.length || !catalogo.length || !this.ia) return;
+    let saida: string;
+    try {
+      const r = await this.ia.pedir(tenantId, {
+        recurso: RECURSO_DA_LIGACAO,
+        modelo: MODELO_DA_LIGACAO,
+        maxTokens: MAX_TOKENS_DA_LIGACAO,
+        system: instrucoesDaLigacao(),
+        messages: [{ role: 'user', content: pedidoDaLigacao(paraIa, catalogo) }],
+        prazoMs: PRAZO_DA_LIGACAO_MS,
+      });
+      if (r.parou === 'max_tokens') {
+        this.logger.warn(`lista de ${tenantId.slice(0, 8)}: a ligação pela IA parou no teto`);
+        return;
+      }
+      saida = r.texto;
+    } catch (e: any) {
+      this.logger.warn(`lista de ${tenantId.slice(0, 8)}: a IA não ligou as linhas (${e instanceof FalhaDaIa ? e.motivo : (e?.message ?? e)})`);
+      return;
+    }
+    const propostas = lerLigacao(saida, alvo.length, catalogo);
+    if (!propostas) {
+      this.logger.warn(`lista de ${tenantId.slice(0, 8)}: a ligação pela IA voltou fora do formato`);
+      return;
+    }
+    for (const [k, p] of propostas) {
+      const i = alvo[k].i;
+      const l = montadas[i];
+      const insumo = p.insumo ? insumos.find((x) => x.id === p.insumo!.id) : undefined;
+      if (insumo && p.certeza === 'alta') {
+        montadas[i] = { ...ligarAoInsumo(l, insumo, conversoes.get(insumo.id) ?? []), pelaIa: true };
+      } else {
+        const opcoes = [p.insumo, ...p.outros].filter((x): x is NonNullable<typeof x> => !!x).slice(0, 2).map((x) => ({ id: x.id, nome: x.nome }));
+        montadas[i] = { ...l, opcoes: opcoes.length ? opcoes : l.opcoes, propostaDaIa: !!p.insumo, nomeNovo: p.nomeNovo };
+      }
+    }
+  }
+
+  /** O "Aceitar as sugestões" da lista: cada linha com a proposta da IA liga a ela; cada conta proposta vale. Só a dona da lista. */
+  private async aceitarSugestoes(listaId: string, quem: QuemTocou): Promise<boolean> {
+    if (!quem.vinculos.length) return false;
+    const pessoas = quem.vinculos.map((v) => v.colaboradorId);
+    const empresas = quem.vinculos.map((v) => v.tenantId);
+    let fim: Mensagem | null = null;
+    const achou = await this.db.transaction(async (tx: any) => {
+      const [l] = linhas(
+        await tx.execute(sql`
+          select id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", situacao, itens, (vence_em < clock_timestamp()) as vencida
+            from mister_lista_compra
+           where id = ${listaId}::uuid
+             and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})
+             and colaborador_id in (${sql.join(pessoas.map((p) => sql`${p}::uuid`), sql`, `)})
+           for update`),
+      );
+      if (!l) return false;
+      if (l.situacao !== 'montando' || l.vencida) {
+        fim = { texto: TEXTOS_DA_LISTA.jaRespondido };
+        return true;
+      }
+      const itens: LinhaDaLista[] = Array.isArray(l.itens) ? l.itens : [];
+      const ids = itens.filter((x) => x.estado === 'item' && x.propostaDaIa && x.opcoes[0]).map((x) => x.opcoes[0].id);
+      const insumos = ids.length ? await this.insumos(l.tenantId, l.unidadeId ?? null, ids, tx) : [];
+      const conv = await this.conversoes(l.tenantId, insumos.map((x) => x.id), tx);
+      itens.forEach((x, i) => {
+        const insumo = x.estado === 'item' && x.propostaDaIa ? insumos.find((y) => y.id === x.opcoes[0]?.id) : undefined;
+        if (insumo) itens[i] = { ...ligarAoInsumo(x, insumo, conv.get(insumo.id) ?? []), propostaDaIa: false };
+        else if (x.estado === 'fator' && x.fatorProposto != null) aplicarFator(x, x.fatorProposto);
+      });
+      await tx.execute(sql`update mister_lista_compra set itens = ${JSON.stringify(itens)}::jsonb, atualizada_em = clock_timestamp() where id = ${l.id}::uuid`);
+      return true;
+    });
+    if (!achou) return false;
+    await this.falar(quem.telefone, fim ?? (await this.seguir(listaId)));
+    return true;
+  }
+
+  /**
+   * Versão 9, O4: "o 3 é o cheddar, o 5 são 20 pacotes, tira o 7" — a lista aberta desta pessoa, mudada pelo que ela disse. Tudo
+   * conferido antes de gravar; o cadastro novo (o único que grava antes do fim) vem por último. A próxima pergunta, ou o resumo com
+   * "Criar o pedido", sai sozinha depois da resposta.
+   */
+  private async alterarLista(e: EscopoDoMister, en: Record<string, unknown>): Promise<ResultadoDaFerramenta> {
+    const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
+    const lidas = lerAlteracoesDaLista(en.alteracoes);
+    if ('erro' in lidas) return recusa(lidas.erro);
+    const r = await this.db.transaction(async (tx: any): Promise<{ erro: string } | { id: string; feito: string[] }> => {
+      const [l] = linhas(
+        await tx.execute(sql`
+          select id::text as id, unidade_id::text as "unidadeId", itens from mister_lista_compra
+           where tenant_id = ${e.tenantId}::uuid and colaborador_id = ${e.colaboradorId}::uuid and situacao in ('montando', 'confirmar')
+             and vence_em > clock_timestamp()
+           order by atualizada_em desc limit 1
+           for update`),
+      );
+      if (!l) return { erro: 'Não há lista de compras aberta desta pessoa. Para começar, monte a lista.' };
+      const itens: LinhaDaLista[] = Array.isArray(l.itens) ? l.itens : [];
+      const insumos = await this.insumos(e.tenantId, l.unidadeId ?? null, null, tx);
+      const feito: string[] = [];
+      for (const a of lidas.alteracoes) {
+        const ln = itens[a.linha - 1];
+        if (!ln) return { erro: `A lista tem ${itens.length} linhas: não há a linha ${a.linha}.` };
+        if (a.tipo === 'cadastrar') continue;
+        if (a.tipo === 'fora') {
+          Object.assign(ln, { estado: 'fora', opcoes: [] });
+          feito.push(`Linha ${a.linha} ("${ln.texto}") saiu da lista.`);
+        } else if (a.tipo === 'ligar') {
+          const achado = acharInsumo(a.insumo, insumos);
+          if ('opcoes' in achado) return { erro: achado.opcoes.length ? `Linha ${a.linha}: não sei qual é "${a.insumo}". Opções: ${achado.opcoes.join('; ')}. Pergunte qual.` : `Linha ${a.linha}: não achei "${a.insumo}" no estoque.` };
+          const conv = (await this.conversoes(e.tenantId, [achado.insumo.id], tx)).get(achado.insumo.id) ?? [];
+          itens[a.linha - 1] = { ...ligarAoInsumo(ln, achado.insumo as InsumoDaLista, conv), propostaDaIa: false };
+          feito.push(`Linha ${a.linha}: ${achado.insumo.nome}.`);
+        } else if (a.tipo === 'quantidade') {
+          ln.quantidade = a.quantidade;
+          if (a.medida) ln.unidade = a.medida;
+          const insumo = ln.itemId ? insumos.find((x) => x.id === ln.itemId) : undefined;
+          if (insumo) {
+            const conv = (await this.conversoes(e.tenantId, [insumo.id], tx)).get(insumo.id) ?? [];
+            const marca = ln.marca;
+            itens[a.linha - 1] = { ...ligarAoInsumo(ln, insumo, conv), ...(marca ? { marca, estado: 'ligado' as const } : {}) };
+          }
+          feito.push(`Linha ${a.linha}: ${a.quantidade}${a.medida ? ` ${a.medida}` : ''}.`);
+        } else if (a.tipo === 'marca') {
+          const marca = ln.itemId ? marcaDoTexto(ln.marcas, a.marca) : null;
+          if (!marca) return { erro: `Linha ${a.linha}: a marca "${a.marca}" não está no cadastro${ln.marcas.length ? ` (${ln.marcas.join(', ')})` : ''}.` };
+          Object.assign(ln, { marca, estado: ln.estado === 'marca' ? 'ligado' : ln.estado });
+          feito.push(`Linha ${a.linha}: marca ${marca}.`);
+        } else {
+          if (!ln.itemId) return { erro: `Linha ${a.linha}: ligue a um insumo antes de dizer a conta.` };
+          aplicarFator(ln, a.quantoNoEstoque);
+          feito.push(`Linha ${a.linha}: 1 ${ln.unidade ?? 'unidade'} = ${a.quantoNoEstoque} ${ln.unidadeDoEstoque}.`);
+        }
+      }
+      for (const a of lidas.alteracoes) {
+        if (a.tipo !== 'cadastrar') continue;
+        const ln = itens[a.linha - 1];
+        const nome = a.nome ?? ln.nomeNovo ?? ln.texto;
+        const ja = acharInsumo(nome, insumos);
+        let insumo: InsumoDaLista;
+        if ('insumo' in ja) insumo = ja.insumo as InsumoDaLista;
+        else {
+          try {
+            const novo: any = await this.estoque.createItem(
+              e.tenantId,
+              { nome, unidadeMedida: a.medida ?? normalizarUnidade(ln.unidade ?? '') ?? 'unidade' } as any,
+              l.unidadeId ?? null,
+              { colaboradorId: e.colaboradorId, categoria: e.nivel } as any,
+            );
+            insumo = { id: novo.id, nome: novo.nome, nomeComercial: null, unidadeMedida: novo.unidadeMedida, marcas: [] };
+            insumos.push(insumo);
+          } catch (err: any) {
+            const msg = err instanceof BadRequestException ? String((err.getResponse() as any)?.message ?? err.message) : 'não deu para cadastrar';
+            return { erro: `Linha ${a.linha}: não consegui cadastrar "${nome}": ${msg}` };
+          }
+        }
+        itens[a.linha - 1] = { ...ligarAoInsumo(ln, insumo, []), propostaDaIa: false };
+        feito.push(`Linha ${a.linha}: cadastrei "${insumo.nome}" em Estoque › Produtos.`);
+      }
+      // Mudou: volta a montar, e o resumo sai de novo com o que mudou.
+      await tx.execute(sql`update mister_lista_compra set itens = ${JSON.stringify(itens)}::jsonb, situacao = 'montando', atualizada_em = clock_timestamp() where id = ${l.id}::uuid`);
+      return { id: String(l.id), feito };
+    });
+    if ('erro' in r) return recusa(r.erro);
+    const proxima = await this.seguir(r.id);
+    return {
+      ok: true,
+      dados: {
+        gravado: true,
+        feito: r.feito,
+        siga: 'Diga em uma frase o que mudou, como está em "feito". A próxima pergunta da lista, ou o resumo com "Criar o pedido", sai sozinha logo depois: não repita. Nada foi pedido.',
+      },
+      mensagens: emMensagens(proxima).map((m, k) => ({ ...m, chave: `lista:${r.id}:${k}` })),
+    };
+  }
+
+  /** Versão 9, O4: "repete o último pedido do Felipão" — o pedido mais recente (do fornecedor dito), já ligado, numa lista nova. */
+  private async repetirPedido(e: EscopoDoMister, en: Record<string, unknown>, loja: string | null): Promise<ResultadoDaFerramenta> {
+    const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
+    const dito = String(en.fornecedor ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const daLoja = loja ? sql`and (c.unidade_id is null or c.unidade_id = ${loja}::uuid)` : sql``;
+    const doFornecedor = dito ? sql`and (f.nome ilike ${`%${dito.replace(/[%_\\]/g, '')}%`} or c.nome ilike ${`%${dito.replace(/[%_\\]/g, '')}%`})` : sql``;
+    const [c] = linhas(
+      await this.db.execute(sql`
+        select c.id::text as id, c.nome, c.fornecedor_id::text as "fornecedorId", f.nome as fornecedor,
+               to_char(c.created_at at time zone 'America/Sao_Paulo', 'DD/MM') as criado
+          from compra_lista c
+          left join fornecedor f on f.id = c.fornecedor_id and f.tenant_id = c.tenant_id
+         where c.tenant_id = ${e.tenantId}::uuid and c.deleted_at is null ${daLoja} ${doFornecedor}
+         order by c.created_at desc limit 1`),
+    );
+    if (!c) return recusa(dito ? `Não achei pedido de compra do "${dito}" em Estoque › Pedidos.` : 'Não achei pedido de compra para repetir.');
+    const itens = linhas(
+      await this.db.execute(sql`
+        select i.item_id::text as "itemId", i.quantidade::float8 as quantidade, i.marca, e.nome, e.unidade_medida as "unidadeMedida", coalesce(e.marcas, '[]'::jsonb) as marcas
+          from compra_item i join item_estoque e on e.id = i.item_id and e.tenant_id = i.tenant_id and e.deleted_at is null
+         where i.lista_id = ${c.id}::uuid and i.tenant_id = ${e.tenantId}::uuid
+         order by e.nome`),
+    );
+    if (!itens.length) return recusa(`O pedido "${c.nome}" não tem itens que ainda existam no estoque.`);
+    const montadas: LinhaDaLista[] = itens.slice(0, MAX_LINHAS_DA_LISTA).map((x) => ({
+      texto: String(x.nome),
+      quantidade: Number(x.quantidade),
+      unidade: String(x.unidadeMedida),
+      itemId: String(x.itemId),
+      itemNome: String(x.nome),
+      unidadeDoEstoque: String(x.unidadeMedida),
+      fator: 1,
+      marcas: Array.isArray(x.marcas) ? x.marcas : [],
+      marca: x.marca ?? null,
+      opcoes: [],
+      estado: 'ligado' as const,
+    }));
+    await this.db.execute(sql`
+      update mister_lista_compra set situacao = 'descartada', atualizada_em = clock_timestamp()
+       where tenant_id = ${e.tenantId}::uuid and colaborador_id = ${e.colaboradorId}::uuid and situacao in ('montando', 'confirmar')`);
+    const [l] = linhas(
+      await this.db.execute(sql`
+        insert into mister_lista_compra (tenant_id, unidade_id, colaborador_id, origem, situacao, itens, fornecedor_id, fornecedor_escolhido, vence_em)
+        values (${e.tenantId}::uuid, ${loja}::uuid, ${e.colaboradorId}::uuid, 'conversa', 'montando', ${JSON.stringify(montadas)}::jsonb,
+                ${c.fornecedorId}::uuid, ${!!c.fornecedorId}, clock_timestamp() + make_interval(hours => ${LISTA_VALE_H}::int))
+        returning id::text as id`),
+    );
+    const proxima = await this.seguir(String(l.id));
+    return {
+      ok: true,
+      dados: {
+        repetido: c.nome,
+        de: c.criado,
+        fornecedor: c.fornecedor ?? null,
+        linhas: montadas.length,
+        orientacao: 'Se a pessoa pediu mudanças ("10 caixas a mais", "sem o óleo"), chame lista_de_compras com acao alterar antes de responder. Diga em uma frase de qual pedido veio; o resumo com "Criar o pedido" sai sozinho logo depois. Nada foi pedido.',
+      },
+      mensagens: emMensagens(proxima).map((m, k) => ({ ...m, chave: `lista:${l.id}:${k}` })),
+    };
   }
 
   /** Grava a lista nova (a aberta de antes da pessoa é descartada) e devolve a primeira mensagem. */
@@ -518,7 +784,7 @@ export class MisterListaService implements OnModuleInit {
     if (!l) return { texto: TEXTOS_DA_LISTA.jaRespondido };
     const itens: LinhaDaLista[] = Array.isArray(l.itens) ? l.itens : [];
     const pend = proximaPendencia(itens);
-    if (pend) return perguntaDaLinha(listaId, pend.indice, itens[pend.indice]);
+    if (pend) return listaPelaIa(itens) ? perguntasJuntas(listaId, itens) : perguntaDaLinha(listaId, pend.indice, itens[pend.indice]);
     const ligadas = itens.filter((x) => x.estado === 'ligado');
     if (!ligadas.length) {
       await this.db.execute(sql`update mister_lista_compra set situacao = 'descartada', atualizada_em = clock_timestamp() where id = ${listaId}::uuid`);
