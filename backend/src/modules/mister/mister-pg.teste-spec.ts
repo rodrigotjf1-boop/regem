@@ -19,6 +19,7 @@ import { DashboardService } from '../dashboard/dashboard.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { ComprasService } from '../compras/compras.service';
 import { FornecedorService } from '../fornecedor/fornecedor.service';
+import { BancoRepassesService } from '../banco-repasses/banco-repasses.service';
 import { EscalaService } from '../escala/escala.service';
 import { MisterListaService } from './mister-lista.service';
 import { MisterCompraModelosService } from './mister-compra-modelos.service';
@@ -12150,6 +12151,86 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from produto where id = any($1::uuid[])`, [[criados.produto].filter(Boolean)]);
           await q(`delete from categoria_produto where id = any($1::uuid[])`, [[criados.lanches].filter(Boolean)]);
           await q(`delete from fornecedor where id = any($1::uuid[])`, [[criados.forn, criados.forn2].filter(Boolean)]);
+        }
+      });
+
+      it('versão 9, O5: classificar o lançamento do extrato — só o presidente, achado pelo dia e pelo valor, com o PIN e pelo serviço de Banco e repasses', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const pinsAntes = await q(`select id, pin_hash from colaborador where id = $1`, [pessoa.ana]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        (acoes as any).bancoDeTeste = new BancoRepassesService(db, auditoria);
+        const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+        const diaAtras = (n: number) => {
+          const d = new Date(`${hojeISO()}T12:00:00Z`);
+          d.setUTCDate(d.getUTCDate() - n);
+          return d.toISOString().slice(0, 10);
+        };
+        const d1 = diaAtras(4);
+        const d2 = diaAtras(3);
+        const criados: string[] = [];
+        try {
+          const conta = async (tenant: string, loja: string, final: string) => {
+            const [{ id: c }] = await q(`insert into banco_conta (tenant_id, unidade_id, banco, final) values ($1, $2, '341', $3) returning id::text as id`, [tenant, loja, final]);
+            const [{ id: imp }] = await q(
+              `insert into banco_importacao (tenant_id, unidade_id, conta_id, arquivo_hash, periodo_de, periodo_ate, saldo_centavos, saldo_em) values ($1, $2, $3, 'o5c', $4::date, $5::date, 0, $5::date) returning id::text as id`,
+              [tenant, loja, c, d1, d2],
+            );
+            return { c, imp };
+          };
+          const lanc = async (tenant: string, loja: string, cc: { c: string; imp: string }, chave: string, dia: string, valor: number, descricao: string) =>
+            (await q(
+              `insert into banco_lancamento (tenant_id, unidade_id, conta_id, importacao_id, chave, data, valor_centavos, descricao, descricao_hash) values ($1, $2, $3, $4, $5, $6::date, $7, $8, $9) returning id::text as id`,
+              [tenant, loja, cc.c, cc.imp, chave, dia, valor, descricao, `h-${descricao}`],
+            ))[0].id as string;
+          const ccA = await conta(A, lojaDeA, '9101');
+          const retirada = await lanc(A, lojaDeA, ccA, 'o5c-1', d1, -120000, 'PIX ENVIADO J S');
+          const tarifaX = await lanc(A, lojaDeA, ccA, 'o5c-2', d2, -5000, 'TARIFA PACOTE');
+          const tarifaY = await lanc(A, lojaDeA, ccA, 'o5c-3', d2, 5000, 'ESTORNO TARIFA');
+          const [{ id: lojaDeB }] = await q(`select id::text as id from unidade where tenant_id = $1 limit 1`, [B]).then((r) => (r.length ? r : q(`insert into unidade (tenant_id, nome) values ($1, 'Loja B O5c') returning id::text as id`, [B])));
+          const ccB = await conta(B, lojaDeB, '9102');
+          await lanc(B, lojaDeB, ccB, 'o5c-4', d1, -777700, 'PIX DE OUTRA EMPRESA');
+          criados.push(retirada, tarifaX, tarifaY);
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          const en = { acao: 'classificar_banco', diaDoLancamento: d1, valorDoLancamento: 1200, tipoDoLancamento: 'retirada_dono', lembrarNosProximos: true };
+          // O gerente não classifica (a rota é só do presidente); outra empresa e o valor que não existe não se acham.
+          const telC = telefone();
+          await ligar('carlos', telC, A, 'gerente');
+          const g = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
+          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, financeiro: true, ver_financeiro: true }, verValores: true } as any, 'propor_acao', en)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.bancoSoPresidente } });
+          expect((await ferramentas.executar(e, 'propor_acao', { ...en, valorDoLancamento: 7777 })).dados.erro).toContain('Não achei lançamento de R$ 7.777,00');
+          // Dois com o mesmo dia e valor (entrada e saída): pede um pedaço da descrição; com ele, acha um.
+          const dois = await ferramentas.executar(e, 'propor_acao', { ...en, diaDoLancamento: d2, valorDoLancamento: 50, tipoDoLancamento: 'imposto', lembrarNosProximos: false });
+          expect(dois.dados.erro).toContain('"ESTORNO TARIFA", "TARIFA PACOTE"');
+          const um = await ferramentas.executar(e, 'propor_acao', { ...en, diaDoLancamento: d2, valorDoLancamento: 50, tipoDoLancamento: 'imposto', lembrarNosProximos: false, trechoDoLancamento: 'pacote' });
+          expect(um.ok).toBe(true);
+          expect(um.dados.oQueVouFazer).toContain('"TARIFA PACOTE" (saída de R$ 50,00) como Imposto');
+          // O certo: a pergunta, o PIN pelo link, e só então a classificação, pelo serviço da tela (com a regra do "lembrar").
+          const r = await ferramentas.executar(e, 'propor_acao', en);
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toContain('"PIX ENVIADO J S" (saída de R$ 1.200,00) como Retirada do dono, e os próximos com a mesma descrição já entram assim');
+          expect(r.proposta).toMatchObject({ procedimento: 'classificar_banco', nivel: 'pin', botoes: [] });
+          const c = codigo(await propostasDasAcoes.enviarLink(r.proposta!.id, pessoa.ana, tel, r.proposta!.pergunta));
+          const vista = await propostasDasAcoes.verPeloLink(c);
+          expect(vista).toMatchObject({ titulo: 'Classificar o lançamento do banco', valor: 1200, botao: 'Classificar' });
+          expect(vista.itens).toEqual(expect.arrayContaining(['No extrato: PIX ENVIADO J S', 'Vai como: Retirada do dono']));
+          expect((await q(`select tipo from banco_lancamento where id = $1`, [retirada]))[0].tipo).toBeNull();
+          await propostasDasAcoes.autorizarPeloLink(c, '2580');
+          expect(await esperarFim(r.proposta!.id)).toMatchObject({ situacao: 'feita', resultado: 'Classifiquei o lançamento "PIX ENVIADO J S" em Financeiro › Banco e repasses, e os próximos iguais já entram assim.' });
+          expect(await q(`select tipo, situacao, classificado_por::text as quem from banco_lancamento where id = $1`, [retirada])).toEqual([{ tipo: 'retirada_dono', situacao: 'so_no_banco', quem: pessoa.ana }]);
+          expect(await q(`select tipo from banco_regra where tenant_id = $1 and descricao_hash = 'h-PIX ENVIADO J S'`, [A])).toEqual([{ tipo: 'retirada_dono' }]);
+          expect(auditados.find((a) => a.acao === 'banco_classificou_lancamento' && a.entidadeId === retirada)).toMatchObject({ atorId: pessoa.ana, detalhe: { de: null, para: 'retirada_dono', lembrar: true } });
+          // O lançamento mudou entre a pergunta e o PIN: nada é feito.
+          const r2 = await ferramentas.executar(e, 'propor_acao', { ...en, tipoDoLancamento: 'nao_e_da_loja', lembrarNosProximos: false });
+          const c2 = codigo(await propostasDasAcoes.enviarLink(r2.proposta!.id, pessoa.ana, tel, r2.proposta!.pergunta));
+          await q(`update banco_lancamento set valor_centavos = -120001 where id = $1`, [retirada]);
+          await propostasDasAcoes.autorizarPeloLink(c2, '2580');
+          expect(await esperarFim(r2.proposta!.id)).toMatchObject({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.lancamentoMudou });
+          expect((await q(`select tipo from banco_lancamento where id = $1`, [retirada]))[0].tipo).toBe('retirada_dono');
+        } finally {
+          delete (acoes as any).bancoDeTeste;
+          for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
+          for (const tb of ['banco_regra', 'banco_lancamento', 'banco_importacao', 'banco_conta']) await q(`delete from ${tb} where tenant_id = any($1::uuid[])`, [[A, B]]).catch(() => undefined);
         }
       });
 

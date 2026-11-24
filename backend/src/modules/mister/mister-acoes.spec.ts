@@ -35,6 +35,8 @@ describe('Mister · ações — o catálogo e os canais', () => {
       'criar_cupom', 'remover_cupom', 'lancar_conta',
       // Versão 9, O5 segunda parte: o produto, o fornecedor e a escala.
       'mudar_produto', 'mudar_fornecedor', 'trocar_turno', 'folga_na_escala',
+      // Versão 9, O5: classificar o lançamento do extrato.
+      'classificar_banco',
     ]);
     expect(ACOES.criar_tarefa).toMatchObject({ nivel: 'botao', permissao: 'checklist' });
     for (const a of ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] as const)
