@@ -172,6 +172,32 @@ const HISTORICO = () => {
   ];
 };
 
+// A parte "Modelos de compra" (versão 9, O2, mig 503): o que o servidor devolve.
+const MODELOS = () => [
+  { fornecedor: '12345678000195', nome: 'Rucas Distribuidora de Alimentos e Embalagens Ltda.', produtos: 16, comDuvida: 0, vezes: 1, usadoEm: '2026-11-23T12:00:00Z', parado: false },
+  { fornecedor: '98765432000110', nome: 'Felipão da Penha', produtos: 19, comDuvida: 1, vezes: 3, usadoEm: '2026-11-24T09:00:00Z', parado: false },
+  { fornecedor: '11222333000181', nome: 'Hortifruti Bom', produtos: 7, comDuvida: 0, vezes: 5, usadoEm: '2026-09-01T12:00:00Z', parado: true },
+];
+const DETALHE_DO_MODELO = () => ({
+  fornecedor: '12345678000195',
+  nome: 'Rucas Distribuidora de Alimentos e Embalagens Ltda.',
+  linhas: [
+    { chave: 'cod:7001', descricao: 'BATATA CG 7MM LAMB VESTON 2250gx8 CONGELADA PRE-FRITA', itemId: 'i1', itemNome: 'Caixa de batata 7mm', unidadeDoEstoque: 'caixa', insumoSumiu: false, fator: 1, unidadeNota: 'UN', ultimaQuantidade: 35, ultimoPrecoCentavos: 20792, usadoEm: '2026-11-23T12:00:00Z' },
+    { chave: 'cod:7002', descricao: 'HAMBURGUER CG FARUESTE CX AURORA BOVINO 56G 36un', itemId: 'i2', itemNome: null, unidadeDoEstoque: null, insumoSumiu: true, fator: 1, unidadeNota: 'UN', ultimaQuantidade: 120, ultimoPrecoCentavos: 3399, usadoEm: '2026-11-23T12:00:00Z' },
+    { chave: 'cod:7003', descricao: 'DETERGENTE YPE 500ML', itemId: null, itemNome: null, unidadeDoEstoque: null, insumoSumiu: false, fator: null, unidadeNota: 'UN', ultimaQuantidade: 6, ultimoPrecoCentavos: 299, usadoEm: '2026-11-23T12:00:00Z' },
+  ],
+});
+const APELIDOS = () => [
+  { chave: 'carne 120', texto: 'carne 120', itemId: 'i3', itemNome: 'Carne 120gr', insumoSumiu: false, vezes: 4, atualizadoEm: '2026-11-20T12:00:00Z' },
+  { chave: 'coca lt', texto: 'coca lt', itemId: 'i4', itemNome: 'Coca cola lata 350ml', insumoSumiu: false, vezes: 2, atualizadoEm: '2026-11-21T12:00:00Z' },
+];
+const ITENS_DO_ESTOQUE = () => [
+  { id: 'i1', nome: 'Caixa de batata 7mm', unidadeMedida: 'caixa' },
+  { id: 'i3', nome: 'Carne 120gr', unidadeMedida: 'caixa' },
+  { id: 'i5', nome: 'Carne 56gr', unidadeMedida: 'caixa' },
+  { id: 'i4', nome: 'Coca cola lata 350ml', unidadeMedida: 'fardo' },
+];
+
 // A parte "Documentos" (M3a parte 3, versão 3 do protótipo aprovada em 17/11): o que o servidor devolve.
 const doc = (o) => ({
   id: 'd1',
@@ -364,6 +390,9 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
       documentos: o.documentos ?? DOCUMENTOS(), documentosFalha: !!o.documentosFalha, diasDosDocumentos: [], desfeitos: [], pdfs: [],
       // M3c.4: a página do relatório do link
       relatorio: o.relatorio ?? RELATORIO_INSUMO(), relatorioRecusa: o.relatorioRecusa ?? null, relatorioPedidos: [], relatorioPdfs: [],
+      // Versão 9, O2: os modelos de compra e os apelidos.
+      modelos: o.modelos ?? MODELOS(), modelosLigado: o.modelosLigado ?? false, modelosFalha: !!o.modelosFalha, detalhe: DETALHE_DO_MODELO(), apelidos: o.apelidos ?? APELIDOS(),
+      mudancasDoModelo: [], esquecidosDoModelo: [], mudancasDeApelido: [], apelidosEsquecidos: [],
     };
     const ctx = await nav.newContext({ viewport: { width: w, height: h }, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo', hasTouch: w < 900 });
     await ctx.addInitScript((jwt) => localStorage.setItem('regen_token', jwt), o.token ?? PRESIDENTE);
@@ -430,6 +459,40 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
           return responder(route, { item: { id: daMemoria[1] }, uso: 'ok' });
         }
       }
+      // Versão 9, O2: a parte "Modelos de compra" (a lista, a gaveta, mudar, esquecer e os apelidos) e os insumos do "Mudar".
+      if (p === '/mister/modelos' && metodo === 'GET') {
+        if (S.modelosFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
+        return responder(route, { ligado: S.modelosLigado, modelos: S.modelos, apelidos: S.apelidos.length, limite: 200 });
+      }
+      if (p === '/mister/modelos/apelidos' && metodo === 'GET') return responder(route, { apelidos: S.apelidos, limite: 500 });
+      if (p === '/mister/modelos/apelidos' && metodo === 'PATCH') {
+        const corpo = JSON.parse(req.postData() || '{}');
+        S.mudancasDeApelido.push(corpo);
+        S.apelidos = S.apelidos.map((a) => (a.chave === corpo.chave ? { ...a, itemId: corpo.itemId, itemNome: ITENS_DO_ESTOQUE().find((i) => i.id === corpo.itemId)?.nome ?? null } : a));
+        return responder(route, { ok: true });
+      }
+      if (p === '/mister/modelos/apelidos/esquecer' && metodo === 'POST') {
+        const corpo = JSON.parse(req.postData() || '{}');
+        S.apelidosEsquecidos.push(corpo);
+        S.apelidos = S.apelidos.filter((a) => a.chave !== corpo.chave);
+        return responder(route, { esquecidos: 1 }, 201);
+      }
+      const doModelo = /^\/mister\/modelos\/(\d+)(\/esquecer)?$/.exec(p);
+      if (doModelo && metodo === 'GET' && !doModelo[2]) return responder(route, { ...S.detalhe, fornecedor: doModelo[1] });
+      if (doModelo && metodo === 'PATCH' && !doModelo[2]) {
+        const corpo = JSON.parse(req.postData() || '{}');
+        S.mudancasDoModelo.push({ fornecedor: doModelo[1], ...corpo });
+        S.detalhe = { ...S.detalhe, linhas: S.detalhe.linhas.map((l) => (l.chave === corpo.chave ? { ...l, itemId: corpo.itemId, itemNome: ITENS_DO_ESTOQUE().find((i) => i.id === corpo.itemId)?.nome ?? null, unidadeDoEstoque: ITENS_DO_ESTOQUE().find((i) => i.id === corpo.itemId)?.unidadeMedida ?? null, insumoSumiu: false, fator: corpo.fator } : l)) };
+        return responder(route, { ok: true });
+      }
+      if (doModelo && metodo === 'POST' && doModelo[2]) {
+        const corpo = JSON.parse(req.postData() || '{}');
+        S.esquecidosDoModelo.push({ fornecedor: doModelo[1], ...corpo });
+        if (corpo.tudo) S.modelos = S.modelos.filter((m) => m.fornecedor !== doModelo[1]);
+        else S.detalhe = { ...S.detalhe, linhas: S.detalhe.linhas.filter((l) => l.chave !== corpo.chave) };
+        return responder(route, { esquecidos: corpo.tudo ? 3 : 1 }, 201);
+      }
+      if (p === '/estoque/itens' && metodo === 'GET') return responder(route, ITENS_DO_ESTOQUE());
       if (p === '/mister/documentos' && metodo === 'GET') {
         S.diasDosDocumentos.push(url.searchParams.get('dias'));
         if (S.documentosFalha) return responder(route, { statusCode: 500, message: 'Erro interno' }, 500);
@@ -760,8 +823,8 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await page.waitForSelector('text=Quem fala com o Mister', { timeout: 20000 });
     const partes = page.locator('[aria-label="Partes do Mister"] button');
     ok(
-      (await partes.allInnerTexts()).join('|') === 'Resumo|Pessoas|Regras|IA e uso|Avisos e relatórios|Documentos|Histórico|Jeito e memória' && (await partes.nth(1).getAttribute('aria-pressed')) === 'true',
-      'presidente: as partes "Resumo", "Pessoas", "Regras", "IA e uso", "Avisos e relatórios", "Documentos", "Histórico" e "Jeito e memória", com o link abrindo em Pessoas',
+      (await partes.allInnerTexts()).join('|') === 'Resumo|Pessoas|Regras|IA e uso|Avisos e relatórios|Documentos|Modelos de compra|Histórico|Jeito e memória' && (await partes.nth(1).getAttribute('aria-pressed')) === 'true',
+      'presidente: as partes "Resumo", "Pessoas", "Regras", "IA e uso", "Avisos e relatórios", "Documentos", "Modelos de compra", "Histórico" e "Jeito e memória", com o link abrindo em Pessoas',
     );
     ok(S.pedidos.length === 0, 'em Pessoas, a parte da IA não é lida');
     ok(/O número do Mister é \+55 21 90000-0000/.test(await page.locator('main').innerText()), 'o número do Mister, formatado, para salvar nos contatos');
@@ -1073,7 +1136,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t0 = await page.locator('main').innerText();
-    ok(/27 ajustes em 10 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os quatro relatórios e o 'Como mandar o resumo' (M5e) , a conversa (M3a, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d) e as análises (V7e e o 'Ligar as linhas pela IA' da versão 9, O1)");
+    ok(/28 ajustes em 10 grupos/.test(t0), "avisos: os nove avisos em quatro grupos, o do boleto (M3a), os dois do ponto (M3e), os dois do gasto do WhatsApp (G2), os quatro relatórios e o 'Como mandar o resumo' (M5e) , a conversa (M3a, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d) e as análises (V7e e o 'Ligar as linhas pela IA' da versão 9, O1)");
     ok(/Fichas novas de candidatos[\s\S]*Vai para: o presidente e quem tem a permissão Candidatos, cada um só das lojas que vê\./.test(t0), 'relatórios: o das fichas novas diz para quem vai (F4c)');
     ok(t0.includes('O de fichas novas e o boletim do ramo não usam a IA.') && t0.includes('No boletim do ramo, esse convite é opcional.'), 'relatórios: a nota diz que o das fichas novas e o boletim não usam a IA, e que o convite do boletim é opcional');
     ok(['Na loja', 'Servidor da loja', 'Fiscal', 'O próprio Mister'].every((g) => t0.includes(g)), 'avisos: os quatro grupos do protótipo');
@@ -1324,7 +1387,7 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=avisos' });
     await page.waitForSelector('#mister-avisos-titulo', { timeout: 20000 });
     const t = await page.locator('main').innerText();
-    ok(/27 ajustes em 10 grupos/.test(t), "conversa: o grupo Conversa entra com três ajustes (o do boleto, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, Relatórios com o 'Como mandar o resumo' (M5e) e Análises com o ajuste da V7e e o da O1");
+    ok(/28 ajustes em 10 grupos/.test(t), "conversa: o grupo Conversa entra com três ajustes (o do boleto, o 'Responder em áudio', M5c, e a 'Voz com emoção', V7d), Documentos e dinheiro com o do boleto e os dois do gasto (G2), Pessoas e ponto com os dois do ponto, Relatórios com o 'Como mandar o resumo' (M5e) e Análises com o ajuste da V7e e o da O1");
     ok(/Documentos e dinheiro[\s\S]*Boleto perto de vencer[\s\S]*Já paguei/.test(t), 'boleto: o aviso novo no grupo "Documentos e dinheiro", com o "Já paguei"');
     ok(/Lançar boletos por foto/.test(t) && /só o presidente manda/.test(t) && /a leitura da nota do fornecedor vem numa próxima entrega/.test(t), 'conversa: o ajuste diz o que faz, quem manda e que a nota vem depois');
     const sel = page.locator('select:has(option:text-is("boleto: pergunta antes"))');
@@ -1430,6 +1493,14 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('[role="dialog"] button:text-is("Ligar e salvar")')]);
     ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ analisesProfundas: true }), `análises: ligar manda só ela (${JSON.stringify(S.salvamentosConv.at(-1))})`);
     ok((await analises.getAttribute('aria-checked')) === 'true', 'análises: fica ligada depois de salvar');
+    // Versão 9, O2 (mig 503): "Aprender o modelo de cada fornecedor" — sem custo, nasce desligado; ligar manda só ele, sem confirmação de preço.
+    ok(/Aprender o modelo de cada fornecedor[\s\S]*Mister › Modelos de compra[\s\S]*Sem custo\./.test(t), 'O2: o ajuste diz onde se corrige e que não tem custo');
+    const doModelo = page.locator('button[role="switch"][aria-label*="Aprender o modelo de cada fornecedor"]');
+    ok((await doModelo.getAttribute('aria-checked')) === 'false', 'O2: nasce desligado');
+    await doModelo.click();
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/conversa') && r.request().method() === 'PATCH'), page.click('button:has-text("Salvar alterações")')]);
+    ok(JSON.stringify(S.salvamentosConv.at(-1)) === JSON.stringify({ aprenderModelos: true }), `O2: ligar manda só ele, sem pedir confirmação (${JSON.stringify(S.salvamentosConv.at(-1))})`);
+    ok((await doModelo.getAttribute('aria-checked')) === 'true', 'O2: fica ligado depois de salvar');
     // M3a parte 4: "Quando avisar do boleto" — o padrão (3 dias antes e no dia) e "só no dia", salvo pela mesma barra.
     const quando = page.locator('select:has(option:text-is("só no dia"))');
     ok((await quando.inputValue()) === '3', 'boleto: o padrão é "3 dias antes e no dia"');
@@ -1598,6 +1669,142 @@ export default async function roteiroMister({ nav, base, ok, foto, larguras }) {
     ok(itensEsmagados.length === 0, `${w}px: os itens da nota sem texto esmagado (${itensEsmagados.join(', ')} px)`);
     if (w === 320 || w === 375) await page.locator('[role="dialog"]').screenshot({ path: foto(`${w}-nota-gaveta.png`) });
     ok(erros.length === 0, `${w}px: Documentos sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
+  // ── Versão 9, O2: a parte "Modelos de compra" — a lista, as situações, a busca, a gaveta, "Mudar", "Esquecer" e os apelidos ──
+  {
+    const { ctx, page, erros, S } = await abrir(1280, 900, { caminho: '/mister?parte=modelos' });
+    await page.waitForSelector('#modelos-mister', { timeout: 20000 });
+    await page.locator('text=Felipão da Penha >> visible=true').first().waitFor();
+    const t = await page.locator('main').innerText();
+    ok(/Modelos de compra/.test(t) && /3 modelos/.test(t), 'modelos: o título com a contagem');
+    ok(/16 produtos conhecidos · última nota 23\/11 · 1 vez/.test(t), 'modelos: cada fornecedor com os produtos, a última nota e as vezes');
+    ok(/1 com dúvida/.test(t) && /parado/.test(t) && /em dia/.test(t), 'modelos: as situações de cada um (com dúvida, parado, em dia)');
+    ok(/está desligado/.test(t) && /Mister › Avisos e relatórios › Conversa/.test(t), 'modelos: com o ajuste desligado, a faixa diz o que não acontece e onde ligar');
+    ok(/Apelidos da empresa/.test(t) && /2 nomes que valem para qualquer fornecedor/.test(t), 'modelos: a linha dos apelidos com a contagem');
+    // As situações filtram; a busca também.
+    await page.locator('button:has-text("Com dúvida")').first().click();
+    await page.locator('text=Felipão da Penha >> visible=true').first().waitFor();
+    ok((await page.locator('text=Hortifruti Bom >> visible=true').count()) === 0, 'modelos: "Com dúvida" mostra só o que tem dúvida');
+    await page.locator('button:has-text("Com dúvida")').first().click();
+    await page.fill('#modelos-busca', 'hortifruti');
+    await page.locator('text=Hortifruti Bom >> visible=true').first().waitFor();
+    ok((await page.locator('text=Felipão da Penha >> visible=true').count()) === 0, 'modelos: a busca pelo fornecedor');
+    await page.fill('#modelos-busca', '');
+    // A gaveta do modelo: cada produto com o destino, a conversão e a última vez.
+    await page.locator('button[aria-label="Ver: Rucas Distribuidora de Alimentos e Embalagens Ltda."] >> visible=true').first().click();
+    const g = page.locator('[role="dialog"]');
+    await g.locator('text=DETERGENTE YPE 500ML').waitFor();
+    const tg = await g.innerText();
+    ok(/BATATA CG 7MM[\s\S]*Caixa de batata 7mm[\s\S]*1 UN = 1 caixa · última vez 35 UN a R\$\s?207,92/.test(tg), 'gaveta: o produto com o insumo, a conversão e a última vez');
+    ok(/HAMBURGUER CG FARUESTE[\s\S]*o insumo saiu do estoque/.test(tg), 'gaveta: o insumo que saiu do estoque aparece como dúvida');
+    ok(/DETERGENTE YPE 500ML[\s\S]*fora do estoque, só na conta/.test(tg), 'gaveta: o que não entra no estoque');
+    // "Mudar": o insumo e a conversão vão ao servidor.
+    await g.locator('button[aria-label="Mudar HAMBURGUER CG FARUESTE CX AURORA BOVINO 56G 36un"]').click();
+    const select = g.locator('select');
+    await select.waitFor();
+    await page.waitForFunction(() => document.querySelectorAll('[role="dialog"] select option').length > 3);
+    await select.selectOption('i5');
+    await g.locator('input[inputmode="decimal"]').fill('36');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/modelos/12345678000195') && r.request().method() === 'PATCH'), g.locator('button:text-is("Salvar")').click()]);
+    ok(JSON.stringify(S.mudancasDoModelo.at(-1)) === JSON.stringify({ fornecedor: '12345678000195', chave: 'cod:7002', itemId: 'i5', fator: 36 }), `mudar: manda o produto, o insumo e a conversão (${JSON.stringify(S.mudancasDoModelo.at(-1))})`);
+    await g.locator('text=1 UN = 36 caixa').waitFor();
+    ok(true, 'mudar: a gaveta lê de novo e mostra o insumo e a conversão novos');
+    // "Fora do estoque" manda sem insumo e sem conversão.
+    await g.locator('button[aria-label="Mudar BATATA CG 7MM LAMB VESTON 2250gx8 CONGELADA PRE-FRITA"]').click();
+    await g.locator('select').selectOption('fora');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/modelos/12345678000195') && r.request().method() === 'PATCH'), g.locator('button:text-is("Salvar")').click()]);
+    ok(JSON.stringify(S.mudancasDoModelo.at(-1)) === JSON.stringify({ fornecedor: '12345678000195', chave: 'cod:7001', itemId: null, fator: null }), `mudar: "Fora do estoque" manda sem insumo nem conversão (${JSON.stringify(S.mudancasDoModelo.at(-1))})`);
+    // "Esquecer" um produto: o diálogo diz o que acontece; "Cancelar" não manda nada.
+    await g.locator('button[aria-label="Esquecer DETERGENTE YPE 500ML"]').click();
+    const d = page.locator('[role="alertdialog"]');
+    await d.waitFor();
+    ok(/"DETERGENTE YPE 500ML" sai do modelo[\s\S]*pergunta de novo/.test(await d.innerText()), 'esquecer: o diálogo diz o que acontece');
+    await d.locator('button:text-is("Cancelar")').click();
+    await d.waitFor({ state: 'detached' });
+    ok(S.esquecidosDoModelo.length === 0, 'esquecer: "Cancelar" não manda nada');
+    await g.locator('button[aria-label="Esquecer DETERGENTE YPE 500ML"]').click();
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/modelos/12345678000195/esquecer')), d.locator('button:text-is("Esquecer")').click()]);
+    ok(JSON.stringify(S.esquecidosDoModelo.at(-1)) === JSON.stringify({ fornecedor: '12345678000195', chave: 'cod:7003' }), `esquecer: manda só o produto (${JSON.stringify(S.esquecidosDoModelo.at(-1))})`);
+    // "Esquecer o modelo": o modelo inteiro sai da lista.
+    await g.locator('button:has-text("Esquecer o modelo")').click();
+    await d.waitFor();
+    ok(/Esquecer o modelo de Rucas/.test(await d.innerText()) && /O estoque e as notas lançadas não mudam/.test(await d.innerText()), 'esquecer o modelo: o diálogo diz o que muda e o que não muda');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/modelos/12345678000195/esquecer')), d.locator('button:text-is("Esquecer")').click()]);
+    ok(JSON.stringify(S.esquecidosDoModelo.at(-1)) === JSON.stringify({ fornecedor: '12345678000195', tudo: true }), 'esquecer o modelo: manda o "tudo" dito');
+    await page.waitForSelector('[role="dialog"]', { state: 'detached' });
+    await page.locator('text=2 modelos >> visible=true').first().waitFor();
+    ok((await page.locator('text=Rucas Distribuidora >> visible=true').count()) === 0, 'esquecer o modelo: a lista é lida de novo, sem ele');
+    // Os apelidos: a gaveta, mudar o insumo e esquecer.
+    await page.locator('section[aria-labelledby="modelos-mister"] button:text-is("Ver")').last().click();
+    const ga = page.locator('[role="dialog"]:has-text("Apelidos da empresa")');
+    await ga.locator('text=coca lt').first().waitFor();
+    ok(/"carne 120"[\s\S]*Carne 120gr[\s\S]*4 vezes/.test(await ga.innerText()), 'apelidos: cada nome com o insumo e as vezes');
+    await ga.locator('button[aria-label="Mudar o apelido carne 120"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('[role="dialog"] select option').length > 1);
+    await ga.locator('select').selectOption('i5');
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/modelos/apelidos') && r.request().method() === 'PATCH'), ga.locator('button:text-is("Salvar")').click()]);
+    ok(JSON.stringify(S.mudancasDeApelido.at(-1)) === JSON.stringify({ chave: 'carne 120', itemId: 'i5' }), 'apelidos: mudar manda o nome e o insumo');
+    await ga.locator('button[aria-label="Esquecer o apelido coca lt"]').click();
+    await Promise.all([page.waitForResponse((r) => r.url().endsWith('/mister/modelos/apelidos/esquecer')), page.locator('[role="alertdialog"] button:text-is("Esquecer")').click()]);
+    ok(JSON.stringify(S.apelidosEsquecidos.at(-1)) === JSON.stringify({ chave: 'coca lt' }), 'apelidos: esquecer manda o nome');
+    await page.keyboard.press('Escape');
+    ok(erros.length === 0, `modelos: sem erro (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    const vazio = await abrir(1280, 900, { caminho: '/mister?parte=modelos', modelos: [], apelidos: [], modelosLigado: true });
+    await vazio.page.waitForSelector('text=Nenhum modelo ainda', { timeout: 20000 });
+    ok((await vazio.page.locator('text=está desligado').count()) === 0, 'modelos: com o ajuste ligado, sem a faixa');
+    ok((await vazio.page.locator('text=Nenhum ainda: nascem quando você confirma').count()) === 1, 'modelos: o vazio explica como nasce o modelo e o apelido');
+    await vazio.ctx.close();
+    const falha = await abrir(1280, 900, { caminho: '/mister?parte=modelos', modelosFalha: true });
+    await falha.page.waitForSelector('text=Não consegui carregar os modelos agora', { timeout: 20000 });
+    falha.S.modelosFalha = false;
+    await falha.page.click('button:has-text("Tentar de novo")');
+    await falha.page.locator('text=Felipão da Penha >> visible=true').first().waitFor();
+    ok(true, 'modelos: o erro tem "Tentar de novo", que lê de novo');
+    await falha.ctx.close();
+    const gerente = await abrir(1280, 900, { caminho: '/mister?parte=modelos', token: GERENTE });
+    await gerente.page.waitForSelector('h1', { timeout: 20000 });
+    await gerente.page.waitForTimeout(800);
+    ok(!gerente.S.doMister.some((x) => x.p.startsWith('/mister/modelos')), 'modelos: o gerente não chama as rotas dos modelos');
+    await gerente.ctx.close();
+  }
+
+  // ── cada largura, MODELOS: a lista, a gaveta com o "Mudar" aberto e o diálogo inteiros, sem barra lateral ──
+  for (const w of larguras) {
+    const { ctx, page, erros } = await abrir(w, w < 700 ? 820 : 900, { caminho: '/mister?parte=modelos' });
+    await page.locator('text=Felipão da Penha >> visible=true').first().waitFor({ timeout: 20000 });
+    let m = await medir(page);
+    ok(m.length === 0, `${w}px: Modelos de compra — sem barra lateral e com toque grande (${m.join(' | ')})`);
+    const esmagado = await page.evaluate(() =>
+      [...document.querySelectorAll('main span, main td')].filter((s) => /^Rucas Distribuidora|produtos conhecidos/.test(s.textContent ?? '') && s.getBoundingClientRect().width > 0 && s.getBoundingClientRect().width < 90).map((s) => Math.round(s.getBoundingClientRect().width)),
+    );
+    ok(esmagado.length === 0, `${w}px: Modelos de compra — nenhum texto esmagado (${esmagado.join(', ')} px)`);
+    if (w === 320 || w === 375 || w === 1440) {
+      const lista = page.locator('section[aria-labelledby="modelos-mister"]');
+      await lista.scrollIntoViewIfNeeded();
+      await lista.screenshot({ path: foto(`${w}-modelos.png`) });
+    }
+    await page.locator('button[aria-label="Ver: Rucas Distribuidora de Alimentos e Embalagens Ltda."] >> visible=true').first().click();
+    const g = page.locator('[role="dialog"]');
+    await g.locator('text=DETERGENTE YPE 500ML').waitFor();
+    await g.locator('button[aria-label="Mudar HAMBURGUER CG FARUESTE CX AURORA BOVINO 56G 36un"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('[role="dialog"] select option').length > 3);
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: a gaveta do modelo com o "Mudar" aberto inteira na tela (${m.join(' | ')})`);
+    const itensEsmagados = await page.evaluate(() =>
+      [...document.querySelectorAll('[role="dialog"] li span')].filter((s) => /BATATA CG|Caixa de batata/.test(s.textContent ?? '') && s.getBoundingClientRect().width > 0 && s.getBoundingClientRect().width < 90).map((s) => Math.round(s.getBoundingClientRect().width)),
+    );
+    ok(itensEsmagados.length === 0, `${w}px: os produtos do modelo sem texto esmagado (${itensEsmagados.join(', ')} px)`);
+    if (w === 320 || w === 375) await g.screenshot({ path: foto(`${w}-modelo-gaveta.png`) });
+    await g.locator('button:has-text("Esquecer o modelo")').click();
+    await page.waitForSelector('[role="alertdialog"]');
+    m = await medir(page);
+    ok(m.length === 0, `${w}px: o diálogo de esquecer o modelo inteiro na tela (${m.join(' | ')})`);
+    ok(erros.length === 0, `${w}px: Modelos de compra sem erro (${erros.join(' | ')})`);
     await ctx.close();
   }
 

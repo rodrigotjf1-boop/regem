@@ -2541,6 +2541,9 @@ const SO_NUVEM = new Set([
   'mister_conversa_config',
   // O de-para dos produtos da nota do fornecedor para os insumos (mig 441, @cloud-only): a memória da nota por foto.
   'mister_de_para',
+  // Os apelidos da empresa (versão 9, O2, mig 503, @cloud-only): o nome que a empresa usa para um insumo. Quem lê e grava é o
+  // Mister, na nuvem — a loja não tem esta tabela.
+  'mister_apelido',
   // Os links para encaminhar um relatório a quem não tem usuário (mig 443, @cloud-only): a foto do relatório, só leitura.
   'mister_link_publico',
   // O rascunho do recado no mural que espera o "Publicar" (mig 444, @cloud-only). O comunicado publicado desce pelo sync.

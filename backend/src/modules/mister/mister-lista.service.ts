@@ -13,6 +13,8 @@ import { normalizarUnidade } from '../estoque/unidades';
 import { MidiaDoMister, MisterEntradaService, QuemMandou, QuemTocou } from './mister-entrada.service';
 import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
+import { MisterCompraModelosService } from './mister-compra-modelos.service';
+import { chaveDoApelido, viraApelido } from './mister-compra-modelos';
 import { MAX_TOKENS_DA_LIGACAO, MODELO_DA_LIGACAO, PRAZO_DA_LIGACAO_MS, RECURSO_DA_LIGACAO, catalogoDaLigacao, instrucoesDaLigacao, lerLigacao, pedidoDaLigacao } from './mister-ligacao';
 import { lerAlteracoesDaLista, lerBotaoDasSugestoes, listaPelaIa, perguntasJuntas } from './mister-lista-ia';
 import { acharInsumo } from './mister-documento-conversa';
@@ -86,6 +88,8 @@ export class MisterListaService implements OnModuleInit {
     // Versão 9, O4: a ligação pela IA (o mesmo ajuste "Ligar as linhas pela IA" da nota).
     @Optional() private readonly ia?: IaEmpresaService,
     @Optional() private readonly conversa?: MisterConversaConfigService,
+    // Versão 9, O2: os apelidos da empresa. Opcional: sem ele, a lista de sempre.
+    @Optional() private readonly modelos?: MisterCompraModelosService,
   ) {}
 
   onModuleInit(): void {
@@ -500,6 +504,16 @@ export class MisterListaService implements OnModuleInit {
     const insumos = await this.insumos(tenantId, loja, null);
     const conversoes = await this.conversoes(tenantId, insumos.map((i) => i.id));
     const montadas = pedidos.map((p) => montarLinha(p, insumos, conversoes));
+    // Versão 9, O2: o nome que a empresa já usou para um insumo ("carne 120" = Carne 120gr) liga antes da IA (com o ajuste ligado).
+    if (this.modelos && montadas.some((l) => l.estado === 'item') && (await this.modelos.ligado(tenantId))) {
+      const apelidos = await this.modelos.acharApelidos(tenantId, montadas.filter((l) => l.estado === 'item').map((l) => l.texto)).catch(() => new Map<string, string>());
+      for (let i = 0; i < montadas.length; i++) {
+        const l = montadas[i];
+        const chave = l.estado === 'item' ? chaveDoApelido(l.texto) : null;
+        const insumo = chave && apelidos.has(chave) ? insumos.find((x) => x.id === apelidos.get(chave)) : undefined;
+        if (insumo) montadas[i] = { ...ligarAoInsumo(l, insumo, conversoes.get(insumo.id) ?? []), peloApelido: true };
+      }
+    }
     // Versão 9, O4: o que as palavras não ligaram, a IA liga (com o ajuste ligado). Falhou: a pergunta de sempre, linha por linha.
     if (montadas.some((l) => l.estado === 'item') && (await this.ligarPelaIaLigado(tenantId))) await this.ligarPelaIa(tenantId, montadas, insumos, conversoes);
     return montadas;
@@ -824,6 +838,13 @@ export class MisterListaService implements OnModuleInit {
         l.unidadeId ?? null,
       );
       await this.db.execute(sql`update mister_lista_compra set compra_lista_id = ${r.id}::uuid, atualizada_em = clock_timestamp() where id = ${l.id}::uuid`);
+      // Versão 9, O2: o nome diferente do cadastro que a pessoa confirmou vira apelido da empresa (com o ajuste ligado).
+      if (this.modelos && (await this.modelos.ligado(l.tenantId))) {
+        const pares = ligadas
+          .map((x) => ({ chave: viraApelido(x.texto, { nome: String(x.itemNome ?? '') }), texto: x.texto, itemId: String(x.itemId) }))
+          .filter((p): p is { chave: string; texto: string; itemId: string } => !!p.chave);
+        await this.modelos.gravarApelidos(l.tenantId, l.colaboradorId ?? null, pares).catch((e: any) => this.logger.warn(`lista ${l.id}: os apelidos não foram gravados (${e?.message ?? e})`));
+      }
       await this.auditoria
         ?.registrar({ tenantId: l.tenantId, atorId: l.colaboradorId, atorPerfil: 'mister', tipo: 'mister', acao: 'mister_lista_criada', entidadeTipo: 'compra_lista', entidadeId: r.id, detalhe: { itens: ligadas.length, lista: l.id } } as any)
         .catch(() => undefined);

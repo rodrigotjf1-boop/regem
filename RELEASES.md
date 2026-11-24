@@ -12,6 +12,8 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: modelos de compra e apelidos, versão 9 O2 (24/11; mig 503 SÓ NUVEM; ⚠️ MEXE NO `sync-daemon` → pede `.exe` além do `.zip`).** A tabela nova `mister_apelido` entrou em SO_NUVEM no `edge/sync-daemon.mjs` (o servidor da loja não a tem e não a sobe). O resto é só na nuvem.
+
 - **Mister: cupom e conta a pagar pela conversa, versão 9 O5 (24/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
 
 - **Mister: a lista de compras pela IA e pela conversa, versão 9 O4 (24/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
