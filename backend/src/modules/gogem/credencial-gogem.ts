@@ -18,24 +18,9 @@ const log = new Logger('CredencialGoGeM');
 //
 // Qual é o do GoGeM, quem diz é o próprio GoGeM: toda chamada dele à nuvem vem com
 // `X-Integrador: gogem` junto do token, e o guard marca aquele equipamento
-// (`EquipamentoService.notarIntegrador`). Só a NUVEM lê esta credencial — o servidor da loja nunca
-// a tem (credencial de integração é da distribuição) e repassa o aviso para a nuvem.
-
-/**
- * O token da integração GoGeM da empresa: o do equipamento MARCADO e ativo — o da loja pedida,
- * depois o da rede (sem loja), depois qualquer um da empresa; no empate, o visto por último.
- * Sem marcado: `null` — quem chama espera o GoGeM se identificar, não chuta.
- */
-export async function tokenDoGogem(db: any, tenantId: string, unidadeId?: string | null): Promise<string | null> {
-  const r: any = await db.execute(sql`
-    select token from equipamento
-     where tenant_id = ${tenantId}::uuid and tipo = 'servidor_local' and ativo
-       and integrador = ${DESTINO_GOGEM}
-     order by case when unidade_id = ${unidadeId ?? null}::uuid then 0 when unidade_id is null then 1 else 2 end,
-              integrador_visto_em desc nulls last, created_at desc
-     limit 1`);
-  return ((r.rows ?? r)[0]?.token as string | undefined) ?? null;
-}
+// (`EquipamentoService.notarIntegrador`). A marca segue dizendo a ORIGEM das vendas do totem
+// (`equipamentoDoGogem`). Desde a fase 4 (24/11/2026, P-7) o aviso e o "Publicar" saem SÓ assinados,
+// pelo registro abaixo (`registroDoGogem`): o token marcado não é mais mandado ao GoGeM.
 
 /**
  * O equipamento que REPRESENTA o GoGeM na loja (fase 1 da credencial própria, mig 323): a venda feita
@@ -64,16 +49,27 @@ export type RegistroDoGogem = { tokenId: string; url: string; chave: Buffer; loj
 
 /**
  * O registro de aviso que o GoGeM fez com o token de integração da loja (`PUT /integracao/webhook`).
- * Com ele, o cancelamento e o "Publicar" saem assinados para o endereço registrado; sem ele, pelo
- * caminho de antes — é o GoGeM quem liga, loja por loja, e um `DELETE` dele desfaz na hora.
+ * Com ele, o cancelamento e o "Publicar" saem assinados para o endereço registrado; sem ele, desde a
+ * fase 4, o aviso espera e o "Publicar" recusa — é o GoGeM quem liga, loja por loja.
  *
  * SÓ NUVEM (a tabela da 304 não existe no servidor da loja — V1): lá devolve `null` sem consultar.
  * A loja pedida, ou o registro da rede (sem loja); nunca o de outra loja, que pode ser outra conta
  * no GoGeM. Sem loja pedida (aviso antigo, "todas as lojas"): só se a empresa tem UM registro — com
  * dois, não se chuta (ERR-108). Token revogado ou vencido não vale. Nunca rejeita (V3): erro ou
- * segredo que não abre mais vira `null` com o motivo no log — o caminho de antes segue valendo.
+ * segredo que não abre mais vira `null` com o motivo no log.
  */
 export async function registroDoGogem(db: any, tenantId: string, unidadeId: string | null): Promise<RegistroDoGogem | null> {
+  const r = await lerRegistroDoGogem(db, tenantId, unidadeId);
+  return r === 'nao_lido' ? null : r;
+}
+
+/**
+ * O mesmo registro, separando "não há registro" (`null`: o aviso espera o GoGeM ligar) de "não deu para ler agora"
+ * (`'nao_lido'`: erro passageiro do banco — o aviso tenta de novo no recuo de sempre). Desde a fase 4 não há caminho
+ * antigo para cair: sem essa separação, uma falha de um segundo seguraria o estorno por 6 horas. A tabela que não
+ * existe (42P01, o banco de loja dos testes) é "não há registro".
+ */
+export async function lerRegistroDoGogem(db: any, tenantId: string, unidadeId: string | null): Promise<RegistroDoGogem | null | 'nao_lido'> {
   if (ehServidorLocal()) return null;
   try {
     const r: any = await db.execute(sql`
@@ -96,13 +92,14 @@ export async function registroDoGogem(db: any, tenantId: string, unidadeId: stri
       chave = null;
     }
     if (!chave) {
-      log.warn(`registro de aviso do GoGeM (empresa ${tenantId}) com segredo que não abre — sai pelo caminho de antes`);
+      log.warn(`registro de aviso do GoGeM (empresa ${tenantId}) com segredo que não abre — o aviso espera um registro novo`);
       return null;
     }
     return { tokenId: l.token_id, url: l.url, chave, lojaId: l.unidade_id ?? null, prefixo: l.prefixo ?? null };
   } catch (e: any) {
-    log.warn(`registro de aviso do GoGeM não lido (empresa ${tenantId}): ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e} — sai pelo caminho de antes`);
-    return null;
+    if (e?.code === '42P01') return null;
+    log.warn(`registro de aviso do GoGeM não lido (empresa ${tenantId}): ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e} — tenta de novo no recuo`);
+    return 'nao_lido';
   }
 }
 

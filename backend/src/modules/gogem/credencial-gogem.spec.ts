@@ -1,5 +1,4 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { Logger } from '@nestjs/common';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { EquipamentoService } from '../equipamento/equipamento.service';
@@ -7,19 +6,21 @@ import { SyncTokenGuard } from '../sync/sync-token.guard';
 import { CatalogoSyncController } from '../produto/catalogo-sync.controller';
 import { CLOUD_ONLY } from '../../common/cloud-only.decorator';
 import { GogemAvisoService } from './gogem-aviso.service';
-import { GogemPublishService } from './gogem-publish.service';
+import { GogemPublishService, MSG_PUBLICAR_SEM_REGISTRO } from './gogem-publish.service';
 import { GogemRepasseController } from './gogem-repasse.controller';
-import { tokenDoGogem } from './credencial-gogem';
-import { MSG_GOGEM_NAO_IDENTIFICADO, gravarAvisoCancelamentoTotem } from './aviso-gogem';
+import { MSG_GOGEM_SEM_REGISTRO, gravarAvisoCancelamentoTotem } from './aviso-gogem';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // A CREDENCIAL DO GOGEM (mig 290, ERR-108) — contra o Postgres de verdade.
 //
-// O GoGeM aceita UM token por empresa: o da integração dele. O piloto tem 6 `servidor_local`, e o
+// O GoGeM aceitava UM token por empresa: o da integração dele. O piloto tem 6 `servidor_local`, e o
 // Regem pegava "um qualquer" para avisar o cancelamento — 5 de 6 davam 401, e o estorno do
-// cartão/PIX não era pedido. Agora o próprio GoGeM se identifica (`X-Integrador: gogem`) e marca o
-// equipamento dele; o aviso e o "Publicar" usam esse, e sem ele não chutam.
+// cartão/PIX não era pedido. O próprio GoGeM se identifica (`X-Integrador: gogem`) e marca o
+// equipamento dele (a marca segue valendo para a origem das vendas — `equipamentoDoGogem`).
+//
+// Desde a fase 4 (24/11/2026, P-7) o aviso e o "Publicar" saem SÓ assinados, pelo registro do GoGeM
+// (`aviso-assinado.spec.ts`): o token marcado não basta, e sem registro nada sai — nunca se chuta.
 
 const URL_PG = process.env.TEST_PG_URL;
 const descrever = URL_PG ? describe : describe.skip;
@@ -130,24 +131,24 @@ descrever('a credencial do GoGeM (Postgres real)', () => {
 
   // ── a marca ──────────────────────────────────────────────────────────────────────────────
 
-  it('sem o GoGeM identificado: o aviso ESPERA — nenhuma chamada com um servidor_local qualquer', async () => {
+  it('sem o registro do GoGeM: o aviso ESPERA — nenhuma chamada com um servidor_local qualquer', async () => {
     const p = await piloto();
     const a = await aviso(p.t, p.u);
 
     const r = await avisos.enviarAgora(a.id);
 
     expect(chamadas).toHaveLength(0); // antes: "o primeiro servidor_local" → 401 no GoGeM
-    expect(r).toEqual(MSG_GOGEM_NAO_IDENTIFICADO);
+    expect(r).toEqual(MSG_GOGEM_SEM_REGISTRO);
     const l = await avisoPorId(a.id);
     expect(l.status).toBe('aguardando_integracao');
-    expect(l.ultimo_erro).toContain('não se identificou');
+    expect(l.ultimo_erro).toContain('não registrou o endereço dos avisos');
     expect(auditorias.map((x) => x.acao)).toContain('aviso_gogem_sem_integracao');
   });
 
-  it('o GoGeM se identifica: o equipamento dele fica MARCADO, e a fila parada volta na hora — sai com o token dele', async () => {
+  it('o GoGeM se identifica: o equipamento dele fica MARCADO; desde a fase 4 o aviso ainda espera o registro', async () => {
     const p = await piloto();
     const a = await aviso(p.t, p.u);
-    await avisos.enviarAgora(a.id); // espera: ninguém marcado
+    await avisos.enviarAgora(a.id); // espera: sem registro
 
     await chamarGuard({ 'x-sync-token': p.s.gogem.token, 'x-integrador': 'gogem' });
 
@@ -155,17 +156,12 @@ descrever('a credencial do GoGeM (Postgres real)', () => {
     expect(g.integrador).toBe('gogem');
     expect(g.integrador_visto_em).not.toBeNull();
     expect(auditorias.map((x) => x.acao)).toContain('marcou_credencial_integracao');
-    const solto = await avisoPorId(a.id);
-    expect(solto.status).toBe('pendente'); // sem esperar as 6 h
-    expect(new Date(solto.proxima_tentativa_em).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
 
     // Só o aviso DESTE teste: o job (`rodarFila`) varre a fila de todas as empresas, e no CI as
-    // specs dividem o banco em paralelo (LIC-084).
+    // specs dividem o banco em paralelo (LIC-084). O token marcado não abre o caminho antigo.
     await avisos.enviarAgora(a.id);
-    const minhas = chamadas.filter((c) => c.corpo?.idempotencyKey === a.chave);
-    expect(minhas).toHaveLength(1);
-    expect(minhas[0].token).toBe(p.s.gogem.token);
-    expect((await avisoPorId(a.id)).status).toBe('entregue');
+    expect(chamadas.filter((c) => c.corpo?.idempotencyKey === a.chave)).toHaveLength(0);
+    expect((await avisoPorId(a.id)).status).toBe('aguardando_integracao');
   });
 
   it('servidor de LOJA (já sincronizou) não vira credencial pelo cabeçalho', async () => {
@@ -202,97 +198,25 @@ descrever('a credencial do GoGeM (Postgres real)', () => {
     expect(auditorias.filter((x) => x.acao === 'marcou_credencial_integracao')).toHaveLength(0); // já era dele
   });
 
-  // ── o token ──────────────────────────────────────────────────────────────────────────────
+  // ── o "Publicar" (o envio assinado, com conexão e sem, está em `aviso-assinado.spec.ts`) ───────────
 
-  it('o token é o do GoGeM, com cinco outros servidor_local na frente — mais antigos e mais novos', async () => {
+  it('"Publicar no GoGeM" sem o registro: erro claro, mesmo com o token antigo marcado — nada sai (fase 4)', async () => {
     const p = await piloto();
+    await expect(publicar.publicar(p.t)).rejects.toThrow(MSG_PUBLICAR_SEM_REGISTRO);
     await q(`update equipamento set integrador = 'gogem', integrador_visto_em = now() where id = $1`, [p.s.gogem.id]);
-    expect(await tokenDoGogem(db, p.t, p.u)).toBe(p.s.gogem.token);
-    expect(await tokenDoGogem(db, p.t)).toBe(p.s.gogem.token);
-  });
-
-  it('mais de um marcado: o da loja do pedido, depois o da rede; no empate, o visto por último', async () => {
-    const t = (await q(`insert into empresa (nome) values ('Dois GoGeM') returning id`))[0].id as string;
-    empresas.push(t);
-    const u = (await q(`insert into unidade (tenant_id, nome) values ($1,'Loja A') returning id`, [t]))[0].id;
-    const u2 = (await q(`insert into unidade (tenant_id, nome) values ($1,'Loja B') returning id`, [t]))[0].id;
-    const daLoja = await servidor(t, u, { diasAtras: 5, integrador: 'gogem', vistoHorasAtras: 3 });
-    const daRedeAntigo = await servidor(t, null, { diasAtras: 5, integrador: 'gogem', vistoHorasAtras: 5 });
-    const daRedeNovo = await servidor(t, null, { diasAtras: 5, integrador: 'gogem', vistoHorasAtras: 1 });
-    expect(await tokenDoGogem(db, t, u)).toBe(daLoja.token);
-    expect(await tokenDoGogem(db, t, u2)).toBe(daRedeNovo.token);
-    await q(`update equipamento set ativo = false where id = $1`, [daRedeNovo.id]);
-    expect(await tokenDoGogem(db, t, u2)).toBe(daRedeAntigo.token); // desativado não vale
-  });
-
-  it('"Publicar no GoGeM": com o token dele — e, sem ele identificado, um erro claro em vez de chutar', async () => {
-    const p = await piloto();
-    await expect(publicar.publicar(p.t)).rejects.toThrow('ainda não se identificou');
+    await expect(publicar.publicar(p.t)).rejects.toThrow(MSG_PUBLICAR_SEM_REGISTRO);
     expect(chamadas).toHaveLength(0);
-
-    await q(`update equipamento set integrador = 'gogem', integrador_visto_em = now() where id = $1`, [p.s.gogem.id]);
-    expect(await publicar.publicar(p.t)).toEqual({ ok: true, alterados: 3 });
-    expect(chamadas).toHaveLength(1);
-    expect(chamadas[0].token).toBe(p.s.gogem.token);
   });
 
-  it('"Publicar no GoGeM" sem conexão: a mensagem e o log trazem a causa, nunca o token (ERR-239)', async () => {
+  // ── o aviso que vem do servidor da loja (o envio com o registro está em `aviso-assinado.spec.ts`) ───
+
+  it('sem o registro do GoGeM, a nuvem aceita o aviso da loja e ele espera — a loja não insiste', async () => {
     const p = await piloto();
     await q(`update equipamento set integrador = 'gogem', integrador_visto_em = now() where id = $1`, [p.s.gogem.id]);
-    const log = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
-    espiao.mockImplementationOnce(() => {
-      const e: any = new TypeError('fetch failed');
-      e.cause = { code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND api-stg.gogem.com.br' };
-      return Promise.reject(e);
-    });
-    try {
-      const erro: any = await publicar.publicar(p.t).catch((e) => e);
-      expect(erro.message).toBe('Não foi possível conectar ao GoGeM (ENOTFOUND api-stg.gogem.com.br).');
-      const linhas = log.mock.calls.map((c) => String(c[0])).join('\n');
-      expect(linhas).toContain('ENOTFOUND api-stg.gogem.com.br');
-      expect(linhas + erro.message).not.toContain(p.s.gogem.token);
-    } finally {
-      log.mockRestore();
-    }
-  });
-
-  // ── o aviso que vem do servidor da loja ──────────────────────────────────────────────────
-
-  it('a nuvem recebe o aviso da loja: grava com o MESMO id e envia com o token do GoGeM', async () => {
-    const p = await piloto();
-    await q(`update equipamento set integrador = 'gogem', integrador_visto_em = now() where id = $1`, [p.s.gogem.id]);
-    const sync = { tenantId: p.t, unidadeId: p.u, equipamentoId: p.s.lojaTeste.id, token: p.s.lojaTeste.token };
-    const repasse = {
-      avisoId: randomUUID(),
-      chave: `totem-${randomUUID()}`,
-      corpo: { idempotencyKey: 'x', regemComandaId: randomUUID(), motivo: 'Cliente desistiu' },
-      referenciaTipo: 'comanda',
-      referenciaId: randomUUID(),
-    };
-
-    const r = await avisos.receberDaLoja(sync, repasse);
-
-    expect(r).toMatchObject({ aceito: true, avisoId: repasse.avisoId, estorno: { situacao: 'solicitado' } });
-    expect(chamadas).toHaveLength(1);
-    expect(chamadas[0].token).toBe(p.s.gogem.token);
-    // A chave da venda é a do aviso — nunca um campo que o corpo trouxesse diferente.
-    expect(chamadas[0].corpo.idempotencyKey).toBe(repasse.chave);
-    const l = await avisoPorId(repasse.avisoId);
-    expect(l).toMatchObject({ status: 'entregue', unidade_id: p.u, referencia_tipo: 'comanda' });
-
-    // Repetir o repasse (a resposta se perdeu no caminho): o mesmo aviso, sem pedir o estorno de novo.
-    const r2 = await avisos.receberDaLoja(sync, repasse);
-    expect(r2.avisoId).toBe(repasse.avisoId);
-    expect(r2.estorno.situacao).toBe('solicitado');
-    expect(chamadas).toHaveLength(1);
-  });
-
-  it('sem o GoGeM identificado, a nuvem aceita o aviso da loja e ele espera — a loja não insiste', async () => {
-    const p = await piloto();
     const sync = { tenantId: p.t, unidadeId: p.u, equipamentoId: p.s.lojaTeste.id, token: p.s.lojaTeste.token };
     const r = await avisos.receberDaLoja(sync, { avisoId: randomUUID(), chave: `totem-${randomUUID()}`, corpo: {} });
     expect(r.aceito).toBe(true);
-    expect(r.estorno).toEqual(MSG_GOGEM_NAO_IDENTIFICADO);
+    expect(r.estorno).toEqual(MSG_GOGEM_SEM_REGISTRO);
     expect((await avisoPorId(r.avisoId)).status).toBe('aguardando_integracao');
     expect(chamadas).toHaveLength(0);
   });

@@ -4,8 +4,9 @@
 // dono, 25/09/2026) — mas quem devolve o dinheiro é o GoGeM, o único com as credenciais do Mercado
 // Pago. Até aqui o Regem desfazia a venda e nunca avisava: o cliente ficava sem o dinheiro.
 //
-// O contrato do lado do GoGeM (PR #136 dele):
-//   POST {GOGEM_CLOUD_URL}/sync/regem/pedido-cancelado     X-Sync-Token: <token da integração>
+// O contrato do lado do GoGeM: desde a fase 4 (24/11/2026, P-7 do "Fim das portas antigas") o aviso sai SÓ assinado,
+// no endereço que o GoGeM registrou (`docs/integracao-gogem/AVISOS-ASSINADOS.md`), com `pedido` = o corpo abaixo. O
+// caminho antigo (`POST /sync/regem/pedido-cancelado` com o `X-Sync-Token`, PR #136 do GoGeM) não é mais chamado.
 //   { idempotencyKey, regemComandaId?, motivo?, canceladoPor } (limites do DTO: 120 / 120 / 500)
 //   (`canceladoPor` 'pessoa' | 'agente' desde o GoGeM #154, 13/11/2026 — F5-10: 'agente' volta 422)
 //   200 → { status:'cancelado', pedidoId, estorno:{ feito, meio, valorCentavos, refundId?, mensagem } }
@@ -17,10 +18,10 @@
 //    marca o pedido cancelado e, quando o aviso chega de novo, TENTA O ESTORNO DE NOVO (o
 //    `X-Idempotency-Key` do refund impede estorno em dobro) → para nós é "reenviar", não "entregue".
 //
-// O TOKEN (ERR-108): o GoGeM aceita UM por empresa — o do equipamento que ELE marcou ao chamar a
-// nuvem com `X-Integrador: gogem` (mig 290, `credencial-gogem.ts`). Só a NUVEM fala com o GoGeM:
-// o servidor da loja nunca tem esse token (credencial de integração é da distribuição) e repassa o
-// aviso para a nuvem (`POST /gogem/avisos/pedido-cancelado`, com o token de sync dele), que envia.
+// O REGISTRO: o aviso assinado sai para o endereço e com o segredo que o GoGeM registrou por loja
+// (`registroDoGogem`, mig 304). Só a NUVEM fala com o GoGeM: o servidor da loja nunca tem o registro
+// (credencial de integração é da distribuição) e repassa o aviso para a nuvem
+// (`POST /gogem/avisos/pedido-cancelado`, com o token de sync dele), que envia.
 import { Logger } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 
@@ -30,8 +31,6 @@ const log = new Logger('AvisoGoGeM');
 
 export const DESTINO_GOGEM = 'gogem';
 export const TIPO_PEDIDO_CANCELADO = 'pedido_cancelado';
-export const CAMINHO_PEDIDO_CANCELADO = '/sync/regem/pedido-cancelado';
-export const GOGEM_NUVEM_PADRAO = 'https://api.gogem.com.br/api/v1';
 
 /** Meios sem nada eletrônico a estornar (resposta do GoGeM). */
 const SEM_ESTORNO_ELETRONICO = new Set(['dinheiro', 'desconhecido']);
@@ -168,15 +167,15 @@ export const MSG_PENDENTE =
   'O estorno do cartão/PIX será pedido ao GoGeM assim que a conexão voltar — o Regem tenta sozinho.';
 
 /**
- * Nenhum equipamento marcado como a credencial do GoGeM nesta empresa (mig 290): não se chuta um
- * `servidor_local` qualquer. O GoGeM se identifica sozinho na próxima chamada dele à nuvem (o
- * cardápio sincroniza a cada poucos minutos) — e aí o aviso sai na hora.
+ * O GoGeM ainda não registrou o endereço dos avisos desta loja (`PUT /integracao/webhook`): o aviso espera, sem chutar
+ * outro caminho (desde a fase 4 não há caminho antigo). O registro solta a fila na hora (`soltarAvisosParados`), e o
+ * prazo de 7 dias segue o mesmo.
  */
-export const MSG_GOGEM_NAO_IDENTIFICADO: EstornoGogem = {
+export const MSG_GOGEM_SEM_REGISTRO: EstornoGogem = {
   situacao: 'pendente',
   mensagem:
-    'O estorno do cartão/PIX será pedido ao GoGeM assim que ele se identificar para esta empresa ' +
-    '(acontece sozinho na próxima sincronização do cardápio) — o Regem tenta sozinho.',
+    'O estorno do cartão/PIX será pedido ao GoGeM assim que ele ligar os avisos desta loja — ' +
+    'o Regem tenta sozinho.',
 };
 
 /** Servidor da loja sem a ligação com a nuvem (`CLOUD_API`/`SYNC_TOKEN`): o aviso não tem por onde sair. */

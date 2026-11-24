@@ -10,6 +10,7 @@ import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { GogemAvisoService } from './gogem-aviso.service';
 import { MSG_NAO_GRAVADO } from './aviso-gogem';
+import * as credencialGogem from './credencial-gogem';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -23,12 +24,18 @@ import { MSG_NAO_GRAVADO } from './aviso-gogem';
 //
 // O job roda sempre limitado à empresa deste teste (`rodarFila(n, [tenant])`): no CI as specs
 // dividem o banco em paralelo, e a fila da nuvem inteira pegaria o aviso de outra spec (LIC-084).
+//
+// Desde a fase 4 (24/11/2026, P-7) o aviso sai SÓ assinado, para o endereço que o GoGeM registrou. As
+// tabelas do registro são só da nuvem (o banco do CI é de loja): aqui a LEITURA do registro responde o
+// registro da empresa deste teste — o registro de verdade, com a assinatura conferida, está no
+// `aviso-assinado.spec.ts`. O que este teste prova é a fila: quando sai, quantas vezes, o que o operador vê.
 
 const URL_PG = process.env.TEST_PG_URL;
 const descrever = URL_PG ? describe : describe.skip;
 if (!URL_PG) console.warn('cancelamento-totem-gogem.spec: sem TEST_PG_URL — PULADO');
 
 const TOKEN_INTEGRACAO = 'tok-integracao-gogem-teste';
+const URL_DO_REGISTRO = 'https://api.gogem.com.br/api/v1/sync/regem/avisos/integ_teste';
 const SENHA_GESTOR = 'Senha-Do-Gestor-1';
 
 const json = (status: number, corpo: unknown) =>
@@ -69,9 +76,10 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
   let senha = 900;
 
   // ── a nuvem do GoGeM, de mentira ────────────────────────────────────────────────────────
-  const chamadas: { url: string; metodo: string; token: string; corpo: any }[] = [];
+  const chamadas: { url: string; metodo: string; token: string; assinado: boolean; corpo: any }[] = [];
   let responder: () => Promise<Response> = async () => estornoFeito();
   let espiao: jest.SpyInstance;
+  let registroEspiao: jest.SpyInstance;
 
   // ── ajudantes ───────────────────────────────────────────────────────────────────────────
   const linhas = (q: string, p: any[]) => pool.query(q, p).then((r) => r.rows);
@@ -175,18 +183,26 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
     );
     espiao = jest.spyOn(global, 'fetch').mockImplementation(async (url: any, init: any) => {
       const headers = new Headers(init?.headers ?? {});
+      const lido = init?.body ? JSON.parse(String(init.body)) : null;
       chamadas.push({
         url: String(url),
         metodo: String(init?.method ?? 'GET'),
         token: headers.get('x-sync-token') ?? '',
-        corpo: init?.body ? JSON.parse(String(init.body)) : null,
+        assinado: !!headers.get('webhook-signature'),
+        // O aviso assinado leva o pedido dentro de `pedido` (§4 do contrato): é ele que os casos conferem.
+        corpo: lido?.tipo === 'pedido.cancelado' ? lido.pedido : lido,
       });
       return responder();
     });
+    const lerDeVerdade = credencialGogem.lerRegistroDoGogem;
+    registroEspiao = jest.spyOn(credencialGogem, 'lerRegistroDoGogem').mockImplementation(async (d: any, t: string, u: string | null) =>
+      t === tenant ? { tokenId: randomUUID(), url: URL_DO_REGISTRO, chave: randomBytes(32), lojaId: null, prefixo: 'rgm_it_teste' } : lerDeVerdade(d, t, u),
+    );
   }, 120_000);
 
   afterAll(async () => {
     espiao?.mockRestore();
+    registroEspiao?.mockRestore();
     if (edgeOriginal === undefined) delete process.env.EDGE_MODE;
     else process.env.EDGE_MODE = edgeOriginal;
     if (syncOriginal === undefined) delete process.env.SYNC_TOKEN;
@@ -209,10 +225,11 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
     expect(chamadas).toHaveLength(1);
     expect(chamadas[0]).toMatchObject({
       metodo: 'POST',
-      token: TOKEN_INTEGRACAO,
+      assinado: true,
+      token: '', // fase 4: o token antigo marcado não vai mais junto
       corpo: { idempotencyKey: v.chave, regemComandaId: v.comandaId, motivo: 'Cliente desistiu' },
     });
-    expect(chamadas[0].url).toBe('https://api.gogem.com.br/api/v1/sync/regem/pedido-cancelado');
+    expect(chamadas[0].url).toBe(URL_DO_REGISTRO);
     expect(r.estornoGogem.situacao).toBe('solicitado');
     expect(r.estornoGogem.mensagem).toContain('20,00');
 

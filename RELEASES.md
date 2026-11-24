@@ -12,6 +12,8 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **GoGeM: avisos só assinados, fase 4 / P-7 (24/11; SEM migration).** O cancelamento do totem e o "Publicar no GoGeM" saem só para o endereço que o GoGeM registrou, sem o `X-Sync-Token`; sem registro, o aviso espera. Só a nuvem fala com o GoGeM: vai no `.zip` sem efeito na loja (o servidor da loja continua repassando à nuvem).
+
 - **Devolução de delivery concluído pelo PDV (24/11; ERR-603; SEM migration).** D-03 da revisão do PDV: o pedido cuja venda foi
   cancelada no PDV sai do faturamento oficial (`pedidoVale`) e o cashback e os pontos voltam. O pedido segue "concluído" (o sync dá
   precedência a ele). **Vai no `.zip`.**

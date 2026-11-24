@@ -15,8 +15,9 @@ import { IntegracaoTokenGuard } from '../integracao-api/integracao-token.guard';
 import { IntegracaoTokenService } from '../integracao-api/integracao-token.service';
 import { WebhookIntegracaoService } from '../integracao-api/webhook-integracao.service';
 import { GogemAvisoService } from './gogem-aviso.service';
-import { GogemPublishService } from './gogem-publish.service';
-import { registroDoGogem } from './credencial-gogem';
+import { Logger } from '@nestjs/common';
+import { GogemPublishService, MSG_PUBLICAR_SEM_REGISTRO } from './gogem-publish.service';
+import { lerRegistroDoGogem, registroDoGogem } from './credencial-gogem';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -25,11 +26,12 @@ import { registroDoGogem } from './credencial-gogem';
 // a assinatura como o contrato manda (`docs/integracao-gogem/AVISOS-ASSINADOS.md` §3), com uma
 // implementação à parte da do Regem.
 //
-// O que se prova: sem registro, NADA muda (mesmo endereço, mesmo `X-Sync-Token`, mesmo corpo); com o
-// registro que o próprio GoGeM faz pelo token da loja, sai assinado no endereço dele, com o
-// `webhook-id` fixo entre tentativas e o `X-Sync-Token` junto (até a fase 4); 404 no endereço
-// registrado espera 6 h em vez de virar estorno manual; token revogado volta ao caminho de antes; o
-// registro de uma loja não serve a outra; e registrar solta a fila que esperava pelo GoGeM.
+// O que se prova, desde a FASE 4 (24/11/2026, P-7 do "Fim das portas antigas"): com o registro que o
+// próprio GoGeM faz pelo token da loja, sai assinado no endereço dele, com o `webhook-id` fixo entre
+// tentativas e SEM o `X-Sync-Token` (mesmo com o token antigo marcado); sem registro (ou com o token
+// do registro revogado), o aviso ESPERA e o caminho antigo nunca é chamado; 404 no endereço registrado
+// espera 6 h em vez de virar estorno manual; o registro de uma loja não serve a outra; e registrar
+// solta a fila que esperava pelo GoGeM.
 //
 // Como as specs da integração: o banco do CI é de LOJA, e as migrations só da nuvem (295, 296, 303,
 // 304 e 323) sobem num schema só deste teste, na frente do `public`, sem FK para tabela
@@ -62,6 +64,28 @@ describe('no servidor da loja o registro nem é consultado (a tabela é só da n
     } finally {
       if (antes === undefined) delete process.env.EDGE_MODE;
       else process.env.EDGE_MODE = antes;
+    }
+  });
+});
+
+describe('fase 4: "não há registro" × "não deu para ler agora"', () => {
+  const antes = process.env.EDGE_MODE;
+  beforeAll(() => delete process.env.EDGE_MODE);
+  afterAll(() => {
+    if (antes !== undefined) process.env.EDGE_MODE = antes;
+  });
+  const falha = (code?: string) => ({ execute: () => Promise.reject(Object.assign(new Error('falhou'), code ? { code } : {})) });
+
+  it('a tabela que não existe (banco de loja) é "não há registro"; outro erro é "não lido" — o aviso tenta no recuo, não espera 6 h', async () => {
+    const log = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      await expect(lerRegistroDoGogem(falha('42P01'), randomUUID(), randomUUID())).resolves.toBeNull();
+      await expect(lerRegistroDoGogem(falha('57014'), randomUUID(), randomUUID())).resolves.toBe('nao_lido');
+      await expect(lerRegistroDoGogem(falha(), randomUUID(), randomUUID())).resolves.toBe('nao_lido');
+      // Quem só quer saber se há registro (o "Publicar", a linha do GoGeM) recebe `null` nos dois casos.
+      await expect(registroDoGogem(falha('57014'), randomUUID(), randomUUID())).resolves.toBeNull();
+    } finally {
+      log.mockRestore();
     }
   });
 });
@@ -243,25 +267,22 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
 
   // ───────────────────────────── os casos ─────────────────────────────
 
-  it('sem registro: o caminho de antes (endereço, X-Sync-Token, o corpo com quem cancelou, sem assinatura)', async () => {
+  it('fase 4: sem registro, o aviso ESPERA — o caminho antigo não é chamado nem com o token antigo marcado', async () => {
     const e = await empresa();
-    const token = await credencialAntiga(e);
+    await credencialAntiga(e);
     const a = await aviso(e, e.lojas[0]);
     const op = await avisos.enviarAgora(a.id);
-    expect(op.situacao).toBe('solicitado');
-    expect(recebidos).toHaveLength(1);
-    const [r] = recebidos;
-    expect(r.caminho).toBe('/api/v1/sync/regem/pedido-cancelado');
-    expect(r.cabecalhos['x-sync-token']).toBe(token);
-    expect(r.cabecalhos['webhook-signature']).toBeUndefined();
-    // O aviso gravado antes do `canceladoPor` (como este) sai com "pessoa" (F5-10).
-    expect(JSON.parse(r.corpo)).toEqual({ ...a.corpo, canceladoPor: 'pessoa' });
-    expect((await linhaDoAviso(a.id)).status).toBe('entregue');
+    expect(op.situacao).toBe('pendente');
+    expect(op.mensagem).toContain('assim que ele ligar os avisos desta loja');
+    expect(recebidos).toHaveLength(0);
+    const l = await linhaDoAviso(a.id);
+    expect(l.status).toBe('aguardando_integracao');
+    expect(l.ultimo_erro).toContain('não registrou o endereço dos avisos');
   });
 
-  it('com registro: assinado no endereço do GoGeM, X-Sync-Token junto, corpo do contrato', async () => {
+  it('com registro: assinado no endereço do GoGeM, corpo do contrato, SEM o X-Sync-Token (fase 4)', async () => {
     const e = await empresa();
-    const token = await credencialAntiga(e);
+    await credencialAntiga(e);
     const lig = await ligarAvisos(e, e.lojas[0]);
     const a = await aviso(e, e.lojas[0]);
     const op = await avisos.enviarAgora(a.id);
@@ -271,7 +292,7 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
     expect(r.caminho).toBe(lig.caminho);
     expect(assinaturaConfere(r, lig.segredo)).toBe(true);
     expect(r.cabecalhos['webhook-id']).toBe(`aviso_${a.id}`);
-    expect(r.cabecalhos['x-sync-token']).toBe(token); // até a fase 4
+    expect(r.cabecalhos['x-sync-token']).toBeUndefined(); // fase 4: o token antigo não vai mais junto
     expect(r.cabecalhos['content-type']).toBe('application/json');
     const corpo = JSON.parse(r.corpo);
     expect(corpo).toEqual({
@@ -327,7 +348,7 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
     expect(recebidos).toHaveLength(1);
   });
 
-  it('com registro e sem o token antigo: sai assinado, sem X-Sync-Token (já é o jeito da fase 4)', async () => {
+  it('com registro e sem o token antigo: sai assinado, sem X-Sync-Token', async () => {
     const e = await empresa();
     const lig = await ligarAvisos(e, e.lojas[0]);
     const a = await aviso(e, e.lojas[0]);
@@ -353,17 +374,15 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
     expect((await linhaDoAviso(a.id)).status).toBe('entregue');
   });
 
-  it('token do GoGeM revogado: o registro deixa de valer e o aviso volta ao caminho de antes', async () => {
+  it('token do GoGeM revogado: o registro deixa de valer e o aviso ESPERA (fase 4: sem caminho antigo)', async () => {
     const e = await empresa();
-    const token = await credencialAntiga(e);
+    await credencialAntiga(e);
     const lig = await ligarAvisos(e, e.lojas[0]);
     await q(`update integracao_token_loja set revogado_em = now() where id = $1`, [lig.tokenId]);
     const a = await aviso(e, e.lojas[0]);
     await avisos.enviarAgora(a.id);
-    expect(recebidos).toHaveLength(1);
-    expect(recebidos[0].caminho).toBe('/api/v1/sync/regem/pedido-cancelado');
-    expect(recebidos[0].cabecalhos['x-sync-token']).toBe(token);
-    expect(recebidos[0].cabecalhos['webhook-signature']).toBeUndefined();
+    expect(recebidos).toHaveLength(0);
+    expect((await linhaDoAviso(a.id)).status).toBe('aguardando_integracao');
   });
 
   it('o registro de uma loja não serve a outra; aviso sem loja com dois registros não chuta', async () => {
@@ -372,7 +391,8 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
     const ligB = await ligarAvisos(e, e.lojas[1]);
     const daA = await aviso(e, e.lojas[0]);
     await avisos.enviarAgora(daA.id);
-    expect(recebidos.map((r) => r.caminho)).toEqual(['/api/v1/sync/regem/pedido-cancelado']); // a loja A não registrou
+    expect(recebidos).toHaveLength(0); // a loja A não registrou: espera
+    expect((await linhaDoAviso(daA.id)).status).toBe('aguardando_integracao');
 
     recebidos.length = 0;
     const daB = await aviso(e, e.lojas[1]);
@@ -382,9 +402,11 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
 
     recebidos.length = 0;
     await ligarAvisos(e, e.lojas[0]);
+    // A loja A registrou agora (o aviso dela volta à fila); o aviso sem loja, com dois registros na empresa, espera.
     const semLoja = await aviso(e, null);
     await avisos.enviarAgora(semLoja.id);
-    expect(recebidos.map((r) => r.caminho)).toEqual(['/api/v1/sync/regem/pedido-cancelado']);
+    expect(recebidos).toHaveLength(0);
+    expect((await linhaDoAviso(semLoja.id)).status).toBe('aguardando_integracao');
   });
 
   it('empresa de uma loja: aviso sem loja usa o único registro', async () => {
@@ -396,9 +418,9 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
     expect(JSON.parse(recebidos[0].corpo).loja_id).toBe(e.lojas[0]);
   });
 
-  it('"Publicar no GoGeM": assinado para o registro da loja em uso; sem registro, o de hoje', async () => {
+  it('"Publicar no GoGeM": assinado para o registro da loja em uso; sem registro, erro claro e nada sai', async () => {
     const e = await empresa();
-    const token = await credencialAntiga(e);
+    await credencialAntiga(e);
     const lig = await ligarAvisos(e, e.lojas[0]);
 
     await expect(publicar.publicar(e.tenant, e.lojas[0])).resolves.toEqual({ ok: true, alterados: 3 });
@@ -407,7 +429,7 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
     expect(r.caminho).toBe(lig.caminho);
     expect(assinaturaConfere(r, lig.segredo)).toBe(true);
     expect(String(r.cabecalhos['webhook-id'])).toMatch(/^publicar_[0-9a-f-]{36}$/);
-    expect(r.cabecalhos['x-sync-token']).toBe(token);
+    expect(r.cabecalhos['x-sync-token']).toBeUndefined(); // fase 4
     const corpo = JSON.parse(r.corpo);
     expect(corpo).toMatchObject({ tipo: 'catalogo.publicar', contrato: 1, loja_id: e.lojas[0] });
     expect(Number.isFinite(Date.parse(corpo.pedido_em))).toBe(true);
@@ -417,21 +439,68 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
     expect(new Set(recebidos.map((x) => x.cabecalhos['webhook-id'])).size).toBe(2);
 
     recebidos.length = 0;
-    await expect(publicar.publicar(e.tenant, e.lojas[1])).resolves.toEqual({ ok: true, alterados: 3 });
-    expect(recebidos).toHaveLength(1);
-    expect(recebidos[0].caminho).toBe('/api/v1/sync/regem/publicar');
-    expect(recebidos[0].corpo).toBe('{}');
-    expect(recebidos[0].cabecalhos['x-sync-token']).toBe(token);
-    expect(recebidos[0].cabecalhos['webhook-signature']).toBeUndefined();
+    // A loja B não registrou: com o token antigo marcado e tudo, o caminho antigo não é chamado (fase 4).
+    await expect(publicar.publicar(e.tenant, e.lojas[1])).rejects.toThrow(MSG_PUBLICAR_SEM_REGISTRO);
+    expect(recebidos).toHaveLength(0);
   });
 
-  it('"Publicar" com registro e sem o token antigo: sai assinado; sem nenhum dos dois, o erro de hoje', async () => {
+  it('"Publicar" sem registro e sem o token antigo: o mesmo erro claro; registrou, sai assinado', async () => {
     const e = await empresa();
-    await expect(publicar.publicar(e.tenant, e.lojas[0])).rejects.toThrow('O GoGeM ainda não se identificou');
+    await expect(publicar.publicar(e.tenant, e.lojas[0])).rejects.toThrow('ainda não ligou os avisos desta loja');
     expect(recebidos).toHaveLength(0);
     await ligarAvisos(e, e.lojas[0]);
     await expect(publicar.publicar(e.tenant, e.lojas[0])).resolves.toEqual({ ok: true, alterados: 3 });
     expect(recebidos[0].cabecalhos['x-sync-token']).toBeUndefined();
+  });
+
+  it('"Publicar no GoGeM" sem conexão: a mensagem e o log trazem a causa, nunca o segredo (ERR-239)', async () => {
+    const e = await empresa();
+    const lig = await ligarAvisos(e, e.lojas[0]);
+    const log = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const espiao = jest.spyOn(global, 'fetch').mockImplementationOnce(() => {
+      const erro: any = new TypeError('fetch failed');
+      erro.cause = { code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND api-stg.gogem.com.br' };
+      return Promise.reject(erro);
+    });
+    try {
+      const erro: any = await publicar.publicar(e.tenant, e.lojas[0]).catch((x) => x);
+      expect(erro.message).toBe('Não foi possível conectar ao GoGeM (ENOTFOUND api-stg.gogem.com.br).');
+      const linhas = log.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(linhas).toContain('ENOTFOUND api-stg.gogem.com.br');
+      expect(linhas + erro.message).not.toContain(lig.segredo.slice('whsec_'.length));
+    } finally {
+      espiao.mockRestore();
+      log.mockRestore();
+    }
+  });
+
+  it('a nuvem recebe o aviso da loja: grava com o MESMO id e envia assinado ao registro, uma vez só', async () => {
+    const e = await empresa();
+    const lig = await ligarAvisos(e, e.lojas[0]);
+    const [eq] = await q(
+      `insert into equipamento (tenant_id, unidade_id, nome, tipo, token, ativo) values ($1, $2, 'Servidor da loja', 'servidor_local', $3, true) returning id`,
+      [e.tenant, e.lojas[0], randomBytes(24).toString('hex')],
+    );
+    const sync = { tenantId: e.tenant, unidadeId: e.lojas[0], equipamentoId: eq.id, token: 'x' } as any;
+    const repasse = {
+      avisoId: randomUUID(),
+      chave: `totem-${randomUUID()}`,
+      corpo: { idempotencyKey: 'x', regemComandaId: randomUUID(), motivo: 'Cliente desistiu' },
+      referenciaTipo: 'comanda',
+      referenciaId: randomUUID(),
+    };
+    const r = await avisos.receberDaLoja(sync, repasse);
+    expect(r).toMatchObject({ aceito: true, avisoId: repasse.avisoId, estorno: { situacao: 'solicitado' } });
+    expect(recebidos).toHaveLength(1);
+    expect(assinaturaConfere(recebidos[0], lig.segredo)).toBe(true);
+    expect(recebidos[0].cabecalhos['x-sync-token']).toBeUndefined();
+    // A chave da venda é a do aviso — nunca um campo que o corpo trouxesse diferente.
+    expect(JSON.parse(recebidos[0].corpo).pedido.idempotencyKey).toBe(repasse.chave);
+    expect(await linhaDoAviso(repasse.avisoId)).toMatchObject({ status: 'entregue', unidade_id: e.lojas[0], referencia_tipo: 'comanda' });
+    // Repetir o repasse (a resposta se perdeu no caminho): o mesmo aviso, sem pedir o estorno de novo.
+    const r2 = await avisos.receberDaLoja(sync, repasse);
+    expect([r2.avisoId, r2.estorno.situacao]).toEqual([repasse.avisoId, 'solicitado']);
+    expect(recebidos).toHaveLength(1);
   });
 
   // ───────────────────────────── o hub da DMS (F3, decisão D-1) ─────────────────────────────
@@ -504,16 +573,15 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
       ]);
     });
 
-    it('pelo token de antes: o registro sem prefixo (o token do equipamento não tem um público)', async () => {
+    it('fase 4: sem registro (só o token de antes), nada sai e nada se anota no hub — o aviso espera', async () => {
       ligarHub();
       const e = await empresa();
       await credencialAntiga(e);
       const a = await aviso(e, e.lojas[0]);
       await comHub.enviarAgora(a.id);
-      expect(recebidos.map((r) => r.caminho)).toEqual(['/api/v1/sync/regem/pedido-cancelado']);
-      expect(anotados).toHaveLength(1);
-      expect(anotados[0]).toMatchObject({ codigo: `aviso_${a.id}:1`, aplicativo: 'gogem', tipo: 'pedido.cancelado', resultado: 'entregue', status_http: 200 });
-      expect(anotados[0]).not.toHaveProperty('ligacao_prefixo');
+      expect(recebidos).toHaveLength(0);
+      expect(anotados).toHaveLength(0);
+      expect((await linhaDoAviso(a.id)).status).toBe('aguardando_integracao');
     });
 
     it('o estorno que falhou dentro de um 200 vale "falhou" no hub, e a tentativa seguinte é outra linha', async () => {
@@ -558,6 +626,7 @@ descrever('avisos assinados ao GoGeM — fase 2 (Postgres real + receptor)', () 
     it('com o hub desligado o estorno sai igual e nada se registra; no servidor da loja o hub nem é pedido', async () => {
       const e = await empresa();
       await credencialAntiga(e);
+      await ligarAvisos(e, e.lojas[0]);
       const a = await aviso(e, e.lojas[0]);
       const nome = jest.spyOn(hub, 'nomeDaConta');
       expect((await comHub.enviarAgora(a.id)).situacao).toBe('solicitado');

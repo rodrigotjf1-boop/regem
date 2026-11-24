@@ -9,21 +9,18 @@ import { causaDeRede } from '../../common/causa-de-rede';
 import { ehServidorLocal } from '../../common/modo';
 import { SyncCtxData } from '../sync/sync-token.guard';
 import {
-  CAMINHO_PEDIDO_CANCELADO,
   CAMINHO_REPASSE_DA_LOJA,
   DESISTIR_DEPOIS_DE_DIAS,
   DESTINO_GOGEM,
   DesfechoAviso,
   EstornoGogem,
-  GOGEM_NUVEM_PADRAO,
-  MSG_GOGEM_NAO_IDENTIFICADO,
+  MSG_GOGEM_SEM_REGISTRO,
   MSG_LOJA_SEM_NUVEM,
   MSG_PENDENTE,
   RECUO_INTEGRACAO_MINUTOS,
   TIPO_ASSINADO,
   TIPO_PEDIDO_CANCELADO,
   corpoCancelamento,
-  corpoParaEnvio,
   corpoPedidoCancelado,
   corpoRepasse,
   idDoAvisoAssinado,
@@ -33,7 +30,7 @@ import {
   quemCancelou,
   recuoMinutos,
 } from './aviso-gogem';
-import { notarEnvioAoGogem, registroDoGogem, tokenDoGogem } from './credencial-gogem';
+import { lerRegistroDoGogem, notarEnvioAoGogem } from './credencial-gogem';
 import { cabecalhosDoAviso } from '../integracao-api/webhook-integracao';
 import { HubDmsService } from '../integracao-api/hub-dms.service';
 import { montarAviso } from '../integracao-api/hub.regras';
@@ -126,10 +123,6 @@ export class GogemAvisoService {
     } catch (e: any) {
       this.log.warn(`aviso ${linha.id}: o registro no hub não saiu (${e?.message ?? e})`);
     }
-  }
-
-  private url(): string {
-    return (process.env.GOGEM_CLOUD_URL || GOGEM_NUVEM_PADRAO).replace(/\/$/, '') + CAMINHO_PEDIDO_CANCELADO;
   }
 
   /**
@@ -304,53 +297,48 @@ export class GogemAvisoService {
     if (l?.status === 'aguardando_integracao') {
       // Sem código HTTP = não chegou a sair: na nuvem, o GoGeM ainda não se identificou; na loja,
       // o servidor não tem a ligação com a nuvem.
-      if (l.ultimo_status_http == null) return naLoja ? MSG_LOJA_SEM_NUVEM : MSG_GOGEM_NAO_IDENTIFICADO;
+      if (l.ultimo_status_http == null) return naLoja ? MSG_LOJA_SEM_NUVEM : MSG_GOGEM_SEM_REGISTRO;
       if (naLoja) return lerRespostaDaNuvem(l.ultimo_status_http, l.ultima_resposta).paraOperador;
-      // 404/410/redirecionamento só param o aviso quando vieram do endereço registrado (aviso assinado).
-      const h = Number(l.ultimo_status_http);
-      return lerRespostaGogem(h, l.ultima_resposta, h === 404 || h === 410 || (h >= 300 && h < 400)).paraOperador;
+      // Desde a fase 4 todo envio é ao endereço registrado (aviso assinado): lá, 404/410/redirecionamento param o aviso.
+      return lerRespostaGogem(Number(l.ultimo_status_http), l.ultima_resposta, true).paraOperador;
     }
     return { situacao: 'pendente', mensagem: MSG_PENDENTE };
   }
 
   /**
-   * Um envio. Na NUVEM: ao GoGeM — assinado, no endereço que ele registrou, se registrou; senão
-   * com o token que ele marcou. No servidor da LOJA: à nuvem do Regem, que envia por ele. Grava o
-   * desfecho e devolve o que o operador precisa saber.
+   * Um envio. Na NUVEM: ao GoGeM, ASSINADO, no endereço que ele registrou. No servidor da LOJA: à nuvem do Regem, que
+   * envia por ele. Grava o desfecho e devolve o que o operador precisa saber.
+   *
+   * Fase 4 (`docs/integracao-gogem/AVISOS-ASSINADOS.md` §6 e §7; P-7 do "Fim das portas antigas", 24/11/2026): o
+   * caminho antigo (`/sync/regem/pedido-cancelado` com o `X-Sync-Token`) não é mais chamado, e o token antigo não vai
+   * mais junto. Sem registro, o aviso ESPERA: o `PUT /integracao/webhook` do GoGeM solta a fila na hora
+   * (`soltarAvisosParados`), e o prazo de 7 dias continua o mesmo.
    */
   private async enviar(
     linha: any,
     prazoMs: number,
   ): Promise<{ desfecho: DesfechoAviso; http: number | null; retryAfterS: number | null }> {
     if (ehServidorLocal()) return this.enviarPelaNuvem(linha, prazoMs);
-    const token = await tokenDoGogem(this.db, linha.tenant_id, linha.unidade_id ?? null);
-    const registro = await registroDoGogem(this.db, linha.tenant_id, linha.unidade_id ?? null);
-    if (registro) {
-      // Fase 2 (`docs/integracao-gogem/AVISOS-ASSINADOS.md`): o GoGeM registrou o endereço dele.
-      // Mesmas regras da fila; o `webhook-id` é o do aviso em todas as tentativas. O `X-Sync-Token`
-      // vai junto até a fase 4, quando houver — sem ele o aviso assinado sai do mesmo jeito.
-      const corpo = corpoPedidoCancelado(linha, registro.lojaId ?? linha.unidade_id ?? null);
-      const inicio = Date.now();
-      const r = await this.postar(registro.url, token, corpo, prazoMs, { chave: registro.chave, id: idDoAvisoAssinado(linha.id) });
-      const d = lerRespostaGogem(r.http, r.corpo, true);
-      await notarEnvioAoGogem(this.db, registro.tokenId, r.http);
-      await this.registrar(linha, d, r.http, r.corpo, r.erro, r.retryAfterS, true);
-      await this.anotarNoHub(linha, { inicio, url: registro.url, http: r.http, prefixo: registro.prefixo, desfecho: d });
-      return { desfecho: d, http: r.http, retryAfterS: r.retryAfterS };
-    }
-    if (!token) {
-      // Não se chuta um servidor_local qualquer (5 de 6 davam 401): o aviso espera o GoGeM se
-      // identificar — a marca solta a fila na hora (`soltarAvisosParados`).
-      const d: DesfechoAviso = { status: 'aguardando_integracao', estorno: null, paraOperador: MSG_GOGEM_NAO_IDENTIFICADO };
-      await this.registrar(linha, d, null, null, 'o GoGeM ainda não se identificou para esta empresa', null);
+    const registro = await lerRegistroDoGogem(this.db, linha.tenant_id, linha.unidade_id ?? null);
+    if (registro === 'nao_lido') {
+      // Falha passageira ao ler o registro: como uma queda de rede — o recuo de sempre, não as 6 h da integração.
+      const d = lerRespostaGogem(null, null, true);
+      await this.registrar(linha, d, null, null, 'o registro dos avisos do GoGeM não foi lido agora', null);
       return { desfecho: d, http: null, retryAfterS: null };
     }
+    if (!registro) {
+      const d: DesfechoAviso = { status: 'aguardando_integracao', estorno: null, paraOperador: MSG_GOGEM_SEM_REGISTRO };
+      await this.registrar(linha, d, null, null, 'o GoGeM ainda não registrou o endereço dos avisos desta loja', null);
+      return { desfecho: d, http: null, retryAfterS: null };
+    }
+    // Mesmas regras da fila; o `webhook-id` é o do aviso em todas as tentativas.
+    const corpo = corpoPedidoCancelado(linha, registro.lojaId ?? linha.unidade_id ?? null);
     const inicio = Date.now();
-    const r = await this.postar(this.url(), token, corpoParaEnvio(linha.corpo), prazoMs);
-    const d = lerRespostaGogem(r.http, r.corpo);
-    await this.registrar(linha, d, r.http, r.corpo, r.erro, r.retryAfterS);
-    // O token do equipamento não tem prefixo público: no hub o envio vai sem ele.
-    await this.anotarNoHub(linha, { inicio, url: this.url(), http: r.http, prefixo: null, desfecho: d });
+    const r = await this.postar(registro.url, null, corpo, prazoMs, { chave: registro.chave, id: idDoAvisoAssinado(linha.id) });
+    const d = lerRespostaGogem(r.http, r.corpo, true);
+    await notarEnvioAoGogem(this.db, registro.tokenId, r.http);
+    await this.registrar(linha, d, r.http, r.corpo, r.erro, r.retryAfterS, true);
+    await this.anotarNoHub(linha, { inicio, url: registro.url, http: r.http, prefixo: registro.prefixo, desfecho: d });
     return { desfecho: d, http: r.http, retryAfterS: r.retryAfterS };
   }
 

@@ -4,7 +4,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ehServidorLocal } from '../../common/modo';
 import { ifoodPeloOrzuniLigado } from '../../common/ifood-pelo-orzuni';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { registroDoGogem, tokenDoGogem } from '../gogem/credencial-gogem';
+import { registroDoGogem } from '../gogem/credencial-gogem';
 import { GogemPublishService } from '../gogem/gogem-publish.service';
 import { lerConfigOrzuni } from '../orzuni/orzuni.regras';
 import {
@@ -198,9 +198,11 @@ export class PublicarIntegracoesService {
     return { aCaminho: Number(c.a_caminho ?? 0), comProblema: Number(c.com_problema ?? 0), problemas };
   }
 
-  /** O GoGeM se identificou para a empresa (o token marcado) ou registrou aviso para esta loja. */
+  /**
+   * O GoGeM registrou os avisos para esta loja. Desde a fase 4 (24/11/2026, P-7) o "Publicar" só sai assinado para esse
+   * registro: o token antigo marcado sozinho não liga mais a linha (ela prometeria um envio que não sai).
+   */
   async gogemLigado(tenantId: string, unidadeId: string | null): Promise<boolean> {
-    if (await tokenDoGogem(this.db, tenantId, unidadeId)) return true;
     return (await registroDoGogem(this.db, tenantId, unidadeId)) != null;
   }
 
