@@ -18,6 +18,7 @@ import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { ComprasService } from '../compras/compras.service';
+import { FornecedorService } from '../fornecedor/fornecedor.service';
 import { MisterListaService } from './mister-lista.service';
 import { RecebimentoService } from '../recebimento/recebimento.service';
 import { montarChave } from '../fiscal/chave';
@@ -4148,6 +4149,8 @@ export function testesDoMisterComPostgres(): void {
         c47: { acao: 'comecar', alvo: 'canal', qual: 'iFood' },
         c48: { tipo: 'vendas_por_hora', periodo: 'ontem' },
         c49: { acao: 'pausar_canal', canais: ['ifood'], motivo: 'pedidos', minutos: 30 },
+        c92: { acao: 'cadastrar_insumo', nome: 'Molho especial da casa', medidaDoEstoque: 'kg', minimo: 5 },
+        c93: { acao: 'alterar_insumo', item: 'bacon', conversaoDe: 'caixa', conversaoQuantas: 10 },
         c51: { periodo: 'este_mes' },
         c52: { periodo: 'este_mes', pessoa: 'Bruna' },
         c55: { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'kg' },
@@ -11347,6 +11350,83 @@ export function testesDoMisterComPostgres(): void {
           delete (acoes as any).estoque;
           await q(`delete from movimento_estoque where item_id = $1`, [item]);
           await q(`delete from item_estoque where id = $1`, [item]);
+        }
+      });
+
+      it('versão 9, O3: cadastrar e mudar insumo, cadastrar fornecedor e excluir pedido — pelo botão e pelos serviços das telas', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        (acoes as any).estoque = new EstoqueService(db, auditoria as AuditoriaService);
+        (acoes as any).fornecedores = new FornecedorService(db);
+        (acoes as any).compras = new ComprasService(db, { emit: () => true } as any, auditoria);
+        const criados = { itens: [] as string[], fornecedores: [] as string[], listas: [] as string[] };
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          const autorizar = async (r: any) => {
+            const id = idDaProposta(r);
+            await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+            return esperarFim(id);
+          };
+          // O fornecedor: nada muda antes do "Autorizar"; o repetido e o CNPJ que não confere param na pergunta.
+          const rf = await ferramentas.executar(e, 'propor_acao', { acao: 'cadastrar_fornecedor', nome: 'Rucas Distribuidora O3', cnpj: '11.222.333/0001-81', contato: 'Marcos' });
+          expect(rf.ok).toBe(true);
+          expect(rf.dados.oQueVouFazer).toContain('Cadastrar o fornecedor "Rucas Distribuidora O3", CNPJ 11.222.333/0001-81, contato Marcos');
+          expect(await q(`select 1 from fornecedor where tenant_id = $1 and nome = 'Rucas Distribuidora O3'`, [A])).toEqual([]);
+          expect((await autorizar(rf)).situacao).toBe('feita');
+          const [{ id: forn }] = await q(`select id::text as id from fornecedor where tenant_id = $1 and nome = 'Rucas Distribuidora O3'`, [A]);
+          criados.fornecedores.push(forn);
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'cadastrar_fornecedor', nome: 'rucas distribuidora o3' })).dados.erro).toContain('Já existe o fornecedor');
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'cadastrar_fornecedor', nome: 'Outra O3', cnpj: '11222333000181' })).dados.erro).toContain('já é do fornecedor "Rucas Distribuidora O3"');
+
+          // O insumo novo, com o fornecedor achado pelo nome.
+          const ri = await ferramentas.executar(e, 'propor_acao', { acao: 'cadastrar_insumo', nome: 'Molho especial O3', medidaDoEstoque: 'quilos', minimo: 5, fornecedor: 'rucas distribuidora' });
+          expect(ri.dados.oQueVouFazer).toBe('Cadastrar o insumo "Molho especial O3" em kg, mínimo de 5, fornecedor Rucas Distribuidora O3. Ele aparece em Estoque › Produtos.');
+          expect((await autorizar(ri)).resultado).toBe('Cadastrei "Molho especial O3" em Estoque › Produtos.');
+          const [it] = await q(`select id::text as id, unidade_medida, estoque_minimo::float8 as minimo, fornecedor_id::text as forn from item_estoque where tenant_id = $1 and nome = 'Molho especial O3'`, [A]);
+          criados.itens.push(it.id);
+          expect(it).toMatchObject({ unidade_medida: 'kg', minimo: 5, forn });
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'cadastrar_insumo', nome: 'molho especial o3', medidaDoEstoque: 'kg' })).dados.erro).toContain('Já existe');
+
+          // Mudar: o nome comercial e a conversão nova; a conversão que já existia fica.
+          await q(`insert into item_conversao (tenant_id, item_id, unidade_de, fator, unidade_para) values ($1, $2, 'pacote', 2, 'kg')`, [A, it.id]);
+          const ra = await ferramentas.executar(e, 'propor_acao', { acao: 'alterar_insumo', item: 'molho especial o3', nomeComercial: 'MOLHO ESPECIAL DA CASA 1KG', conversaoDe: 'caixa', conversaoQuantas: 6 });
+          expect(ra.dados.oQueVouFazer).toContain('• a conversão: 1 caixa = 6 kg');
+          expect(ra.dados.oQueVouFazer).toContain('• o nome comercial: nenhum → "MOLHO ESPECIAL DA CASA 1KG"');
+          expect((await autorizar(ra)).situacao).toBe('feita');
+          expect(await q(`select unidade_de, fator::float8 as fator from item_conversao where item_id = $1 order by unidade_de`, [it.id])).toEqual([
+            { unidade_de: 'caixa', fator: 6 },
+            { unidade_de: 'pacote', fator: 2 },
+          ]);
+          expect((await q(`select nome_comercial from item_estoque where id = $1`, [it.id]))[0].nome_comercial).toBe('MOLHO ESPECIAL DA CASA 1KG');
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'alterar_insumo', item: 'molho especial o3', conversaoDe: 'kg', conversaoQuantas: 1 })).dados.erro).toContain('já é contado em kg');
+
+          // Excluir pedido: só o que não foi recebido.
+          const [{ id: l1 }] = await q(`insert into compra_lista (tenant_id, nome, fornecedor_id, status) values ($1, 'Pedido O3', $2, 'aberta') returning id::text as id`, [A, forn]);
+          const [{ id: l2 }] = await q(`insert into compra_lista (tenant_id, nome, status, recebida_em) values ($1, 'Pedido recebido O3', 'recebida', now()) returning id::text as id`, [A]);
+          criados.listas.push(l1, l2);
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'excluir_pedido_compra', pedidoDeCompra: 'Pedido recebido O3' })).dados.erro).toContain('já foi recebido');
+          const rx = await ferramentas.executar(e, 'propor_acao', { acao: 'excluir_pedido_compra', pedidoDeCompra: 'Pedido O3' });
+          expect(rx.dados.oQueVouFazer).toContain('Excluir o pedido "Pedido O3 (Rucas Distribuidora O3), criado em');
+          expect((await q(`select deleted_at is null as viva from compra_lista where id = $1`, [l1]))[0].viva).toBe(true);
+          expect((await autorizar(rx)).resultado).toBe('Excluí o pedido "Pedido O3" de Estoque › Pedidos.');
+          expect((await q(`select deleted_at is not null as excluida from compra_lista where id = $1`, [l1]))[0].excluida).toBe(true);
+
+          // A permissão é a de cada rota: editar o estoque não cria nem exclui.
+          const telC = telefone();
+          await ligar('carlos', telC, A, 'gerente');
+          const c = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
+          const soEditar = { ...c, permissoes: { ...c.permissoes, estoque: { ver: true, criar: false, editar: true, excluir: false } } } as any;
+          expect(await ferramentas.executar(soEditar, 'propor_acao', { acao: 'cadastrar_insumo', nome: 'Outro O3', medidaDoEstoque: 'kg' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
+          expect(await ferramentas.executar(soEditar, 'propor_acao', { acao: 'excluir_pedido_compra', pedidoDeCompra: 'Pedido recebido O3' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
+        } finally {
+          delete (acoes as any).estoque;
+          delete (acoes as any).fornecedores;
+          delete (acoes as any).compras;
+          await q(`delete from compra_lista where id = any($1::uuid[])`, [criados.listas]);
+          await q(`delete from item_conversao where item_id = any($1::uuid[])`, [criados.itens]);
+          await q(`delete from item_fornecedor where item_id = any($1::uuid[])`, [criados.itens]);
+          await q(`delete from item_estoque where id = any($1::uuid[])`, [criados.itens]);
+          await q(`delete from fornecedor where id = any($1::uuid[])`, [criados.fornecedores]);
         }
       });
 

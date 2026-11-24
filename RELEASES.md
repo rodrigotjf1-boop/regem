@@ -12,6 +12,8 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: cadastro pela conversa, versão 9 O3 (24/11; SEM migration).** Só na nuvem. Vai no `.zip` sem efeito na loja.
+
 - **Mister: IA mais forte nas tarefas, versão 9 O6 (24/11; mig 502, só nuvem, já aplicada).** Só na nuvem. Vai no `.zip` sem efeito na loja.
 
 - **Mister: ligar as linhas da nota pela IA, versão 9 O1 (24/11; mig 501, só nuvem, já aplicada).** Só na nuvem. Vai no `.zip` sem efeito na loja.

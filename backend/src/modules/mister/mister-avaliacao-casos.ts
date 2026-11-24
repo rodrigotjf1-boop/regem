@@ -1246,6 +1246,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // ERR-594: o que a pessoa diz sobre o cupom em aberto é gravado, e "quem criou o pedido" se consulta.
   { id: 'c88', pergunta: 'No cupom que mandei, a linha 5 é queijo cheddar fatiado Schreiber: 3 caixas, total de R$ 2.219,76. Corrige.', consultas: ['documento_em_andamento'], numeros: ['2.219,76'], contem: ['linha 5|queijo'] },
   { id: 'c89', pergunta: 'Foi você quem registrou o pedido do Felipão que está em Estoque › Pedidos?', consultas: ['pedidos_de_compra'], contem: ['Felipão', 'fui eu|eu mesmo|montei|registrei|criei|sim'] },
+  // Versão 9, O3: o cadastro pela conversa, proposto com o botão.
+  { id: 'c92', pergunta: 'Cadastra no estoque o insumo Molho especial da casa, em kg, com mínimo de 5.', consultas: ['propor_acao'], contem: ['Molho especial da casa', 'Autorizar'] },
+  { id: 'c93', pergunta: 'O bacon agora vem em caixa com 10 kg. Põe essa conversão no cadastro do Bacon.', consultas: ['propor_acao'], contem: ['caixa', '10', 'Autorizar'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

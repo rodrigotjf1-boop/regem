@@ -38,6 +38,7 @@ import { MisterPadroesService } from './mister-padroes.service';
 import { MisterAcoesService } from './mister-acoes.service';
 import { MisterPlanosService } from './mister-planos.service';
 import { ComprasModule } from '../compras/compras.module';
+import { FornecedorModule } from '../fornecedor/fornecedor.module';
 import { TarefaModule } from '../tarefa/tarefa.module';
 import { ProdutoModule } from '../produto/produto.module';
 import { MisterPropostasService } from './mister-propostas.service';
@@ -96,6 +97,8 @@ import { MisterModule } from './mister.module';
     GraphModule,
     // Versão 6, M6g: a lista de compras cria o pedido pelo MESMO serviço da tela de Pedidos.
     ComprasModule,
+    // Versão 9, O3: o cadastro do fornecedor pela conversa.
+    FornecedorModule,
     // Versão 6, M6j (lote 2): a tarefa e a pausa do produto pelos MESMOS serviços das telas.
     TarefaModule,
     ProdutoModule,
