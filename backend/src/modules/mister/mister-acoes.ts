@@ -58,6 +58,11 @@ export const ACOES_DO_MISTER = [
   'criar_cupom',
   'remover_cupom',
   'lancar_conta',
+  // Versão 9, O5 segunda parte: o produto (Cadastros › Cardápio), o fornecedor (Fornecedores) e a escala (Escala).
+  'mudar_produto',
+  'mudar_fornecedor',
+  'trocar_turno',
+  'folga_na_escala',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -65,7 +70,7 @@ export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTE
 export const ACOES_DE_CADASTRO = ['cadastrar_insumo', 'alterar_insumo', 'cadastrar_fornecedor', 'excluir_pedido_compra'] as const;
 export const ehCadastro = (a: unknown): a is (typeof ACOES_DE_CADASTRO)[number] => (ACOES_DE_CADASTRO as readonly unknown[]).includes(a);
 /** Versão 9, O5: o cupom e a conta a pagar. */
-export const ACOES_DA_LOJA = ['criar_cupom', 'remover_cupom', 'lancar_conta'] as const;
+export const ACOES_DA_LOJA = ['criar_cupom', 'remover_cupom', 'lancar_conta', 'mudar_produto', 'mudar_fornecedor', 'trocar_turno', 'folga_na_escala'] as const;
 export const ehDaLoja = (a: unknown): a is (typeof ACOES_DA_LOJA)[number] => (ACOES_DA_LOJA as readonly unknown[]).includes(a);
 
 export interface DefinicaoDaAcao {
@@ -73,7 +78,7 @@ export interface DefinicaoDaAcao {
   /** O tamanho do risco (decisão do plano): o botão de quem pediu, ou o PIN pelo link para preço, horário e dinheiro. */
   nivel: 'botao' | 'pin';
   /** A permissão do perfil — a MESMA da rota da tela. O presidente pode tudo. */
-  permissao: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque' | 'financeiro' | 'cupons';
+  permissao: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque' | 'financeiro' | 'cupons' | 'cadastros' | 'escalas';
   /** Por quanto tempo a pergunta vale. */
   prazoMin: number;
   /** O nome curto, para a auditoria e o histórico das propostas. */
@@ -116,12 +121,18 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   // Estoque) e a exclusão do pedido em Estoque › Pedidos (`estoque.excluir`).
   cadastrar_insumo: { id: 'cadastrar_insumo', nivel: 'botao', permissao: 'estoque', crud: 'criar', prazoMin: 10, nome: 'cadastrar um insumo' },
   alterar_insumo: { id: 'alterar_insumo', nivel: 'botao', permissao: 'estoque', crud: 'editar', prazoMin: 10, nome: 'mudar um insumo' },
-  cadastrar_fornecedor: { id: 'cadastrar_fornecedor', nivel: 'botao', permissao: 'estoque', crud: 'criar', prazoMin: 10, nome: 'cadastrar um fornecedor' },
+  // A rota de Fornecedores pede `cadastros` (O5 segunda parte; na O3 estava a do estoque — corrigido).
+  cadastrar_fornecedor: { id: 'cadastrar_fornecedor', nivel: 'botao', permissao: 'cadastros', prazoMin: 10, nome: 'cadastrar um fornecedor' },
   // Versão 9, O5: as rotas de Cupons pedem `cupons` (presidente ou gerente); a conta a pagar, o Financeiro e "Ver valores em R$".
   // O cupom e a conta mexem com dinheiro: PIN pelo link, como o preço. Tirar um cupom é de botão.
   criar_cupom: { id: 'criar_cupom', nivel: 'pin', permissao: 'cupons', prazoMin: 15, nome: 'criar um cupom' },
   remover_cupom: { id: 'remover_cupom', nivel: 'botao', permissao: 'cupons', prazoMin: 10, nome: 'tirar um cupom' },
   lancar_conta: { id: 'lancar_conta', nivel: 'pin', permissao: 'financeiro', prazoMin: 15, nome: 'lançar uma conta a pagar', pedeVerValores: true },
+  // O5 segunda parte: tudo com o botão, cada um pela permissão da rota (produtos: `loja`; fornecedores: `cadastros`; escala: `escalas` editar).
+  mudar_produto: { id: 'mudar_produto', nivel: 'botao', permissao: 'loja', prazoMin: 10, nome: 'mudar um produto do cardápio' },
+  mudar_fornecedor: { id: 'mudar_fornecedor', nivel: 'botao', permissao: 'cadastros', prazoMin: 10, nome: 'mudar um fornecedor' },
+  trocar_turno: { id: 'trocar_turno', nivel: 'botao', permissao: 'escalas', crud: 'editar', prazoMin: 10, nome: 'trocar a pessoa de um turno' },
+  folga_na_escala: { id: 'folga_na_escala', nivel: 'botao', permissao: 'escalas', crud: 'editar', prazoMin: 10, nome: 'dar folga na escala' },
   excluir_pedido_compra: { id: 'excluir_pedido_compra', nivel: 'botao', permissao: 'estoque', crud: 'excluir', prazoMin: 10, nome: 'excluir um pedido de compra' },
   informar_custo_campanha: { id: 'informar_custo_campanha', nivel: 'botao', permissao: 'financeiro', prazoMin: 10, nome: 'guardar o custo de uma campanha', pedeVerValores: true, soPresidente: true },
 };
@@ -676,6 +687,17 @@ export const TEXTOS_DAS_ACOES = {
   semPermissaoTarefas: 'O seu perfil no Regem não dá acesso às Tarefas: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
   semPermissaoLoja: 'O seu perfil no Regem não dá acesso ao cadastro dos produtos: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
   semPermissaoCupons: 'O seu perfil no Regem não dá acesso aos Cupons: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
+  semPermissaoCadastros: 'O seu perfil no Regem não dá acesso aos Cadastros (Fornecedores): essa ação não sai por aqui. Quem muda o perfil é o presidente.',
+  semPermissaoEscalas: 'O seu perfil no Regem não permite mudar a Escala: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
+  categoriaNaoAchada: 'Não achei essa categoria em Cadastros › Cardápio › Categorias. Diga o nome como está lá; categoria nova se cria na tela.',
+  categoriasDemais: (nomes: string) => `Achei mais de uma categoria com esse nome: ${nomes}. Qual delas?`,
+  pessoaNaoAchada: 'Não achei essa pessoa entre os colaboradores ativos da loja. Diga o nome como está em Pessoas.',
+  pessoasDemais: (nomes: string) => `Achei mais de uma pessoa com esse nome: ${nomes}. Qual delas?`,
+  foraDaEscala: (nome: string, dia: string) => `${nome} não está na escala de ${dia}. Confira o dia ou o nome.`,
+  turnosDemais: (nome: string, turnos: string) => `${nome} tem mais de um turno nesse dia: ${turnos}. Qual deles?`,
+  mesmaPessoa: 'Quem entra é a mesma pessoa que sai: diga quem vai no lugar.',
+  escalaMudou: 'A escala desse turno mudou desde a pergunta (pela tela ou por outra conversa). Nada foi feito: peça de novo se ainda for preciso.',
+  fornecedorComEsseNome: (nome: string) => `Já existe o fornecedor "${nome}". Escolha outro nome.`,
   semPermissaoLancarConta: 'O seu perfil no Regem não permite lançar conta a pagar: falta o acesso ao Financeiro ou "Ver valores em R$". Quem muda o perfil é o presidente.',
   tarefaNaoAchada: 'Não achei essa tarefa na lista de hoje das suas lojas. Diga o título como aparece na lista de tarefas.',
   tarefasDemais: (titulos: string) => `Achei mais de uma tarefa de hoje com esse nome: ${titulos}. Diga qual.`,

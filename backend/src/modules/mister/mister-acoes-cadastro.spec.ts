@@ -4,10 +4,10 @@ import { conferirCadastro } from './mister-acoes-cadastro';
 // Versão 9, O3: o cadastro pela conversa. A IA manda o que entendeu; aqui se confere antes de qualquer pergunta.
 
 describe('o cadastro pela conversa (O3)', () => {
-  it('as quatro ações estão no catálogo, de botão, com a permissão do Estoque de cada rota', () => {
+  it('as quatro ações estão no catálogo, de botão, com a permissão de cada rota (o fornecedor pede Cadastros, como a rota)', () => {
     expect(ACOES.cadastrar_insumo).toMatchObject({ nivel: 'botao', permissao: 'estoque', crud: 'criar' });
     expect(ACOES.alterar_insumo).toMatchObject({ nivel: 'botao', permissao: 'estoque', crud: 'editar' });
-    expect(ACOES.cadastrar_fornecedor).toMatchObject({ nivel: 'botao', permissao: 'estoque', crud: 'criar' });
+    expect(ACOES.cadastrar_fornecedor).toMatchObject({ nivel: 'botao', permissao: 'cadastros' });
     expect(ACOES.excluir_pedido_compra).toMatchObject({ nivel: 'botao', permissao: 'estoque', crud: 'excluir' });
     expect(['cadastrar_insumo', 'alterar_insumo', 'cadastrar_fornecedor', 'excluir_pedido_compra'].every(ehCadastro)).toBe(true);
     expect(ehCadastro('pausar_canal')).toBe(false);

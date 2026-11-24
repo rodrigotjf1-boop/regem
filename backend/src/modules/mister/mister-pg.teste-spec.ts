@@ -19,6 +19,7 @@ import { DashboardService } from '../dashboard/dashboard.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { ComprasService } from '../compras/compras.service';
 import { FornecedorService } from '../fornecedor/fornecedor.service';
+import { EscalaService } from '../escala/escala.service';
 import { MisterListaService } from './mister-lista.service';
 import { MisterCompraModelosService } from './mister-compra-modelos.service';
 import { RecebimentoService } from '../recebimento/recebimento.service';
@@ -4156,6 +4157,8 @@ export function testesDoMisterComPostgres(): void {
         c94: { acao: 'repetir', fornecedor: 'Felipão' },
         c95: { acao: 'criar_cupom', codigoDoCupom: 'NATAL15', tipoDoDesconto: 'percentual', valorDoDesconto: 15, pedidoMinimo: 50 },
         c96: { acao: 'lancar_conta', descricaoDaConta: 'Conta de luz', valorDaConta: 412.35, vencimentoDaConta: '2099-12-10' },
+        c97: { acao: 'mudar_produto', produto: 'X-Bacon', descricaoDoProduto: 'Pão brioche, bacon crocante e cheddar' },
+        c98: { acao: 'mudar_fornecedor', fornecedor: 'Felipão', contato: 'Marcos' },
         c51: { periodo: 'este_mes' },
         c52: { periodo: 'este_mes', pessoa: 'Bruna' },
         c55: { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'kg' },
@@ -12053,6 +12056,100 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from cupom where upper(codigo) like 'O5%'`);
           await q(`delete from titulo_financeiro where tenant_id = any($1::uuid[]) and descricao like 'O5 %'`, [[A, B]]);
           await q(`delete from fornecedor where tenant_id = $1 and nome = 'Fornecedor O5 Luz'`, [A]);
+        }
+      });
+
+      it('versão 9, O5 segunda parte: mudar produto e fornecedor, trocar o turno e dar folga — com o botão, pelos serviços das telas', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        // Os serviços que o teste põe voltam ao que eram no fim: os testes seguintes usam o mesmo `acoes` (o `produtos` já vem montado).
+        const antes = { produtos: (acoes as any).produtos, fornecedores: (acoes as any).fornecedores, escala: (acoes as any).escala };
+        (acoes as any).produtos = new ProdutoService(db, auditoria, { flashProdutos: async () => undefined } as any, undefined as any);
+        (acoes as any).fornecedores = new FornecedorService(db);
+        (acoes as any).escala = new EscalaService(db);
+        const criados: Record<string, string> = {};
+        const autorizar = async (r: any) => {
+          const id = idDaProposta(r);
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          return esperarFim(id);
+        };
+        const dia = (() => {
+          const d = new Date(`${hojeISO()}T12:00:00Z`);
+          d.setUTCDate(d.getUTCDate() + 3);
+          return d.toISOString().slice(0, 10);
+        })();
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          // O produto: a descrição e a categoria (a que existe); a categoria que não existe para na pergunta.
+          [{ id: criados.lanches }] = await q(`insert into categoria_produto (tenant_id, nome) values ($1, 'Lanches O5b') returning id::text as id`, [A]);
+          [{ id: criados.produto }] = await q(`insert into produto (tenant_id, nome, preco_venda, descricao) values ($1, 'X-Teste O5b', 30, 'antiga') returning id::text as id`, [A]);
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'mudar_produto', produto: 'X-Teste O5b', categoriaDoProduto: 'Bebidas inexistentes O5b' })).dados.erro).toBe(TEXTOS_DAS_ACOES.categoriaNaoAchada);
+          const rp = await ferramentas.executar(e, 'propor_acao', { acao: 'mudar_produto', produto: 'x-teste o5b', descricaoDoProduto: 'Pão brioche, bacon e cheddar', categoriaDoProduto: 'lanches o5b' });
+          expect(rp.ok).toBe(true);
+          expect(rp.dados.oQueVouFazer).toContain('Mudar a descrição para "Pão brioche, bacon e cheddar" e a categoria para Lanches O5b do produto "X-Teste O5b"');
+          expect(await q(`select descricao from produto where id = $1`, [criados.produto])).toEqual([{ descricao: 'antiga' }]);
+          expect(await autorizar(rp)).toMatchObject({ situacao: 'feita', resultado: 'Mudei o produto "X-Teste O5b" em Cadastros › Cardápio.' });
+          expect(await q(`select descricao, categoria_id::text as cat from produto where id = $1`, [criados.produto])).toEqual([{ descricao: 'Pão brioche, bacon e cheddar', cat: criados.lanches }]);
+
+          // O fornecedor: o contato, o telefone e o e-mail; o nome de outro fornecedor para na pergunta.
+          [{ id: criados.forn }] = await q(`insert into fornecedor (tenant_id, nome, contato) values ($1, 'Felipão O5b', 'Antigo') returning id::text as id`, [A]);
+          [{ id: criados.forn2 }] = await q(`insert into fornecedor (tenant_id, nome) values ($1, 'Outro O5b') returning id::text as id`, [A]);
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'mudar_fornecedor', fornecedor: 'Felipão O5b', nomeNovoDoFornecedor: 'outro o5b' })).dados.erro).toBe(TEXTOS_DAS_ACOES.fornecedorComEsseNome('Outro O5b'));
+          const rf = await ferramentas.executar(e, 'propor_acao', { acao: 'mudar_fornecedor', fornecedor: 'felipão o5b', contato: 'Marcos', foneDoFornecedor: '(21) 99876-5432', emailDoFornecedor: 'compras@felipao.com.br' });
+          expect(rf.dados.oQueVouFazer).toBe('Mudar o contato para Marcos, o telefone para o número terminado em 5432 e o e-mail para compras@felipao.com.br do fornecedor "Felipão O5b" em Fornecedores.');
+          expect(await autorizar(rf)).toMatchObject({ situacao: 'feita' });
+          expect(await q(`select nome, contato, telefone, email from fornecedor where id = $1`, [criados.forn])).toEqual([{ nome: 'Felipão O5b', contato: 'Marcos', telefone: '21998765432', email: 'compras@felipao.com.br' }]);
+
+          // A escala: a Bruna está no turno da noite daqui a 3 dias; o Diego entra no lugar dela.
+          const [{ id: setor }] = await q(`insert into setor (tenant_id, unidade_id, nome) values ($1, $2, 'Cozinha O5b') returning id::text as id`, [A, lojaDeA]);
+          criados.setor = setor;
+          [{ id: criados.etiqueta }] = await q(`insert into etiqueta (tenant_id, unidade_id, setor_id, funcao_id, sigla) values ($1, $2, $3, $4, 'CZ5') returning id::text as id`, [A, lojaDeA, setor, funcao['execucao-a']]);
+          [{ id: criados.turno }] = await q(`insert into turno (tenant_id, unidade_id, nome, hora_inicio, hora_fim) values ($1, $2, 'Noite O5b', '18:00', '23:00') returning id::text as id`, [A, lojaDeA]);
+          [{ id: criados.bruna }] = await q(`insert into colaborador (tenant_id, nome, funcao_id, unidade_id) values ($1, 'Bruna O5b', $2, $3) returning id::text as id`, [A, funcao['execucao-a'], lojaDeA]);
+          [{ id: criados.diego }] = await q(`insert into colaborador (tenant_id, nome, funcao_id, unidade_id) values ($1, 'Diego O5b', $2, $3) returning id::text as id`, [A, funcao['execucao-a'], lojaDeA]);
+          [{ id: criados.aloc }] = await q(
+            `insert into escala_alocacao (tenant_id, unidade_id, data, turno_id, etiqueta_id, colaborador_id) values ($1, $2, $3, $4, $5, $6) returning id::text as id`,
+            [A, lojaDeA, dia, criados.turno, criados.etiqueta, criados.bruna],
+          );
+          const naEscala = async () => (await q(`select colaborador_id::text as c from escala_alocacao where id = $1`, [criados.aloc]))[0].c;
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'trocar_turno', quemSai: 'Diego O5b', quemEntra: 'Bruna O5b', diaDaEscala: dia })).dados.erro).toContain('Diego O5b não está na escala de');
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'trocar_turno', quemSai: 'Bruna O5b', quemEntra: 'bruna o5b', diaDaEscala: dia })).dados.erro).toBe(TEXTOS_DAS_ACOES.mesmaPessoa);
+          const rt = await ferramentas.executar(e, 'propor_acao', { acao: 'trocar_turno', quemSai: 'bruna o5b', quemEntra: 'diego o5b', diaDaEscala: dia });
+          expect(rt.ok).toBe(true);
+          expect(rt.dados.oQueVouFazer).toContain('Trocar Bruna O5b por Diego O5b na escala de');
+          expect(rt.dados.oQueVouFazer).toContain('turno Noite O5b (18:00–23:00)');
+          expect(await naEscala()).toBe(criados.bruna);
+          expect(await autorizar(rt)).toMatchObject({ situacao: 'feita', resultado: 'Troquei: Diego O5b entra no lugar de Bruna O5b no turno Noite O5b. Já está em Escala.' });
+          expect(await naEscala()).toBe(criados.diego);
+          expect(auditados.find((a) => a.acao === 'alterou_alocacao' && a.entidadeId === criados.aloc)).toMatchObject({ tipo: 'escala', atorId: pessoa.ana, detalhe: { colaboradorId: criados.diego, pelo: 'mister' } });
+
+          // A folga: a vaga fica aberta. Se a escala mudou pela tela entre a pergunta e o "Autorizar", nada é feito.
+          const rfo = await ferramentas.executar(e, 'propor_acao', { acao: 'folga_na_escala', quemSai: 'Diego O5b', diaDaEscala: dia });
+          expect(rfo.dados.oQueVouFazer).toContain('Dar folga a Diego O5b');
+          await q(`update escala_alocacao set colaborador_id = $2 where id = $1`, [criados.aloc, criados.bruna]);
+          expect(await autorizar(rfo)).toMatchObject({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.escalaMudou });
+          expect(await naEscala()).toBe(criados.bruna);
+          const rfo2 = await ferramentas.executar(e, 'propor_acao', { acao: 'folga_na_escala', quemSai: 'Bruna O5b', diaDaEscala: dia });
+          expect(await autorizar(rfo2)).toMatchObject({ situacao: 'feita', resultado: 'Feito: Bruna O5b está de folga no turno Noite O5b, e a vaga ficou aberta em Escala.' });
+          expect(await naEscala()).toBeNull();
+
+          // A permissão: a escala pede "editar" da Escala; o fornecedor, Cadastros.
+          const telC = telefone();
+          await ligar('carlos', telC, A, 'gerente');
+          const g = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
+          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, escalas: { ver: true, criar: true, editar: false, excluir: false } } } as any, 'propor_acao', { acao: 'folga_na_escala', quemSai: 'Bruna O5b', diaDaEscala: dia })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEscalas } });
+          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, cadastros: false } } as any, 'propor_acao', { acao: 'mudar_fornecedor', fornecedor: 'Felipão O5b', contato: 'Zé' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCadastros } });
+          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, cadastros: false } } as any, 'propor_acao', { acao: 'cadastrar_fornecedor', nome: 'Novo O5b' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCadastros } });
+        } finally {
+          Object.assign(acoes as any, antes);
+          if (criados.aloc) await q(`delete from escala_alocacao where id = $1`, [criados.aloc]);
+          if (criados.turno) await q(`delete from turno where id = $1`, [criados.turno]);
+          if (criados.etiqueta) await q(`delete from etiqueta where id = $1`, [criados.etiqueta]);
+          if (criados.setor) await q(`delete from setor where id = $1`, [criados.setor]);
+          await q(`delete from colaborador where id = any($1::uuid[])`, [[criados.bruna, criados.diego].filter(Boolean)]);
+          await q(`delete from produto where id = any($1::uuid[])`, [[criados.produto].filter(Boolean)]);
+          await q(`delete from categoria_produto where id = any($1::uuid[])`, [[criados.lanches].filter(Boolean)]);
+          await q(`delete from fornecedor where id = any($1::uuid[])`, [[criados.forn, criados.forn2].filter(Boolean)]);
         }
       });
 

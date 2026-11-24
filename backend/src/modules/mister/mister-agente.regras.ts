@@ -94,6 +94,7 @@ COMO VOCÊ TRABALHA
 - Lançar no estoque também é só PROPOR: chame propor_acao com movimentar_estoque, item (como a pessoa disse) e tipo: entrada ou saida com quantidade, ou ajuste com saldoContado ("contei 12 kg"). Passe em medidaDita a unidade que a pessoa falou. Sem a quantidade, pergunte; nunca converta caixa, pacote ou fardo para a unidade do produto por conta própria. Mostre o "oQueVouFazer" como veio (ele traz o saldo antes e depois) e diga que os botões chegam logo abaixo.
 - Cadastrar e mudar o estoque também é só PROPOR (versão 9): insumo novo (cadastrar_insumo com nome e medidaDoEstoque, e o mínimo, o fornecedor e o nome comercial se a pessoa disser); mudar um insumo (alterar_insumo com item e só o que muda: novoNome, nomeComercial — o nome como vem na nota —, minimo, a conversão em conversaoDe e conversaoQuantas = quanto da medida do estoque vem em 1 dela, ou fornecedor); fornecedor novo (cadastrar_fornecedor com nome, e o CNPJ, o foneDoFornecedor e o contato se a pessoa disser); excluir um pedido de compra ainda não recebido (excluir_pedido_compra com pedidoDeCompra = o nome ou o fornecedor, e a hora em que foi criado quando há dois iguais). Sem a medida do insumo novo, pergunte. Mostre o "oQueVouFazer" como veio e diga que os botões chegam logo abaixo: nada muda sem o "Autorizar".
 - Cupom e conta a pagar também são só PROPOR (versão 9): criar um cupom (criar_cupom com codigoDoCupom, tipoDoDesconto percentual, valor ou fretegratis, valorDoDesconto, e se a pessoa disser pedidoMinimo, validoAte em AAAA-MM-DD, usosMaximos, soClientesNovos e nomeDoCupom) e lançar uma conta a pagar (lancar_conta com descricaoDaConta, valorDaConta, vencimentoDaConta em AAAA-MM-DD, e o fornecedor e a categoriaDaConta se disser) pedem o PIN: diga que o link "Abrir no Regem" chega logo abaixo. Tirar um cupom (remover_cupom com codigoDoCupom) é com o botão. Sem o código, o desconto ou o vencimento, pergunte; nunca invente data nem valor.
+- Também com o botão (versão 9): mudar o nome, a descrição ou a categoria de um produto do cardápio (mudar_produto com produto e nomeNovoDoProduto, descricaoDoProduto ou categoriaDoProduto — a categoria tem de existir), mudar um fornecedor (mudar_fornecedor com fornecedor e nomeNovoDoFornecedor, contato, foneDoFornecedor ou emailDoFornecedor), trocar a pessoa de um turno (trocar_turno com quemSai, quemEntra e diaDaEscala em AAAA-MM-DD; turnoDaEscala só quando a pessoa tem dois turnos no dia) e dar folga (folga_na_escala com quemSai e diaDaEscala: a vaga fica aberta). As regras da CLT são da Escala: se ela recusar, diga o motivo como veio.
 - Mudar o preço de um produto também é só PROPOR, e pede o PIN: chame propor_acao com mudar_preco, produto, canais (regem = balcão e cardápio digital, ifood, 99) e precoNovo (o preço FINAL em reais). Sem o canal ou o preço final, pergunte; se a pessoa disser "aumenta 10%" ou "2 reais a mais", pergunte o preço final, sem fazer a conta. Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN. Nunca peça o PIN na conversa.
 - Mudar o horário da SEMANA da loja também é só PROPOR, e pede o PIN: chame propor_acao com mudar_horario, dias (os dias da semana) e abre e fecha em "HH:MM", ou fechado: true. Sem o dia ou a hora, pergunte. Se a pessoa falar de um dia só ("hoje", "amanhã", "neste domingo"), pergunte se é o horário de toda semana; para fechar só hoje ou por um tempo, é a pausa do canal, não o horário. Se a resposta disser que a loja tem horário separado, pergunte se é o de entrega ou o de retirada e passe em horarioDe. Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN.
 - Marcar uma conta a pagar como paga também é só PROPOR, e pede o PIN: chame propor_acao com pagar_conta, conta (a descrição ou o fornecedor, como a pessoa disse) e formaDePagamento (dinheiro, pix, cartao ou transferencia; se faltar, pergunte). Se a pessoa disser, passe pagoEm (AAAA-MM-DD, nunca no futuro) e valorPago. Se a resposta listar mais de uma conta, pergunte qual e passe venceEm (DD/MM). Você NÃO paga nada: o Regem só registra a baixa e a saída do caixa, então nunca diga que pagou, transferiu ou fez Pix. Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN.
@@ -545,7 +546,7 @@ export function temaDoQueFalta(v: unknown): TemaDoQueFalta {
 
 /** Os campos de uma ação: os de `propor_acao` e, sem a loja (que é uma só para o plano), os de cada passo de `propor_plano`. */
 const CAMPOS_DA_ACAO = {
-      acao: { type: 'string', enum: ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa', 'criar_imagem', 'movimentar_estoque', 'mudar_preco', 'mudar_horario', 'pagar_conta', 'informar_saldo', 'informar_folha', 'informar_custo_campanha', 'cadastrar_insumo', 'alterar_insumo', 'cadastrar_fornecedor', 'excluir_pedido_compra', 'criar_cupom', 'remover_cupom', 'lancar_conta'] },
+      acao: { type: 'string', enum: ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa', 'criar_imagem', 'movimentar_estoque', 'mudar_preco', 'mudar_horario', 'pagar_conta', 'informar_saldo', 'informar_folha', 'informar_custo_campanha', 'cadastrar_insumo', 'alterar_insumo', 'cadastrar_fornecedor', 'excluir_pedido_compra', 'criar_cupom', 'remover_cupom', 'lancar_conta', 'mudar_produto', 'mudar_fornecedor', 'trocar_turno', 'folga_na_escala'] },
       item: { type: 'string', description: 'Para movimentar_estoque: o produto, como a pessoa disse.' },
       tipo: { type: 'string', enum: ['entrada', 'saida', 'ajuste'], description: 'Para movimentar_estoque: entrada, saida ou ajuste (o saldo que foi contado).' },
       quantidade: { type: 'number', description: 'Para movimentar_estoque com entrada ou saida: quanto, na unidade do produto.' },
@@ -563,7 +564,7 @@ const CAMPOS_DA_ACAO = {
       tarefa: { type: 'string', description: 'Para concluir_tarefa: o título da tarefa de hoje, como a pessoa disse.' },
       estado: { type: 'string', enum: ['feita', 'parcial', 'nao_feita'], description: 'Para concluir_tarefa (sem dizer, feita).' },
       justificativa: { type: 'string', description: 'Para concluir_tarefa com nao_feita: o motivo, em poucas palavras.' },
-      produto: { type: 'string', description: 'Para pausar_produto, reativar_produto ou mudar_preco: o nome do produto no cardápio.' },
+      produto: { type: 'string', description: 'Para pausar_produto, reativar_produto, mudar_preco ou mudar_produto: o nome do produto no cardápio.' },
       precoNovo: { type: 'number', description: 'Para mudar_preco: o preço FINAL em reais, como a pessoa disse (39.9).' },
       dias: { type: 'array', items: { type: 'string', enum: ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'] }, description: 'Para mudar_horario: os dias da semana.' },
       abre: { type: 'string', description: 'Para mudar_horario: a hora de abrir, "HH:MM".' },
@@ -587,14 +588,14 @@ const CAMPOS_DA_ACAO = {
       nome: { type: 'string', description: 'Para cadastrar_insumo ou cadastrar_fornecedor: o nome, como vai aparecer no Regem.' },
       medidaDoEstoque: { type: 'string', description: 'Para cadastrar_insumo: a unidade em que é contado no estoque (kg, unidade, caixa, pacote, litro, fardo).' },
       minimo: { type: 'number', description: 'Para cadastrar_insumo ou alterar_insumo: o estoque mínimo, na unidade do estoque.' },
-      fornecedor: { type: 'string', description: 'Para cadastrar_insumo ou alterar_insumo: o fornecedor, como está em Cadastros › Fornecedores.' },
+      fornecedor: { type: 'string', description: 'Para cadastrar_insumo, alterar_insumo, lancar_conta ou mudar_fornecedor: o fornecedor, como está em Cadastros › Fornecedores.' },
       nomeComercial: { type: 'string', description: 'Para cadastrar_insumo ou alterar_insumo: o nome comercial (como vem na nota do fornecedor).' },
       novoNome: { type: 'string', description: 'Para alterar_insumo: o nome novo.' },
       conversaoDe: { type: 'string', description: 'Para alterar_insumo: a medida da compra (caixa, fardo, pacote).' },
       conversaoQuantas: { type: 'number', description: 'Para alterar_insumo: quanto da medida do estoque vem em 1 conversaoDe (caixa com 20 → 20).' },
       cnpj: { type: 'string', description: 'Para cadastrar_fornecedor: o CNPJ, se a pessoa disser.' },
-      foneDoFornecedor: { type: 'string', description: 'Para cadastrar_fornecedor: o telefone com DDD, se a pessoa disser.' },
-      contato: { type: 'string', description: 'Para cadastrar_fornecedor: o nome de quem atende, se a pessoa disser.' },
+      foneDoFornecedor: { type: 'string', description: 'Para cadastrar_fornecedor ou mudar_fornecedor: o telefone com DDD, se a pessoa disser.' },
+      contato: { type: 'string', description: 'Para cadastrar_fornecedor ou mudar_fornecedor: o nome de quem atende, se a pessoa disser.' },
       pedidoDeCompra: { type: 'string', description: 'Para excluir_pedido_compra: o nome do pedido ou o fornecedor (e a hora "HH:MM" quando há dois iguais).' },
       codigoDoCupom: { type: 'string', description: 'Para criar_cupom ou remover_cupom: o código (ex.: SMASH10).' },
       tipoDoDesconto: { type: 'string', enum: ['percentual', 'valor', 'fretegratis'], description: 'Para criar_cupom: percentual, valor (em reais) ou fretegratis.' },
@@ -608,6 +609,15 @@ const CAMPOS_DA_ACAO = {
       valorDaConta: { type: 'number', description: 'Para lancar_conta: o valor em reais, como a pessoa disse.' },
       vencimentoDaConta: { type: 'string', description: 'Para lancar_conta: o vencimento, AAAA-MM-DD.' },
       categoriaDaConta: { type: 'string', description: 'Para lancar_conta: a categoria, se a pessoa disser.' },
+      nomeNovoDoProduto: { type: 'string', description: 'Para mudar_produto: o nome novo, se a pessoa pedir.' },
+      descricaoDoProduto: { type: 'string', description: 'Para mudar_produto: a descrição nova, como vai aparecer no cardápio.' },
+      categoriaDoProduto: { type: 'string', description: 'Para mudar_produto: a categoria (que já existe) para onde o produto vai.' },
+      nomeNovoDoFornecedor: { type: 'string', description: 'Para mudar_fornecedor: o nome novo, se a pessoa pedir.' },
+      emailDoFornecedor: { type: 'string', description: 'Para mudar_fornecedor: o e-mail novo.' },
+      quemSai: { type: 'string', description: 'Para trocar_turno ou folga_na_escala: quem está na escala hoje, pelo nome.' },
+      quemEntra: { type: 'string', description: 'Para trocar_turno: quem vai no lugar, pelo nome.' },
+      diaDaEscala: { type: 'string', description: 'Para trocar_turno ou folga_na_escala: o dia, AAAA-MM-DD.' },
+      turnoDaEscala: { type: 'string', description: 'Para trocar_turno ou folga_na_escala: o turno (nome ou hora de início), só quando a pessoa tem mais de um no dia.' },
 };
 // O que a pessoa informa tem botão próprio ("Guardar" e "Corrigir"): fica fora do plano, como a imagem.
 const { loja: _lojaDoPlano, valorInformado: _valorDoPlano, dataDoSaldo: _diaDoPlano, campanha: _campanhaDoPlano, ...RESTO_DO_PASSO } = CAMPOS_DA_ACAO;

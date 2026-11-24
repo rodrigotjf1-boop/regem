@@ -33,6 +33,8 @@ describe('Mister · ações — o catálogo e os canais', () => {
       'cadastrar_insumo', 'alterar_insumo', 'cadastrar_fornecedor', 'excluir_pedido_compra',
       // Versão 9, O5: o cupom e a conta a pagar.
       'criar_cupom', 'remover_cupom', 'lancar_conta',
+      // Versão 9, O5 segunda parte: o produto, o fornecedor e a escala.
+      'mudar_produto', 'mudar_fornecedor', 'trocar_turno', 'folga_na_escala',
     ]);
     expect(ACOES.criar_tarefa).toMatchObject({ nivel: 'botao', permissao: 'checklist' });
     for (const a of ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] as const)
