@@ -134,10 +134,21 @@ export class DiretoriaService {
     const soma = (f: (l: any) => number) => linhas.reduce((s, l) => s + f(l), 0);
     const conclTotal = soma((l) => l.tarefas.total);
     const conclFeitas = soma((l) => l.tarefas.feitas);
+    // A venda SEM loja (registro antigo, pedido de canal que chegou sem unidade) ou de loja que não está na lista (desativada)
+    // não tem linha, mas é da empresa: entra no total da rede, como em Relatórios › Todas as lojas, e aparece à parte (G-04 da
+    // revisão de 24/11/2026 — antes, o total da rede era só a soma das linhas e ficava menor que o dos relatórios).
+    const lojasDaLista = new Set(unidades.map((u: any) => u.id));
+    const fora = vendas.filter((r: any) => r.unidade_id == null || !lojasDaLista.has(r.unidade_id));
+    const semLoja = {
+      faturamento: Number(fora.reduce((s: number, r: any) => s + Number(r.faturado ?? 0), 0).toFixed(2)),
+      gorjeta: Number(fora.reduce((s: number, r: any) => s + Number(r.gorjeta ?? 0), 0).toFixed(2)),
+      vendas: fora.reduce((s: number, r: any) => s + Number(r.vendas ?? 0), 0),
+    };
     const rede = {
-      faturamento: Number(soma((l) => l.faturamento).toFixed(2)),
-      gorjeta: Number(soma((l) => l.gorjeta).toFixed(2)),
-      vendas: soma((l) => l.vendas),
+      faturamento: Number((soma((l) => l.faturamento) + semLoja.faturamento).toFixed(2)),
+      gorjeta: Number((soma((l) => l.gorjeta) + semLoja.gorjeta).toFixed(2)),
+      vendas: soma((l) => l.vendas) + semLoja.vendas,
+      ...(semLoja.vendas > 0 ? { semLoja } : {}),
       desperdicios: soma((l) => l.desperdicio.total),
       conclusaoMedia: conclTotal ? Math.round((conclFeitas / conclTotal) * 100) : 0,
       estoqueCritico: soma((l) => l.estoqueAbaixoMinimo),

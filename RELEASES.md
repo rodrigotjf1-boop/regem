@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Relatórios e números oficiais (24/11; ERR-602; SEM migration).** Lote 2 da revisão do PDV (G-01, G-02, G-04, G-05, F-02, B-04):
+  a venda do último segundo do dia entra no relatório, a venda dividida aparece em cada forma, a série por mês usa a conta oficial,
+  a DRE não conta sangria, suprimento nem gorjeta, a comanda vazia da mesa não vira venda e a Visão C&O soma a venda sem loja. **Vai
+  no `.zip`** (os relatórios também rodam no servidor da loja).
+
 - **Venda, comanda, acerto e conta a pagar uma vez só (24/11; ERR-601; SEM migration).** Lote 1 da revisão do PDV (D-01, D-02, B-01,
   B-03, F-01, A-03, A-04): cancelar e fechar a mesma comanda em dois caixas vale uma vez, o item não entra em comanda fechada, o acerto
   do garçom não entra duas vezes nem depois do cancelamento, a conta paga não vira cancelada, a venda dividida soma exatamente o total e
