@@ -275,6 +275,8 @@ export class MisterDocumentosService implements OnModuleInit {
     if (String(botaoId ?? '').startsWith('doc:cl:')) return this.notas ? this.notas.comoLancar(botaoId, quem) : false;
     // L2b: o "Lançar assim" da nota cuja soma não fecha ("doc:ns:…").
     if (String(botaoId ?? '').startsWith('doc:ns:')) return this.notas ? this.notas.lancarAssim(botaoId, quem) : false;
+    // Versão 9, O1: o "Aceitar as sugestões" da nota ligada pela IA ("doc:ia:…").
+    if (String(botaoId ?? '').startsWith('doc:ia:')) return this.notas ? this.notas.aceitarSugestoes(botaoId, quem) : false;
     // M3g: o "Desfazer" da correção do vencimento.
     if (String(botaoId ?? '').startsWith('doc:volta:')) return this.desfazerCorrecao(String(botaoId), quem);
     const b = lerBotaoDoDocumento(botaoId);

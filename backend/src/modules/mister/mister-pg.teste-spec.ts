@@ -513,7 +513,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '501_mister_ligar_pela_ia.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -7517,6 +7517,157 @@ export function testesDoMisterComPostgres(): void {
           ]);
           expect((await lida(id)).dados.nota.itens.map((x: any) => x.estado)).toEqual(['fora', 'fora']);
         });
+
+        // Versão 9, O1: com o ajuste ligado, a IA liga as linhas (o código confere os códigos), as dúvidas vão juntas, "Aceitar as
+        // sugestões" liga as propostas, "cadastra o 4" cadastra pelo serviço da tela e o "Lançar" ensina o fornecedor.
+        it('O1: a IA liga as linhas, as dúvidas juntas, aceitar as sugestões, cadastrar e o Lançar ensina o fornecedor', async () => {
+          const conversaCfg = new MisterConversaConfigService(db, auditoria);
+          const notasIa = new MisterNotasService(db, numero, ia, recebimentos, financeiro, new EstoqueService(db, auditoria), auditoria, undefined, conversaCfg);
+          const quem = { telefone: telAna, tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente' as const, nome: 'Ana' };
+          const tocou = { telefone: telAna, vinculos: [{ tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente' as const, empresa: 'A' }], wamid: null };
+          const daNota = falar(
+            JSON.stringify({
+              chave: null,
+              emitenteNome: 'Rucas',
+              emitenteCnpj: CNPJ,
+              numero: '777',
+              valorTotal: '5.204,31',
+              duplicatas: [],
+              itens: [
+                { descricao: 'HAMBURGUER PICANHA 120 GRS 20un', codigo: '5001', quantidade: '45', unidade: 'UN', valorUnitario: '64,99', valorTotal: '2.924,55' },
+                { descricao: 'QUEIJO CHEDDAR FATIADO SCHREIBER', codigo: '5002', quantidade: '3', unidade: 'UN', valorUnitario: '739,92', valorTotal: '2.219,76' },
+                { descricao: 'DETERGENTE YPE 500ML', codigo: '5003', quantidade: '1', unidade: 'UN', valorUnitario: '10,00', valorTotal: '10,00' },
+                { descricao: 'MOLHO ESPECIAL DA CASA 1KG', codigo: '5004', quantidade: '2', unidade: 'UN', valorUnitario: '25,00', valorTotal: '50,00' },
+              ],
+              legivel: true,
+            }),
+          );
+          // O código da IA é a posição no catálogo, na ordem da leitura do serviço.
+          const catalogo = (await q(`select id::text as id, nome from item_estoque where tenant_id = $1 and deleted_at is null order by nome limit 3000`, [A])).map((x) => x.id);
+          const cod = (id: string) => `i${catalogo.indexOf(id) + 1}`;
+          const ligacao = falar(
+            JSON.stringify({
+              linhas: [
+                { linha: 1, insumo: cod(ids.c120), certeza: 'alta', outros: [], fora: false, novo: null },
+                { linha: 2, insumo: cod(ids.queijo), certeza: 'media', outros: ['i99999'], fora: false, novo: null },
+                { linha: 3, insumo: null, certeza: 'alta', outros: [], fora: true, novo: null },
+                { linha: 4, insumo: 'id-inventado', certeza: 'alta', outros: [], fora: false, novo: 'Molho especial da casa' },
+              ],
+            }),
+          );
+          let molho: string | null = null;
+          await q(`insert into mister_conversa_config (tenant_id, ligar_pela_ia) values ($1, true) on conflict (tenant_id) do update set ligar_pela_ia = true`, [A]);
+          try {
+            ia.roteiro = [daNota, ligacao];
+            ia.pedidos.length = 0;
+            await notasIa.receber(quem, wamid(), { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'eA==' } }, 'claude-sonnet-5-5');
+            expect(ia.pedidos).toHaveLength(2);
+            expect(ia.pedidos[1].model).toBe('claude-sonnet-5-5');
+            expect(ia.pedidos[1].system).toContain('MESMO produto');
+            expect(ia.pedidos[1].messages[0].content).toContain('Carne 120gr doc');
+            expect(ia.pedidos[1].messages[0].content).not.toContain(ids.c120);
+            const [d] = await q(`select id::text as id, situacao, motivo, dados from mister_documento where tenant_id = $1 order by criado_em desc limit 1`, [A]);
+            expect(d).toMatchObject({ situacao: 'falta', motivo: 'fator:0' });
+            const it = d.dados.nota.itens;
+            expect(d.dados.nota.ligadaPelaIa).toBe(true);
+            expect(it[0]).toMatchObject({ insumoNome: 'Carne 120gr doc', estado: 'fator', pelaIa: true });
+            expect(it[1]).toMatchObject({ estado: 'item', propostaDaIa: true, sugestoes: [{ id: ids.queijo, nome: 'Queijo cheddar doc' }] });
+            expect(it[2]).toMatchObject({ estado: 'fora', pelaIa: true });
+            // O código inventado não vale: a linha fica sem proposta, com o nome para cadastrar.
+            expect(it[3]).toMatchObject({ estado: 'item', nomeNovo: 'Molho especial da casa' });
+            expect(it[3].propostaDaIa).toBeFalsy();
+            const msg = numero.enviadas.at(-1)!;
+            expect(msg.texto).toContain('Liguei 1 de 4 ao seu estoque. 3 precisam de você');
+            expect(msg.texto).toContain('Linha 2 · QUEIJO CHEDDAR FATIADO SCHREIBER (3 UN): é o *Queijo cheddar doc*?');
+            expect(msg.botoes.map((b: any) => b.titulo)).toEqual(['Aceitar as sugestões', 'Cancelar']);
+
+            // "Aceitar as sugestões": o queijo fica ligado (UN × unidade = 1); a carne e o molho seguem em aberto.
+            numero.pedidos.length = 0;
+            expect(await notasIa.aceitarSugestoes(`doc:ia:${d.id}`, tocou)).toBe(true);
+            let agora = await lida(d.id);
+            expect(agora.dados.nota.itens[1]).toMatchObject({ estado: 'ligado', insumoId: ids.queijo, fator: 1 });
+            // Ligadas: o queijo e o detergente (fora). Em aberto: a conversão da carne e o molho.
+            expect(numero.enviadas.at(-1)!.texto).toContain('Liguei 2 de 4 ao seu estoque. 2 precisam de você');
+            // O gerente não aceita por ninguém.
+            expect(await notasIa.aceitarSugestoes(`doc:ia:${d.id}`, { ...tocou, vinculos: [{ ...tocou.vinculos[0], nivel: 'gerente' as const }] })).toBe(true);
+            expect(numero.enviadas.at(-1)!.texto).toBe('Lançar nota por foto, por enquanto, é só com o presidente.');
+
+            // Pela conversa: a conversão da carne e "cadastra o 4" (o mesmo serviço da tela).
+            const r: any = await notasIa.ferramentaDoDocumento(escopoDe(), {
+              acao: 'alterar',
+              alteracoes: [
+                { linha: 1, tipo: 'conversao', quanto_no_estoque: 1 },
+                { linha: 4, tipo: 'cadastrar', unidade: 'unidade' },
+              ],
+            });
+            expect(r.ok).toBe(true);
+            [{ id: molho }] = await q(`select id::text as id from item_estoque where tenant_id = $1 and nome = 'Molho especial da casa'`, [A]);
+            agora = await lida(d.id);
+            expect(agora).toMatchObject({ situacao: 'confirmar', motivo: 'itens_ligados' });
+            expect(agora.dados.nota.itens[3]).toMatchObject({ insumoId: molho, estado: 'ligado' });
+            expect(r.mensagens[0].botoes.map((b: any) => b.titulo)).toEqual(['Lançar', 'Cancelar']);
+            expect(r.mensagens[0].texto).toContain('fora do estoque');
+
+            // O que a pessoa confirmou já ensinou o fornecedor; o que só a IA decidiu (o detergente fora), ainda não.
+            let dePara = await q(`select chave, item_id::text as item from mister_de_para where tenant_id = $1 order by chave`, [A]);
+            expect(dePara).toEqual([
+              { chave: 'cod:5001', item: ids.c120 },
+              { chave: 'cod:5002', item: ids.queijo },
+              { chave: 'cod:5004', item: molho },
+            ]);
+            // "Lançar" (num documento só com a linha que a IA tirou do estoque, para não mexer no estoque da loja de teste):
+            // o que a IA decidiu e a pessoa lançou vira memória do fornecedor.
+            const soFora = await documento([itemDaNota({ descricao: 'DETERGENTE YPE 500ML', codigo: '5003', estado: 'fora', pelaIa: true })], pessoa.ana, 'confirmar', 'itens_ligados');
+            const lancou = await notasIa.lancar(soFora, A, pessoa.ana, null);
+            expect(lancou.texto).toContain('Lancei');
+            dePara = await q(`select chave, item_id::text as item from mister_de_para where tenant_id = $1 and chave = 'cod:5003'`, [A]);
+            expect(dePara).toEqual([{ chave: 'cod:5003', item: null }]);
+            expect(await q(`select count(*)::int as n from recebimento where tenant_id = $1`, [A])).toEqual([{ n: 0 }]);
+          } finally {
+            await q(`update mister_conversa_config set ligar_pela_ia = false where tenant_id = $1`, [A]);
+            await q(`delete from titulo_financeiro where tenant_id = $1`, [A]);
+            if (molho) await q(`update item_estoque set deleted_at = now() where id = $1`, [molho]);
+          }
+        });
+
+        it('O1: desligado, a IA não é chamada; a IA que falha ou corta deixa a sugestão pelas palavras', async () => {
+          const conversaCfg = new MisterConversaConfigService(db, auditoria);
+          const notasIa = new MisterNotasService(db, numero, ia, recebimentos, financeiro, new EstoqueService(db, auditoria), auditoria, undefined, conversaCfg);
+          const quem = { telefone: telAna, tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente' as const, nome: 'Ana' };
+          const daNota = () =>
+            falar(
+              JSON.stringify({
+                chave: null,
+                emitenteNome: 'Rucas',
+                emitenteCnpj: CNPJ,
+                numero: '778',
+                valorTotal: '100,00',
+                duplicatas: [],
+                itens: [{ descricao: 'PRODUTO NOVO QUALQUER', codigo: '6001', quantidade: '1', unidade: 'UN', valorUnitario: '100,00', valorTotal: '100,00' }],
+                legivel: true,
+              }),
+            );
+          await q(`insert into mister_conversa_config (tenant_id, ligar_pela_ia) values ($1, false) on conflict (tenant_id) do update set ligar_pela_ia = false`, [A]);
+          ia.roteiro = [daNota()];
+          ia.pedidos.length = 0;
+          await notasIa.receber(quem, wamid(), { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'eA==' } }, 'claude-sonnet-5-5');
+          expect(ia.pedidos).toHaveLength(1);
+          expect(numero.enviadas.at(-1)!.botoes.map((b: any) => b.titulo)).toContain('Cadastrar novo');
+          await q(`update mister_conversa_config set ligar_pela_ia = true where tenant_id = $1`, [A]);
+          try {
+            for (const falha of [{ erro: new Error('o provedor caiu') }, { ...falar('{"linhas": []}'), stop_reason: 'max_tokens' }, falar('não sei')]) {
+              ia.roteiro = [daNota(), falha];
+              ia.pedidos.length = 0;
+              await notasIa.receber(quem, wamid(), { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'eA==' } }, 'claude-sonnet-5-5');
+              expect(ia.pedidos).toHaveLength(2);
+              const [d] = await q(`select dados from mister_documento where tenant_id = $1 order by criado_em desc limit 1`, [A]);
+              expect(d.dados.nota.ligadaPelaIa).toBe(false);
+              expect(numero.enviadas.at(-1)!.botoes.map((b: any) => b.titulo)).toContain('Cadastrar novo');
+            }
+          } finally {
+            await q(`update mister_conversa_config set ligar_pela_ia = false where tenant_id = $1`, [A]);
+          }
+        });
       });
 
       // M3g (conversa 22): "o boleto da Distribuidora vence dia 28, não 25" — corrige o vencimento pela conta da tela, com
@@ -7743,7 +7894,7 @@ export function testesDoMisterComPostgres(): void {
 
       it('o ajuste da empresa: "pergunta antes" segura o boleto que lançaria sozinho; desligado, a foto segue como antes; o salvar confere', async () => {
         // Versão 4 (mig 447): o jeito vem junto, no padrão (nada muda). M4d (mig 452): o "fica de olho" nasce desligado.
-        const SEM_JEITO = { analisesProfundas: false, vozComEmocao: false, perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null };
+        const SEM_JEITO = { analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null };
         expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'sozinho', ...SEM_JEITO });
         await expect(conversa.salvar(usuario('ana'), { documentosModo: 'sempre' })).rejects.toBeInstanceOf(BadRequestException);
         await expect(conversa.salvar(usuario('ana'), { documentosLigado: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
@@ -7797,12 +7948,12 @@ export function testesDoMisterComPostgres(): void {
         await expect(conversa.salvar(usuario('ana'), { avisosEscritos: 'loja' })).rejects.toBeInstanceOf(BadRequestException);
         // O jeito vira uma linha só, com os espaços apertados; os grupos saem na ordem da tela, sem repetir.
         const r = await conversa.salvar(usuario('ana'), { perfil: 'descontraido', jeito: '  Fale como sócio,\n sem formalidade.  ', avisosEscritos: ['fiscal', 'loja', 'loja'] });
-        expect(r.conversa).toEqual({ analisesProfundas: false, vozComEmocao: false, documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
+        expect(r.conversa).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         expect(auditados.filter((a) => a.acao === 'mister_conversa_alterada').at(-1)).toMatchObject({ detalhe: { antes: { perfil: 'hoje', jeito: null }, depois: { perfil: 'descontraido' } } });
         // Salvar só o perfil não apaga o jeito, os grupos nem o ajuste dos documentos.
         await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' });
         await conversa.salvar(usuario('ana'), { perfil: 'objetivo' });
-        expect(await conversa.daEmpresa(A)).toEqual({ analisesProfundas: false, vozComEmocao: false, documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
+        expect(await conversa.daEmpresa(A)).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         // M4d (mig 452): o "fica de olho" liga e desliga só com booleano (V15), sem mexer no resto.
         await expect(conversa.salvar(usuario('ana'), { ficaDeOlho: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
         expect((await conversa.salvar(usuario('ana'), { ficaDeOlho: true })).conversa).toMatchObject({ ficaDeOlho: true, perfil: 'objetivo', avisosEscritos: ['loja', 'fiscal'] });

@@ -20,7 +20,8 @@ export type AlteracaoDoDocumento =
   | { linha: number; tipo: 'corrigir'; descricao?: string; quantidade?: number; valorTotalCentavos?: number }
   | { linha: number; tipo: 'ligar'; insumo: string }
   | { linha: number; tipo: 'conversao'; quantoNoEstoque: number }
-  | { linha: number; tipo: 'fora' };
+  | { linha: number; tipo: 'fora' }
+  | { linha: number; tipo: 'cadastrar'; nome?: string; unidade?: string };
 
 const emTexto = (t: unknown) => String(t ?? '').replace(/\s+/g, ' ').trim();
 const positivo = (v: unknown, teto: number): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= teto;
@@ -34,6 +35,17 @@ export function lerAlteracoes(entrada: unknown): { alteracoes: AlteracaoDoDocume
     const linha = Number(a?.linha);
     if (!Number.isInteger(linha) || linha < 1 || linha > MAX_LINHA) return { erro: 'Cada alteração precisa do número da linha do documento.' };
     if (a?.tipo === 'fora') alteracoes.push({ linha, tipo: 'fora' });
+    else if (a?.tipo === 'cadastrar') {
+      // Versão 9, O1: o cadastro novo que a pessoa pediu ("cadastra o 7"). Sem nome, o que a IA propôs ou o da nota.
+      const c: Extract<AlteracaoDoDocumento, { tipo: 'cadastrar' }> = { linha, tipo: 'cadastrar' };
+      if (a.nome !== undefined && a.nome !== null && String(a.nome).trim()) {
+        const n = emTexto(a.nome);
+        if (n.length < 2 || n.length > 120 || !/\p{L}/u.test(n) || pareceConversa(n)) return { erro: `Linha ${linha}: isso não parece o nome de um produto.` };
+        c.nome = n;
+      }
+      if (a.unidade !== undefined && a.unidade !== null && String(a.unidade).trim()) c.unidade = emTexto(a.unidade).slice(0, 20);
+      alteracoes.push(c);
+    }
     else if (a?.tipo === 'ligar') {
       const insumo = emTexto(a.insumo).slice(0, 120);
       if (insumo.length < 2) return { erro: `Linha ${linha}: diga o nome do insumo do estoque.` };
@@ -58,7 +70,7 @@ export function lerAlteracoes(entrada: unknown): { alteracoes: AlteracaoDoDocume
       }
       if (c.descricao === undefined && c.quantidade === undefined && c.valorTotalCentavos === undefined) return { erro: `Linha ${linha}: diga o que corrigir.` };
       alteracoes.push(c);
-    } else return { erro: 'tipo precisa ser corrigir, ligar, conversao ou fora.' };
+    } else return { erro: 'tipo precisa ser corrigir, ligar, conversao, fora ou cadastrar.' };
   }
   return { alteracoes };
 }
@@ -108,7 +120,11 @@ const qtd = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 
 function situacaoDaLinha(it: ItemNoMister): string {
   if (it.duvida) return `em dúvida (${limpo(it.duvida.texto, 40)})`;
   if (it.estado === 'fora') return 'fora do estoque';
-  if (it.estado === 'item') return 'falta dizer qual insumo é';
+  if (it.estado === 'item') {
+    // Versão 9, O1: a proposta da IA, para a pessoa confirmar ("sim" liga a ela).
+    if (it.propostaDaIa && it.sugestoes?.[0]) return `falta confirmar: é o ${limpo(it.sugestoes[0].nome, 40)}?`;
+    return `falta dizer qual insumo é${it.nomeNovo ? ` (ou cadastrar ${limpo(it.nomeNovo, 40)})` : ''}`;
+  }
   const de = limpo(it.unidade, 12) || 'unidade';
   const para = limpo(it.unidadeDoEstoque, 12);
   if (it.estado === 'fator') {
@@ -116,7 +132,7 @@ function situacaoDaLinha(it: ItemNoMister): string {
       ? `${limpo(it.insumoNome, 40)}, falta confirmar: 1 ${de} = ${qtd(it.fatorProposto)} ${para}`
       : `${limpo(it.insumoNome, 40)}, falta a conversão de ${de} para ${para}`;
   }
-  return `${limpo(it.insumoNome, 40)} (1 ${de} = ${qtd(Number(it.fator) || 0)} ${para})`;
+  return `${limpo(it.insumoNome, 40)} (1 ${de} = ${qtd(Number(it.fator) || 0)} ${para})${it.pelaIa ? ', ligado pela IA' : ''}`;
 }
 
 /** A linha curta do bloco "TRABALHO EM ANDAMENTO". O número é o que a ferramenta recebe. */

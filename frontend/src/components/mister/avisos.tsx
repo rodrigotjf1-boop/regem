@@ -54,12 +54,15 @@ type RelatorioNaTela = {
 type ModoDoBoleto = 'sozinho' | 'perguntar';
 /** Versão 5, M5e (mig 462): "Como mandar o resumo" — a mesma lista do servidor (`FORMAS_DE_ENTREGA_DO_RESUMO`). */
 type FormaDoResumo = 'botoes' | 'pdf' | 'link' | 'texto';
-type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean; analisesProfundas?: boolean; vozComEmocao?: boolean };
+type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean; analisesProfundas?: boolean; vozComEmocao?: boolean; ligarPelaIa?: boolean };
 const CONV = 'conversa:documentos';
 const CONV_RESUMO = 'conversa:resumo';
 const CONV_VOZ = 'conversa:voz';
 const CONV_EMOCAO = 'conversa:emocao';
 const CONV_ANALISES = 'conversa:analises';
+/** Versão 9, O1 (mig 501): "Ligar as linhas pela IA" — nasce desligado, com o preço ao lado (a mesma frase do servidor). */
+const CONV_LIGAR = 'conversa:ligar';
+const PRECO_DA_LIGACAO = 'Cerca de R$ 0,20 por cupom, nota ou lista, na chave de IA da empresa';
 const FORMAS_DO_RESUMO: { v: FormaDoResumo; rotulo: string }[] = [
   { v: 'botoes', rotulo: 'texto com os botões PDF e link' },
   { v: 'pdf', rotulo: 'texto e o PDF junto' },
@@ -310,8 +313,9 @@ export function AvisosDoMister() {
     const voz = c.responderAudio === true ? '1' : '0';
     const analises = c.analisesProfundas === true ? '1' : '0';
     const emocao = c.vozComEmocao === true ? '1' : '0';
-    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises }));
-    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises }));
+    const ligar = c.ligarPelaIa === true ? '1' : '0';
+    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar }));
+    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar }));
   }, []);
 
   const ler = useCallback(async () => {
@@ -743,6 +747,29 @@ export function AvisosDoMister() {
                 </span>
               ),
             },
+            {
+              id: CONV_LIGAR,
+              rotulo: 'Ligar as linhas pela IA',
+              tipo: 'livre' as const,
+              palavras: 'ligar linhas ia nota cupom lista insumo estoque cadastro sugestão compra',
+              ajuda: (
+                <>
+                  <span className="block">
+                    Nota, cupom e lista de compras: a IA compara cada linha com todo o seu estoque e liga as que tem certeza. As dúvidas chegam juntas numa mensagem.
+                    Desligado, o Mister sugere pelas palavras e pergunta linha por linha.
+                  </span>
+                  <span className="mt-1 block text-xs font-semibold" data-preco-da-ligacao>
+                    {PRECO_DA_LIGACAO}
+                  </span>
+                </>
+              ),
+              desenhar: (v: Valor, mudar: (x: Valor) => void) => (
+                <span className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                  <span className={`text-sm ${texto2}`}>{v === '1' ? 'Ligado' : 'Desligado'}</span>
+                  <Chave ligada={v === '1'} comTexto={false} rotulo="Ligar as linhas pela IA" aoMudar={(l) => mudar(l ? '1' : '0')} />
+                </span>
+              ),
+            },
           ],
         };
     // Versão 8, E3: o aviso da véspera sai do grupo Relatórios e fica em "Clima e eventos", com a linha "Amanhã" do resumo.
@@ -810,6 +837,7 @@ export function AvisosDoMister() {
         ...(conversa && valores[CONV_VOZ] !== salvos[CONV_VOZ] ? { responderAudio: valores[CONV_VOZ] === '1' } : {}),
         ...(conversa && valores[CONV_EMOCAO] !== salvos[CONV_EMOCAO] ? { vozComEmocao: valores[CONV_EMOCAO] === '1' } : {}),
         ...(conversa && valores[CONV_ANALISES] !== salvos[CONV_ANALISES] ? { analisesProfundas: valores[CONV_ANALISES] === '1' } : {}),
+        ...(conversa && valores[CONV_LIGAR] !== salvos[CONV_LIGAR] ? { ligarPelaIa: valores[CONV_LIGAR] === '1' } : {}),
       };
       const conv = Object.keys(partesDaConversa).length ? partesDaConversa : null;
       if (regras.length) aplicar((await api.patch('/mister/avisos', { regras })) as DaTela);
@@ -831,6 +859,7 @@ export function AvisosDoMister() {
   // O que está sendo LIGADO agora e tem preço: pede a confirmação antes de salvar.
   const ligandoAnalises = !!conversa && valores[CONV_ANALISES] === '1' && salvos[CONV_ANALISES] !== '1';
   const ligandoVoz = !!conversa && valores[CONV_EMOCAO] === '1' && salvos[CONV_EMOCAO] !== '1';
+  const ligandoLigacao = !!conversa && valores[CONV_LIGAR] === '1' && salvos[CONV_LIGAR] !== '1';
 
   if (erroLeitura)
     return (
@@ -853,7 +882,7 @@ export function AvisosDoMister() {
         salvos={salvos}
         aoMudar={(k: string, v: Valor) => setValores((x) => ({ ...x, [k]: v }))}
         aoSalvar={() => {
-          if (ligandoAnalises || ligandoVoz) setConfirmandoCusto(true);
+          if (ligandoAnalises || ligandoVoz || ligandoLigacao) setConfirmandoCusto(true);
           else void salvar();
         }}
         aoDescartar={() => {
@@ -899,6 +928,11 @@ export function AvisosDoMister() {
                 <b>Análises mais profundas:</b> {PRECO_DAS_ANALISES.charAt(0).toLowerCase() + PRECO_DAS_ANALISES.slice(1)}.
               </p>
             </>
+          )}
+          {ligandoLigacao && (
+            <p className={`text-sm ${ligandoAnalises ? 'mt-3' : ''}`}>
+              <b>Ligar as linhas pela IA:</b> {PRECO_DA_LIGACAO.charAt(0).toLowerCase() + PRECO_DA_LIGACAO.slice(1)}.
+            </p>
           )}
           {ligandoVoz && (
             <p className={`text-sm ${ligandoAnalises ? 'mt-3' : ''}`}>

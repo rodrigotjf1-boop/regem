@@ -44,6 +44,17 @@ import { RecebimentoService } from '../recebimento/recebimento.service';
 import { DOCUMENTO_ABERTO_H, acharInsumo, corrigirLinha, fraseDoFeito, lerAlteracoes, limpo, linhasParaOAgente } from './mister-documento-conversa';
 import { QuemMandou, QuemTocou } from './mister-entrada.service';
 import { MisterFerramentasService, type EscopoDoMister, type ResultadoDaFerramenta } from './mister-ferramentas.service';
+import { MisterConversaConfigService } from './mister-conversa-config.service';
+import {
+  MAX_TOKENS_DA_LIGACAO,
+  MODELO_DA_LIGACAO,
+  PRAZO_DA_LIGACAO_MS,
+  RECURSO_DA_LIGACAO,
+  catalogoDaLigacao,
+  instrucoesDaLigacao,
+  lerLigacao,
+  pedidoDaLigacao,
+} from './mister-ligacao';
 import { MisterNumeroService } from './mister-numero.service';
 import { Resposta } from './mister.regras';
 import { lerRespostaDoFator, simOuNao } from './resposta-do-fator';
@@ -62,6 +73,12 @@ const MAX_INSUMOS = 3000;
  * achado na M6h). O que não está na lista segue como veio (a conversão do produto ainda pode reconhecer).
  */
 const unidadeImpressa = (u: string | null | undefined): string | null => (u ? (normalizarUnidade(u) ?? u) : (u ?? null));
+
+/** Versão 9, O1: o "Aceitar as sugestões" da nota ligada pela IA: "doc:ia:<documento>". */
+export function lerAceitarSugestoes(botaoId: unknown): string | null {
+  const m = /^doc:ia:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(String(botaoId ?? ''));
+  return m ? m[1].toLowerCase() : null;
+}
 
 /** O toque na escolha do insumo de um item: "doc:ni:<documento>:<item>:<0|1|2 = sugestão | n = cadastrar novo | f = fora>". */
 export function lerEscolhaDoItem(botaoId: unknown): { documentoId: string; indice: number; escolha: '0' | '1' | '2' | 'n' | 'f' } | null {
@@ -95,6 +112,8 @@ export class MisterNotasService implements OnModuleInit {
     private readonly estoque: EstoqueService,
     @Optional() private readonly auditoria?: AuditoriaService,
     @Optional() private readonly ferramentas?: MisterFerramentasService,
+    // Versão 9, O1: o ajuste "Ligar as linhas pela IA" da empresa.
+    @Optional() private readonly conversa?: MisterConversaConfigService,
   ) {}
 
   /** ERR-594: o agente vê e corrige o documento aberto (o mesmo jeito da lista de compras). */
@@ -179,6 +198,10 @@ export class MisterNotasService implements OnModuleInit {
         ? { especie: 'cupom' as const, dataEmissao: leitura.dataEmissao, formaPagamento: leitura.formaPagamento, descontoCentavos: leitura.descontoCentavos, comoLancar: null }
         : {}),
     };
+    // Versão 9, O1: o que a memória do fornecedor não ligou, a IA liga (com o ajuste ligado). Falhou: a sugestão pelas palavras fica.
+    if (nota.itens.some((x) => x.estado === 'item') && (await this.ligarPelaIaLigado(quem.tenantId))) {
+      nota.ligadaPelaIa = await this.ligarPelaIa(quem.tenantId, nota, insumos);
+    }
     conferirEmbalagens(nota);
     const daLeitura = pendenciaDaLeitura(nota);
     if (daLeitura) {
@@ -544,6 +567,126 @@ export class MisterNotasService implements OnModuleInit {
     return true;
   }
 
+  // ───────────────────────────── versão 9, O1: ligar as linhas pela IA ──────────────────────────
+
+  /** O ajuste da empresa (nasce desligado). Sem a leitura, desligado: a sugestão pelas palavras segue como antes. */
+  private async ligarPelaIaLigado(tenantId: string): Promise<boolean> {
+    if (!this.conversa) return false;
+    return this.conversa.daEmpresa(tenantId).then(
+      (c) => c.ligarPelaIa === true,
+      () => false,
+    );
+  }
+
+  /**
+   * A IA liga as linhas que a memória do fornecedor não ligou. Certeza alta: ligada (e marcada "pela IA" no resumo). Fora do
+   * estoque: fora. O resto: a proposta da IA vira a primeira sugestão, e a pessoa confirma. Devolve se a IA respondeu.
+   */
+  private async ligarPelaIa(tenantId: string, nota: NotaNoMister, insumos: Awaited<ReturnType<MisterNotasService['insumos']>>): Promise<boolean> {
+    const alvo = nota.itens.map((it, i) => ({ it, i })).filter(({ it }) => it.estado === 'item');
+    const catalogo = catalogoDaLigacao(alvo.map((x) => x.it), insumos);
+    if (!alvo.length || !catalogo.length) return false;
+    let saida: string;
+    try {
+      const r = await this.ia.pedir(tenantId, {
+        recurso: RECURSO_DA_LIGACAO,
+        modelo: MODELO_DA_LIGACAO,
+        maxTokens: MAX_TOKENS_DA_LIGACAO,
+        system: instrucoesDaLigacao(),
+        messages: [{ role: 'user', content: pedidoDaLigacao(alvo.map((x) => x.it), catalogo) }],
+        prazoMs: PRAZO_DA_LIGACAO_MS,
+      });
+      // ERR-593: a resposta cortada pelo teto não é ligação.
+      if (r.parou === 'max_tokens') {
+        this.logger.warn(`nota de ${tenantId.slice(0, 8)}: a ligação pela IA parou no teto de ${MAX_TOKENS_DA_LIGACAO} tokens`);
+        return false;
+      }
+      saida = r.texto;
+    } catch (e: any) {
+      this.logger.warn(`nota de ${tenantId.slice(0, 8)}: a IA não ligou as linhas (${e instanceof FalhaDaIa ? e.motivo : (e?.message ?? e)})`);
+      return false;
+    }
+    const propostas = lerLigacao(saida, alvo.length, catalogo);
+    if (!propostas) {
+      this.logger.warn(`nota de ${tenantId.slice(0, 8)}: a ligação pela IA voltou fora do formato`);
+      return false;
+    }
+    const ids = [...new Set([...propostas.values()].map((p) => p.insumo?.id).filter((x): x is string => !!x))];
+    const conversoes = await this.conversoes(tenantId, ids);
+    for (const [k, p] of propostas) {
+      const it = nota.itens[alvo[k].i];
+      if (p.insumo && p.certeza === 'alta') {
+        const fator = fatorParaEstoque(unidadeImpressa(it.unidade), p.insumo.unidadeMedida, conversoes.get(p.insumo.id) ?? []);
+        Object.assign(it, { insumoId: p.insumo.id, insumoNome: p.insumo.nome, unidadeDoEstoque: p.insumo.unidadeMedida, fator, estado: fator == null ? 'fator' : 'ligado', pelaIa: true, sugestoes: [] });
+      } else if (p.fora) {
+        Object.assign(it, { estado: 'fora', pelaIa: true, sugestoes: [] });
+      } else {
+        const sugestoes = [p.insumo, ...p.outros].filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ id: x.id, nome: x.nome }));
+        Object.assign(it, { sugestoes: sugestoes.length ? sugestoes : it.sugestoes, propostaDaIa: !!p.insumo, nomeNovo: p.nomeNovo });
+      }
+    }
+    return true;
+  }
+
+  /**
+   * O "Aceitar as sugestões": cada linha com a proposta da IA fica ligada a ela, e cada conversão proposta vale. Só o presidente
+   * e só a nota que espera resposta. O que não tinha proposta continua na próxima mensagem.
+   */
+  async aceitarSugestoes(botaoId: string, quem: QuemTocou): Promise<boolean> {
+    const documentoId = lerAceitarSugestoes(botaoId);
+    const empresas = quem.vinculos.map((v) => v.tenantId);
+    if (!documentoId || !empresas.length) return false;
+    const resultado = await this.db.transaction(async (tx: any) => {
+      const [d] = linhas(
+        await tx.execute(sql`
+          select id::text as id, tenant_id::text as "tenantId", situacao, tipo, dados
+            from mister_documento
+           where id = ${documentoId}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})
+           for update`),
+      );
+      if (!d || d.tipo !== 'nota') return { achou: false } as const;
+      const v = quem.vinculos.find((x) => x.tenantId === d.tenantId)!;
+      if (v.nivel !== 'presidente') return { achou: true, resposta: { texto: 'Lançar nota por foto, por enquanto, é só com o presidente.' } } as const;
+      const nota: NotaNoMister | undefined = d.dados?.nota;
+      if (d.situacao !== 'falta' || !nota) return { achou: true, resposta: { texto: 'Esta nota já foi respondida.' } } as const;
+      const ids = nota.itens.filter((x) => x.estado === 'item' && x.propostaDaIa && x.sugestoes?.[0]).map((x) => x.sugestoes[0].id);
+      const existem = ids.length
+        ? new Map(
+            linhas(
+              await tx.execute(sql`
+                select id::text as id, nome, unidade_medida as "unidadeMedida" from item_estoque
+                 where tenant_id = ${d.tenantId}::uuid and deleted_at is null and id in (${sql.join(ids.map((x) => sql`${x}::uuid`), sql`, `)})`),
+            ).map((x) => [x.id, x]),
+          )
+        : new Map<string, any>();
+      const conv = await this.conversoes(d.tenantId, [...existem.keys()], tx);
+      const mexidos: ItemNoMister[] = [];
+      for (const it of nota.itens) {
+        if (it.estado === 'item' && it.propostaDaIa && existem.has(it.sugestoes?.[0]?.id)) {
+          const x = existem.get(it.sugestoes[0].id);
+          const fator = fatorParaEstoque(unidadeImpressa(it.unidade), x.unidadeMedida, conv.get(x.id) ?? []);
+          Object.assign(it, { insumoId: x.id, insumoNome: x.nome, unidadeDoEstoque: x.unidadeMedida, fator, estado: fator == null ? 'fator' : 'ligado', propostaDaIa: false, pelaIa: false, sugestoes: [] });
+          mexidos.push(it);
+        } else if (it.estado === 'fator' && typeof it.fatorProposto === 'number') {
+          Object.assign(it, { fator: it.fatorProposto, fatorProposto: null, fatorConfirmado: true, estado: 'ligado' });
+          mexidos.push(it);
+        }
+      }
+      conferirEmbalagens(nota);
+      for (const it of mexidos) await this.lembrar(tx, d.tenantId, nota.emitenteCnpj, it, v.colaboradorId);
+      const prox = this.proximoPasso(nota);
+      await tx.execute(sql`
+        update mister_documento
+           set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), situacao = ${prox.situacao}, motivo = ${prox.motivo}, atualizado_em = clock_timestamp()
+         where id = ${d.id}::uuid`);
+      return { achou: true, seguir: { id: d.id as string, nota, motivo: prox.motivo } } as const;
+    });
+    if (!resultado.achou) return false;
+    if ('resposta' in resultado && resultado.resposta) await this.falar(quem.telefone, resultado.resposta);
+    if ('seguir' in resultado && resultado.seguir) await this.falarDepoisDaLeitura(quem.telefone, resultado.seguir.id, resultado.seguir.nota, resultado.seguir.motivo);
+    return true;
+  }
+
   // ───────────────────────────── o documento pela conversa (ERR-594) ──────────────────────────
 
   /**
@@ -581,20 +724,21 @@ export class MisterNotasService implements OnModuleInit {
     if ('erro' in lidas) return recusa(lidas.erro);
     const insumos = await this.insumos(e.tenantId);
     const r = await this.db.transaction(async (tx: any): Promise<{ erro: string } | { id: string; nota: NotaNoMister; feito: string[]; motivo: string }> => {
-      const [d] = linhas(await tx.execute(sql`select id::text as id, dados from mister_documento where ${aberto} order by atualizado_em desc limit 1 for update`));
+      const [d] = linhas(await tx.execute(sql`select id::text as id, dados, fornecedor_id::text as "fornecedorId" from mister_documento where ${aberto} order by atualizado_em desc limit 1 for update`));
       const nota: NotaNoMister | undefined = d?.dados?.nota;
       if (!d || !nota?.itens) return { erro: SEM_DOCUMENTO };
       for (const a of lidas.alteracoes) {
         const i = a.linha - 1;
         const it = nota.itens[i];
         if (!it) return { erro: `O documento tem ${nota.itens.length} linhas: não há a linha ${a.linha}.` };
+        if (a.tipo === 'cadastrar') continue; // depois de todas as outras conferidas (é a única que grava antes do fim)
         if (a.tipo === 'fora') {
-          Object.assign(it, { estado: 'fora', insumoId: null, insumoNome: null, unidadeDoEstoque: null, fator: null, fatorProposto: null, duvida: null });
+          Object.assign(it, { estado: 'fora', insumoId: null, insumoNome: null, unidadeDoEstoque: null, fator: null, fatorProposto: null, duvida: null, pelaIa: false, propostaDaIa: false });
         } else if (a.tipo === 'corrigir') {
           if (corrigirLinha(it, a)) nota.itens[i] = this.itemSemInsumo(it, insumos);
         } else if (a.tipo === 'conversao') {
           if (!it.insumoId) return { erro: `Linha ${a.linha}: ligue a um insumo antes de dizer a conversão.` };
-          Object.assign(it, { fator: a.quantoNoEstoque, fatorProposto: null, fatorConfirmado: true, estado: 'ligado' });
+          Object.assign(it, { fator: a.quantoNoEstoque, fatorProposto: null, fatorConfirmado: true, estado: 'ligado', pelaIa: false });
         } else {
           const achado = acharInsumo(a.insumo, insumos);
           if ('opcoes' in achado) {
@@ -602,8 +746,35 @@ export class MisterNotasService implements OnModuleInit {
           }
           const conv = (await this.conversoes(e.tenantId, [achado.insumo.id], tx)).get(achado.insumo.id) ?? [];
           const fator = fatorParaEstoque(unidadeImpressa(it.unidade), achado.insumo.unidadeMedida, conv);
-          Object.assign(it, { insumoId: achado.insumo.id, insumoNome: achado.insumo.nome, unidadeDoEstoque: achado.insumo.unidadeMedida, fator, fatorProposto: null, fatorConfirmado: false, estado: fator == null ? 'fator' : 'ligado', sugestoes: [], duvida: null });
+          Object.assign(it, { insumoId: achado.insumo.id, insumoNome: achado.insumo.nome, unidadeDoEstoque: achado.insumo.unidadeMedida, fator, fatorProposto: null, fatorConfirmado: false, estado: fator == null ? 'fator' : 'ligado', sugestoes: [], duvida: null, pelaIa: false, propostaDaIa: false });
         }
+      }
+      // O cadastro novo que a pessoa pediu: o mesmo serviço da tela (Estoque › Produtos). Com o nome já cadastrado, liga a ele.
+      for (const a of lidas.alteracoes) {
+        if (a.tipo !== 'cadastrar') continue;
+        const it = nota.itens[a.linha - 1];
+        const nome = a.nome ?? it.nomeNovo ?? it.descricao;
+        const ja = acharInsumo(nome, insumos);
+        let insumo: { id: string; nome: string; unidadeMedida: string };
+        if ('insumo' in ja) insumo = ja.insumo;
+        else {
+          try {
+            const novo: any = await this.estoque.createItem(
+              e.tenantId,
+              { nome, unidadeMedida: normalizarUnidade(a.unidade ?? it.unidade ?? '') ?? 'unidade', ...(d.fornecedorId ? { fornecedorIds: [d.fornecedorId] } : {}) } as any,
+              null,
+              { colaboradorId: e.colaboradorId, categoria: 'presidente' },
+            );
+            insumo = { id: novo.id, nome: novo.nome, unidadeMedida: novo.unidadeMedida };
+            insumos.push({ id: novo.id, nome: novo.nome, nomeComercial: null, unidadeMedida: novo.unidadeMedida });
+          } catch (err: any) {
+            const msg = err instanceof BadRequestException ? String((err.getResponse() as any)?.message ?? err.message) : 'não deu para cadastrar';
+            return { erro: `Linha ${a.linha}: não consegui cadastrar "${nome}": ${msg}` };
+          }
+        }
+        const conv = (await this.conversoes(e.tenantId, [insumo.id], tx)).get(insumo.id) ?? [];
+        const fator = fatorParaEstoque(unidadeImpressa(it.unidade), insumo.unidadeMedida, conv);
+        Object.assign(it, { insumoId: insumo.id, insumoNome: insumo.nome, unidadeDoEstoque: insumo.unidadeMedida, fator, fatorProposto: null, fatorConfirmado: false, estado: fator == null ? 'fator' : 'ligado', sugestoes: [], duvida: null, pelaIa: false, propostaDaIa: false });
       }
       conferirEmbalagens(nota);
       // Tudo conferido: só agora grava. Corrigir o nome ou o valor não ensina nada à memória do fornecedor.
@@ -749,6 +920,8 @@ export class MisterNotasService implements OnModuleInit {
         detalhe: { recebimento: recebimentoId, titulos, ...(cupom ? { comoLancar: nota.comoLancar ?? null } : {}) },
       } as any)
       .catch(() => undefined);
+    // Versão 9, O1: o que a IA ligou e a pessoa lançou vira memória do fornecedor (a próxima nota já vem ligada).
+    for (const it of nota.itens) if (it.pelaIa) await this.lembrar(this.db, tenantId, nota.emitenteCnpj, it, colaboradorId).catch(() => undefined);
     // M3b.3: o custo que mudou com a entrada (o protótipo: "O quilo da carne 56 g passou de R$ 31,90 para R$ 33,00").
     const depois = antes ? await lerCustos() : null;
     const mudancas: Array<{ insumo: string; unidade: string; antes: number; depois: number }> = [];
@@ -804,6 +977,14 @@ export class MisterNotasService implements OnModuleInit {
           { id: `doc:lancar:${id}`, titulo: 'Lançar' },
           { id: `doc:outra:${id}`, titulo: 'Cancelar' },
         ],
+      };
+    }
+    // Versão 9, O1: ligada pela IA, as dúvidas vão juntas numa mensagem; a resposta em frase vai ao agente, que grava pela ferramenta.
+    if (nota.ligadaPelaIa) {
+      const temProposta = nota.itens.some((x) => (x.estado === 'item' && x.propostaDaIa && x.sugestoes?.[0]) || (x.estado === 'fator' && typeof x.fatorProposto === 'number'));
+      return {
+        texto: FRASES_DA_NOTA.pendenciasJuntas(nota),
+        botoes: [...(temProposta ? [{ id: `doc:ia:${id}`, titulo: 'Aceitar as sugestões' }] : []), { id: `doc:outra:${id}`, titulo: 'Cancelar' }],
       };
     }
     const it = nota.itens[pend.indice];

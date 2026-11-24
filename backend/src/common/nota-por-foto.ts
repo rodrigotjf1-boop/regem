@@ -324,6 +324,12 @@ export interface ItemNoMister extends ItemDaNota {
   fatorProposto?: number | null;
   /** A pessoa disse a conta nesta nota: a conferência da embalagem não pergunta de novo. */
   fatorConfirmado?: boolean;
+  /** Versão 9, O1: ligado pela IA com certeza alta (aparece no resumo; vira memória do fornecedor no "Lançar"). */
+  pelaIa?: boolean;
+  /** Versão 9, O1: a primeira sugestão é a proposta da IA (a pessoa confirma com "sim" ou no botão "Aceitar as sugestões"). */
+  propostaDaIa?: boolean;
+  /** Versão 9, O1: o nome limpo que a IA propôs para o cadastro novo. */
+  nomeNovo?: string | null;
   estado: 'ligado' | 'fora' | 'item' | 'fator';
   sugestoes: { id: string; nome: string }[];
 }
@@ -345,6 +351,8 @@ export interface NotaNoMister {
   comoLancar?: 'despesa' | 'estoque' | null;
   /** A pessoa tocou em "Lançar assim": a soma dos itens não fecha com o total, e ela sabe. */
   semSomar?: boolean;
+  /** Versão 9, O1: as linhas foram ligadas pela IA — as dúvidas vão juntas numa mensagem, não uma por vez. */
+  ligadaPelaIa?: boolean;
 }
 
 // ───────────────────────────── o cupom fiscal de compra (versão 6, M6h) ─────────────────────────────
@@ -512,6 +520,35 @@ export const FRASES_DA_NOTA = {
       ? `Lancei em Estoque › Recebimento (${((k) => (k === 1 ? '1 item' : `${k} itens`))(n.itens.filter((x) => x.estado === 'ligado').length)}) e a despesa de R$ ${reaisDe(n.valorTotalCentavos)} já paga, em Financeiro › Contas a pagar.`
       : `Lancei a despesa de R$ ${reaisDe(n.valorTotalCentavos)} já paga, em Financeiro › Contas a pagar. O estoque não mudou.`) + (custos.length ? `\n\n${custos.join('\n')}` : ''),
   cupomNaoLancado: 'Certo: não lancei o cupom. Ele fica em Mister › Documentos, como recusado.',
+
+  // ── versão 9, O1: as linhas ligadas pela IA ──
+  /** As dúvidas juntas, numa mensagem só: cada linha com o número dela no documento, que é o que a pessoa e o agente usam. */
+  pendenciasJuntas: (n: NotaNoMister): string => {
+    const pendentes = n.itens.map((it, i) => ({ it, i })).filter(({ it }) => it.estado === 'item' || it.estado === 'fator');
+    const ligadas = n.itens.filter((it) => it.estado === 'ligado' || it.estado === 'fora').length;
+    const cab = n.especie === 'cupom' ? FRASES_DA_NOTA.cabecalhoDoCupom(n) : FRASES_DA_NOTA.cabecalho(n);
+    const linha = ({ it, i }: { it: ItemNoMister; i: number }) => {
+      const quanto = `${qtd(it.quantidade)} ${it.unidade ?? ''}`.trim();
+      const nome = `Linha ${i + 1} · ${it.descricao} (${quanto})`;
+      if (it.estado === 'fator') {
+        if (typeof it.fatorProposto === 'number') {
+          const total = Math.round(it.quantidade * it.fatorProposto * 1000) / 1000;
+          return `• ${nome}: é o *${it.insumoNome}*. Cada ${it.unidade ?? 'unidade'} = ${qtd(it.fatorProposto)} ${it.unidadeDoEstoque}, entram ${comUnidade(total, it.unidadeDoEstoque)}?`;
+        }
+        return `• ${nome}: é o *${it.insumoNome}*, contado em ${it.unidadeDoEstoque}. Cada ${it.unidade ?? 'unidade'} da nota é quanto do estoque?`;
+      }
+      const s = it.sugestoes ?? [];
+      if (it.propostaDaIa && s[0]) return `• ${nome}: é o *${s[0].nome}*?${s[1] ? ` Ou o ${s[1].nome}?` : ''}`;
+      if (s[0]) return `• ${nome}: não tenho certeza. Pode ser o *${s[0].nome}*${s[1] ? ` ou o ${s[1].nome}` : ''}${it.nomeNovo ? `, ou cadastro *${it.nomeNovo}*` : ''}.`;
+      return `• ${nome}: não achei no estoque. ${it.nomeNovo ? `Cadastro *${it.nomeNovo}*, ou é outro nome?` : 'Cadastro um novo, ou é outro nome?'}`;
+    };
+    const mostradas = pendentes.slice(0, 10).map(linha);
+    const mais = pendentes.length > 10 ? `\n• e mais ${pendentes.length - 10}` : '';
+    return (
+      `${cab}\n\nLiguei ${ligadas} de ${n.itens.length} ao seu estoque. ${pendentes.length} ${pendentes.length === 1 ? 'precisa' : 'precisam'} de você:\n\n${mostradas.join('\n')}${mais}\n\n` +
+      'Responda numa frase (ex.: "4 sim, o 5 é a fatia de cheddar, cadastra o 7") ou toque em "Aceitar as sugestões". Nada foi lançado.'
+    );
+  },
 } as const;
 
 /**
@@ -528,7 +565,7 @@ export function destinosDosItens(n: Pick<NotaNoMister, 'itens'>): Array<{ descri
           ? 'falta dizer o insumo'
           : it.estado === 'fator'
             ? `${it.insumoNome} (falta a conversão de unidade)`
-            : `${it.insumoNome}${it.fator != null && it.fator !== 1 ? ` (${qtd(it.quantidade * it.fator)} ${it.unidadeDoEstoque})` : ''}`;
+            : `${it.insumoNome}${it.fator != null && it.fator !== 1 ? ` (${qtd(it.quantidade * it.fator)} ${it.unidadeDoEstoque})` : ''}${it.pelaIa ? ' · pela IA' : ''}`;
     return { descricao: it.descricao, quanto, destino, estado: it.estado };
   });
 }

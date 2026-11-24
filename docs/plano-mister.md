@@ -2469,12 +2469,23 @@ dúvida" o Mister informa e pergunta, e a pessoa responde o certo ou manda outra
 **Custo (medido em 23/11, na chave de IA da empresa):** cada foto lida pelo Sonnet custa cerca de US$ 0,026 (uns R$ 0,15). O cupom ou a
 nota inteira, com a classificação e a leitura dos itens, cerca de US$ 0,085 (uns R$ 0,47). `MISTER_FOTO_MODELO` volta ao modelo anterior.
 
-## Versão 9 — o Mister operador (a aprovar)
+## Versão 9 — o Mister operador (aprovada em 24/11/2026)
 
 Pedido do dono em 24/11: "o Mister não está usando o recurso da IA, só segue regras de código; se não está no código ele não consegue
 fazer". Ele tem acesso a quase todo o Regem e não consegue fazer um pedido a partir da foto de uma lista. A ideia: usar a IA para
 entender, perguntar e ligar o nome da nota ao cadastro; guardar o que se aprendeu como modelo; e fazer pela conversa o que a pessoa faria
 clicando nas telas. Protótipo: `mockups/regem-mister-v9.html`.
+
+**Quem é o Mister (o dono, 24/11).** "Um agente super inteligente, bem humanizado, com interações sentimentais até, com acesso a todo
+recurso do Regem e a todos os dados somente do restaurante a que o presidente está ligado; não acessa dados de outros restaurantes;
+quando a empresa tem mais de uma unidade, acessa cada uma separadamente e pode fundir BI e relatórios financeiros somados às unidades
+do mesmo presidente." E: "acesso a todos os recursos que um presidente e o C&O têm" e "temos que conseguir fazer tudo via conversa do
+WhatsApp". Hoje: as ferramentas já estão presas à empresa pelo servidor (o modelo não nomeia empresa), e 31 delas aceitam a loja
+(pelo nome = só ela; sem nome = a soma das lojas da empresa; o gerente preso fica só na dele). O que falta é o alcance das ações: a O5.
+
+**Os modelos (o dono, 24/11): "intercalar Haiku e Sonnet".** O dia a dia (relatórios, avisos, perguntas) fica no Haiku; o Sonnet entra
+só no que é raro e pede mais (ligar um documento, uma tarefa com gravação). Depois de montada, a loja recebe configurações e cadastros
+pontuais, então o custo do Sonnet é pequeno. Tudo o que é pago nasce desligado, com o preço ao lado (regra de 20/11).
 
 **O que o levantamento mostrou (23/11).** A lista liga o nome ao cadastro comparando palavras, sem IA e sem memória: duas listas (31 e 19
 linhas) ficaram com zero linhas ligadas. O cupom faz o mesmo e pergunta linha por linha. O Mister faz 17 ações, e nenhuma cadastra ou
@@ -2486,12 +2497,12 @@ mesma porta da tela, com a auditoria de origem "Mister". A pessoa confirma: bot�
 
 | Fase | O que entra | Migration |
 |---|---|---|
-| O1 · Ligar pela IA | Nota, cupom e lista: a IA vê as linhas e os insumos e propõe a ligação de cada uma, com a certeza e a conversão. O Regem confere os ids. As dúvidas vão juntas numa mensagem; a resposta em frase vale como o botão | não |
+| O1 · Ligar pela IA | Nota e cupom: a IA (Sonnet) vê as linhas e o catálogo e propõe a ligação de cada uma, com a certeza. O Regem confere os códigos. Certeza alta liga; o resto vira proposta; as dúvidas vão juntas numa mensagem, com "Aceitar as sugestões", e a resposta em frase vai pela ferramenta (que agora também cadastra). O "Lançar" ensina o fornecedor. Ajuste "Ligar as linhas pela IA", desligado, com o preço. A lista de compras entra na O4 | sim, 1 (o ajuste) — neste PR |
 | O2 · Modelo de compra | Por fornecedor (produto, insumo, conversão, última quantidade e preço) e apelidos da empresa. Tela Mister › Modelos de compra | sim, 1, só na nuvem (classificar no `sync-daemon`: vai no próximo `.exe`) |
 | O3 · Cadastro pela conversa | Cadastrar e mudar insumo (nome, apelido, unidade, conversão, mínimo, fornecedor) e fornecedor, pelos serviços das telas, com botão | não |
 | O4 · Pedido de ponta a ponta | Lista da foto vira pedido numa mensagem; mudar, repetir, receber com o cupom e excluir pedido | não |
 | O5 · A porta do Regem | Catálogo de operações com a validação (DTO) e a permissão das rotas; cresce por área: cardápio, tarefas e escala, financeiro. Cada área entra na avaliação | não |
-| O6 · IA mais forte nas tarefas | O Sonnet responde enquanto há tarefa em andamento; ajuste com o preço em Avisos e relatórios › Conversa | sim, o ajuste |
+| O6 · IA mais forte nas tarefas | O Sonnet responde enquanto há tarefa em andamento; o Haiku no resto ("intercalar"). Ajuste com o preço em Avisos e relatórios › Conversa, desligado | sim, o ajuste |
 
 **Decisões, a recomendada primeiro.** V9-1: a IA propõe todas as ligações e a pessoa confirma de uma vez. V9-2: certeza alta entra ligada e
 aparece no resumo antes do "Lançar". V9-3: produto que não existe: propor o parecido com o nome mudado ou o cadastro novo. V9-4: modelo por
