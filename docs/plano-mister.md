@@ -2497,12 +2497,12 @@ mesma porta da tela, com a auditoria de origem "Mister". A pessoa confirma: bot�
 
 | Fase | O que entra | Migration |
 |---|---|---|
-| O1 · Ligar pela IA | Nota e cupom: a IA (Sonnet) vê as linhas e o catálogo e propõe a ligação de cada uma, com a certeza. O Regem confere os códigos. Certeza alta liga; o resto vira proposta; as dúvidas vão juntas numa mensagem, com "Aceitar as sugestões", e a resposta em frase vai pela ferramenta (que agora também cadastra). O "Lançar" ensina o fornecedor. Ajuste "Ligar as linhas pela IA", desligado, com o preço. A lista de compras entra na O4 | sim, 1 (o ajuste) — neste PR |
+| O1 · Ligar pela IA (no ar, #1304) | Nota e cupom: a IA (Sonnet) vê as linhas e o catálogo e propõe a ligação de cada uma, com a certeza. O Regem confere os códigos. Certeza alta liga; o resto vira proposta; as dúvidas vão juntas numa mensagem, com "Aceitar as sugestões", e a resposta em frase vai pela ferramenta (que agora também cadastra). O "Lançar" ensina o fornecedor. Ajuste "Ligar as linhas pela IA", desligado, com o preço. A lista de compras entra na O4 | sim, 1 (o ajuste) — neste PR |
 | O2 · Modelo de compra | Por fornecedor (produto, insumo, conversão, última quantidade e preço) e apelidos da empresa. Tela Mister › Modelos de compra | sim, 1, só na nuvem (classificar no `sync-daemon`: vai no próximo `.exe`) |
 | O3 · Cadastro pela conversa | Cadastrar e mudar insumo (nome, apelido, unidade, conversão, mínimo, fornecedor) e fornecedor, pelos serviços das telas, com botão | não |
 | O4 · Pedido de ponta a ponta | Lista da foto vira pedido numa mensagem; mudar, repetir, receber com o cupom e excluir pedido | não |
 | O5 · A porta do Regem | Catálogo de operações com a validação (DTO) e a permissão das rotas; cresce por área: cardápio, tarefas e escala, financeiro. Cada área entra na avaliação | não |
-| O6 · IA mais forte nas tarefas | O Sonnet responde enquanto há tarefa em andamento; o Haiku no resto ("intercalar"). Ajuste com o preço em Avisos e relatórios › Conversa, desligado | sim, o ajuste |
+| O6 · IA mais forte nas tarefas | O Sonnet responde enquanto há cupom, nota ou lista em andamento; o Haiku no resto ("intercalar"). Ajuste "IA mais forte nas tarefas" em Avisos e relatórios › Análises, desligado, com o preço; se o Sonnet falha, o Haiku responde | sim, 502 — no ar |
 
 **Decisões, a recomendada primeiro.** V9-1: a IA propõe todas as ligações e a pessoa confirma de uma vez. V9-2: certeza alta entra ligada e
 aparece no resumo antes do "Lançar". V9-3: produto que não existe: propor o parecido com o nome mudado ou o cadastro novo. V9-4: modelo por

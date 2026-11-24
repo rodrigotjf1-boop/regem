@@ -1555,6 +1555,19 @@ export function numerosDosResultados(resultados: unknown[]): Set<number> {
   return achados;
 }
 
+/** O valor é outro dividido por 2 a 31 (com o arredondamento do centavo)? "R$ 4.975,29 por dia" = R$ 24.876,45 ÷ 5. */
+const MAIOR_DIVISOR = 31;
+function divisaoDeAlgum(x: number, de: Iterable<number>): boolean {
+  if (x <= 0) return false;
+  for (const v of de) {
+    const a = Math.abs(v);
+    if (a <= x) continue;
+    const n = Math.round(a / x);
+    if (n >= 2 && n <= MAIOR_DIVISOR && Math.abs(Math.round(a / n) - x) <= 1) return true;
+  }
+  return false;
+}
+
 /** Acima disto, a conferência de contas não tenta combinar os valores da resposta. */
 const TETO_DE_VALORES_NA_CONTA = 18;
 
@@ -1575,12 +1588,15 @@ export function valoresSemConta(texto: string, resultados: unknown[] = []): numb
     arredondados.add(Math.floor(a / MIL_REAIS_EM_CENTAVOS) * MIL_REAIS_EM_CENTAVOS);
     arredondados.add(Math.round(a / MIL_REAIS_EM_CENTAVOS) * MIL_REAIS_EM_CENTAVOS);
   }
+  // O extrato traz o mês que faltou como negativo; a resposta escreve "-R$ 6.500,00" (o sinal fica fora do número lido).
+  for (const v of [...origem]) origem.add(Math.abs(v));
   const base = todos.filter((v) => origem.has(v));
   const soltos = [...new Set(todos.filter((v) => !origem.has(v) && !(emMil.has(v) && arredondados.has(v))))];
-  if (!soltos.length || base.length > TETO_DE_VALORES_NA_CONTA) return soltos;
+  if (!soltos.length || base.length > TETO_DE_VALORES_NA_CONTA) return soltos.filter((x) => !divisaoDeAlgum(x, origem));
   const somas = new Set<number>([0]);
   for (const v of base) for (const s of [...somas]) somas.add(s + v);
-  return soltos.filter((x) => !somas.has(x) && !base.some((a) => base.includes(a + x)));
+  // Por dia, por semana, por mês ou a média de alguns: um valor da consulta (ou a soma dos da resposta) dividido por 2 a 31.
+  return soltos.filter((x) => !somas.has(x) && !base.some((a) => base.includes(a + x)) && !divisaoDeAlgum(x, origem) && !divisaoDeAlgum(x, somas));
 }
 
 /**

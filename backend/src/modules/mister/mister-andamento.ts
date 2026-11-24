@@ -123,6 +123,11 @@ function linhasDoAberto(documentos: DocumentoEmAndamento[], verValores: boolean)
   ];
 }
 
+/** Versão 9, O6: há um cupom, uma nota ou uma lista esperando a pessoa (a tarefa que pede o modelo maior). */
+export function temTarefaAberta(documentos: DocumentoEmAndamento[], listas: ListaEmAndamento[]): boolean {
+  return documentos.some((d) => d.situacao === 'falta' || d.situacao === 'confirmar') || listas.some((l) => ['lida', 'montando', 'confirmar'].includes(l.situacao));
+}
+
 /** As linhas do bloco "Esta conversa". Sem nada em andamento, nenhuma. */
 export function linhasDoAndamento(documentos: DocumentoEmAndamento[], listas: ListaEmAndamento[], verValores: boolean): string[] {
   const linhas = [...documentos.map((d) => linhaDoDocumento(d, verValores)), ...listas.map(linhaDaLista)].filter((l): l is string => !!l);

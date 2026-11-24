@@ -11,7 +11,7 @@ import { MisterInstrucoesService } from './mister-instrucoes.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { MisterMemoriaService } from './mister-memoria.service';
 import { linhasDaMemoria } from './mister-memoria';
-import { linhasDoAndamento } from './mister-andamento';
+import { linhasDoAndamento, temTarefaAberta } from './mister-andamento';
 import type { PropostaPendente } from './mister-propostas.service';
 import { PedidoDoRelatorio, botaoDoPdf, linkDoRelatorio } from './insumo-vendido';
 import { enviarPdfDoInsumo } from './mister-anexos.service';
@@ -74,14 +74,14 @@ export class MisterAgenteService implements OnModuleInit {
   ) {}
 
   /** O perfil e o jeito da empresa para o bloco da conversa. A leitura que falha não segura a resposta: vai sem eles. */
-  private async jeitoDaEmpresa(tenantId: string): Promise<{ perfil: string | null; jeito: string | null; analisesProfundas: boolean }> {
-    if (!this.conversaConfig) return { perfil: null, jeito: null, analisesProfundas: false };
+  private async jeitoDaEmpresa(tenantId: string): Promise<{ perfil: string | null; jeito: string | null; analisesProfundas: boolean; iaForteNasTarefas: boolean }> {
+    if (!this.conversaConfig) return { perfil: null, jeito: null, analisesProfundas: false, iaForteNasTarefas: false };
     try {
       const c = await this.conversaConfig.daEmpresa(tenantId);
-      return { perfil: c.perfil, jeito: c.jeito, analisesProfundas: c.analisesProfundas === true };
+      return { perfil: c.perfil, jeito: c.jeito, analisesProfundas: c.analisesProfundas === true, iaForteNasTarefas: c.iaForteNasTarefas === true };
     } catch (e: any) {
       this.logger.warn(`mister: o jeito da empresa não foi lido, a resposta vai sem ele — ${e?.message ?? e}`);
-      return { perfil: null, jeito: null, analisesProfundas: false };
+      return { perfil: null, jeito: null, analisesProfundas: false, iaForteNasTarefas: false };
     }
   }
 
@@ -98,13 +98,13 @@ export class MisterAgenteService implements OnModuleInit {
   }
 
   /** ERR-588: o que está em andamento (documentos e listas). A leitura que falha não segura a resposta: vai sem o bloco. */
-  private async andamentoDaConversa(escopo: EscopoDoMister): Promise<{ andamento: string[] }> {
+  private async andamentoDaConversa(escopo: EscopoDoMister): Promise<{ andamento: string[]; tarefaAberta: boolean }> {
     try {
       const a = await this.fila.andamento(escopo.tenantId, escopo.colaboradorId);
-      return { andamento: linhasDoAndamento(a.documentos, a.listas, escopo.verValores && !escopo.pinPendente) };
+      return { andamento: linhasDoAndamento(a.documentos, a.listas, escopo.verValores && !escopo.pinPendente), tarefaAberta: temTarefaAberta(a.documentos, a.listas) };
     } catch (e: any) {
       this.logger.warn(`mister: o trabalho em andamento não foi lido, a resposta vai sem ele — ${e?.message ?? e}`);
-      return { andamento: [] };
+      return { andamento: [], tarefaAberta: false };
     }
   }
 
@@ -377,15 +377,18 @@ export class MisterAgenteService implements OnModuleInit {
           },
         )
       : undefined;
-    const { analisesProfundas, ...jeito } = await this.jeitoDaEmpresa(escopo.tenantId);
+    const { analisesProfundas, iaForteNasTarefas, ...jeito } = await this.jeitoDaEmpresa(escopo.tenantId);
+    const { tarefaAberta, ...andamento } = await this.andamentoDaConversa(escopo);
     const fim = await responderComFerramentas(
       {
         modelo: this.modelo(),
         // Versão 7, V7e (V7-7): só nas perguntas (o relatório tem o recurso dele e fica no modelo de sempre).
         modeloDaAnalise: analisesProfundas && !opcoes.recurso ? modeloDasAnalises() : null,
+        // Versão 9, O6: com uma tarefa em andamento (cupom, nota, lista), a pergunta inteira no modelo maior.
+        modeloDaTarefa: iaForteNasTarefas && tarefaAberta && !opcoes.recurso ? modeloDasAnalises() : null,
         instrucoes,
         recurso: opcoes.recurso,
-        conversa: blocoDaConversa({ ...this.ferramentas.conversa(escopo), ...jeito, ...(await this.memoriaDaConversa(escopo)), ...(await this.andamentoDaConversa(escopo)) }),
+        conversa: blocoDaConversa({ ...this.ferramentas.conversa(escopo), ...jeito, ...(await this.memoriaDaConversa(escopo)), ...andamento }),
         pedir: (p) => this.ia.pedir(escopo.tenantId, p),
         executar: (nome, entrada) => this.vagas.com(() => this.ferramentas.executar(escopo, nome, entrada)),
         // Na ordem do pedido (as consultas juntas terminam em qualquer ordem): os anexos e as imagens saem na ordem pedida.
