@@ -60,6 +60,7 @@ import {
 import { resumoDaConta, descontoDoCupom, reaisBr, resumoDoProduto, resumoDoFornecedor, resumoDaTroca, resumoDaFolga, diaComSemana, type ParametrosDaLoja } from './mister-acoes-loja';
 import { EscalaService } from '../escala/escala.service';
 import { resumoDaClassificacao, type ParametrosDaClassificacao } from './mister-acoes-banco';
+import { resumoDaContagem, type ParametrosDaContagem } from './mister-acoes-contagem';
 import { ModuleRef } from '@nestjs/core';
 import type { ParametrosDeCadastro } from './mister-acoes-cadastro';
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
@@ -399,6 +400,15 @@ export class MisterAcoesService implements OnModuleInit {
         alvo = `banco:${l.id}`;
         unidadeId = l.unidadeId;
       }
+      if (c.parametros.acao === 'contar_estoque') {
+        // Versão 9, O3: a lista de Estoque › Contagem (pelo nome, ou a única) e cada insumo dito achado NELA, na unidade dele.
+        const r = await this.prepararContagem(e, c.parametros as ParametrosDaContagem, e.lojaUnica && !loja.atual ? null : lojas);
+        if ('erro' in r) return recusa(r.erro);
+        Object.assign(parametros, r.parametros);
+        resumo = r.resumo;
+        alvo = r.alvo;
+        unidadeId = r.unidadeId;
+      }
       if (ehCadastro(c.parametros.acao)) {
         // Versão 9, O3: o insumo, o fornecedor e o pedido pelo nome, conferidos antes da pergunta.
         const r = await this.prepararCadastro(e, c.parametros as ParametrosDeCadastro, e.lojaUnica && !loja.atual ? null : lojas);
@@ -734,6 +744,95 @@ export class MisterAcoesService implements OnModuleInit {
       await this.auditoria
         ?.registrar({ tenantId: p.tenantId, atorId: quem, atorPerfil: e.nivel, tipo: 'mister', acao: 'mister_acao', entidadeTipo: 'mister_proposta', entidadeId: p.id, origem: 'whatsapp', detalhe: { acao: x.acao } } as any)
         .catch(() => undefined);
+    }
+  }
+
+  /** O serviço da contagem (Estoque › Contagem), achado na hora: o módulo dela não exporta o serviço. Os testes usam `contagemDeTeste`. */
+  contagemDeTeste: { iniciarExecucao: (t: string, lista: string, ator: string, atual?: string | null) => Promise<any>; salvarContagem: (t: string, exec: string, ator: string, dto: any) => Promise<any> } | null = null;
+  private async servicoDaContagem() {
+    if (this.contagemDeTeste) return this.contagemDeTeste;
+    if (!this.moduleRef) return null;
+    try {
+      const { ContagemService } = await import('../contagem/contagem.service');
+      return this.moduleRef.get(ContagemService, { strict: false }) as any;
+    } catch {
+      return null;
+    }
+  }
+
+  private async prepararContagem(
+    e: EscopoDoMister,
+    x: ParametrosDaContagem,
+    lojas: string[] | null,
+  ): Promise<{ parametros: Record<string, unknown>; resumo: string; alvo: string; unidadeId: string | null } | { erro: string }> {
+    const daLoja = lojas ? sql`and (l.unidade_id is null or l.unidade_id in (${sql.join(lojas.map((u) => sql`${u}::uuid`), sql`, `)}))` : sql``;
+    const listas = linhas(
+      await this.db.execute(sql`
+        select l.id::text as id, l.nome, l.unidade_id::text as "unidadeId" from contagem_lista l
+         where l.tenant_id = ${e.tenantId}::uuid and l.deleted_at is null and coalesce(l.ativo, true) ${daLoja}
+           ${x.lista ? sql`and l.nome ilike ${comoTexto(x.lista)}` : sql``}
+         order by l.nome limit 8`),
+    );
+    let lista: { id: string; nome: string; unidadeId: string | null };
+    if (x.lista) {
+      const r = escolherUm(listas, x.lista, (a) => String(a.nome), TEXTOS_DAS_ACOES.listaDeContagemNaoAchada, TEXTOS_DAS_ACOES.listasDeContagemDemais, (a) => ({ id: String(a.id), nome: String(a.nome), unidadeId: a.unidadeId ?? null }));
+      if ('erro' in r) return r;
+      lista = r;
+    } else if (listas.length === 1) {
+      lista = { id: String(listas[0].id), nome: String(listas[0].nome), unidadeId: listas[0].unidadeId ?? null };
+    } else {
+      return { erro: listas.length ? TEXTOS_DAS_ACOES.qualListaDeContagem(listas.map((l) => `"${l.nome}"`).join(', ')) : TEXTOS_DAS_ACOES.semListaDeContagem };
+    }
+    const daLista = linhas(
+      await this.db.execute(sql`
+        select i.id::text as id, i.nome, i.nome_comercial as "nomeComercial", i.unidade_medida as unidade
+          from contagem_lista_item li join item_estoque i on i.id = li.item_id and i.tenant_id = li.tenant_id and i.deleted_at is null
+         where li.lista_id = ${lista.id}::uuid and li.tenant_id = ${e.tenantId}::uuid
+         order by i.nome`),
+    );
+    const itens: Array<{ itemId: string; nome: string; unidade: string; contado: number; saldo: number }> = [];
+    for (const c of x.contados) {
+      const dito = semAcento(c.insumo);
+      const iguais = daLista.filter((i) => semAcento(String(i.nome)) === dito || (i.nomeComercial && semAcento(String(i.nomeComercial)) === dito));
+      const parecidos = iguais.length ? iguais : daLista.filter((i) => semAcento(String(i.nome)).includes(dito) || (i.nomeComercial && semAcento(String(i.nomeComercial)).includes(dito)));
+      if (!parecidos.length) return { erro: TEXTOS_DAS_ACOES.foraDaListaDeContagem(c.insumo, lista.nome) };
+      if (parecidos.length > 1) return { erro: TEXTOS_DAS_ACOES.itensDaListaDemais(c.insumo, parecidos.map((i) => `"${i.nome}"`).join(' ou ')) };
+      const it = parecidos[0];
+      if (c.medida && !mesmaUnidade(c.medida, String(it.unidade))) return { erro: TEXTOS_DAS_ACOES.estoqueOutraUnidade(String(it.nome), String(it.unidade)) };
+      if (itens.some((x2) => x2.itemId === it.id)) return { erro: `"${it.nome}" veio duas vezes: diga a quantidade uma vez só.` };
+      const saldo = await this.saldoDoItem(e.tenantId, String(it.id), lista.unidadeId);
+      itens.push({ itemId: String(it.id), nome: String(it.nome), unidade: String(it.unidade), contado: c.quantidade, saldo });
+    }
+    return {
+      parametros: { listaId: lista.id, listaNome: lista.nome, itens: itens.map(({ itemId, nome, contado }) => ({ itemId, nome, contado })) },
+      resumo: resumoDaContagem(lista.nome, itens, daLista.length),
+      alvo: `contagem:${lista.id}`,
+      unidadeId: lista.unidadeId,
+    };
+  }
+
+  /** Abre a execução e salva com o ajuste, pelo MESMO serviço da tela; confere que a contagem ficou concluída. */
+  private async aplicarContagem(
+    p: { id: string; tenantId: string; unidadeId: string | null },
+    x: { listaId: string; listaNome: string; itens: Array<{ itemId: string; nome: string; contado: number }> },
+    quem: string,
+  ): Promise<{ feita: boolean; texto: string }> {
+    const contagem = await this.servicoDaContagem();
+    if (!contagem) return { feita: false, texto: 'isso não está disponível agora. Nada foi feito.' };
+    let execId: string | null = null;
+    try {
+      const exec = await contagem.iniciarExecucao(p.tenantId, x.listaId, quem, p.unidadeId);
+      execId = String(exec?.id ?? '');
+      const r = await contagem.salvarContagem(p.tenantId, execId, quem, { itens: x.itens.map((i) => ({ itemId: i.itemId, contado: i.contado })), aplicarAjuste: true });
+      const [ok] = linhas(await this.db.execute(sql`select status from contagem_execucao where id = ${execId}::uuid and tenant_id = ${p.tenantId}::uuid`));
+      if (ok?.status !== 'concluida') return { feita: false, texto: TEXTOS_DAS_ACOES.contagemNaoConcluida };
+      const ajustados = Number(r?.ajustados ?? 0);
+      return {
+        feita: true,
+        texto: `Lancei a contagem "${x.listaNome}": ${x.itens.length === 1 ? '1 item contado' : `${x.itens.length} itens contados`}, ${ajustados === 0 ? 'sem ajuste no estoque' : ajustados === 1 ? '1 com ajuste no estoque' : `${ajustados} com ajuste no estoque`}. Está em Estoque › Contagem.`,
+      };
+    } catch (err: any) {
+      return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240)) };
     }
   }
 
@@ -1388,6 +1487,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (ehCadastro(parametros.acao)) return this.aplicarCadastro(p, parametros as any, e, quem);
     if (ehDaLoja(parametros.acao)) return this.aplicarDaLoja(p, parametros as any, e, quem);
     if (parametros.acao === 'classificar_banco') return this.aplicarClassificacao(p, parametros as any, e, quem);
+    if (parametros.acao === 'contar_estoque') return this.aplicarContagem(p, parametros as any, quem);
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };

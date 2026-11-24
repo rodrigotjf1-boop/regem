@@ -15,6 +15,7 @@ import { dataNoFuso } from '../../common/data';
 import { conferirCadastro, type ParametrosDeCadastro } from './mister-acoes-cadastro';
 import { conferirAcaoDaLoja, type ParametrosDaLoja } from './mister-acoes-loja';
 import { conferirClassificacao, type ParametrosDaClassificacao } from './mister-acoes-banco';
+import { conferirContagem, type ParametrosDaContagem } from './mister-acoes-contagem';
 import { NOMES_DOS_DIAS, ehHoraDoDia, horasDaJanela, lerDiaDaSemana, textoDaJanela, type JanelaDoDia } from '../../common/horarios-da-loja';
 
 // AS AÇÕES DO MISTER — a porta `propor_acao` (versão 6, M6j; plano aprovado em 20/11/2026, `docs/plano-mister.md` § "Versão
@@ -66,6 +67,8 @@ export const ACOES_DO_MISTER = [
   'folga_na_escala',
   // Versão 9, O5: classificar o lançamento do extrato (Financeiro › Banco e repasses), com o PIN. Só o presidente.
   'classificar_banco',
+  // Versão 9, O3: a contagem do estoque (Estoque › Contagem), com o botão.
+  'contar_estoque',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -137,6 +140,8 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   trocar_turno: { id: 'trocar_turno', nivel: 'botao', permissao: 'escalas', crud: 'editar', prazoMin: 10, nome: 'trocar a pessoa de um turno' },
   folga_na_escala: { id: 'folga_na_escala', nivel: 'botao', permissao: 'escalas', crud: 'editar', prazoMin: 10, nome: 'dar folga na escala' },
   // A rota de Banco e repasses é só do presidente (V8-2); a classificação mexe na conta do caixa: PIN, com "Ver valores em R$".
+  // As rotas da contagem (iniciar e salvar) pedem "editar" do Estoque.
+  contar_estoque: { id: 'contar_estoque', nivel: 'botao', permissao: 'estoque', crud: 'editar', prazoMin: 10, nome: 'lançar uma contagem do estoque' },
   classificar_banco: { id: 'classificar_banco', nivel: 'pin', permissao: 'financeiro', prazoMin: 15, nome: 'classificar um lançamento do banco', pedeVerValores: true },
   excluir_pedido_compra: { id: 'excluir_pedido_compra', nivel: 'botao', permissao: 'estoque', crud: 'excluir', prazoMin: 10, nome: 'excluir um pedido de compra' },
   informar_custo_campanha: { id: 'informar_custo_campanha', nivel: 'botao', permissao: 'financeiro', prazoMin: 10, nome: 'guardar o custo de uma campanha', pedeVerValores: true, soPresidente: true },
@@ -474,7 +479,8 @@ export type ParametrosDaAcao =
   | { acao: AcaoDeDadoInformado; centavos: number; dia: string; campanha: string | null }
   | ParametrosDeCadastro
   | ParametrosDaLoja
-  | ParametrosDaClassificacao;
+  | ParametrosDaClassificacao
+  | ParametrosDaContagem;
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -487,6 +493,7 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
   if (ehCadastro(acao)) return conferirCadastro(acao, en);
   if (ehDaLoja(acao)) return conferirAcaoDaLoja(acao, en, dataNoFuso(agora));
   if (acao === 'classificar_banco') return conferirClassificacao(en, dataNoFuso(agora));
+  if (acao === 'contar_estoque') return conferirContagem(en);
   if (acao === 'pausar_canal' || acao === 'reabrir_canal') {
     const brutos = Array.isArray(en.canais) ? en.canais : en.canal !== undefined ? [en.canal] : [];
     const canais = [...new Set(brutos.map(lerCanal))];
@@ -709,6 +716,13 @@ export const TEXTOS_DAS_ACOES = {
   lancamentoNaoAchado: (valor: string, dia: string) => `Não achei lançamento de ${valor} no dia ${dia} em Financeiro › Banco e repasses. Confira o dia e o valor no extrato.`,
   lancamentosDemais: (lista: string) => `Achei mais de um lançamento com esse dia e valor: ${lista}. Diga um pedaço da descrição de qual é.`,
   lancamentoMudou: 'O lançamento mudou ou saiu de Financeiro › Banco e repasses desde a pergunta. Nada foi feito.',
+  listaDeContagemNaoAchada: 'Não achei essa lista em Estoque › Contagem. Diga o nome como está lá.',
+  listasDeContagemDemais: (nomes: string) => `Achei mais de uma lista de contagem com esse nome: ${nomes}. Qual delas?`,
+  qualListaDeContagem: (nomes: string) => `Qual lista de Estoque › Contagem é essa? ${nomes}.`,
+  semListaDeContagem: 'Não há lista em Estoque › Contagem. Crie a lista na tela primeiro (os insumos que entram nela).',
+  foraDaListaDeContagem: (insumo: string, lista: string) => `"${insumo}" não está na lista "${lista}" de Estoque › Contagem. Confira o nome, ou ponha o insumo na lista pela tela.`,
+  itensDaListaDemais: (insumo: string, nomes: string) => `"${insumo}" pode ser ${nomes}. Qual deles?`,
+  contagemNaoConcluida: 'a contagem não ficou concluída. Confira em Estoque › Contagem.',
   semPermissaoLancarConta: 'O seu perfil no Regem não permite lançar conta a pagar: falta o acesso ao Financeiro ou "Ver valores em R$". Quem muda o perfil é o presidente.',
   tarefaNaoAchada: 'Não achei essa tarefa na lista de hoje das suas lojas. Diga o título como aparece na lista de tarefas.',
   tarefasDemais: (titulos: string) => `Achei mais de uma tarefa de hoje com esse nome: ${titulos}. Diga qual.`,

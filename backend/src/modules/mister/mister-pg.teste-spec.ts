@@ -19,6 +19,7 @@ import { DashboardService } from '../dashboard/dashboard.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { ComprasService } from '../compras/compras.service';
 import { FornecedorService } from '../fornecedor/fornecedor.service';
+import { ContagemService } from '../contagem/contagem.service';
 import { BancoRepassesService } from '../banco-repasses/banco-repasses.service';
 import { EscalaService } from '../escala/escala.service';
 import { MisterListaService } from './mister-lista.service';
@@ -12231,6 +12232,73 @@ export function testesDoMisterComPostgres(): void {
           delete (acoes as any).bancoDeTeste;
           for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
           for (const tb of ['banco_regra', 'banco_lancamento', 'banco_importacao', 'banco_conta']) await q(`delete from ${tb} where tenant_id = any($1::uuid[])`, [[A, B]]).catch(() => undefined);
+        }
+      });
+
+      it('versão 9, O3: a contagem do estoque pela conversa — a lista, os itens ditos nela, o ajuste pelo serviço da contagem e só o que foi dito', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        (acoes as any).contagemDeTeste = new ContagemService(db, { emit: () => true } as any, auditoria);
+        const ids: Record<string, string> = {};
+        const autorizar = async (r: any) => {
+          const id = idDaProposta(r);
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          return esperarFim(id);
+        };
+        try {
+          [{ id: ids.bacon }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Bacon O3b', 'kg') returning id::text as id`, [A]);
+          [{ id: ids.batata }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Batata O3b', 'caixa') returning id::text as id`, [A]);
+          [{ id: ids.cebola }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Cebola O3b', 'kg') returning id::text as id`, [A]);
+          // V46: a data vem do serviço (o dia da loja), nunca do `current_date` do banco.
+          await q(`insert into movimento_estoque (tenant_id, item_id, tipo, quantidade, data) values ($1, $2, 'entrada', 10, $4::date), ($1, $3, 'entrada', 25, $4::date)`, [A, ids.bacon, ids.batata, hojeISO()]);
+          [{ id: ids.semanal }] = await q(`insert into contagem_lista (tenant_id, nome) values ($1, 'Semanal O3b') returning id::text as id`, [A]);
+          [{ id: ids.mensal }] = await q(`insert into contagem_lista (tenant_id, nome) values ($1, 'Mensal O3b') returning id::text as id`, [A]);
+          await q(`insert into contagem_lista_item (tenant_id, lista_id, item_id) values ($1, $2, $3), ($1, $2, $4), ($1, $5, $3)`, [A, ids.semanal, ids.bacon, ids.batata, ids.mensal]);
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          const bacon12 = { insumo: 'bacon o3b', quantidade: 12, medida: 'kg' };
+          // Duas listas e nenhuma dita: a pergunta com os nomes; o que não está na lista e a medida errada param na pergunta.
+          const qual = await ferramentas.executar(e, 'propor_acao', { acao: 'contar_estoque', contados: [bacon12] });
+          expect(qual.dados.erro).toContain('Qual lista de Estoque › Contagem é essa?');
+          expect(qual.dados.erro).toContain('"Mensal O3b"');
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'contar_estoque', listaDeContagem: 'semanal o3b', contados: [{ insumo: 'Cebola O3b', quantidade: 3 }] })).dados.erro).toBe(
+            TEXTOS_DAS_ACOES.foraDaListaDeContagem('Cebola O3b', 'Semanal O3b'),
+          );
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'contar_estoque', listaDeContagem: 'semanal o3b', contados: [{ ...bacon12, medida: 'caixas' }] })).dados.erro).toBe(
+            TEXTOS_DAS_ACOES.estoqueOutraUnidade('Bacon O3b', 'kg'),
+          );
+          // O certo: o resumo com o ajuste; nada muda antes do "Autorizar".
+          const r = await ferramentas.executar(e, 'propor_acao', { acao: 'contar_estoque', listaDeContagem: 'semanal', contados: [bacon12] });
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toContain('• Bacon O3b: 12 kg (o sistema tem 10 kg: ajuste de +2 kg)');
+          expect(r.dados.oQueVouFazer).toContain('O outro item da lista fica sem contar.');
+          expect(await q(`select 1 from contagem_execucao where lista_id = $1`, [ids.semanal])).toEqual([]);
+          expect(await autorizar(r)).toMatchObject({ situacao: 'feita', resultado: 'Lancei a contagem "Semanal O3b": 1 item contado, 1 com ajuste no estoque. Está em Estoque › Contagem.' });
+          // Pelo serviço da contagem: a execução concluída, o ajuste de +2 só no bacon, a batata sem contar.
+          const [ex] = await q(`select id::text as id, status, criada_por_id::text as quem from contagem_execucao where lista_id = $1`, [ids.semanal]);
+          expect(ex).toMatchObject({ status: 'concluida', quem: pessoa.ana });
+          expect(await q(`select item_id::text as item, contado::float8 as contado from contagem_item where execucao_id = $1 order by contado nulls last`, [ex.id])).toEqual([
+            { item: ids.bacon, contado: 12 },
+            { item: ids.batata, contado: null },
+          ]);
+          expect(await q(`select item_id::text as item, quantidade::float8 as q from movimento_estoque where tenant_id = $1 and tipo = 'ajuste' and item_id = any($2::uuid[])`, [A, [ids.bacon, ids.batata]])).toEqual([{ item: ids.bacon, q: 2 }]);
+          // A permissão: sem "editar" do Estoque, não sai.
+          const telC = telefone();
+          await ligar('carlos', telC, A, 'gerente');
+          const g = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
+          expect(
+            await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, estoque: { ver: true, criar: false, editar: false, excluir: false } } } as any, 'propor_acao', { acao: 'contar_estoque', listaDeContagem: 'semanal', contados: [bacon12] }),
+          ).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
+        } finally {
+          delete (acoes as any).contagemDeTeste;
+          const listas = [ids.semanal, ids.mensal].filter(Boolean);
+          await q(`delete from contagem_item where execucao_id in (select id from contagem_execucao where lista_id = any($1::uuid[]))`, [listas]);
+          await q(`delete from contagem_execucao where lista_id = any($1::uuid[])`, [listas]);
+          await q(`delete from contagem_lista_item where lista_id = any($1::uuid[])`, [listas]);
+          await q(`delete from contagem_lista where id = any($1::uuid[])`, [listas]);
+          const itens = [ids.bacon, ids.batata, ids.cebola].filter(Boolean);
+          await q(`delete from lote where item_id = any($1::uuid[])`, [itens]).catch(() => undefined);
+          await q(`delete from movimento_estoque where item_id = any($1::uuid[])`, [itens]);
+          await q(`delete from item_estoque where id = any($1::uuid[])`, [itens]);
         }
       });
 
