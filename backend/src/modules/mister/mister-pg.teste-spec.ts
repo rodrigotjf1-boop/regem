@@ -4213,6 +4213,9 @@ export function testesDoMisterComPostgres(): void {
         c82: { comparar: 'chuva' },
         c86: { foco: 'caixa' },
         c87: { foco: 'caixa' },
+        // O link para abrir (24/11): a mesma entrada vai às duas ferramentas da vez; a consulta das notícias ignora "noticias".
+        c90: { noticias: ['2'] },
+        c91: { tela: 'contas a pagar' },
         c85: {
           acao: 'propor',
           regra: {
@@ -4282,18 +4285,18 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_avaliacao`);
       });
 
-      it('a rodada inteira com as respostas certas: 89 de 89, o andamento, o custo, a lista e as perguntas na ordem', async () => {
+      it('a rodada inteira com as respostas certas: todas certas, o andamento, o custo, a lista e as perguntas na ordem', async () => {
         const ia = iaDeMentira();
         const servico = new MisterAvaliacaoService(db, ia as any);
         const r = await servico.rodar('Rita da DMS');
-        expect(r.total).toBe(89);
+        expect(r.total).toBe(CASOS_DA_AVALIACAO.length);
         const fim = await terminar(r.id);
-        expect(fim).toMatchObject({ situacao: 'terminou', feitas: 89, acertos: 89, motivo: null });
+        expect(fim).toMatchObject({ situacao: 'terminou', feitas: CASOS_DA_AVALIACAO.length, acertos: CASOS_DA_AVALIACAO.length, motivo: null });
         // O mesmo laço do agente: as instruções e as ferramentas de verdade, e o recurso da avaliação.
         expect(ia.pedidos.every((p) => p.recurso === 'mister_avaliacao' && p.tools === FERRAMENTAS && p.system[0].text === INSTRUCOES_DO_MISTER)).toBe(true);
         const lista = await servico.lista();
-        expect(lista).toMatchObject({ disponivel: true, total: 89, chaveDaDistribuicao: true });
-        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: 89, acertos: 89, falhas: 0, oQueFalhou: [] });
+        expect(lista).toMatchObject({ disponivel: true, total: CASOS_DA_AVALIACAO.length, chaveDaDistribuicao: true });
+        expect(lista.rodadas[0]).toMatchObject({ id: r.id, situacao: 'terminou', pedidaPor: 'Rita da DMS', versao: lista.versaoAtual.versao, consultas: lista.versaoAtual.consultas, total: CASOS_DA_AVALIACAO.length, acertos: CASOS_DA_AVALIACAO.length, falhas: 0, oQueFalhou: [] });
         // O custo pela tabela de preços do modelo, sobre os tokens somados de todas as chamadas.
         expect(lista.rodadas[0].custoUsd).toBeGreaterThan(0);
         const [tok] = await q(`select tokens_entrada, tokens_cache_leitura, tokens_saida from mister_avaliacao where id = $1`, [r.id]);
@@ -4313,7 +4316,7 @@ export function testesDoMisterComPostgres(): void {
         await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
-        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: 88 });
+        expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: CASOS_DA_AVALIACAO.length - 1 });
         const [velha] = await q(`select situacao, motivo from mister_avaliacao where id = $1`, [parada]);
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);

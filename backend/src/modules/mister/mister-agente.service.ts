@@ -19,6 +19,7 @@ import { GraficoDaConversa, imagemDoGrafico } from './grafico/grafico-do-insumo'
 import { imagemDoPlano } from './grafico/imagem-do-plano';
 import type { PlanoDoGrafico } from './grafico/plano-do-grafico';
 import { linhaDoLinkNaConversa } from './mister-link-publico';
+import { LINKS_PARA_ABRIR_MAX, LinkParaAbrir, linhasParaAbrir } from './mister-abrir';
 import { linhaDaMidia, veioDeAudio } from './mister-midia.regras';
 import { MisterMidiaService } from './mister-midia.service';
 
@@ -207,7 +208,8 @@ export class MisterAgenteService implements OnModuleInit {
       // recusou), o emoji vai como texto — nunca silêncio. Na memória fica o emoji (o modelo não aceita resposta vazia).
       const reagiu = saida.reacao && ultima.wamid ? await this.numero.reagir(ultima.telefone, ultima.wamid, saida.reacao) : false;
       const resposta = saida.texto || saida.reacao || '';
-      const extras = fim.anexos.length + fim.imagens.length + fim.links.length + fim.botoes.length + fim.propostas.length + fim.graficos.length + fim.mensagens.length;
+      const extras =
+        fim.anexos.length + fim.imagens.length + fim.links.length + fim.abrir.length + fim.botoes.length + fim.propostas.length + fim.graficos.length + fim.mensagens.length;
       if (!saida.texto && saida.reacao && !extras) {
         if (!reagiu && !(await this.dizer(ultima.telefone, saida.reacao))) return await fechar('envio', trilha);
         return await this.fila.concluir(ids, { resposta, trilha, perguntaJunta: pergunta });
@@ -220,7 +222,10 @@ export class MisterAgenteService implements OnModuleInit {
       const comVerNoRegem = fim.anexos.length === 1 ? `${resposta}\n\nVer no Regem: ${linkDoRelatorio(baseDoApp(), fim.anexos[0].pedido)}` : resposta;
       // M3c (mig 443): o link para encaminhar a quem não tem usuário também sai do código (nunca passa pela IA nem fica
       // guardado na pergunta): uma linha por link, com a data até quando vale.
-      const comLinks = fim.links.slice(0, LINKS_POR_RESPOSTA).reduce((t, l) => `${t}\n\n${linhaDoLinkNaConversa(l.url, l.vence)}`, comVerNoRegem);
+      const comEncaminhar = fim.links.slice(0, LINKS_POR_RESPOSTA).reduce((t, l) => `${t}\n\n${linhaDoLinkNaConversa(l.url, l.vence)}`, comVerNoRegem);
+      // O link para abrir (`abrir_no_regem`): a tela do Regem ou a matéria da notícia, também escrito pelo código, depois do
+      // filtro — a IA só disse o que abrir; o endereço veio do guia ou do boletim.
+      const comLinks = fim.abrir.length ? `${comEncaminhar}\n\n${linhasParaAbrir(fim.abrir)}` : comEncaminhar;
       // Versão 5 (M5a): a pergunta que veio de uma foto abre com "📷 Vi: …" — escrito pelo código (o resumo do que a foto
       // mostrou), depois do filtro de saída, para a pessoa ver na hora se o Mister entendeu a foto.
       // M5b: o áudio abre com "🎧 Entendi: "…"" (o que foi transcrito), pela mesma regra.
@@ -339,6 +344,7 @@ export class MisterAgenteService implements OnModuleInit {
       botoes: { id: string; titulo: string }[];
       imagens: { url: string; legenda: string }[];
       links: { url: string; vence: Date }[];
+      abrir: LinkParaAbrir[];
       graficos: PlanoDoGrafico[];
       mensagens: { texto: string; botoes?: { id: string; titulo: string }[] }[];
     }
@@ -355,6 +361,8 @@ export class MisterAgenteService implements OnModuleInit {
     const imagens: { url: string; legenda: string }[] = [];
     // M3c (mig 443): os links para encaminhar que a pergunta criou (não vão ao modelo).
     const links: { url: string; vence: Date }[] = [];
+    // Os links para abrir (a tela ou a matéria), sem repetir, até o teto (não vão ao modelo).
+    const abrir: LinkParaAbrir[] = [];
     // Versão 5, M5d.2: os gráficos que `mostrar_grafico` montou (não vão ao modelo; a imagem vai antes do texto).
     const graficos: PlanoDoGrafico[] = [];
     // Versão 6, M6g: as mensagens que uma ação manda depois da resposta (não vão ao modelo).
@@ -386,6 +394,7 @@ export class MisterAgenteService implements OnModuleInit {
           for (const b of r.botoes ?? []) if (!botoes.some((x) => x.id === b.id)) botoes.push(b);
           for (const im of r.imagens ?? []) if (!imagens.some((x) => x.url === im.url)) imagens.push(im);
           if (r.linkPublico) links.push(r.linkPublico);
+          for (const l of r.abrir ?? []) if (abrir.length < LINKS_PARA_ABRIR_MAX && !abrir.some((x) => x.url === l.url)) abrir.push(l);
           for (const g of r.graficos ?? []) if (graficos.length < IMAGENS_POR_RESPOSTA) graficos.push(g);
           // ERR-594: duas alterações no mesmo documento numa resposta mandam só a última "próxima pergunta".
           for (const m of r.mensagens ?? []) {
@@ -403,6 +412,6 @@ export class MisterAgenteService implements OnModuleInit {
       memoria,
       pergunta,
     );
-    return { ...fim, propostas, anexos, botoes, imagens, links, graficos, mensagens };
+    return { ...fim, propostas, anexos, botoes, imagens, links, abrir, graficos, mensagens };
   }
 }

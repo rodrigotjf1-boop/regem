@@ -205,8 +205,11 @@ export type BoletimDoRamo = {
   mais: NoticiaDoBoletim[];
 };
 
-/** Só link https vai para a tela: `javascript:` e afins ficam de fora, mesmo vindo de uma fonte conhecida. */
-function linkSeguro(v: unknown): string | null {
+/**
+ * Só link https vai para a tela: `javascript:` e afins ficam de fora, mesmo vindo de uma fonte conhecida. O Mister confere
+ * de novo antes de mandar a matéria (`mister-abrir.ts`).
+ */
+export function linkSeguro(v: unknown): string | null {
   if (typeof v !== 'string' || v.length > 2000) return null;
   try {
     const u = new URL(v);

@@ -25,7 +25,7 @@ export const DIAS_DAS_NOTICIAS_PADRAO = 7;
 export const DIAS_DAS_NOTICIAS_MAX = 30;
 export const NOTICIAS_NA_RESPOSTA = 12;
 export const CUIDADO_DAS_NOTICIAS =
-  'Repita o que a notícia diz, com a fonte. O que tem "emDiscussao" ainda não é lei. Não diga o efeito na loja nem o que a pessoa deve pagar: para isso, oriente falar com o contador. Não escreva link: termine dizendo que os links estão em Relatórios › Notícias do ramo.';
+  'Repita o que a notícia diz, com a fonte. O que tem "emDiscussao" ainda não é lei. Não diga o efeito na loja nem o que a pessoa deve pagar: para isso, oriente falar com o contador. Nunca escreva link: termine dizendo que os links estão em Relatórios › Notícias do ramo, a não ser que vá mandar o link pela ferramenta abrir_no_regem, com o "id" de cada notícia.';
 
 const DE_NOVIDADE = new Set(['tendencias', 'tecnologia', 'plataformas']);
 const diaCurto = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
@@ -73,6 +73,8 @@ export function montarNoticias(copias: BoletimDoRamo[], p: { assunto: AssuntoDas
     total: doAssunto.length,
     mostrando: Math.min(doAssunto.length, NOTICIAS_NA_RESPOSTA),
     noticias: doAssunto.slice(0, NOTICIAS_NA_RESPOSTA).map((n) => ({
+      // O id (do Pulso, único entre os dias) é o que `abrir_no_regem` recebe para mandar o link da matéria.
+      id: n.id,
       titulo: n.titulo,
       assunto: n.categoriaNome,
       publicadaEm: n.publicadoEm,
@@ -95,14 +97,23 @@ export async function consultarNoticias(db: DrizzleDB, e: Pick<EscopoDoMister, '
   }
   const p = pedidoDasNoticias(en, hoje);
   if ('erro' in p) return recusa(p.erro);
+  const copias = await boletinsDaEmpresa(db, e.tenantId, p.de, p.ate);
+  if (!copias) return recusa('Não há boletim para o ramo desta empresa.');
+  return { ok: true, dados: montarNoticias(copias, p) };
+}
+
+/**
+ * As cópias do boletim de um período (a mais nova primeiro), ou `null` quando o ramo da empresa não tem boletim. A mesma
+ * leitura serve à consulta e ao link da matéria (`abrir_no_regem`).
+ */
+export async function boletinsDaEmpresa(db: DrizzleDB, tenantId: string, de: string, ate: string): Promise<BoletimDoRamo[] | null> {
   const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
-  const [emp] = linhas(await db.execute(sql`select ramo from empresa where id = ${e.tenantId}::uuid`));
-  if (emp?.ramo !== RAMO_DA_EMPRESA_COM_BOLETIM) return recusa('Não há boletim para o ramo desta empresa.');
-  const copias = linhas(
+  const [emp] = linhas(await db.execute(sql`select ramo from empresa where id = ${tenantId}::uuid`));
+  if (emp?.ramo !== RAMO_DA_EMPRESA_COM_BOLETIM) return null;
+  return linhas(
     await db.execute(sql`
       select corpo from pulso_boletim
-       where ramo = ${RAMO_DO_REGEM} and dia between ${p.de}::date and ${p.ate}::date
+       where ramo = ${RAMO_DO_REGEM} and dia between ${de}::date and ${ate}::date
        order by dia desc`),
   ).map((l) => l.corpo as BoletimDoRamo);
-  return { ok: true, dados: montarNoticias(copias, p) };
 }

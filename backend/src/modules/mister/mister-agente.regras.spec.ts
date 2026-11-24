@@ -293,10 +293,13 @@ describe('Mister — o que o modelo recebe', () => {
       'propor_acao',
       // Versão 7, V7c: várias ações num pedido, com um botão só.
       'propor_plano',
+      // 24/11: o link para abrir a tela ou a matéria (fora da conversa até `MISTER_LINKS=1`).
+      'abrir_no_regem',
     ]);
     expect(ehConsulta('gasto_do_whatsapp')).toBe(true);
     // Versão 4, M4d (mig 452): o "fica de olho" e o lembrete marcam — não leem dado para responder — e vão um de cada vez.
-    for (const n of ['ficar_de_olho', 'lembrete', 'regras', 'lista_de_compras', 'refazer_grafico', 'propor_acao', 'propor_plano']) expect([n, ehConsulta(n), podeRodarJunto(n)]).toEqual([n, false, false]);
+    for (const n of ['ficar_de_olho', 'lembrete', 'regras', 'lista_de_compras', 'refazer_grafico', 'propor_acao', 'propor_plano', 'abrir_no_regem'])
+      expect([n, ehConsulta(n), podeRodarJunto(n)]).toEqual([n, false, false]);
     // Versão 4, M4b (mig 449): anotar na memória não é consulta — não lê dado para responder — e não roda junto com outra.
     expect(ehConsulta('lembrar')).toBe(false);
     expect(podeRodarJunto('lembrar')).toBe(false);

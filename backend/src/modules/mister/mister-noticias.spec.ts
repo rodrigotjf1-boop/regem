@@ -22,13 +22,17 @@ const P = { assunto: null, de: '2026-11-17', ate: '2026-11-23' };
 
 describe('as notícias do ramo no Mister', () => {
   const antes = process.env.MISTER_NOTICIAS_RAMO;
+  const antesDosLinks = process.env.MISTER_LINKS;
   afterEach(() => {
     if (antes === undefined) delete process.env.MISTER_NOTICIAS_RAMO;
     else process.env.MISTER_NOTICIAS_RAMO = antes;
+    if (antesDosLinks === undefined) delete process.env.MISTER_LINKS;
+    else process.env.MISTER_LINKS = antesDosLinks;
   });
 
   it('nasce desligada: fora da conversa, mas a avaliação a enxerga; ligada, entra', () => {
     delete process.env.MISTER_NOTICIAS_RAMO;
+    process.env.MISTER_LINKS = '1';
     expect(noticiasNoMister()).toBe(false);
     expect(ferramentasDaConversa().map((f) => f.name)).not.toContain('noticias_do_ramo');
     expect(FERRAMENTAS.map((f) => f.name)).toContain('noticias_do_ramo');
@@ -72,8 +76,9 @@ describe('as notícias do ramo no Mister', () => {
     expect(r.total).toBe(2);
     expect(r.noticias.map((n: any) => n.titulo)).toEqual(['Notícia 3', 'Notícia 2']);
     expect(r.noticias[1]).toMatchObject({ emDiscussao: true, aviso: 'Em discussão no Congresso: ainda não é lei.', fonte: 'Fonte: teste' });
-    // O filtro de saída tira todo link: o modelo não recebe o endereço e diz onde achar a matéria.
+    // O filtro de saída tira todo link: o modelo não recebe o endereço; recebe o id, que `abrir_no_regem` troca pelo link.
     expect(JSON.stringify(r)).not.toContain('https://');
+    expect(r.noticias.map((n: any) => n.id)).toEqual(['3', '2']);
     expect(r.cuidado).toBe(CUIDADO_DAS_NOTICIAS);
     expect(r.cuidado).toContain('Relatórios › Notícias do ramo');
     expect(r.periodo).toBe('de 17/11 a 23/11');
