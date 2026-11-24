@@ -122,10 +122,15 @@ export function pedidoDetalhado(a = 'pe'): SQL {
   return sql`(${t}.valor_bruto is not null)`;
 }
 
-/** Pedidos que contam como venda: exclui o que ainda não foi aceito e o cancelado. */
+/**
+ * Pedidos que contam como venda: exclui o que ainda não foi aceito, o cancelado e o DEVOLVIDO — o pedido concluído cuja venda
+ * foi cancelada no PDV (devolução depois da entrega, D-03 da revisão de 24/11/2026). O pedido devolvido segue "concluído"
+ * (a sincronização dá precedência ao concluído sobre o cancelado), então quem diz que ele não conta é a venda cancelada.
+ */
 export function pedidoVale(a = 'pe'): SQL {
   const t = alias(a);
-  return sql`${t}.status not in ('novo','cancelado')`;
+  return sql`(${t}.status not in ('novo','cancelado')
+    and not exists (select 1 from comanda cdv where cdv.id = ${t}.comanda_id and cdv.status = 'cancelada'))`;
 }
 
 // ===================== COMANDA (balcão / salão / PDV) =====================

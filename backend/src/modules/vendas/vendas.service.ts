@@ -88,6 +88,7 @@ import { VendaExternaPdvDto } from './dto/venda-externa-pdv.dto';
 import { VendaExternaFalhaDto } from './dto/venda-externa-falha.dto';
 import { hojeISO } from '../../common/data';
 import { pedidoDeliveryEmAndamento } from './pedido-delivery-da-venda';
+import { EVENTO_CANCELADOS_NA_BAIXA } from '../delivery/pendencias-turno';
 import { linhaEntra, PEDIDO_EXTERNO, SO_INGREDIENTES, type VendaDaFicha } from '../../common/embalagem-da-ficha';
 import { mesmaEmbalagemDaEmpresa } from '../fichas/fichas-carga';
 import { instanteDe } from '../../common/fuso-sql';
@@ -3879,6 +3880,7 @@ export class VendasService {
     let aviso = null as { id: string | null; erro?: string } | null;
     let cancelada: any = null; // a venda e se havia insumo a estornar — para o comprovante
     let houveBaixa = false;
+    let devolvidos: { id: string; clienteTelefone: string | null }[] = []; // pedidos de delivery concluídos devolvidos (D-03)
     await this.db.transaction(async (tx) => {
       // `for update` (D-01 da revisão de 24/11/2026): dois cancelamentos do mesmo cupom — dois caixas, dois toques — não
       // devolvem o dinheiro duas vezes: o segundo espera, relê "cancelada" e ouve "Já cancelado.". Antes, os dois liam
@@ -3986,6 +3988,16 @@ export class VendasService {
         .update(acertoSubpdv)
         .set({ status: 'cancelado', updatedAt: new Date() })
         .where(and(eq(acertoSubpdv.tenantId, tenantId), eq(acertoSubpdv.comandaId, comandaId), eq(acertoSubpdv.status, 'pendente')));
+      // Devolução depois da entrega (D-03 da revisão de 24/11/2026): a venda de um pedido de delivery JÁ CONCLUÍDO, desfeita
+      // aqui. O pedido continua "concluído" (a sincronização dá precedência ao concluído sobre o cancelado — auditoria do KDS
+      // de 11/11 —, e o canal já tinha terminado), mas sai do faturamento pela definição única (`pedidoVale`: venda
+      // cancelada não conta), e o cashback e os pontos voltam pelo mesmo caminho do cancelamento do delivery (o evento logo
+      // depois de gravar). Antes, o pedido seguia contando como venda e o cliente ficava com o benefício do pedido devolvido.
+      const dev: any = await tx.execute(sql`
+        select id, cliente_telefone as "clienteTelefone" from pedido_externo
+         where tenant_id = ${tenantId} and comanda_id = ${comandaId} and status = 'concluido'
+           and canal not in ('totem', 'gogem')`);
+      devolvidos = (dev.rows ?? dev) as { id: string; clienteTelefone: string | null }[];
 
       await tx
         .update(comanda)
@@ -4019,6 +4031,8 @@ export class VendasService {
     await this.producao
       .cancelarPorComanda(tenantId, atorId, comandaId, dto.motivo)
       .catch(() => {});
+    // O pedido de delivery devolvido devolve o cashback e os pontos do cliente (o delivery estorna, pelo evento — D-03).
+    if (devolvidos.length) this.events.emit(EVENTO_CANCELADOS_NA_BAIXA, { tenantId, pedidos: devolvidos });
 
     await this.auditoria.registrar({
       tenantId,
