@@ -118,6 +118,11 @@ export default async function roteiroClientesPerfil({ nav, base, ok, foto: arqui
     await page.waitForSelector('text=O que move o cliente', { timeout: 10000 });
     const comDetalhe = await page.locator('[role="dialog"][aria-label^="Cliente "]').count();
     ok(comDetalhe === 0, `${w}px · o botão abre a ficha direto, sem o detalhe do cliente`);
+    const resumo = (await page.locator('[role="dialog"] [data-resumo-do-perfil]').textContent()).replace(/\s+/g, ' ');
+    ok(
+      resumo.includes('Em uma frase') && resumo.includes('Campeão, com 14 pedidos diretos. Mais pedido: Smash duplo. Pede às sextas, à noite, a cada 8 dias. Próximo pedido previsto para '),
+      `${w}px · o resumo de uma frase no topo da ficha (${resumo.slice(0, 160)})`,
+    );
     const faixas = await page.locator('[role="dialog"] table tbody th[scope="row"]').allInnerTexts();
     ok(faixas.join('|') === 'Almoço|Tarde|Início da noite|Noite|Madrugada', `${w}px · a grade mostra a tarde (tem pedido) e não a manhã (${faixas.join(', ')})`);
     const somaGrade = (await page.locator('[role="dialog"] table tbody td').allInnerTexts()).reduce((s, v) => s + Number(v), 0);

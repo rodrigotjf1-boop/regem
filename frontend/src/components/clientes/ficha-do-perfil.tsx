@@ -6,6 +6,7 @@ import { Gaveta } from '@/components/ui/sobreposto';
 import { Button } from '@/components/ui/button';
 import { OQueMove } from './o-que-move';
 import { OQueOlha } from './o-que-olha';
+import { ResumoDoPerfil } from './resumo-do-perfil';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -148,6 +149,15 @@ export function FichaDoPerfil({ clienteId, nome, aoFechar }: { clienteId: string
 
       {p && (
         <>
+          <ResumoDoPerfil
+            perfil={p}
+            segmento={SEGMENTO[p.segmento]}
+            alergia={(() => {
+              const a = dados.declarado?.find((d: any) => d.chave === 'alergia');
+              return a ? valorDeclarado(a.valor) : null;
+            })()}
+          />
+
           <Camada n={1} titulo="Quem é" conf={p.confianca}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Par rotulo="Pedidos diretos">{p.pedidos_diretos}</Par>
