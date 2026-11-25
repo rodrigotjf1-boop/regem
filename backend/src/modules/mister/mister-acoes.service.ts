@@ -61,6 +61,8 @@ import { resumoDaConta, descontoDoCupom, reaisBr, resumoDoProduto, resumoDoForne
 import { EscalaService } from '../escala/escala.service';
 import { resumoDaClassificacao, type ParametrosDaClassificacao } from './mister-acoes-banco';
 import { resumoDaContagem, type ParametrosDaContagem } from './mister-acoes-contagem';
+import { MOTIVO_MINIMO, nomeDoCaixa, resumoDaSangria, resumoDoFechamento, type ParametrosDoCaixa } from './mister-acoes-caixa';
+import { agendadosParaDepois, pendenciasDoTurno } from '../delivery/pendencias-turno';
 import { ModuleRef } from '@nestjs/core';
 import type { ParametrosDeCadastro } from './mister-acoes-cadastro';
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
@@ -122,6 +124,8 @@ const semPermissaoDe = (p: DefinicaoDaAcao['permissao']) =>
     ? TEXTOS_DAS_ACOES.semPermissaoCadastros
     : p === 'escalas'
     ? TEXTOS_DAS_ACOES.semPermissaoEscalas
+    : p === 'pdv'
+    ? TEXTOS_DAS_ACOES.semPermissaoCaixa
     : p === 'meu_dia'
     ? TEXTOS_DAS_ACOES.semPermissaoTarefas
     : p === 'loja'
@@ -399,6 +403,15 @@ export class MisterAcoesService implements OnModuleInit {
         resumo = resumoDaClassificacao({ data: l.data, descricao: String(l.descricao), valorCentavos: Number(l.valor) }, x.tipo, x.lembrar);
         alvo = `banco:${l.id}`;
         unidadeId = l.unidadeId;
+      }
+      if (c.parametros.acao === 'fechar_caixa' || c.parametros.acao === 'sangria') {
+        // Etapa 1 (24/11): o caixa aberto das lojas da conversa (o do delivery é da empresa), de quem abriu, e as pendências do turno.
+        const r = await this.prepararCaixa(e, c.parametros as ParametrosDoCaixa, e.lojaUnica && !loja.atual ? null : lojas);
+        if ('erro' in r) return recusa(r.erro);
+        Object.assign(parametros, r.parametros);
+        resumo = r.resumo;
+        alvo = r.alvo;
+        unidadeId = r.unidadeId;
       }
       if (c.parametros.acao === 'contar_estoque') {
         // Versão 9, O3: a lista de Estoque › Contagem (pelo nome, ou a única) e cada insumo dito achado NELA, na unidade dele.
@@ -744,6 +757,95 @@ export class MisterAcoesService implements OnModuleInit {
       await this.auditoria
         ?.registrar({ tenantId: p.tenantId, atorId: quem, atorPerfil: e.nivel, tipo: 'mister', acao: 'mister_acao', entidadeTipo: 'mister_proposta', entidadeId: p.id, origem: 'whatsapp', detalhe: { acao: x.acao } } as any)
         .catch(() => undefined);
+    }
+  }
+
+  /** Etapa 1 (24/11): o caixa aberto (o do balcão por loja e terminal; o do delivery, um só da empresa) e o que o fechamento pede. */
+  private async prepararCaixa(
+    e: EscopoDoMister,
+    x: ParametrosDoCaixa,
+    lojas: string[] | null,
+  ): Promise<{ parametros: Record<string, unknown>; resumo: string; alvo: string; unidadeId: string | null } | { erro: string }> {
+    const daLoja = x.caixa === 'pdv' && lojas ? sql`and s.unidade_id in (${sql.join(lojas.map((u) => sql`${u}::uuid`), sql`, `)})` : sql``;
+    let abertos = linhas(
+      await this.db.execute(sql`
+        select s.id::text as id, s.terminal_id::text as "terminalId", s.unidade_id::text as "unidadeId", eq.nome as terminal, c.nome as "abertoPor",
+               to_char(s.aberta_em at time zone 'America/Sao_Paulo', 'DD/MM HH24:MI') as "abertoEm",
+               round(extract(epoch from (clock_timestamp() - s.aberta_em)) / 3600.0, 1)::float8 as horas
+          from caixa_sessao s
+          left join equipamento eq on eq.id = s.terminal_id
+          left join colaborador c on c.id = s.aberta_por_id
+         where s.tenant_id = ${e.tenantId}::uuid and s.status = 'aberta' and s.origem = ${x.caixa} ${daLoja}
+         order by s.aberta_em
+         limit 10`),
+    );
+    if (!abertos.length) return { erro: TEXTOS_DAS_ACOES.semCaixaAberto(x.caixa === 'delivery' ? 'do delivery' : 'do balcão') };
+    if (abertos.length > 1 && x.operador) {
+      const dito = semAcento(x.operador);
+      abertos = abertos.filter((s) => semAcento(String(s.abertoPor ?? '')).includes(dito) || semAcento(String(s.terminal ?? '')).includes(dito));
+    }
+    if (abertos.length !== 1) {
+      const todos = linhas(
+        await this.db.execute(sql`
+          select eq.nome as terminal, c.nome as "abertoPor" from caixa_sessao s
+            left join equipamento eq on eq.id = s.terminal_id left join colaborador c on c.id = s.aberta_por_id
+           where s.tenant_id = ${e.tenantId}::uuid and s.status = 'aberta' and s.origem = ${x.caixa} ${daLoja} order by s.aberta_em limit 10`),
+      );
+      return { erro: TEXTOS_DAS_ACOES.caixasDemais(todos.map((s) => `${s.terminal ?? 'sem terminal'} (de ${s.abertoPor ?? 'alguém'})`).join(', ')) };
+    }
+    const s = abertos[0];
+    const nome = nomeDoCaixa({ caixa: x.caixa, terminal: s.terminal ?? null, abertoPor: s.abertoPor ?? null, abertoEm: String(s.abertoEm), abertoHaHoras: Number(s.horas) });
+    const base = { sessaoId: s.id, terminalId: s.terminalId ?? null, nomeDoCaixa: nome };
+    if (x.acao === 'sangria') return { parametros: base, resumo: resumoDaSangria(nome, x), alvo: `caixa:${s.id}:sangria:${x.valor}`, unidadeId: s.unidadeId ?? null };
+    let pendencias = 0;
+    if (x.caixa === 'delivery') {
+      const pend = await pendenciasDoTurno(this.db, e.tenantId, null, 'delivery');
+      pendencias = Number(pend?.total ?? 0);
+      if (pendencias > 0 && (x.motivo ?? '').length < MOTIVO_MINIMO) return { erro: TEXTOS_DAS_ACOES.pendenciasSemMotivo(pendencias) };
+      const agendados = await agendadosParaDepois(this.db, e.tenantId, null);
+      if (agendados.length) return { erro: TEXTOS_DAS_ACOES.agendadosNoTurno(agendados.length) };
+    }
+    return { parametros: { ...base, pendencias }, resumo: resumoDoFechamento(nome, x, pendencias), alvo: `caixa:${s.id}:fechar`, unidadeId: s.unidadeId ?? null };
+  }
+
+  /** Fecha ou lança a sangria pelo MESMO serviço do PDV; o caixa da pergunta tem de estar aberto ainda. */
+  private async aplicarCaixa(
+    p: { id: string; tenantId: string; unidadeId: string | null },
+    x: ParametrosDoCaixa & { sessaoId: string; terminalId: string | null; nomeDoCaixa: string },
+    e: EscopoDoMister,
+    quem: string,
+  ): Promise<{ feita: boolean; texto: string }> {
+    if (!this.financeiro) return { feita: false, texto: 'isso não está disponível agora. Nada foi feito.' };
+    const [agora] = linhas(await this.db.execute(sql`select status from caixa_sessao where id = ${x.sessaoId}::uuid and tenant_id = ${p.tenantId}::uuid`));
+    if (agora?.status !== 'aberta') return { feita: false, texto: TEXTOS_DAS_ACOES.caixaMudou };
+    // O serviço do PDV acha o caixa pelo terminal (o do delivery, pela empresa): ele tem de chegar ao MESMO caixa da pergunta —
+    // dois caixas do balcão sem terminal (lojas diferentes) não têm como ser escolhidos por ele, e aí a ação fica na tela.
+    const peloServico = await this.financeiro.sessaoAberta(p.tenantId, x.caixa === 'delivery' ? 'delivery' : 'pdv', x.terminalId);
+    if (peloServico?.id !== x.sessaoId) return { feita: false, texto: TEXTOS_DAS_ACOES.caixaSoNaTela };
+    const motivo = (err: any) => String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240);
+    try {
+      if (x.acao === 'sangria') {
+        const antes = Number((linhas(await this.db.execute(sql`select count(*)::int as n from lancamento_caixa where sessao_id = ${x.sessaoId}::uuid and categoria = 'sangria'`))[0] ?? {}).n ?? 0);
+        const feito: any = await this.financeiro.movimentarCaixa(p.tenantId, quem, e.nivel, { tipo: 'sangria', valor: x.valor, descricao: `${x.motivo} (pelo Mister)`, origem: x.caixa === 'delivery' ? 'delivery' : 'pdv', terminalId: x.terminalId });
+        const papel = feito?.comprovante?.aviso ? ' O comprovante NÃO saiu na impressora do caixa: confira a impressora.' : ' O comprovante sai na impressora do caixa.';
+        const depois = Number((linhas(await this.db.execute(sql`select count(*)::int as n from lancamento_caixa where sessao_id = ${x.sessaoId}::uuid and categoria = 'sangria'`))[0] ?? {}).n ?? 0);
+        if (depois <= antes) return { feita: false, texto: 'a sangria não apareceu no caixa. Confira no relatório de turnos.' };
+        return { feita: true, texto: `Lancei a sangria de R$ ${x.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} no ${x.nomeDoCaixa.replace(/^o /, '')}.${papel}` };
+      }
+      await this.financeiro.fecharSessao(p.tenantId, quem, e.nivel, {
+        valoresInformados: x.semContagem ? {} : { dinheiro: x.dinheiroContado as number },
+        obs: `Fechado pelo Mister (WhatsApp)${x.semContagem ? ', sem contagem' : ''}${x.motivo ? `: ${x.motivo}` : ''}`.slice(0, 300),
+        origem: x.caixa === 'delivery' ? 'delivery' : 'pdv',
+        terminalId: x.terminalId,
+        unidadeAtual: x.caixa === 'delivery' ? null : p.unidadeId,
+        ...(x.motivo ? { justificativaPendencias: x.motivo } : {}),
+        agendadosMantidos: [],
+      });
+      const [fim] = linhas(await this.db.execute(sql`select status from caixa_sessao where id = ${x.sessaoId}::uuid`));
+      if (fim?.status !== 'fechada') return { feita: false, texto: 'o caixa não ficou fechado. Confira no PDV.' };
+      return { feita: true, texto: `Fechei ${x.nomeDoCaixa}${x.semContagem ? ', sem contagem' : ''}. A diferença, se houver, está no relatório de turnos.` };
+    } catch (err: any) {
+      return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(motivo(err)) };
     }
   }
 
@@ -1488,6 +1590,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (ehDaLoja(parametros.acao)) return this.aplicarDaLoja(p, parametros as any, e, quem);
     if (parametros.acao === 'classificar_banco') return this.aplicarClassificacao(p, parametros as any, e, quem);
     if (parametros.acao === 'contar_estoque') return this.aplicarContagem(p, parametros as any, quem);
+    if (parametros.acao === 'fechar_caixa' || parametros.acao === 'sangria') return this.aplicarCaixa(p, parametros as any, e, quem);
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };

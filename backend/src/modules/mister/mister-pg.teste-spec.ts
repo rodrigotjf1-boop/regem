@@ -12,6 +12,7 @@ import { esquecerMemoriaDosCortes, sessaoCortada } from '../../auth/sessao-corte
 import { perfilPadrao } from '../../auth/permissoes';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { dataNoFuso, hojeISO, horaNoFuso, somarDias } from '../../common/data';
+import { agendadosParaDepois, pendenciasDoTurno } from '../delivery/pendencias-turno';
 import { idEntitlement, uuidDeChave } from '../../common/id-deterministico';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
@@ -4161,6 +4162,8 @@ export function testesDoMisterComPostgres(): void {
         c96: { acao: 'lancar_conta', descricaoDaConta: 'Conta de luz', valorDaConta: 412.35, vencimentoDaConta: '2099-12-10' },
         c97: { acao: 'mudar_produto', produto: 'X-Bacon', descricaoDoProduto: 'Pão brioche, bacon crocante e cheddar' },
         c98: { acao: 'mudar_fornecedor', fornecedor: 'Felipão', contato: 'Marcos' },
+        c100: { acao: 'fechar_caixa', caixaDaLoja: 'balcão', semContagem: true },
+        c101: { acao: 'sangria', caixaDaLoja: 'balcão', valorDaSangria: 200, motivoDoCaixa: 'pagar o gás' },
         c51: { periodo: 'este_mes' },
         c52: { periodo: 'este_mes', pessoa: 'Bruna' },
         c55: { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'kg' },
@@ -12379,6 +12382,134 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from lote where item_id = any($1::uuid[])`, [itens]).catch(() => undefined);
           await q(`delete from movimento_estoque where item_id = any($1::uuid[])`, [itens]);
           await q(`delete from item_estoque where id = any($1::uuid[])`, [itens]);
+        }
+      });
+
+      it('etapa 1 de 24/11: as mesas e as comandas abertas (sem o nome do cliente) e o caixa à distância — fechar e sangria com o PIN, pelo serviço do PDV', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const pinsAntes = await q(`select id, pin_hash from colaborador where id = $1`, [pessoa.ana]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        const impressos: any[] = [];
+        (acoes as any).financeiro = new FinanceiroService(db, auditoria, { imprimirCupomCaixa: async (...a: any[]) => (impressos.push(a), { enfileirados: 1, aviso: null }) } as any);
+        const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+        const pin = async (r: any) => {
+          const c = codigo(await propostasDasAcoes.enviarLink(r.proposta!.id, pessoa.ana, tel, r.proposta!.pergunta));
+          return { c, vista: await propostasDasAcoes.verPeloLink(c) };
+        };
+        // O que outros testes deixaram aberto sai da frente e volta no fim (só a situação).
+        const caixasDeAntes = (await q(`update caixa_sessao set status = 'fechada' where tenant_id = $1 and status = 'aberta' returning id::text as id`, [A])).map((x: any) => x.id);
+        const criados = { mesas: [] as string[], comandas: [] as string[], caixas: [] as string[], equip: [] as string[], pedidos: [] as string[] };
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          // 1) As mesas: a mesa com 2 itens lançados há 62 e 70 min (parada), a comanda avulsa com o nome do cliente que NÃO vai ao modelo.
+          const [{ id: m4 }] = await q(`insert into mesa (tenant_id, unidade_id, numero, nome, dono_id, aberta_em) values ($1, $2, 'E1-4', null, $3, now() - interval '95 minutes') returning id::text as id`, [A, lojaDeA, pessoa.carlos]);
+          criados.mesas.push(m4);
+          const [{ id: c4 }] = await q(`insert into comanda (tenant_id, unidade_id, mesa_id, mesa, status, aberta_em) values ($1, $2, $3, 'E1-4', 'aberta', now() - interval '95 minutes') returning id::text as id`, [A, lojaDeA, m4]);
+          const [{ id: cAvulsa }] = await q(`insert into comanda (tenant_id, unidade_id, mesa, cliente, status, aberta_em) values ($1, $2, 'Balcão E1', 'Fulano de Tal E1', 'aberta', now() - interval '25 minutes') returning id::text as id`, [A, lojaDeA]);
+          criados.comandas.push(c4, cAvulsa);
+          await q(
+            `insert into comanda_item (tenant_id, comanda_id, descricao, quantidade, preco_unitario, created_at) values ($1, $2, 'Smash E1', 2, 25.5, now() - interval '70 minutes'), ($1, $2, 'Refri E1', 1, 7.25, now() - interval '62 minutes'), ($1, $3, 'Água E1', 1, 4, now() - interval '20 minutes')`,
+            [A, c4, cAvulsa],
+          );
+          const mesas = await ferramentas.executar(e, 'mesas_e_comandas', {});
+          expect(mesas.ok).toBe(true);
+          const m = (mesas.dados.mesas as any[]).find((x: any) => x.mesa === 'E1-4');
+          expect(m).toMatchObject({ comandas: 1, itens: 2, total: 58.25, abertaPor: 'Carlos Lima' });
+          expect(m.semLancarHaMin).toBeGreaterThanOrEqual(61);
+          expect(m.semLancarHaMin).toBeLessThan(65);
+          expect(mesas.dados.comandasAvulsas).toEqual(expect.arrayContaining([expect.objectContaining({ comanda: 'Balcão E1', itens: 1, total: 4 })]));
+          expect(JSON.stringify(mesas.dados)).not.toContain('Fulano');
+          // Sem "Ver valores": nenhum R$; sem o PDV nem as mesas: nada.
+          const semValores = await ferramentas.executar({ ...e, nivel: 'gerente', verValores: false, permissoes: { mesas: true } } as any, 'mesas_e_comandas', {});
+          expect((semValores.dados.mesas as any[]).find((x: any) => x.mesa === 'E1-4')).not.toHaveProperty('total');
+          expect(semValores.dados).not.toHaveProperty('emAbertoNasMesas');
+          expect((await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true } } } as any, 'mesas_e_comandas', {})).ok).toBe(false);
+
+          // 2) O caixa: nenhum aberto.
+          const fecharSem = { acao: 'fechar_caixa', caixaDaLoja: 'balcão', semContagem: true };
+          expect(await ferramentas.executar(e, 'propor_acao', fecharSem)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semCaixaAberto('do balcão') } });
+          // Dois caixas do balcão: um de cada terminal, abertos ontem por pessoas diferentes.
+          for (const [n, por] of [['1', pessoa.ana], ['2', pessoa.carlos]] as const) {
+            const [{ id: eq }] = await q(`insert into equipamento (tenant_id, unidade_id, tipo, nome, token) values ($1, $2, 'pdv', $3, $4) returning id::text as id`, [A, lojaDeA, `PDV E1 ${n}`, `pdv-${MARCA}-e1-${n}`]);
+            criados.equip.push(eq);
+            const [{ id: s }] = await q(
+              `insert into caixa_sessao (tenant_id, unidade_id, terminal_id, origem, status, valor_abertura, aberta_em, aberta_por_id) values ($1, $2, $3, 'pdv', 'aberta', 100, now() - interval '26 hours', $4) returning id::text as id`,
+              [A, lojaDeA, eq, por],
+            );
+            criados.caixas.push(s);
+          }
+          const [s1, s2] = criados.caixas;
+          const dois = await ferramentas.executar(e, 'propor_acao', fecharSem);
+          expect(dois.dados.erro).toBe(TEXTOS_DAS_ACOES.caixasDemais('PDV E1 1 (de Ana Souza), PDV E1 2 (de Carlos Lima)'));
+          // Só gerente e presidente; sem o PDV, nem a supervisão chega lá.
+          expect(await ferramentas.executar({ ...e, nivel: 'supervisao', permissoes: { pdv: true } } as any, 'propor_acao', fecharSem)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.soGestor } });
+          expect(await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true } } } as any, 'propor_acao', fecharSem)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCaixa } });
+
+          // 3) A sangria no caixa do Carlos (pelo nome dele): a página do PIN com o valor; o lançamento pelo serviço do PDV.
+          const r = await ferramentas.executar(e, 'propor_acao', { acao: 'sangria', caixaDaLoja: 'balcão', operadorDoCaixa: 'carlos', valorDaSangria: 50, motivoDoCaixa: 'pagar o gás' });
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toMatch(/^Lançar a sangria de R\$ 50,00 \(motivo: pagar o gás\) no caixa do balcão \(PDV E1 2, aberto por Carlos Lima em \d{2}\/\d{2} \d{2}:\d{2}, há 26 h\)\./);
+          expect(r.proposta).toMatchObject({ procedimento: 'sangria', nivel: 'pin' });
+          const { c, vista } = await pin(r);
+          expect(vista).toMatchObject({ titulo: 'Lançar a sangria', valor: 50, botao: 'Lançar a sangria' });
+          expect(await q(`select 1 from lancamento_caixa where sessao_id = $1`, [s2])).toEqual([]);
+          await propostasDasAcoes.autorizarPeloLink(c, '2580');
+          expect(await esperarFim(r.proposta!.id)).toMatchObject({ situacao: 'feita', resultado: expect.stringMatching(/^Lancei a sangria de R\$ 50,00 no caixa do balcão \(PDV E1 2.*\. O comprovante sai na impressora do caixa\.$/) });
+          expect(await q(`select categoria, tipo, valor::float8 as valor, descricao, criado_por_id::text as quem from lancamento_caixa where sessao_id = $1`, [s2])).toEqual([
+            { categoria: 'sangria', tipo: 'saida', valor: 50, descricao: 'pagar o gás (pelo Mister)', quem: pessoa.ana },
+          ]);
+          expect(impressos.map((a) => a[3])).toEqual(['sangria']);
+
+          // 4) Fechar o caixa da Ana sem contagem: a página do PIN sem o esperado (cego); fechado pelo serviço do PDV.
+          const f = await ferramentas.executar(e, 'propor_acao', { ...fecharSem, operadorDoCaixa: 'PDV E1 1' });
+          expect(f.ok).toBe(true);
+          expect(f.dados.oQueVouFazer).toContain('sem contagem: tudo o que não foi contado fica como diferença no relatório de turnos');
+          const pf = await pin(f);
+          expect(pf.vista).toMatchObject({ titulo: 'Fechar o caixa', valor: null, botao: 'Fechar o caixa' });
+          expect(JSON.stringify(pf.vista)).not.toMatch(/esperad[oa]: R\$/i);
+          await propostasDasAcoes.autorizarPeloLink(pf.c, '2580');
+          expect(await esperarFim(f.proposta!.id)).toMatchObject({ situacao: 'feita', resultado: expect.stringMatching(/^Fechei o caixa do balcão \(PDV E1 1.*, sem contagem\. A diferença, se houver, está no relatório de turnos\.$/) });
+          expect((await q(`select status, obs from caixa_sessao where id = $1`, [s1]))[0]).toMatchObject({ status: 'fechada', obs: expect.stringContaining('Fechado pelo Mister (WhatsApp), sem contagem') });
+
+          // 5) O caixa mudou entre a pergunta e o PIN (fechado pela tela): nada é feito.
+          const f2 = await ferramentas.executar(e, 'propor_acao', { acao: 'fechar_caixa', caixaDaLoja: 'balcão', dinheiroContado: 120 });
+          expect(f2.dados.oQueVouFazer).toContain('com R$ 120,00 de dinheiro contado na gaveta');
+          const pf2 = await pin(f2);
+          await q(`update caixa_sessao set status = 'fechada', fechada_em = now() where id = $1`, [s2]);
+          await propostasDasAcoes.autorizarPeloLink(pf2.c, '2580');
+          expect(await esperarFim(f2.proposta!.id)).toMatchObject({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.caixaMudou });
+
+          // 6) O delivery com uma entrega pendente: sem o motivo, a pergunta; com ele, fecha e o motivo vai junto.
+          const [{ id: sd }] = await q(`insert into caixa_sessao (tenant_id, origem, status, valor_abertura, aberta_em, aberta_por_id) values ($1, 'delivery', 'aberta', 0, now() - interval '5 hours', $2) returning id::text as id`, [A, pessoa.ana]);
+          criados.caixas.push(sd);
+          const [{ id: ped }] = await q(`insert into pedido_externo (tenant_id, canal, tipo, status, display_id) values ($1, 'proprio', 'entrega', 'novo', 'E1-PEND') returning id::text as id`, [A]);
+          criados.pedidos.push(ped);
+          expect(await agendadosParaDepois(db as any, A, null)).toEqual([]);
+          const pendentes = (await pendenciasDoTurno(db as any, A, null, 'delivery')).total;
+          expect(pendentes).toBeGreaterThanOrEqual(1);
+          const fecharDelivery = { acao: 'fechar_caixa', caixaDaLoja: 'delivery', semContagem: true };
+          expect(await ferramentas.executar(e, 'propor_acao', fecharDelivery)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.pendenciasSemMotivo(pendentes) } });
+          const fd = await ferramentas.executar(e, 'propor_acao', { ...fecharDelivery, motivoDoCaixa: 'pedido preso no teste E1' });
+          expect(fd.dados.oQueVouFazer).toContain(`fecha mesmo assim, com o motivo "pedido preso no teste E1" na auditoria`);
+          const pd = await pin(fd);
+          expect(pd.vista.itens).toEqual(expect.arrayContaining([`${pendentes} entrega(s) pendente(s), motivo: pedido preso no teste E1`]));
+          await propostasDasAcoes.autorizarPeloLink(pd.c, '2580');
+          expect(await esperarFim(fd.proposta!.id)).toMatchObject({ situacao: 'feita' });
+          expect((await q(`select status from caixa_sessao where id = $1`, [sd]))[0].status).toBe('fechada');
+          expect(auditados.find((a) => a.entidadeId === sd && a.acao === 'fechou_turno_com_pendencias')).toMatchObject({ atorId: pessoa.ana, detalhe: expect.objectContaining({ justificativa: 'pedido preso no teste E1' }) });
+        } finally {
+          delete (acoes as any).financeiro;
+          for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
+          await q(`delete from pedido_externo where id = any($1::uuid[])`, [criados.pedidos]);
+          await q(`delete from lancamento_caixa where sessao_id = any($1::uuid[])`, [criados.caixas]).catch(() => undefined);
+          await q(`delete from caixa_fechamento where sessao_id = any($1::uuid[])`, [criados.caixas]).catch(() => undefined);
+          await q(`delete from caixa_sessao where id = any($1::uuid[])`, [criados.caixas]).catch(() => undefined);
+          await q(`delete from equipamento where id = any($1::uuid[])`, [criados.equip]).catch(() => undefined);
+          await q(`delete from comanda_item where comanda_id = any($1::uuid[])`, [criados.comandas]);
+          await q(`delete from comanda where id = any($1::uuid[])`, [criados.comandas]);
+          await q(`delete from mesa where id = any($1::uuid[])`, [criados.mesas]);
+          await q(`update caixa_sessao set status = 'aberta' where id = any($1::uuid[])`, [caixasDeAntes]);
         }
       });
 

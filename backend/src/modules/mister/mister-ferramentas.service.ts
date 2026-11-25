@@ -612,6 +612,8 @@ export class MisterFerramentasService {
         return this.cancelamentos(e, en, loja);
       case 'caixas_e_sangrias':
         return this.caixasESangrias(e, en, loja);
+      case 'mesas_e_comandas':
+        return this.mesasEComandas(e, loja);
       case 'equipe_do_dia':
         return this.equipeDoDia(e, en, loja);
       case 'historia_do_pedido':
@@ -3602,6 +3604,70 @@ export class MisterFerramentasService {
             quantosSuprimentos: inteiro(m.qtdSuprimentos),
           })),
         },
+      },
+    };
+  }
+
+  /**
+   * Etapa 1 de 24/11 (o dono): as mesas e as comandas abertas AGORA — quantas, desde quando, o valor em aberto e há quanto tempo
+   * nada é lançado nela (a mesa "parada"). O mesmo dado de PDV · Mesas; o nome do cliente da comanda nunca vai ao modelo.
+   */
+  private async mesasEComandas(e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'mesas') && !this.pode(e, 'pdv')) return recusa(SEM_PERMISSAO);
+    const agora = Date.now();
+    const mesas = linhas(
+      await this.db.execute(sql`
+        select m.numero, m.nome, m.aberta_em as "abertaEm", count(distinct c.id)::int as comandas, count(ci.id)::int as itens,
+               coalesce(sum(ci.quantidade * ci.preco_unitario), 0)::float8 as total, max(ci.created_at) as "ultimoItem", d.nome as dono
+          from mesa m
+          left join comanda c on c.mesa_id = m.id and c.status = 'aberta'
+          left join comanda_item ci on ci.comanda_id = c.id
+          left join colaborador d on d.id = m.dono_id
+         where m.tenant_id = ${e.tenantId}::uuid and m.status = 'aberta' ${sqlUnidade('m.unidade_id', loja.atual)}
+         group by m.id, d.nome
+         order by m.aberta_em
+         limit 60`),
+    );
+    const comandas = linhas(
+      await this.db.execute(sql`
+        select c.mesa as rotulo, c.senha, c.aberta_em as "abertaEm", count(ci.id)::int as itens,
+               coalesce(sum(ci.quantidade * ci.preco_unitario), 0)::float8 as total, max(ci.created_at) as "ultimoItem"
+          from comanda c
+          left join comanda_item ci on ci.comanda_id = c.id
+         where c.tenant_id = ${e.tenantId}::uuid and c.status = 'aberta' and c.mesa_id is null ${sqlUnidade('c.unidade_id', loja.atual)}
+         group by c.id
+         order by c.aberta_em
+         limit 60`),
+    );
+    const parada = (x: any) => minutosDesde(x.ultimoItem ?? x.abertaEm, agora);
+    const valor = (v: unknown) => (e.verValores ? reais(v) : undefined);
+    const totalMesas = mesas.reduce((s, m) => s + Number(m.total ?? 0), 0);
+    const totalComandas = comandas.reduce((s, c) => s + Number(c.total ?? 0), 0);
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        lidoAs: horaAgora(),
+        ...(e.verValores ? {} : { aviso: SEM_VALORES }),
+        mesasAbertas: mesas.length,
+        ...(e.verValores ? { emAbertoNasMesas: reais(totalMesas), emAbertoNasComandas: reais(totalComandas) } : {}),
+        mesas: mesas.map((m) => ({
+          mesa: String(m.nome || m.numero),
+          abertaHaMin: minutosDesde(m.abertaEm, agora),
+          semLancarHaMin: parada(m),
+          comandas: Number(m.comandas),
+          itens: Number(m.itens),
+          ...(valor(m.total) !== undefined ? { total: valor(m.total) } : {}),
+          abertaPor: m.dono ? String(m.dono) : null,
+        })),
+        comandasAvulsas: comandas.map((c) => ({
+          comanda: c.rotulo ? String(c.rotulo) : c.senha != null ? `senha ${c.senha}` : 'sem nome',
+          abertaHaMin: minutosDesde(c.abertaEm, agora),
+          semLancarHaMin: parada(c),
+          itens: Number(c.itens),
+          ...(valor(c.total) !== undefined ? { total: valor(c.total) } : {}),
+        })),
+        comoLer: '"semLancarHaMin" é há quantos minutos nada é lançado na mesa (a mesa parada). O nome do cliente da comanda não vem.',
       },
     };
   }
