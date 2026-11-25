@@ -424,7 +424,7 @@ export class VendasService {
       await tx.insert(lancamentoCaixa).values({
         tenantId,
         unidadeId: l.unidadeId,
-        sessaoId: sessaoId === undefined ? l.sessaoId : sessaoId,
+        sessaoId: sessaoId === undefined ? await this.caixaDoEstorno(tx, tenantId, l.sessaoId) : sessaoId,
         comandaId,
         tipo: 'saida',
         valor: l.valor,
@@ -436,6 +436,28 @@ export class VendasService {
         criadoPorId: atorId,
       });
     }
+  }
+
+  /**
+   * O caixa do estorno quando quem chama manda "o do lançamento original" (PDV-D-02 da revisão de 25/11/2026). A entrada fora
+   * de caixa estorna fora de caixa. A recebida num caixa estorna nele se ele AINDA está aberto; se já fechou, no caixa aberto
+   * agora do mesmo lugar (a mesma origem e, no balcão, o mesmo terminal); sem nenhum aberto, fora de caixa. Antes, a saída
+   * entrava no caixa já fechado e mudava a conta de um turno que já tinha sido contado. Trava o caixa escolhido (`for share`):
+   * ele não fecha no meio deste estorno.
+   */
+  private async caixaDoEstorno(tx: any, tenantId: string, sessaoOriginal: string | null): Promise<string | null> {
+    if (!sessaoOriginal) return null;
+    const r: any = await tx.execute(sql`
+      select id, status, origem, terminal_id from caixa_sessao where id = ${sessaoOriginal} and tenant_id = ${tenantId} for share`);
+    const orig = (r.rows ?? r)[0];
+    if (!orig) return null;
+    if (orig.status === 'aberta') return orig.id;
+    const a: any = await tx.execute(sql`
+      select id from caixa_sessao
+       where tenant_id = ${tenantId} and status = 'aberta' and origem = ${orig.origem}
+         and ${orig.origem === 'delivery' ? sql`true` : orig.terminal_id ? sql`terminal_id = ${orig.terminal_id}` : sql`terminal_id is null`}
+       order by aberta_em desc limit 1 for share`);
+    return (a.rows ?? a)[0]?.id ?? null;
   }
 
   // Venda de balcão, mesa ou totem: a ficha baixa os ingredientes e a embalagem do BALCÃO — ou a
@@ -1228,6 +1250,11 @@ export class VendasService {
           );
         const maior = partes.indexOf(Math.max(...partes));
         partes[maior] += totalCent - somaCent;
+        // O ajuste não pode zerar nem negativar a parte (PDV-A-01): R$ 0,03 + R$ 0,02 numa venda de R$ 0,01 deixava −R$ 0,01.
+        if (partes[maior] <= 0)
+          throw new BadRequestException(
+            `A soma dos pagamentos (${(somaCent / 100).toFixed(2)}) não bate com o total (${(totalCent / 100).toFixed(2)}).`,
+          );
         for (const [i, p] of pagamentos.entries()) {
           const valorDaParte = (partes[i] / 100).toFixed(2);
           await tx.insert(comandaPagamento).values({
@@ -2344,10 +2371,14 @@ export class VendasService {
     // insumo (voltou, ficou baixado como perda, ou nada tinha saído) — não o que se supõe.
     let saidasDaVenda = 0;
     await this.db.transaction(async (tx) => {
+      // `for update` (PDV-D-01 da revisão de 25/11/2026), como o `cancelar` do PDV: dois estornos juntos da mesma venda
+      // externa (o painel e o canal, duas abas) — o segundo espera, relê "cancelada" e sai. Antes, os dois passavam pela
+      // conferência de "já estornado" e lançavam duas saídas contra a mesma entrada.
       const [c] = await tx
         .select()
         .from(comanda)
-        .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
+        .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)))
+        .for('update');
       if (!c) throw new NotFoundException('Comanda não encontrada');
       if (c.status === 'cancelada') return;
 
@@ -2393,8 +2424,9 @@ export class VendasService {
           .set({ estoqueReaproveitado: reaproveitado, updatedAt: new Date() })
           .where(eq(comanda.id, comandaId));
       }
-      // Venda externa não passa pelo caixa: o estorno fica fora de sessão, como o lançamento
-      // original. Todos os lançamentos de entrada, cada um na sua forma.
+      // Venda externa paga fora do caixa: o estorno fica fora de sessão, como o lançamento original. A que foi recebida
+      // num caixa (retirada paga no balcão, dinheiro da entrega) estorna no caixa dela se ele ainda está aberto, senão no
+      // caixa aberto agora do mesmo lugar (PDV-D-02 — `estornarLancamentos`). Cada entrada na sua forma.
       await this.estornarLancamentos(
         tx, tenantId, comandaId, undefined, rotulo.descricaoEstorno ?? 'Estorno · delivery cancelado', atorId,
       );
@@ -3044,27 +3076,35 @@ export class VendasService {
 
     const cupons: any[] = [];
     for (const c of comandas) {
-      const cnt: any = await this.db.execute(sql`
-        select count(*)::int as n from comanda_item where comanda_id = ${c.id}
-      `);
-      const n = Number((cnt.rows ?? cnt)[0].n);
-      if (n > 0) {
+      // "Vazia ou com itens" se decide com a comanda TRAVADA (PDV-B-01 da revisão de 25/11/2026): antes a contagem era uma
+      // leitura solta e o item lançado entre ela e a exclusão ia junto com a comanda (a chave estrangeira apaga em cascata)
+      // — o garçom recebia "lançado" e o item sumia da conta. Agora o lançamento espera; depois da exclusão, ele é recusado.
+      const vazia = await this.db.transaction(async (tx: any) => {
+        const [aberta] = await tx
+          .select({ id: comanda.id })
+          .from(comanda)
+          .where(and(eq(comanda.id, c.id), eq(comanda.tenantId, tenantId), eq(comanda.status, 'aberta')))
+          .for('update');
+        if (!aberta) return null; // fechada ou cancelada por outro caminho enquanto a mesa fechava
+        const cnt: any = await tx.execute(sql`select count(*)::int as n from comanda_item where comanda_id = ${c.id}`);
+        if (Number((cnt.rows ?? cnt)[0].n) > 0) return false;
+        // Comanda vazia (B-04 da revisão de 24/11/2026): sai, como na exclusão da mesa — senão ficava "fechada" com R$ 0 e
+        // contava como VENDA. Se algo ainda aponta para ela (o pedido da cozinha de um item tirado), fica cancelada com o
+        // motivo; a exclusão roda num ponto de salvamento, para a recusa dela não desfazer a transação.
+        await tx
+          .transaction((sp: any) => sp.delete(comanda).where(eq(comanda.id, c.id)))
+          .catch(() =>
+            tx
+              .update(comanda)
+              .set({ status: 'cancelada', canceladaEm: new Date(), canceladaPorId: atorId, motivoCancelamento: 'Comanda vazia, encerrada com a mesa' })
+              .where(eq(comanda.id, c.id)),
+          );
+        return true;
+      });
+      if (vazia === false) {
         // reaproveita o fechamento por comanda (baixa + lançamento + auditoria).
         const r = await this.fecharComanda(tenantId, atorId, atorPerfil, c.id, dto, terminalId);
         cupons.push(r);
-      } else {
-        // Comanda vazia (B-04 da revisão de 24/11/2026): sai, como na exclusão da mesa. Antes ela ficava "fechada" com R$ 0 e
-        // contava como VENDA nos relatórios (a mesa com uma comanda de R$ 60 e uma vazia dava 2 vendas e tíquete de R$ 30).
-        // Se algo ainda aponta para ela (o pedido da cozinha de um item que foi tirado), fica cancelada com o motivo.
-        await this.db
-          .delete(comanda)
-          .where(and(eq(comanda.id, c.id), eq(comanda.tenantId, tenantId), eq(comanda.status, 'aberta')))
-          .catch(() =>
-            this.db
-              .update(comanda)
-              .set({ status: 'cancelada', canceladaEm: new Date(), canceladaPorId: atorId, motivoCancelamento: 'Comanda vazia, encerrada com a mesa' })
-              .where(and(eq(comanda.id, c.id), eq(comanda.status, 'aberta'))),
-          );
       }
     }
     await this.db

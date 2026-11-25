@@ -221,4 +221,70 @@ descrever('venda, comanda, acerto e conta a pagar uma vez só (Postgres)', () =>
     const meia: any = await vendas.vendaBalcao(T, ator, P, { itens: [{ produtoId: produto, quantidade: 0.5 }], forma: 'dinheiro', unidadeId: loja } as any, caixa1);
     expect(meia.total).toBe(12.5);
   });
+
+  // ── Revisão de 25/11/2026 (segunda volta) ─────────────────────────────────────────────────────────────────────────────
+
+  /** Uma venda externa (pedido de canal aceito) já gravada, com a entrada no caixa dado (ou fora de caixa). */
+  const vendaExterna = async (sessao: string | null, valor = 30) => {
+    const [{ id }] = await q(`insert into comanda (tenant_id, unidade_id, status, total, forma, fechada_em) values ($1, $2, 'fechada', $3, 'dinheiro', now()) returning id`, [
+      T, loja, valor,
+    ]);
+    await q(`insert into lancamento_caixa (tenant_id, unidade_id, sessao_id, comanda_id, tipo, valor, data, categoria, forma) values ($1, $2, $3, $4, 'entrada', $5, current_date, 'venda', 'dinheiro')`, [
+      T, loja, sessao, id, valor,
+    ]);
+    return id as string;
+  };
+
+  it('PDV-D-01: dois estornos juntos da mesma venda externa lançam uma saída só', async () => {
+    const venda = await vendaExterna(null);
+    const r = await varias([1, 2, 3].map(() => () => vendas.estornarVendaExterna(T, ator, P, venda, 'canal cancelou')));
+    expect(r.every((x) => x.status === 'fulfilled')).toBe(true);
+    expect((await saidasDa(venda)).map((s: any) => [s.forma, Number(s.valor)])).toEqual([['dinheiro', 30]]);
+  });
+
+  it('PDV-D-02: o estorno externo de uma venda recebida num caixa que já fechou entra no caixa aberto agora do mesmo terminal', async () => {
+    const terminal3 = await terminal('pdv', 'Caixa D-02');
+    const a: any = await financeiro.abrirSessao(T, ator, { terminalId: terminal3, valorAbertura: 0 });
+    const venda = await vendaExterna(a.id, 50);
+    await financeiro.fecharSessao(T, ator, P, { valoresInformados: { dinheiro: 50 }, terminalId: terminal3 });
+    const b: any = await financeiro.abrirSessao(T, ator, { terminalId: terminal3, valorAbertura: 0 });
+    await vendas.estornarVendaExterna(T, ator, P, venda, 'cliente desistiu');
+    expect((await q(`select sessao_id from lancamento_caixa where comanda_id = $1 and tipo = 'saida'`, [venda]))[0].sessao_id).toBe(b.id);
+    // Sem caixa aberto no terminal, o estorno fica fora de caixa (não muda a conta do turno fechado).
+    await financeiro.fecharSessao(T, ator, P, { valoresInformados: { dinheiro: -50 }, terminalId: terminal3 });
+    const outra = await vendaExterna((await q(`select id from caixa_sessao where id = $1`, [b.id]))[0].id, 20);
+    await vendas.estornarVendaExterna(T, ator, P, outra, 'cliente desistiu');
+    expect((await q(`select sessao_id from lancamento_caixa where comanda_id = $1 and tipo = 'saida'`, [outra]))[0].sessao_id).toBeNull();
+  });
+
+  it('PDV-B-01: o item lançado enquanto a mesa fecha não some com a comanda vazia — ele entra na conta', async () => {
+    const [{ id: m }] = await q(`insert into mesa (tenant_id, unidade_id, numero, status) values ($1, $2, '9', 'aberta') returning id`, [T, loja]);
+    const [{ id: cmd }] = await q(`insert into comanda (tenant_id, unidade_id, mesa_id, status) values ($1, $2, $3, 'aberta') returning id`, [T, loja, m]);
+    // O lançamento em andamento: o item gravado e ainda não confirmado, com a comanda presa como o `adicionarItem` a prende.
+    const { c, pid } = await conexaoComTransacao();
+    try {
+      await c.query(`select id from comanda where id = $1 for share`, [cmd]);
+      await c.query(`insert into comanda_item (tenant_id, comanda_id, produto_id, descricao, quantidade, preco_unitario) values ($1, $2, $3, 'X-burguer', 1, 25)`, [
+        T, cmd, produto,
+      ]);
+      const fechando = vendas.fecharMesa(T, ator, P, m, { forma: 'dinheiro' }, caixa1);
+      fechando.catch(() => undefined);
+      await esperarPresoAtras(pid);
+      await c.query('commit');
+      await fechando;
+      expect((await q(`select count(*)::int as n from comanda_item where comanda_id = $1`, [cmd]))[0].n).toBe(1);
+      expect((await q(`select status, total::text as total from comanda where id = $1`, [cmd]))[0]).toEqual({ status: 'fechada', total: '25.00' });
+    } finally {
+      await c.query('rollback').catch(() => undefined);
+      c.release();
+      await q(`delete from mesa where tenant_id = $1`, [T]).catch(() => undefined);
+    }
+  });
+
+  it('PDV-A-01: o ajuste de centavos que zeraria ou negativaria a maior parte recusa a venda', async () => {
+    const [{ id: centavo }] = await q(`insert into produto (tenant_id, nome, preco_venda) values ($1, 'Bala', 0.01) returning id`, [T]);
+    await expect(
+      vendas.vendaBalcao(T, ator, P, { itens: [{ produtoId: centavo, quantidade: 1 }], pagamentos: [{ forma: 'dinheiro', valor: 0.03 }, { forma: 'pix', valor: 0.02 }], unidadeId: loja } as any, caixa1),
+    ).rejects.toThrow(/não bate com o total/);
+  });
 });

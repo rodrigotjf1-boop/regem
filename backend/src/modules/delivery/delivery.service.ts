@@ -2633,28 +2633,34 @@ export class DeliveryService {
     const forma = String(ped.formaPagamento ?? '');
     const ehDinheiro = /dinheiro|cash|money/i.test(forma) || ped.trocoPara != null;
     if (!ehDinheiro) return;
-    const [sessao] = await this.db
-      .select({ id: caixaSessao.id })
-      .from(caixaSessao)
-      .where(
-        and(
-          eq(caixaSessao.tenantId, tenantId),
-          eq(caixaSessao.status, 'aberta'),
-          eq(caixaSessao.origem, 'delivery'),
-        ),
-      );
-    if (!sessao) return; // sem caixa do delivery aberto: fica só como receita
-    await this.db
-      .update(lancamentoCaixa)
-      .set({ sessaoId: sessao.id, forma: 'dinheiro' })
-      .where(
-        and(
-          eq(lancamentoCaixa.tenantId, tenantId),
-          eq(lancamentoCaixa.comandaId, ped.comandaId),
-          eq(lancamentoCaixa.tipo, 'entrada'),
-          eq(lancamentoCaixa.categoria, 'venda'),
-        ),
-      );
+    // Com o caixa do delivery TRAVADO e ainda aberto (PDV-C-02 da revisão de 25/11/2026, a mesma regra do ERR-595): antes a
+    // leitura era solta e o lançamento podia ser amarrado a um caixa que fechou no meio — fora do esperado do fechamento.
+    // Agora o fechamento espera esta gravação, ou ela relê o caixa fechado e o dinheiro fica só como receita.
+    await this.db.transaction(async (tx: any) => {
+      const [sessao] = await tx
+        .select({ id: caixaSessao.id })
+        .from(caixaSessao)
+        .where(
+          and(
+            eq(caixaSessao.tenantId, tenantId),
+            eq(caixaSessao.status, 'aberta'),
+            eq(caixaSessao.origem, 'delivery'),
+          ),
+        )
+        .for('share');
+      if (!sessao) return; // sem caixa do delivery aberto: fica só como receita
+      await tx
+        .update(lancamentoCaixa)
+        .set({ sessaoId: sessao.id, forma: 'dinheiro' })
+        .where(
+          and(
+            eq(lancamentoCaixa.tenantId, tenantId),
+            eq(lancamentoCaixa.comandaId, ped.comandaId),
+            eq(lancamentoCaixa.tipo, 'entrada'),
+            eq(lancamentoCaixa.categoria, 'venda'),
+          ),
+        );
+    });
   }
 
   // Valida a senha de login de um gestor (presidente/gerente) do tenant — a regra única de `common/autorizacao-gestor`

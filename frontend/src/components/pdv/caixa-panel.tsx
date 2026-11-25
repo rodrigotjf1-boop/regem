@@ -162,6 +162,8 @@ export function CaixaPanel({
         valoresInformados,
         obs: obs.trim() || undefined,
         origem,
+        // O turno que esta tela mostrou: a contagem não fecha outro (a confirmação atrasada de outra aba — PDV-C-03).
+        ...(caixa?.id ? { sessaoId: caixa.id } : {}),
         ...(justificativa ? { justificativaPendencias: justificativa } : {}),
         agendadosMantidos: [...mantidos],
       });

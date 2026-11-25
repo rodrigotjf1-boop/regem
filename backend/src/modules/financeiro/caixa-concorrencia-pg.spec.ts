@@ -7,6 +7,7 @@ import { FinanceiroService } from './financeiro.service';
 import { FiscalService } from '../fiscal/fiscal.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { VendasService } from '../vendas/vendas.service';
+import { DeliveryService } from '../delivery/delivery.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -223,5 +224,75 @@ descrever('o caixa não muda enquanto fecha (Postgres)', () => {
     const just = auditados.find((a) => a.acao === 'fechou_turno_com_pendencias' && a.entidadeId === s.id);
     expect(just?.detalhe.total).toBe(1);
     void presidente;
+  });
+
+  // ── Revisão de 25/11/2026 (segunda volta) ─────────────────────────────────────────────────────────────────────────────
+
+  const lancar = (sessao: string, forma: string | null, valor: number, tipo = 'entrada', categoria = 'venda') =>
+    q(`insert into lancamento_caixa (tenant_id, unidade_id, sessao_id, tipo, valor, data, categoria, forma) values ($1, $2, $3, $4, $5, current_date, $6, $7)`, [
+      T, lojaA, sessao, tipo, valor, categoria, forma,
+    ]);
+
+  it('PDV-C-01: a venda gravada como "Dinheiro", "Pix" e "Cartão de crédito" confere com o contado "dinheiro", "pix" e "cartao"', async () => {
+    const terminal = await novoTerminal('Caixa C-01 forma');
+    const s = await abrir(terminal, 100);
+    await lancar(s.id, 'Dinheiro', 50);
+    await lancar(s.id, 'Pix', 30);
+    await lancar(s.id, 'Cartão de crédito', 20);
+    await lancar(s.id, 'Cartão de débito', 10);
+    await lancar(s.id, 'dinheiro', 5, 'entrada', 'suprimento');
+    // A sangria enxerga o dinheiro com as duas grafias: 100 + 50 + 5 = 155 na gaveta; 155 é o valor exato, não "acima".
+    await financeiro.movimentarCaixa(T, operador, 'execucao', { tipo: 'sangria', valor: 155, terminalId: terminal });
+    expect(auditados.filter((a) => a.acao === 'sangria' && a.entidadeId === s.id).map((a) => a.detalhe.acimaDoEsperado)).toEqual([false]);
+    const r: any = await financeiro.fecharSessao(T, operador, 'execucao', { valoresInformados: { dinheiro: 0, pix: 30, cartao: 30 }, terminalId: terminal });
+    expect(r.diferencaPorForma).toEqual({ cartao: 0, dinheiro: 0, pix: 0 });
+    expect(r.alertou).toBe(false);
+    expect((await financeiro.reconciliarSessao(T, s.id, presidente)).ok).toBe(true);
+  });
+
+  it('PDV-C-01: o fechamento antigo, gravado com "Dinheiro" e "dinheiro" separados, reconcilia sem acusar diferença', async () => {
+    const terminal = await novoTerminal('Caixa C-01 antigo');
+    const s = await abrir(terminal, 100);
+    await lancar(s.id, 'Dinheiro', 40);
+    await q(
+      `update caixa_sessao set status = 'fechada', fechada_em = now(), esperado_por_forma = '{"Dinheiro": 40, "dinheiro": 100}'::jsonb where id = $1`,
+      [s.id],
+    );
+    const r: any = await financeiro.reconciliarSessao(T, s.id, presidente);
+    expect(r.ok).toBe(true);
+  });
+
+  it('PDV-C-03: a confirmação atrasada do turno A não fecha o turno B que abriu depois no mesmo terminal', async () => {
+    const terminal = await novoTerminal('Caixa C-03');
+    const a = await abrir(terminal, 0);
+    await financeiro.fecharSessao(T, operador, 'execucao', { valoresInformados: { dinheiro: 0 }, terminalId: terminal, sessaoId: a.id } as any);
+    const b = await abrir(terminal, 0);
+    await expect(
+      financeiro.fecharSessao(T, operador, 'execucao', { valoresInformados: { dinheiro: 80 }, terminalId: terminal, sessaoId: a.id } as any),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'CAIXA_JA_FECHADO' }) });
+    expect((await q(`select status from caixa_sessao where id = $1`, [b.id]))[0].status).toBe('aberta');
+  });
+
+  it('PDV-C-02: o dinheiro da entrega que chega enquanto o caixa do delivery fecha não entra no caixa fechado', async () => {
+    const s: any = await financeiro.abrirSessao(T, operador, { origem: 'delivery' });
+    const [{ id: venda }] = await q(`insert into comanda (tenant_id, unidade_id, status, total, forma, fechada_em) values ($1, $2, 'fechada', 40, 'dinheiro', now()) returning id`, [T, lojaA]);
+    await q(`insert into lancamento_caixa (tenant_id, unidade_id, comanda_id, tipo, valor, data, categoria, forma) values ($1, $2, $3, 'entrada', 40, current_date, 'venda', 'dinheiro')`, [T, lojaA, venda]);
+    // Só o `db` do DeliveryService é usado pela conciliação: monta-se o serviço sem as outras dependências.
+    const delivery: any = Object.create(DeliveryService.prototype);
+    delivery.db = db;
+    const { c, pid } = await conexaoComTransacao();
+    try {
+      await c.query(`select id from caixa_sessao where id = $1 for update`, [s.id]);
+      await c.query(`update caixa_sessao set status = 'fechada', fechada_em = now() where id = $1`, [s.id]);
+      const conciliando = delivery.reconciliarDinheiro(T, { comandaId: venda, pago: false, formaPagamento: 'dinheiro' });
+      conciliando.catch(() => undefined);
+      await esperarPresoAtras(pid);
+      await c.query('commit');
+      await conciliando;
+      expect((await q(`select sessao_id from lancamento_caixa where comanda_id = $1`, [venda]))[0].sessao_id).toBeNull();
+    } finally {
+      await c.query('rollback').catch(() => undefined);
+      c.release();
+    }
   });
 });

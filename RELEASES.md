@@ -12,6 +12,12 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Caixa: a forma de pagamento confere no fechamento e mais seis brechas (25/11; ERR-607; SEM migration).** Segunda volta da
+  revisão do PDV: "Dinheiro" (balcão) e "dinheiro" (contado) são a mesma linha no fechamento, na sangria e na reconciliação — 7 de
+  9 fechamentos da loja mostravam diferença falsa; a contagem só fecha o turno da tela; o dinheiro da entrega e o estorno externo
+  respeitam o caixa fechado; o estorno externo não duplica; o item lançado durante o fechamento da mesa não some. **Vai no `.zip`**
+  (é o caixa do servidor da loja).
+
 - **Mister: as 9 etapas de acesso de 24/11 (#1321 a #1328 e o da etapa 9; SEM migration).** Mesas e caixa, entregadores, encomendas, avaliações,
   ponto, pedido de compra, cardápio, campanhas, auditoria, manutenção, produção, candidatos e cashback pela conversa. Só na nuvem. Vai no
   `.zip` sem efeito na loja.
