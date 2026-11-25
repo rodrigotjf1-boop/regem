@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { diaComSemana } from './mister-acoes-loja';
+import { nomeDaCampanha, type LinhaDaCampanha } from './mister-acoes-campanha';
 import { MODELO_DO_ENTREGADOR, periodoDoAcerto, type LinhaDoAcerto } from './mister-acoes-entregador';
 import { ModuleRef } from '@nestjs/core';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -625,6 +626,8 @@ export class MisterFerramentasService {
         return this.agendaDeEncomendas(e, en, loja);
       case 'avaliacoes_dos_clientes':
         return this.avaliacoesDosClientes(e, en, loja);
+      case 'campanhas_de_marketing':
+        return this.campanhasDeMarketing(e);
       case 'equipe_do_dia':
         return this.equipeDoDia(e, en, loja);
       case 'historia_do_pedido':
@@ -3703,6 +3706,58 @@ export class MisterFerramentasService {
         ...(pedidos.length > LIMITE ? { maisDe: LIMITE, observacao: `Há mais de ${LIMITE} encomendas no período: peça menos dias.` } : {}),
         dias,
         comoLer: 'Cada dia traz o que produzir (a soma dos itens das encomendas) e a lista na ordem da hora. "atacado" são as ordens de produção das vendas de atacado. O nome do cliente não vem.',
+      },
+    };
+  }
+
+  /** O serviço de Delivery › Marketing, achado na hora. Os testes usam `campanhaDeTeste`. */
+  campanhaDeTeste: { listar: (t: string) => Promise<any[]>; metricas: (t: string, id: string) => Promise<any> } | null = null;
+  private async servicoDaCampanha(): Promise<{ listar: (t: string) => Promise<any[]>; metricas: (t: string, id: string) => Promise<any> } | null> {
+    if (this.campanhaDeTeste) return this.campanhaDeTeste;
+    if (!this.moduleRef) return null;
+    try {
+      const { CampanhaService } = await import('../campanha/campanha.service');
+      return this.moduleRef.get(CampanhaService, { strict: false }) as any;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Etapa 8 de 24/11 (o dono): as campanhas de Delivery › Marketing — a situação de cada uma e, nas 5 mais novas, os números da
+   * tela (enviadas, falhas, cliques, pedidos em 7 dias e, com "Ver valores", o quanto venderam). A rota é do gerente e do presidente.
+   */
+  private async campanhasDeMarketing(e: EscopoDoMister): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'delivery') || (e.nivel !== 'presidente' && e.nivel !== 'gerente')) return recusa(SEM_PERMISSAO);
+    const servico = await this.servicoDaCampanha();
+    if (!servico) return { ok: false, dados: { erro: 'As campanhas não estão disponíveis agora.' } };
+    const lista = ((await servico.listar(e.tenantId)) as LinhaDaCampanha[]).slice(0, 8);
+    const numeros = await Promise.all(lista.slice(0, 5).map((c) => servico.metricas(e.tenantId, c.id).catch(() => null)));
+    const SITUACAO: Record<string, string> = { ativa: 'mandando agora', enviando: 'mandando agora', aguardando: 'esperando a janela de horário', pausada: 'pausada', concluida: 'concluída' };
+    return {
+      ok: true,
+      dados: {
+        lidoAs: horaAgora(),
+        ...(e.verValores ? {} : { aviso: SEM_VALORES }),
+        campanhas: lista.map((c, i) => {
+          const m = numeros[i];
+          return {
+            campanha: nomeDaCampanha(c, dataHoraCurta(c.criado_em) ?? ''),
+            situacao: SITUACAO[String(c.estado ?? c.status)] ?? String(c.estado ?? c.status),
+            publico: Number(c.total ?? 0),
+            enviadas: Number(c.enviados ?? 0),
+            ...(m
+              ? {
+                  falhas: Number(m.falhas ?? 0),
+                  cliques: Number(m.cliques ?? 0),
+                  pedidosEm7Dias: Number(m.pedidos ?? 0),
+                  ...(e.verValores ? { vendasEm7Dias: reais(m.valor) } : {}),
+                  ...(m.cupomCodigo ? { cupomUsado: Number(m.cupomResgates ?? 0) } : {}),
+                }
+              : {}),
+          };
+        }),
+        comoLer: 'As 5 mais novas trazem os números de Delivery › Marketing ("pedidosEm7Dias": quem recebeu e pediu até 7 dias depois). Pausar, retomar e repetir saem pela conversa; mensagem nova, só na tela.',
       },
     };
   }

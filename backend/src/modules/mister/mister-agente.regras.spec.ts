@@ -259,6 +259,7 @@ describe('Mister — o que o modelo recebe', () => {
       'acerto_dos_entregadores',
       'agenda_de_encomendas',
       'avaliacoes_dos_clientes',
+      'campanhas_de_marketing',
       'equipe_do_dia',
       'historia_do_pedido',
       'tempos_dos_pedidos',

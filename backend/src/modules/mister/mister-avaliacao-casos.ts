@@ -904,6 +904,16 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         sangriasESuprimentos: [{ tipo: 'sangria', valor: v(480.35), hora: '19:30', por: 'Bruna', motivo: 'dinheiro demais no caixa' }],
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
       });
+    case 'campanhas_de_marketing':
+      return ok({
+        lidoAs: '19:10',
+        ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
+        campanhas: [
+          { campanha: 'a campanha frete grátis de 23/11 18:00 ("Hoje o frete é grátis acima de R$ 40…")', situacao: 'concluída', publico: 412, enviadas: 405, falhas: 7, cliques: 61, pedidosEm7Dias: 38, ...(perfil.verValores ? { vendasEm7Dias: v(2134.6) } : {}) },
+          { campanha: 'a campanha avulsa de 20/11 11:00 ("Chegou o smash de costela…")', situacao: 'concluída', publico: 380, enviadas: 377, falhas: 3, cliques: 44, pedidosEm7Dias: 21, ...(perfil.verValores ? { vendasEm7Dias: v(1180.15) } : {}) },
+        ],
+        comoLer: 'As 5 mais novas trazem os números de Delivery › Marketing ("pedidosEm7Dias": quem recebeu e pediu até 7 dias depois). Pausar, retomar e repetir saem pela conversa; mensagem nova, só na tela.',
+      });
     case 'avaliacoes_dos_clientes':
       return ok({
         loja: LOJA,
@@ -1365,6 +1375,10 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Etapa 7 de 24/11: o cardápio.
   { id: 'c108', pergunta: 'Cria um produto novo: Smash Duplo Bacon, R$ 34,90, na categoria Burgers.', consultas: ['propor_acao'], contem: ['Smash Duplo Bacon', 'Autorizar'] },
   { id: 'c109', pergunta: 'Coloca o X-Bacon em promoção por R$ 25,90 no cardápio.', consultas: ['propor_acao'], contem: ['25,90', 'PIN'] },
+  // Etapa 8 de 24/11: as campanhas.
+  { id: 'c110', pergunta: 'Para a campanha que está mandando agora, a do frete grátis.', consultas: ['propor_acao'], contem: ['frete', 'Autorizar'] },
+  { id: 'c111', pergunta: 'Repete a última campanha de marketing para o mesmo público.', consultas: ['propor_acao'], contem: ['PIN'] },
+  { id: 'c112', pergunta: 'Como foi a campanha do frete grátis de ontem? Deu pedido?', consultas: ['campanhas_de_marketing'], numeros: ['38'], contem: ['frete'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

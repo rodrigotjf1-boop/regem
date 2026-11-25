@@ -53,6 +53,9 @@ describe('Mister · ações — o catálogo e os canais', () => {
       'criar_categoria',
       'criar_produto',
       'promocao_do_produto',
+      // Etapa 8 de 24/11: as campanhas.
+      'pausar_campanha',
+      'repetir_campanha',
     ]);
     expect(ACOES.criar_tarefa).toMatchObject({ nivel: 'botao', permissao: 'checklist' });
     for (const a of ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] as const)

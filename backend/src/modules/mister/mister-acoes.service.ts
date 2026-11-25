@@ -66,6 +66,8 @@ import { acharEntregador, recusaDoAcerto, resumoDoPagamento, type LinhaDoAcerto,
 import { marcacoesDoDia, resumoDoPonto, type ParametrosDoPonto } from './mister-acoes-ponto';
 import { NOME_DO_CANAL, resumoDoEnvio, type ParametrosDoEnvio } from './mister-acoes-compra';
 import { conferirPromocao, reaisCardapio, resumoDaPromocao, resumoDoProdutoNovo, type ParametrosDoCardapio } from './mister-acoes-cardapio';
+const dataHoraCurta = (v: unknown): string => { const d = new Date(String(v)); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ''); };
+import { acharCampanhaDaLista, nomeDaCampanha, recusaDaRepeticao, resumoDaRepeticao, textoDoCusto, type LinhaDaCampanha, type ParametrosDaCampanha } from './mister-acoes-campanha';
 import { agendadosParaDepois, pendenciasDoTurno } from '../delivery/pendencias-turno';
 import { ModuleRef } from '@nestjs/core';
 import type { ParametrosDeCadastro } from './mister-acoes-cadastro';
@@ -433,6 +435,14 @@ export class MisterAcoesService implements OnModuleInit {
         Object.assign(parametros, { entregadorId: l.colaboradorId, nomeDoEntregador: l.nome, entregas: l.entregas, diaria: l.diaria, taxas: l.taxas, total: l.total, periodo: l.periodo });
         resumo = resumoDoPagamento(l);
         alvo = `entregador:${l.colaboradorId}`;
+      }
+      if (c.parametros.acao === 'pausar_campanha' || c.parametros.acao === 'repetir_campanha') {
+        // Etapa 8 (24/11): a campanha de Delivery › Marketing (da empresa).
+        const r = await this.prepararCampanha(e, c.parametros as ParametrosDaCampanha);
+        if ('erro' in r) return recusa(r.erro);
+        Object.assign(parametros, r.parametros);
+        resumo = r.resumo;
+        alvo = r.alvo;
       }
       if (c.parametros.acao === 'criar_categoria' || c.parametros.acao === 'criar_produto' || c.parametros.acao === 'promocao_do_produto') {
         // Etapa 7 (24/11): o cardápio pelo serviço de Cadastros › Cardápio.
@@ -1135,6 +1145,130 @@ export class MisterAcoesService implements OnModuleInit {
       return x.precoPromocional === null
         ? { feita: true, texto: `Tirei a promoção de "${x.nomeDoProduto}": o preço voltou ao normal no cardápio digital.` }
         : { feita: true, texto: `Pus "${x.nomeDoProduto}" em promoção por ${reaisCardapio(x.precoPromocional)} no cardápio digital. Fica até alguém tirar.` };
+    } catch (err: any) {
+      return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(motivo(err)) };
+    }
+  }
+
+  /** Os serviços de Delivery › Marketing e do gasto do WhatsApp, achados na hora. Os testes usam `campanhaDeTeste` e `gastoDeTeste`. */
+  campanhaDeTeste: {
+    listar: (t: string) => Promise<any[]>;
+    previa: (...a: any[]) => Promise<any>;
+    pausar: (t: string, id: string, p: boolean) => Promise<any>;
+    criar: (...a: any[]) => Promise<any>;
+    paraRepetir: (t: string, id: string) => Promise<any>;
+  } | null = null;
+  gastoDeTeste: { estimativa: (u: any, q: any) => Promise<any> } | null = null;
+  private async servicoDaCampanha() {
+    if (this.campanhaDeTeste) return this.campanhaDeTeste;
+    if (!this.moduleRef) return null;
+    try {
+      const { CampanhaService } = await import('../campanha/campanha.service');
+      return this.moduleRef.get(CampanhaService, { strict: false }) as any;
+    } catch {
+      return null;
+    }
+  }
+  private async servicoDoGasto() {
+    if (this.gastoDeTeste) return this.gastoDeTeste;
+    if (!this.moduleRef) return null;
+    try {
+      const { WhatsappGastoService } = await import('../whatsapp/whatsapp-gasto.service');
+      return this.moduleRef.get(WhatsappGastoService, { strict: false }) as any;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Etapa 8 (24/11): a campanha pelo que a pessoa disse; para repetir, o público de agora e o custo antes. */
+  private async prepararCampanha(
+    e: EscopoDoMister,
+    x: ParametrosDaCampanha,
+  ): Promise<{ parametros: Record<string, unknown>; resumo: string; alvo: string } | { erro: string }> {
+    const servico = await this.servicoDaCampanha();
+    if (!servico) return { erro: TEXTOS_DAS_ACOES.campanhaIndisponivel };
+    const lista = ((await servico.listar(e.tenantId)) as LinhaDaCampanha[]).slice(0, 30);
+    const quando = (c: LinhaDaCampanha) => dataHoraCurta(c.criado_em);
+    const achado = acharCampanhaDaLista(lista, x.campanha, quando);
+    if ('erro' in achado) return achado;
+    const c = achado.linha;
+    const nome = nomeDaCampanha(c, quando(c));
+    if (x.acao === 'pausar_campanha') {
+      if (!x.retomar && c.status !== 'enviando') return { erro: `${nome[0].toUpperCase()}${nome.slice(1)} não está mandando agora.` };
+      if (x.retomar && c.status !== 'pausada') return { erro: `${nome[0].toUpperCase()}${nome.slice(1)} não está pausada.` };
+      return {
+        parametros: { campanhaId: c.id, nomeDaCampanha: nome },
+        resumo: x.retomar
+          ? `Retomar ${nome}: ela volta a mandar na janela dela (${Number(c.enviados ?? 0)} de ${Number(c.total ?? 0)} já foram).`
+          : `Pausar ${nome}: ninguém mais recebe até retomar (${Number(c.enviados ?? 0)} de ${Number(c.total ?? 0)} já foram; quem recebeu, recebeu).`,
+        alvo: `campanha:${c.id}:${x.retomar ? 'retomar' : 'pausar'}`,
+      };
+    }
+    // A campanha guardada pelo serviço (a tabela é só da nuvem: o Mister não a lê direto — ERR-606).
+    const linha: any = await servico.paraRepetir(e.tenantId, c.id);
+    if (!linha) return { erro: TEXTOS_DAS_ACOES.campanhaMudou };
+    const nao = recusaDaRepeticao({ ...c, ...linha, cupom_codigo: linha.cupom_codigo ?? null, template_nome: linha.template_nome ?? null });
+    if (nao) return { erro: nao };
+    const publico: any = await servico.previa(e.tenantId, c.segmento, undefined, null);
+    const total = Number(publico?.total ?? 0);
+    if (!total) return { erro: 'Ninguém receberia essa campanha agora: o público está vazio ou recebeu oferta há pouco.' };
+    const oficial = !!(linha?.template_nome ?? c.template_nome);
+    let est: any = null;
+    if (oficial) {
+      const gasto = await this.servicoDoGasto();
+      est = gasto ? await gasto.estimativa({ tenantId: e.tenantId, categoria: e.nivel }, { mensagens: total, categoria: 'MARKETING' }).catch(() => null) : null;
+    }
+    const custo = textoDoCusto(oficial && est?.oficial !== false, est?.oficial ? est : null);
+    return {
+      parametros: { campanhaId: c.id, nomeDaCampanha: nome, publico: total, estimativa: est?.oficial ? Number(est.estimativa) : null, textoDoCusto: custo },
+      resumo: resumoDaRepeticao(nome, { total, foraPorOferta: Number(publico?.foraPorOferta ?? 0) }, custo),
+      alvo: `campanha:${c.id}:repetir`,
+    };
+  }
+
+  /** Pausa ou repete pelo MESMO serviço de Delivery › Marketing e confere o que ficou gravado. */
+  private async aplicarCampanha(
+    p: { id: string; tenantId: string; unidadeId: string | null },
+    x: ParametrosDaCampanha & { campanhaId: string; nomeDaCampanha: string; publico?: number },
+    quem: string,
+  ): Promise<{ feita: boolean; texto: string }> {
+    const servico = await this.servicoDaCampanha();
+    if (!servico) return { feita: false, texto: TEXTOS_DAS_ACOES.campanhaIndisponivel };
+    const motivo = (err: any) => String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240);
+    try {
+      if (x.acao === 'pausar_campanha') {
+        await servico.pausar(p.tenantId, x.campanhaId, !x.retomar);
+        const ok = ((await servico.listar(p.tenantId)) as LinhaDaCampanha[]).find((l) => l.id === x.campanhaId);
+        if (ok?.status !== (x.retomar ? 'enviando' : 'pausada')) return { feita: false, texto: 'a campanha não mudou. Confira em Delivery › Marketing.' };
+        return { feita: true, texto: x.retomar ? `Retomei ${x.nomeDaCampanha}.` : `Pausei ${x.nomeDaCampanha}. Para voltar, peça para retomar.` };
+      }
+      // O público de agora não pode ser MAIOR que o da pergunta (o PIN autorizou aquele tamanho).
+      const c: any = await servico.paraRepetir(p.tenantId, x.campanhaId);
+      if (!c || recusaDaRepeticao({ ...c, id: x.campanhaId, status: '', criado_em: '' })) return { feita: false, texto: TEXTOS_DAS_ACOES.campanhaMudou };
+      const agora: any = await servico.previa(p.tenantId, c.segmento, undefined, null);
+      if (Number(agora?.total ?? 0) > Number(x.publico ?? 0)) return { feita: false, texto: TEXTOS_DAS_ACOES.campanhaMudou };
+      const nova: any = await servico.criar(p.tenantId, quem, null, {
+        segmento: c.segmento,
+        tipo: c.tipo,
+        mensagem: c.mensagem ?? undefined,
+        mensagemB: c.mensagem_b ?? null,
+        link: c.link ?? null,
+        imagemRef: c.imagem_ref ?? null,
+        intervaloSeg: c.intervalo_seg ?? undefined,
+        tetoDia: c.teto_dia ?? null,
+        tetoSemana: c.teto_semana ?? null,
+        tetoMes: c.teto_mes ?? null,
+        instanciaTipo: c.instancia_tipo ?? undefined,
+        agendada: false,
+        templateNome: c.template_nome ?? null,
+        templateIdioma: c.template_idioma ?? null,
+        templateVars: c.template_vars ?? null,
+        envioHabitual: false,
+      });
+      // O `criar` grava a campanha e os destinatários numa transação e devolve o id e o total: é o efeito conferido.
+      if (!nova?.id) return { feita: false, texto: 'a campanha nova não apareceu em Delivery › Marketing. Confira lá.' };
+      const total = Number(nova.total ?? 0);
+      return { feita: true, texto: `Repeti ${x.nomeDaCampanha}: ${total === 1 ? '1 cliente vai' : `${total} clientes vão`} receber, a partir de agora. Os números saem em Delivery › Marketing.` };
     } catch (err: any) {
       return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(motivo(err)) };
     }
@@ -1921,6 +2055,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (parametros.acao === 'incluir_marcacao' || parametros.acao === 'desconsiderar_marcacao') return this.aplicarPonto(p, parametros as any, e, quem);
     if (parametros.acao === 'pedido_enviado') return this.aplicarEnvio(p, parametros as any, quem);
     if (parametros.acao === 'criar_categoria' || parametros.acao === 'criar_produto' || parametros.acao === 'promocao_do_produto') return this.aplicarCardapio(p, parametros as any, e, quem);
+    if (parametros.acao === 'pausar_campanha' || parametros.acao === 'repetir_campanha') return this.aplicarCampanha(p, parametros as any, quem);
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };

@@ -4166,6 +4166,8 @@ export function testesDoMisterComPostgres(): void {
         c100: { acao: 'fechar_caixa', caixaDaLoja: 'balcão', semContagem: true },
         c101: { acao: 'sangria', caixaDaLoja: 'balcão', valorDaSangria: 200, motivoDoCaixa: 'pagar o gás' },
         c103: { acao: 'pagar_entregador', entregadorDoAcerto: 'Jefferson' },
+        c110: { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' },
+        c111: { acao: 'repetir_campanha', campanhaDaConversa: 'a última' },
         c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },
         c109: { acao: 'promocao_do_produto', produto: 'X-Bacon', precoPromocional: 25.9 },
         c107: { acao: 'pedido_enviado', pedidoDeCompra: 'Felipão', canalDoEnvio: 'whatsapp' },
@@ -12998,6 +13000,102 @@ export function testesDoMisterComPostgres(): void {
           for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
           await q(`delete from produto where tenant_id = $1 and nome = 'Pudim E7'`, [A]).catch(() => undefined);
           await q(`delete from categoria_produto where tenant_id = $1 and nome = 'Sobremesas E7'`, [A]).catch(() => undefined);
+        }
+      });
+
+      it('etapa 8 de 24/11: as campanhas — ver os números, pausar e retomar pelo botão, repetir a montada na tela com o custo antes e o PIN', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const pinsAntes = await q(`select id, pin_hash from colaborador where id = $1`, [pessoa.ana]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        // As tabelas das campanhas são só da nuvem (o contrato com o serviço de verdade está na `campanha-oferta-recente-pg.spec`):
+        // aqui, um dublê que reproduz a lista, a campanha guardada, a prévia, a pausa e o criar.
+        const guardadas: Record<string, any> = {
+          frete: { segmento: 'todos', tipo: 'frete_gratis', mensagem: 'Hoje o frete é grátis acima de R$ 40', mensagem_b: null, link: null, imagem_ref: null, intervalo_seg: 7, teto_dia: null, teto_semana: null, teto_mes: null, instancia_tipo: 'marketing', template_nome: 'frete_hoje', template_idioma: 'pt_BR', template_vars: null, cupom_codigo: null, clube_premio_id: null, agendada: false, envio_habitual: false },
+          clube: { segmento: 'todos', tipo: 'avulsa', mensagem: 'Raspe o seu prêmio', clube_premio_id: 'p1', agendada: false, envio_habitual: false, cupom_codigo: null, template_nome: null },
+        };
+        const linhasDaLista: any[] = [
+          { id: 'frete', segmento: 'todos', tipo: 'frete_gratis', mensagem: guardadas.frete.mensagem, status: 'enviando', estado: 'ativa', criado_em: '2026-11-23T21:00:00Z', total: 412, enviados: 120, falhas: 2, clube_premio_id: null, envio_habitual: false, agendada: false },
+          { id: 'clube', segmento: 'todos', tipo: 'avulsa', mensagem: 'Raspe o seu prêmio', status: 'concluida', estado: 'concluida', criado_em: '2026-11-20T14:00:00Z', total: 300, enviados: 300, falhas: 0, clube_premio_id: 'p1', envio_habitual: false, agendada: false },
+        ];
+        let publico = 400;
+        const criadas: any[] = [];
+        const campanhas = {
+          listar: async () => linhasDaLista.map((l) => ({ ...l })),
+          metricas: async (_t: string, id: string) => (id === 'frete' ? { total: 412, enviados: 120, falhas: 2, cliques: 30, pedidos: 9, valor: 512.4, cupomCodigo: null, cupomResgates: 0 } : { total: 300, enviados: 300, falhas: 0, cliques: 40, pedidos: 12, valor: 700, cupomCodigo: null }),
+          paraRepetir: async (_t: string, id: string) => guardadas[id] ?? null,
+          previa: async () => ({ total: publico, foraPorOferta: 12 }),
+          pausar: async (_t: string, id: string, pausar: boolean) => {
+            const l = linhasDaLista.find((x) => x.id === id)!;
+            l.status = pausar ? 'pausada' : 'enviando';
+            return { ok: true, status: l.status };
+          },
+          criar: async (...a: any[]) => {
+            criadas.push(a);
+            return { id: randomUUID(), total: publico, cupomCodigo: null };
+          },
+        };
+        (acoes as any).campanhaDeTeste = campanhas;
+        (ferramentas as any).campanhaDeTeste = campanhas;
+        (acoes as any).gastoDeTeste = { estimativa: async (_u: any, q: any) => ({ oficial: true, grupo: 'marketing', mensagens: q.mensagens, preco: 0.3217, fonte: 'tabela', estimativa: Math.round(q.mensagens * 0.3217 * 100) / 100 }) };
+        const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+        const autorizar = async (r: any) => {
+          const id = idDaProposta(r);
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          return esperarFim(id);
+        };
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          // 1) A consulta: a situação e os números da tela.
+          const ver = await ferramentas.executar(e, 'campanhas_de_marketing', {});
+          expect(ver.ok).toBe(true);
+          expect((ver.dados.campanhas as any[])[0]).toMatchObject({ situacao: 'mandando agora', publico: 412, enviadas: 120, falhas: 2, cliques: 30, pedidosEm7Dias: 9, vendasEm7Dias: 512.4 });
+          expect((ver.dados.campanhas as any[])[0].campanha).toMatch(/^a campanha frete grátis de \d{2}\/\d{2} \d{2}:\d{2} \("Hoje o frete é grátis acima de R\$ 40"\)$/);
+          const semValores = await ferramentas.executar({ ...e, nivel: 'gerente', verValores: false, permissoes: { delivery: true } } as any, 'campanhas_de_marketing', {});
+          expect((semValores.dados.campanhas as any[])[0]).not.toHaveProperty('vendasEm7Dias');
+          expect((await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true } } } as any, 'campanhas_de_marketing', {})).ok).toBe(false);
+
+          // 2) Pausar a que está mandando e retomar, pelo botão.
+          const rp = await ferramentas.executar(e, 'propor_acao', { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' });
+          expect(rp.dados.oQueVouFazer).toMatch(/^Pausar a campanha frete grátis de .*: ninguém mais recebe até retomar \(120 de 412 já foram; quem recebeu, recebeu\)\.$/);
+          expect(await autorizar(rp)).toMatchObject({ situacao: 'feita', resultado: expect.stringMatching(/^Pausei a campanha frete grátis de .*\. Para voltar, peça para retomar\.$/) });
+          expect(linhasDaLista[0].status).toBe('pausada');
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' })).dados.erro).toMatch(/não está mandando agora\.$/);
+          const rr = await ferramentas.executar(e, 'propor_acao', { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis', retomarCampanha: true });
+          expect(await autorizar(rr)).toMatchObject({ situacao: 'feita', resultado: expect.stringMatching(/^Retomei a campanha frete grátis/) });
+          expect(linhasDaLista[0].status).toBe('enviando');
+
+          // 3) Repetir: a do Clube só na tela; a do frete com o público e o custo antes, pelo PIN.
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'repetir_campanha', campanhaDaConversa: 'raspe' })).dados.erro).toBe(
+            'Essa campanha dá um prêmio do Clube a todos: repetir só pela tela (Delivery › Marketing).',
+          );
+          const rep = await ferramentas.executar(e, 'propor_acao', { acao: 'repetir_campanha', campanhaDaConversa: 'a última' });
+          expect(rep.dados.oQueVouFazer).toMatch(
+            /^Repetir a campanha frete grátis de .* AGORA, para o mesmo público: 400 clientes \(12 ficam de fora por terem recebido oferta há pouco\)\. Custo estimado: R\$ 128,68 \(R\$ 0,32 por mensagem, pelo preço publicado da Meta\)\. Quem pediu para sair não recebe\.$/,
+          );
+          expect(rep.proposta).toMatchObject({ procedimento: 'repetir_campanha', nivel: 'pin' });
+          const c = codigo(await propostasDasAcoes.enviarLink(rep.proposta!.id, pessoa.ana, tel, rep.proposta!.pergunta));
+          expect(await propostasDasAcoes.verPeloLink(c)).toMatchObject({ titulo: 'Repetir a campanha', valor: 128.68, botao: 'Repetir a campanha' });
+          expect(criadas).toEqual([]);
+          await propostasDasAcoes.autorizarPeloLink(c, '2580');
+          expect(await esperarFim(rep.proposta!.id)).toMatchObject({ situacao: 'feita', resultado: expect.stringMatching(/^Repeti a campanha frete grátis de .*: 400 clientes vão receber, a partir de agora\./) });
+          expect(criadas).toHaveLength(1);
+          expect(criadas[0][0]).toBe(A);
+          expect(criadas[0][1]).toBe(pessoa.ana);
+          expect(criadas[0][3]).toMatchObject({ segmento: 'todos', tipo: 'frete_gratis', mensagem: 'Hoje o frete é grátis acima de R$ 40', templateNome: 'frete_hoje', instanciaTipo: 'marketing', agendada: false, envioHabitual: false });
+          expect(criadas[0][3]).not.toHaveProperty('criarCupom');
+          // O público cresceu entre a pergunta e o PIN: nada sai.
+          const rep2 = await ferramentas.executar(e, 'propor_acao', { acao: 'repetir_campanha', campanhaDaConversa: 'a última' });
+          const c2 = codigo(await propostasDasAcoes.enviarLink(rep2.proposta!.id, pessoa.ana, tel, rep2.proposta!.pergunta));
+          publico = 450;
+          await propostasDasAcoes.autorizarPeloLink(c2, '2580');
+          expect(await esperarFim(rep2.proposta!.id)).toMatchObject({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.campanhaMudou });
+          expect(criadas).toHaveLength(1);
+        } finally {
+          delete (acoes as any).campanhaDeTeste;
+          delete (ferramentas as any).campanhaDeTeste;
+          delete (acoes as any).gastoDeTeste;
+          for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
         }
       });
 

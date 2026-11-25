@@ -55,6 +55,7 @@ import { apresentacaoDoCaixa } from './mister-acoes-caixa';
 import { apresentacaoDoEntregador } from './mister-acoes-entregador';
 import { apresentacaoDoPonto } from './mister-acoes-ponto';
 import { apresentacaoDaPromocao } from './mister-acoes-cardapio';
+import { apresentacaoDaCampanha } from './mister-acoes-campanha';
 import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDaBaixa, apresentacaoDoHorario, apresentacaoDoPreco, ehAcaoDoMister, ehDadoInformado } from './mister-acoes';
 import { PROCEDIMENTO_DO_PLANO, RESULTADO_DO_PLANO_TROCADO, TEXTOS_DO_PLANO } from './mister-plano';
 
@@ -787,6 +788,7 @@ export class MisterPropostasService implements OnModuleInit {
     if (p.procedimento === 'pagar_entregador' && p.parametros?.entregadorId) apresentacao = apresentacaoDoEntregador(p.parametros);
     if ((p.procedimento === 'incluir_marcacao' || p.procedimento === 'desconsiderar_marcacao') && p.parametros?.colaboradorAlvo) apresentacao = apresentacaoDoPonto(p.parametros);
     if (p.procedimento === 'promocao_do_produto' && p.parametros?.produtoId) apresentacao = apresentacaoDaPromocao(p.parametros);
+    if (p.procedimento === 'repetir_campanha' && p.parametros?.campanhaId) apresentacao = apresentacaoDaCampanha(p.parametros);
     return {
       estado: estadoDoLink(p),
       empresa: String(p.empresa ?? ''),
