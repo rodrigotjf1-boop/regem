@@ -4164,6 +4164,7 @@ export function testesDoMisterComPostgres(): void {
         c98: { acao: 'mudar_fornecedor', fornecedor: 'Felipão', contato: 'Marcos' },
         c100: { acao: 'fechar_caixa', caixaDaLoja: 'balcão', semContagem: true },
         c101: { acao: 'sangria', caixaDaLoja: 'balcão', valorDaSangria: 200, motivoDoCaixa: 'pagar o gás' },
+        c103: { acao: 'pagar_entregador', entregadorDoAcerto: 'Jefferson' },
         c51: { periodo: 'este_mes' },
         c52: { periodo: 'este_mes', pessoa: 'Bruna' },
         c55: { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'kg' },
@@ -12513,6 +12514,120 @@ export function testesDoMisterComPostgres(): void {
         }
       });
 
+      it('etapa 2 de 24/11: o acerto dos entregadores — a consulta e o pagamento com o PIN, pelo serviço da tela, só com o acerto da pergunta', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const pinsAntes = await q(`select id, pin_hash from colaborador where id = $1`, [pessoa.ana]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        // As tabelas do acerto são só da nuvem e a cadeia delas é aplicada pela `pagar-entregador-pg.spec` (V6, ERR-451): aqui, um
+        // dublê que reproduz o serviço — o cálculo por entregador, o caixa de entregas, "pago neste turno" e o pagamento que zera
+        // o acerto. O contrato com o serviço de verdade é provado lá ("o Mister lê o acerto…").
+        const hojeISOAqui = hojeISO();
+        const acerto: Record<string, { nome: string; modelo: string; entregas: number; diaria: number; taxa: number; pago: number }> = {
+          jeff: { nome: 'Jefferson E2', modelo: 'diaria_taxas', entregas: 2, diaria: 6000, taxa: 1250, pago: 0 },
+          rafa: { nome: 'Rafa E2', modelo: 'so_taxas', entregas: 1, diaria: 0, taxa: 600, pago: 0 },
+        };
+        let turnoAberto = false;
+        const pagos: any[][] = [];
+        const linhaDe = (id: string) => {
+          const a = acerto[id];
+          const total = a.entregas > 0 ? a.diaria + a.taxa : 0;
+          return {
+            colaboradorId: id, nome: a.nome, modelo: a.modelo, periodicidade: 'dia', periodo: { inicio: hojeISOAqui, fim: hojeISOAqui },
+            entregas: a.entregas, diaria: a.entregas > 0 ? a.diaria : 0, taxas: a.entregas > 0 ? a.taxa : 0, total,
+            turnoAberto, pagoNoTurno: a.pago > 0, pagoCentavos: a.pago,
+          };
+        };
+        const entregadores = {
+          fechamentoEntregadores: async (t: string) => (t === A ? Object.keys(acerto).map(linhaDe) : []),
+          pagarEntregador: async (t: string, ator: string | null, id: string) => {
+            pagos.push([t, ator, id]);
+            const l = linhaDe(id);
+            if (!turnoAberto) throw new Error('Abra o caixa de entregas para registrar o pagamento (sangria).');
+            if (l.total <= 0) throw new Error('Nada a pagar para este entregador no período.');
+            acerto[id] = { ...acerto[id], pago: acerto[id].pago + l.total, entregas: 0 };
+            return { ok: true, fechamentoId: randomUUID(), entregas: l.entregas, diaria: l.diaria, taxas: l.taxas, total: l.total };
+          },
+        };
+        (acoes as any).entregadorDeTeste = entregadores;
+        (ferramentas as any).entregadorDeTeste = entregadores;
+        const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+        const pin = async (r: any) => {
+          const c = codigo(await propostasDasAcoes.enviarLink(r.proposta!.id, pessoa.ana, tel, r.proposta!.pergunta));
+          return { c, vista: await propostasDasAcoes.verPeloLink(c) };
+        };
+        const hojeDM = `${hojeISOAqui.slice(8, 10)}/${hojeISOAqui.slice(5, 7)}`;
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+
+          // 1) A consulta, com o caixa de entregas fechado.
+          const ver = await ferramentas.executar(e, 'acerto_dos_entregadores', {});
+          expect(ver.ok).toBe(true);
+          expect(ver.dados.caixaDeEntregas).toBe('fechado');
+          expect(ver.dados.totalAPagar).toBe(78.5);
+          expect((ver.dados.entregadores as any[]).find((x) => x.entregador === 'Jefferson E2')).toEqual({
+            entregador: 'Jefferson E2', modelo: 'diária + taxas', periodo: `de ${hojeDM}`, entregasSemAcerto: 2, situacao: 'a pagar', aPagar: 72.5, diaria: 60, taxas: 12.5,
+          });
+          const semValores = await ferramentas.executar({ ...e, nivel: 'gerente', verValores: false, permissoes: { delivery: true } } as any, 'acerto_dos_entregadores', {});
+          expect((semValores.dados.entregadores as any[]).find((x) => x.entregador === 'Jefferson E2')).not.toHaveProperty('aPagar');
+          expect(semValores.dados).not.toHaveProperty('totalAPagar');
+          expect((await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true } } } as any, 'acerto_dos_entregadores', {})).ok).toBe(false);
+          // Pagar com o caixa de entregas fechado: a trava da tela, sem chamar o pagamento.
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'jefferson e2' })).toEqual({
+            ok: false,
+            dados: { erro: 'O caixa de entregas está fechado: abra o turno para pagar (o pagamento sai como sangria dele).' },
+          });
+          // Nome que não existe e nome que serve a dois: a pergunta com os nomes.
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'Zé' })).dados.erro).toBe('Não achei o entregador "Zé". Os cadastrados: Jefferson E2, Rafa E2.');
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'E2' })).dados.erro).toBe('Há mais de um entregador com "E2": Jefferson E2, Rafa E2. Diga o nome inteiro.');
+
+          // 2) Com o caixa aberto: o valor do cálculo, a página do PIN, o pagamento pelo serviço, só no PIN.
+          turnoAberto = true;
+          const r = await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'jefferson e2' });
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toBe(
+            `Pagar R$ 72,50 a Jefferson E2 (diária + taxas: 2 entregas de ${hojeDM}; diária R$ 60,00 + taxas R$ 12,50). Sai como sangria do caixa de entregas, e essas entregas ficam acertadas.`,
+          );
+          expect(r.proposta).toMatchObject({ procedimento: 'pagar_entregador', nivel: 'pin' });
+          const { c, vista } = await pin(r);
+          expect(vista).toMatchObject({ titulo: 'Pagar o entregador', valor: 72.5, botao: 'Pagar' });
+          expect(vista.itens).toEqual(['Entregador: Jefferson E2', `2 entregas de ${hojeDM}`, 'Diária: R$ 60,00', 'Taxas: R$ 12,50']);
+          expect(pagos).toEqual([]);
+          await propostasDasAcoes.autorizarPeloLink(c, '2580');
+          expect(await esperarFim(r.proposta!.id)).toMatchObject({
+            situacao: 'feita',
+            resultado: 'Paguei R$ 72,50 a Jefferson E2 (2 entregas). A sangria está no caixa de entregas e essas entregas ficaram acertadas.',
+          });
+          expect(pagos).toEqual([[A, pessoa.ana, 'jeff']]);
+          // Já pago neste turno: a trava da tela.
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'Jefferson E2' })).dados.erro).toBe(
+            'Jefferson E2 já foi pago neste turno do caixa de entregas (R$ 72,50). Um novo pagamento só no próximo turno.',
+          );
+
+          // 3) O acerto mudou entre a pergunta e o PIN (mais uma entrega do Rafa): nada é pago.
+          const r2 = await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'Rafa E2' });
+          expect(r2.dados.oQueVouFazer).toContain('Pagar R$ 6,00 a Rafa E2 (só taxas: 1 entrega');
+          const p2 = await pin(r2);
+          acerto.rafa = { ...acerto.rafa, entregas: 2, taxa: 1000 };
+          await propostasDasAcoes.autorizarPeloLink(p2.c, '2580');
+          expect(await esperarFim(r2.proposta!.id)).toMatchObject({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.entregadorMudou });
+          expect(pagos).toHaveLength(1);
+          // O serviço que recusa no meio: a recusa dita, nada dado como pago.
+          const r3 = await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'Rafa E2' });
+          const p3 = await pin(r3);
+          entregadores.pagarEntregador = async () => {
+            throw new Error('Os pedidos deste entregador mudaram durante o pagamento. Tente de novo.');
+          };
+          await propostasDasAcoes.autorizarPeloLink(p3.c, '2580');
+          expect(await esperarFim(r3.proposta!.id)).toMatchObject({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.recusado('Os pedidos deste entregador mudaram durante o pagamento. Tente de novo.') });
+          // Sem "Ver valores", o gerente não paga.
+          expect((await ferramentas.executar({ ...e, nivel: 'gerente', verValores: false, permissoes: { delivery: true, ver_financeiro: false } } as any, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'Rafa E2' })).ok).toBe(false);
+        } finally {
+          delete (acoes as any).entregadorDeTeste;
+          delete (ferramentas as any).entregadorDeTeste;
+          for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
+        }
+      });
       it('pausar e reabrir o cardápio, aceitar, despachar e marcar pronto — só no "Autorizar" de quem pediu, pelo serviço da tela, com o efeito conferido', async () => {
         const tel = telefone();
         const telCarlos = telefone();

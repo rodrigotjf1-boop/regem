@@ -17,6 +17,7 @@ import { conferirAcaoDaLoja, type ParametrosDaLoja } from './mister-acoes-loja';
 import { conferirClassificacao, type ParametrosDaClassificacao } from './mister-acoes-banco';
 import { conferirContagem, type ParametrosDaContagem } from './mister-acoes-contagem';
 import { conferirCaixa, type ParametrosDoCaixa } from './mister-acoes-caixa';
+import { conferirEntregador, type ParametrosDoEntregador } from './mister-acoes-entregador';
 import { NOMES_DOS_DIAS, ehHoraDoDia, horasDaJanela, lerDiaDaSemana, textoDaJanela, type JanelaDoDia } from '../../common/horarios-da-loja';
 
 // AS AÇÕES DO MISTER — a porta `propor_acao` (versão 6, M6j; plano aprovado em 20/11/2026, `docs/plano-mister.md` § "Versão
@@ -73,6 +74,8 @@ export const ACOES_DO_MISTER = [
   // Etapa 1 de 24/11 (o dono): o caixa à distância, com o PIN.
   'fechar_caixa',
   'sangria',
+  // Etapa 2 de 24/11: o acerto dos entregadores, com o PIN.
+  'pagar_entregador',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -148,6 +151,8 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   // As rotas do caixa (`OperadorDeCaixa`) pedem o PDV; mexer no turno de outra pessoa é do gerente ou do presidente. Dinheiro: PIN.
   fechar_caixa: { id: 'fechar_caixa', nivel: 'pin', permissao: 'pdv', prazoMin: 15, nome: 'fechar um caixa' },
   sangria: { id: 'sangria', nivel: 'pin', permissao: 'pdv', prazoMin: 15, nome: 'lançar uma sangria', pedeVerValores: true },
+  // A rota do pagamento (Delivery › Entregadores) pede o Delivery; é dinheiro saindo do caixa de entregas: PIN e "Ver valores".
+  pagar_entregador: { id: 'pagar_entregador', nivel: 'pin', permissao: 'delivery', prazoMin: 15, nome: 'pagar um entregador', pedeVerValores: true },
   contar_estoque: { id: 'contar_estoque', nivel: 'botao', permissao: 'estoque', crud: 'editar', prazoMin: 10, nome: 'lançar uma contagem do estoque' },
   classificar_banco: { id: 'classificar_banco', nivel: 'pin', permissao: 'financeiro', prazoMin: 15, nome: 'classificar um lançamento do banco', pedeVerValores: true },
   excluir_pedido_compra: { id: 'excluir_pedido_compra', nivel: 'botao', permissao: 'estoque', crud: 'excluir', prazoMin: 10, nome: 'excluir um pedido de compra' },
@@ -488,7 +493,8 @@ export type ParametrosDaAcao =
   | ParametrosDaLoja
   | ParametrosDaClassificacao
   | ParametrosDaContagem
-  | ParametrosDoCaixa;
+  | ParametrosDoCaixa
+  | ParametrosDoEntregador;
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -503,6 +509,7 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
   if (acao === 'classificar_banco') return conferirClassificacao(en, dataNoFuso(agora));
   if (acao === 'contar_estoque') return conferirContagem(en);
   if (acao === 'fechar_caixa' || acao === 'sangria') return conferirCaixa(acao, en);
+  if (acao === 'pagar_entregador') return conferirEntregador(en);
   if (acao === 'pausar_canal' || acao === 'reabrir_canal') {
     const brutos = Array.isArray(en.canais) ? en.canais : en.canal !== undefined ? [en.canal] : [];
     const canais = [...new Set(brutos.map(lerCanal))];
@@ -736,6 +743,8 @@ export const TEXTOS_DAS_ACOES = {
   semCaixaAberto: (qual: string) => `Não há caixa ${qual} aberto agora nas lojas desta conversa.`,
   caixasDemais: (lista: string) => `Há mais de um caixa do balcão aberto: ${lista}. Diga de quem é (o nome de quem abriu) ou o nome do terminal.`,
   caixaMudou: 'O caixa mudou desde a pergunta (foi fechado pela tela ou por outra conversa). Nada foi feito.',
+  entregadorIndisponivel: 'O acerto dos entregadores não está disponível agora. Nada foi feito.',
+  entregadorMudou: 'O acerto do entregador mudou desde a pergunta (entrega nova, pagamento pela tela ou o caixa de entregas). Nada foi feito: peça de novo para ver o valor certo.',
   caixaSoNaTela: 'Há mais de um caixa aberto sem terminal e o Regem não tem como escolher este pela conversa. Nada foi feito: feche pelo PDV.',
   pendenciasSemMotivo: (n: number) =>
     `${n === 1 ? 'Há 1 entrega pendente' : `Há ${n} entregas pendentes`} no turno do delivery. Para fechar mesmo assim, diga o motivo (pelo menos 10 letras): ele vai para a auditoria.`,

@@ -904,6 +904,18 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         sangriasESuprimentos: [{ tipo: 'sangria', valor: v(480.35), hora: '19:30', por: 'Bruna', motivo: 'dinheiro demais no caixa' }],
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
       });
+    case 'acerto_dos_entregadores':
+      return ok({
+        lidoAs: '23:40',
+        caixaDeEntregas: 'aberto',
+        ...(perfil.verValores ? { totalAPagar: v(268.75) } : { aviso: SEM_VALORES }),
+        entregadores: [
+          { entregador: 'Jefferson', modelo: 'diária + taxas', periodo: `de ${ROTULO.hoje}`, entregasSemAcerto: 14, situacao: 'a pagar', ...(perfil.verValores ? { aPagar: v(152.55), diaria: v(60), taxas: v(92.55) } : {}) },
+          { entregador: 'Marcos Paulo', modelo: 'só taxas', periodo: `de ${ROTULO.hoje}`, entregasSemAcerto: 11, situacao: 'a pagar', ...(perfil.verValores ? { aPagar: v(116.2), diaria: v(0), taxas: v(116.2) } : {}) },
+          { entregador: 'Rafa', modelo: 'diária + taxas', periodo: `de ${ROTULO.hoje}`, entregasSemAcerto: 0, situacao: 'pago neste turno', ...(perfil.verValores ? { aPagar: v(0), diaria: v(0), taxas: v(0), pagoNesteTurno: v(98.4) } : {}) },
+        ],
+        comoLer: 'Pagar sai como sangria do caixa de entregas (aberto). Quem já foi pago neste turno só recebe de novo no próximo turno.',
+      });
     case 'mesas_e_comandas':
       return ok({
         loja: LOJA,
@@ -1290,6 +1302,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c99', pergunta: 'Quantas mesas estão abertas agora e quanto tem em aberto no salão? Tem alguma parada?', consultas: ['mesas_e_comandas'], numeros: ['418,35'], contem: ['Mesa 4'] },
   { id: 'c100', pergunta: 'Fecha o caixa do balcão que ficou aberto desde ontem, sem contagem.', consultas: ['propor_acao'], contem: ['PIN'] },
   { id: 'c101', pergunta: 'Lança uma sangria de R$ 200 no caixa do balcão, para pagar o gás.', consultas: ['propor_acao'], contem: ['200', 'PIN'] },
+  // Etapa 2 de 24/11: o acerto dos entregadores.
+  { id: 'c102', pergunta: 'Quanto tenho que pagar aos entregadores hoje? O Rafa já recebeu?', consultas: ['acerto_dos_entregadores'], numeros: ['268,75'], contem: ['Rafa'] },
+  { id: 'c103', pergunta: 'Paga o acerto do Jefferson.', consultas: ['propor_acao'], contem: ['PIN'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

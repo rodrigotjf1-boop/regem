@@ -1,5 +1,7 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
+import { MODELO_DO_ENTREGADOR, periodoDoAcerto, type LinhaDoAcerto } from './mister-acoes-entregador';
+import { ModuleRef } from '@nestjs/core';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { Permissoes, perfilPadrao, podeAcessar } from '../../auth/permissoes';
 import { FUSO_OPERACAO, hojeISO, horaAgora, horaNoFuso, somarDias } from '../../common/data';
@@ -434,6 +436,8 @@ export class MisterFerramentasService {
     @Optional() private readonly vigia?: MisterVigiaService,
     // Versão 6, M6j lote 6: os números dos clientes. Sem ele, "não li".
     @Optional() private readonly perfisDeClientes?: PerfilClienteService,
+    // Etapa 2 de 24/11: o acerto dos entregadores (o módulo deles não exporta o serviço).
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -614,6 +618,8 @@ export class MisterFerramentasService {
         return this.caixasESangrias(e, en, loja);
       case 'mesas_e_comandas':
         return this.mesasEComandas(e, loja);
+      case 'acerto_dos_entregadores':
+        return this.acertoDosEntregadores(e);
       case 'equipe_do_dia':
         return this.equipeDoDia(e, en, loja);
       case 'historia_do_pedido':
@@ -3604,6 +3610,49 @@ export class MisterFerramentasService {
             quantosSuprimentos: inteiro(m.qtdSuprimentos),
           })),
         },
+      },
+    };
+  }
+
+  /** O serviço dos entregadores, achado na hora. Os testes usam `entregadorDeTeste`. */
+  entregadorDeTeste: { fechamentoEntregadores: (t: string) => Promise<any[]> } | null = null;
+  private async servicoDoEntregador(): Promise<{ fechamentoEntregadores: (t: string) => Promise<any[]> } | null> {
+    if (this.entregadorDeTeste) return this.entregadorDeTeste;
+    if (!this.moduleRef) return null;
+    try {
+      const { EntregadorService } = await import('../entregador/entregador.service');
+      return this.moduleRef.get(EntregadorService, { strict: false }) as any;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Etapa 2 de 24/11 (o dono): o acerto de cada entregador — o MESMO cálculo de Delivery › Entregadores › Pagamento (o período
+   * de cada um, as entregas concluídas sem acerto, a diária e as taxas) e se já foi pago neste turno do caixa de entregas.
+   */
+  private async acertoDosEntregadores(e: EscopoDoMister): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'delivery')) return recusa(SEM_PERMISSAO);
+    const servico = await this.servicoDoEntregador();
+    if (!servico) return { ok: false, dados: { erro: 'O acerto dos entregadores não está disponível agora.' } };
+    const ls = (await servico.fechamentoEntregadores(e.tenantId)) as LinhaDoAcerto[];
+    const r = (centavos: number) => reais(Number(centavos) / 100);
+    const aPagar = ls.filter((l) => !l.pagoNoTurno && l.total > 0);
+    return {
+      ok: true,
+      dados: {
+        lidoAs: horaAgora(),
+        caixaDeEntregas: ls[0]?.turnoAberto ? 'aberto' : 'fechado',
+        ...(e.verValores ? { totalAPagar: r(aPagar.reduce((s, l) => s + l.total, 0)) } : { aviso: SEM_VALORES }),
+        entregadores: ls.map((l) => ({
+          entregador: l.nome,
+          modelo: MODELO_DO_ENTREGADOR[l.modelo] ?? l.modelo,
+          periodo: periodoDoAcerto(l),
+          entregasSemAcerto: Number(l.entregas),
+          situacao: l.pagoNoTurno ? 'pago neste turno' : l.total > 0 ? 'a pagar' : 'nada a pagar',
+          ...(e.verValores ? { aPagar: r(l.total), diaria: r(l.diaria), taxas: r(l.taxas), ...(l.pagoNoTurno ? { pagoNesteTurno: r(l.pagoCentavos) } : {}) } : {}),
+        })),
+        comoLer: 'Pagar sai como sangria do caixa de entregas (aberto). Quem já foi pago neste turno só recebe de novo no próximo turno.',
       },
     };
   }
