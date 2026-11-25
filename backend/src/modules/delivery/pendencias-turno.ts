@@ -15,6 +15,8 @@ export const STATUS_PENDENTE = ['novo', 'confirmado', 'pronto', 'despachado', 'e
 export const HORAS_PENDENCIA_ANTIGA = 24;
 /** Quantos pedidos a tela recebe (a contagem é sempre a real). */
 const LIMITE_LISTA = 100;
+/** Para a trava do fechamento: todos os agendados, sem o corte da tela (C-03 da revisão de 25/11/2026). */
+export const TODOS_OS_AGENDADOS = Number.MAX_SAFE_INTEGER;
 export const MOTIVO_BAIXA_NAO_ACEITO = 'Baixa administrativa: pedido antigo que não foi aceito';
 
 export type EscopoTurno = 'delivery' | 'pdv';
@@ -71,7 +73,14 @@ export interface AgendadoParaDepois {
  * não cancela pedido pago sozinho e ninguém descobre o agendado só quando o cliente reclama — ao fechar o turno do
  * delivery, a pessoa responde por cada um (manter, mudar o horário ou cancelar).
  */
-export async function agendadosParaDepois(db: DrizzleDB, tenantId: string, unidadeId: string | null, agora = new Date()): Promise<AgendadoParaDepois[]> {
+export async function agendadosParaDepois(
+  db: DrizzleDB,
+  tenantId: string,
+  unidadeId: string | null,
+  agora = new Date(),
+  /** A tela recebe os primeiros 100; a trava do fechamento confere TODOS (C-03 da revisão de 25/11/2026). */
+  limite = LIMITE_LISTA,
+): Promise<AgendadoParaDepois[]> {
   const linhas = await db
     .select({
       id: pedidoExterno.id,
@@ -94,7 +103,7 @@ export async function agendadosParaDepois(db: DrizzleDB, tenantId: string, unida
       ),
     )
     .orderBy(asc(pedidoExterno.agendamento), asc(pedidoExterno.id))
-    .limit(LIMITE_LISTA);
+    .limit(limite);
   return linhas.map((p) => ({
     id: p.id,
     numero: p.displayId ?? (p.numero != null ? String(p.numero) : null),

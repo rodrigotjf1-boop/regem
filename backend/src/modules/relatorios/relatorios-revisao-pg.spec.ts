@@ -8,6 +8,7 @@ import { FinanceiroService } from '../financeiro/financeiro.service';
 import { FiscalService } from '../fiscal/fiscal.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { VendasService } from '../vendas/vendas.service';
+import { TaxasService } from '../conferencia/taxas.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { hojeISO } from '../../common/data';
 
@@ -17,7 +18,9 @@ import { hojeISO } from '../../common/data';
 // a venda do último segundo do dia ficava fora do relatório (G-02); a venda dividida caía inteira em "Múltiplo" (G-05); a
 // série por mês somava outra base que o total oficial (G-01); a DRE contava sangria e suprimento como despesa e receita, e a
 // gorjeta como receita (F-02); a comanda vazia da mesa virava uma venda de R$ 0 (B-04); e a Visão C&O deixava de fora a
-// venda sem loja (G-04).
+// venda sem loja (G-04). Segunda volta (25/11/2026): o relatório de produtos juntava produtos de mesmo nome histórico com
+// o custo de um só (PDV-G-02); as formas de uma venda dividida somavam um centavo a mais (PDV-G-01); o acerto baixado com
+// R$ 0 deixava a receita da DRE negativa (PDV-F-02); e a calculadora de taxas perdia o último segundo do dia (G-02).
 
 const URL_PG = process.env.TEST_PG_URL;
 const descrever = URL_PG ? describe : describe.skip;
@@ -138,5 +141,78 @@ descrever('os números oficiais batem entre as telas (Postgres)', () => {
     const r: any = await diretoria.multiunidade(t);
     expect(r.rede.faturamento).toBe(140);
     expect(r.rede.semLoja).toEqual(expect.objectContaining({ faturamento: 40, vendas: 1 }));
+  });
+
+  // ── Revisão de 25/11/2026 (segunda volta) ─────────────────────────────────────────────────────────────────────────────
+
+  it('PDV-G-02: dois produtos com a mesma descrição histórica ficam em linhas próprias, cada um com o seu custo', async () => {
+    const { t, loja } = await novaEmpresa();
+    const [{ id: pa }] = await q(`insert into produto (tenant_id, nome) values ($1, 'Combo') returning id::text as id`, [t]);
+    const [{ id: pb }] = await q(`insert into produto (tenant_id, nome) values ($1, 'Combo família') returning id::text as id`, [t]);
+    const item = (comanda: string, produto: string | null, descricao: string, preco: number) =>
+      q(`insert into comanda_item (tenant_id, comanda_id, produto_id, descricao, quantidade, preco_unitario) values ($1, $2, $3, $4, 1, $5)`, [t, comanda, produto, descricao, preco]);
+    const c1 = await venda(t, loja, 30, '2026-10-12 12:00:00');
+    await item(c1, pa, 'Combo', 30);
+    const c2 = await venda(t, loja, 40, '2026-10-12 13:00:00');
+    await item(c2, pb, 'Combo', 40); // o "Combo família" vendido quando ainda se chamava "Combo"
+    const c3 = await venda(t, loja, 30, '2026-10-12 14:00:00');
+    await item(c3, pa, 'Combo da casa', 30); // o mesmo produto A, já com o nome novo: continua uma linha só
+    const comCusto = new RelatoriosService(db, { custoEfetivoMapa: async () => ({ [pa]: 5, [pb]: 20 }) } as any);
+    const r: any = await comCusto.produtos(t, '2026-10-12', '2026-10-12', true, null);
+    const linhas = r.itens.map((i: any) => ({ qtd: i.qtd, faturamento: Number(i.faturamento), custo: Number(i.custo) }));
+    expect(linhas).toEqual(
+      expect.arrayContaining([
+        { qtd: 2, faturamento: 60, custo: 10 },
+        { qtd: 1, faturamento: 40, custo: 20 },
+      ]),
+    );
+    expect(linhas).toHaveLength(2);
+    await q(`delete from comanda_item where tenant_id = $1`, [t]);
+    await q(`delete from produto where tenant_id = $1`, [t]);
+  });
+
+  it('PDV-G-01: as formas de uma venda dividida somam exatamente o faturamento, sem o centavo do arredondamento', async () => {
+    const { t, loja } = await novaEmpresa();
+    // R$ 11,00 com 10% de serviço = R$ 10,00 de faturamento, pagos em três partes: 3,67 + 3,67 + 3,66.
+    const [{ id: c }] = await q(
+      `insert into comanda (tenant_id, unidade_id, status, total, taxa_servico_pct, forma, fechada_em) values ($1, $2, 'fechada', 11, 10, 'multiplo', ('2026-10-14 12:00:00'::timestamp at time zone 'America/Sao_Paulo')) returning id`,
+      [t, loja],
+    );
+    await q(`insert into comanda_pagamento (tenant_id, comanda_id, forma, valor) values ($1, $2, 'dinheiro', 3.67), ($1, $2, 'pix', 3.67), ($1, $2, 'credito', 3.66)`, [t, c]);
+    const r: any = await relatorios.vendas(t, '2026-10-14', '2026-10-14', true, null);
+    const centavos = (v: any) => Math.round(Number(v) * 100);
+    expect(centavos(r.resumo.faturado)).toBe(1000);
+    expect(r.porForma.reduce((s: number, f: any) => s + centavos(f.total), 0)).toBe(1000);
+  });
+
+  it('PDV-F-02: o acerto baixado com R$ 0 não tira a gorjeta das receitas; o recebido pela metade tira metade', async () => {
+    const { t, loja } = await novaEmpresa();
+    const dia = '2026-10-06';
+    const comanda = async () =>
+      (await q(`insert into comanda (tenant_id, unidade_id, status, total, taxa_servico_pct, forma, fechada_em) values ($1, $2, 'fechada', 110, 10, 'dinheiro', now()) returning id`, [t, loja]))[0]
+        .id as string;
+    const semNada = await comanda();
+    const metade = await comanda();
+    await q(
+      `insert into lancamento_caixa (tenant_id, unidade_id, comanda_id, tipo, valor, data, categoria, forma) values
+         ($1, $2, $3, 'entrada', 0, $5, 'venda', 'dinheiro'),
+         ($1, $2, $4, 'entrada', 55, $5, 'venda', 'dinheiro')`,
+      [t, loja, semNada, metade, dia],
+    );
+    const financeiro = new FinanceiroService(db, { registrar: async () => undefined } as any, {} as any);
+    const dre: any = await financeiro.dreCaixa(t, dia, dia, null);
+    expect(dre.gorjeta).toBe(5);
+    expect(dre.receitas).toBe(50);
+    expect(dre.receitas).toBeGreaterThanOrEqual(0);
+    await q(`delete from lancamento_caixa where tenant_id = $1`, [t]);
+  });
+
+  it('G-02 (2ª volta): a calculadora de taxas conta a venda das 23:59:59,5 de hoje no faturamento de 12 meses', async () => {
+    const { t, loja } = await novaEmpresa();
+    await venda(t, loja, 30, `${hojeISO()} 23:59:59.5`);
+    await venda(t, loja, 20, `${hojeISO()} 10:00:00`);
+    const taxas: any = new TaxasService(db, { registrar: async () => undefined } as any);
+    const v = await taxas.vendas(t, loja, true);
+    expect(v.rbt12).toBe(50);
   });
 });

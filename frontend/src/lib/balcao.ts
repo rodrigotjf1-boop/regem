@@ -4,12 +4,23 @@
 
 export const centavos = (n: number | string | null | undefined): number => Math.round(Number(n || 0) * 100);
 
-// "50" · "50,5" · "1.250,00" → número. O que não dá para ler (ou é negativo) vira 0.
+// "50" · "50,5" · "1.250,00" · "1.250" → número. O que não dá para ler (ou é negativo) vira 0. A MESMA regra de
+// `lib/valor-digitado.ts` (o `check:valor` compara os dois): ponto de milhar só em grupos de 3, vírgula decimal — antes,
+// "1.250" virava R$ 1,25 e "12.34,56" virava R$ 1.234,56 no dividir conta (PDV-C-04 da revisão de 25/11/2026).
 export function valorDigitado(txt: string | number | null | undefined): number {
-  const s = String(txt ?? '').trim();
+  if (typeof txt === 'number') return Number.isFinite(txt) && txt > 0 ? Math.round(txt * 100) / 100 : 0;
+  const s = String(txt ?? '').replace(/R\$/gi, '').replace(/\s+/g, '');
   if (!s) return 0;
-  const n = parseFloat(s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s);
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+  let normal: string;
+  if (s.includes(',')) {
+    const [inteira, ...resto] = s.split(',');
+    if (resto.length !== 1 || (inteira.includes('.') && !/^-?\d{1,3}(\.\d{3})+$/.test(inteira))) return 0;
+    normal = `${inteira.replace(/\./g, '')}.${resto[0]}`;
+  } else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) normal = s.replace(/\./g, '');
+  else normal = s;
+  if (!/^-?\d+(\.\d+)?$/.test(normal)) return 0;
+  const n = Math.round(Number(normal) * 100) / 100;
+  return n > 0 ? n : 0;
 }
 
 // Partes iguais: o centavo que sobra fica com as primeiras pessoas.

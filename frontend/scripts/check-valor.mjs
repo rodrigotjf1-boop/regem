@@ -54,6 +54,23 @@ try {
     assert.equal(valorDigitadoValido(lerValorDigitado('')), false);
     assert.equal(valorDigitadoValido(lerValorDigitado('x')), false);
   });
+  caso('milhar fora do lugar é recusado (PDV-C-04)', () => {
+    for (const t of ['12.34,56', '1.2.3,45', '1.20,00', '12.3456,7']) assert.ok(Number.isNaN(lerValorDigitado(t)), t);
+    assert.equal(lerValorDigitado('12.345,67'), 12345.67);
+  });
+  const jsB = ts.transpileModule(readFileSync(join(aqui, '..', 'src', 'lib', 'balcao.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  writeFileSync(join(tmp, 'balcao.mjs'), jsB);
+  const { valorDigitado } = await import(pathToFileURL(join(tmp, 'balcao.mjs')).href);
+  caso('o leitor do balcão (lib/balcao.ts › valorDigitado) segue a mesma regra', () => {
+    const casos = ['1.200,00', '1.200', '1.250', '12.50', '50,5', ' R$ 30 ', '12.34,56', '1.2.3,45', '1,200,50', 'abc', '', '-5', '0', '12.500.000'];
+    for (const t of casos) {
+      const v = lerValorDigitado(t);
+      const esperado = v !== null && Number.isFinite(v) && v > 0 ? v : 0; // o do balcão devolve 0 para o que não serve
+      assert.equal(valorDigitado(t), esperado, `balcão × caixa em "${t}"`);
+    }
+  });
   caso('as telas do caixa não usam mais Number(texto.replace(",", "."))', () => {
     for (const arq of ['caixa-panel.tsx', 'acertos-salao.tsx', 'split-pagamento.tsx']) {
       const t = readFileSync(join(aqui, '..', 'src', 'components', 'pdv', arq), 'utf8');

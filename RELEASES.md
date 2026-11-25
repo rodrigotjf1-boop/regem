@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **PDV e números: valor digitado, relatórios, DRE, agendados do turno e o extrato sem duplicar (25/11; ERR-608; SEM migration).**
+  Lote 5 da segunda volta da revisão do PDV: "12.34,56" é recusado no caixa e no balcão (um leitor só); o relatório de produtos
+  separa produtos de mesmo nome histórico, cada um com o seu custo; as formas de uma venda dividida somam o faturamento sem o
+  centavo a mais; o acerto baixado com R$ 0 não deixa a receita da DRE negativa; o fechamento do delivery confere TODOS os
+  agendados (antes, só os 100 da tela); a calculadora de taxas conta o último segundo do dia; e a mesma transação do extrato OFX
+  não entra duas vezes. **Vai no `.zip`** (caixa, relatórios e balcão do servidor da loja; o extrato é só da nuvem).
+
 - **Caixa: a forma de pagamento confere no fechamento e mais seis brechas (25/11; ERR-607; SEM migration).** Segunda volta da
   revisão do PDV: "Dinheiro" (balcão) e "dinheiro" (contado) são a mesma linha no fechamento, na sangria e na reconciliação — 7 de
   9 fechamentos da loja mostravam diferença falsa; a contagem só fecha o turno da tela; o dinheiro da entrega e o estorno externo

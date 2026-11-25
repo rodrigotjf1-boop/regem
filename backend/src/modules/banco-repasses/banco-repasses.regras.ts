@@ -38,14 +38,17 @@ export function situacaoDoTipo(tipo: string | null, fonte: Fonte): Situacao {
 // ── a chave do lançamento ──────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * FITID que não serve para identificar a linha: banco que numera as linhas do próprio arquivo (1, 2, 3…) dá outro FITID
- * para o mesmo lançamento na exportação seguinte, e a mesma linha entraria duas vezes.
+ * O FITID vale como identidade da linha? A decisão é da PRÓPRIA linha, nunca do resto do arquivo (PDV-F-01, revisão de
+ * 25/11/2026): antes, um arquivo de uma linha só com FITID "1" parecia numeração do arquivo e a linha ganhava a chave pelo
+ * conteúdo; a exportação maior, com FITID "1" e "20", dava a chave pelo FITID — e a mesma transação entrava duas vezes.
+ * Não vale: vazio, ou só algarismos com valor abaixo de 10 milhões (a numeração das linhas do arquivo, 1, 2, 3…, com ou sem
+ * zeros à esquerda, e os contadores curtos, que se repetem). Esses vão SEMPRE pela chave do conteúdo; os outros, SEMPRE pela
+ * do FITID. Assim a mesma linha tem a mesma chave em qualquer exportação.
  */
-export function fitidsSaoSequencia(linhas: Pick<LinhaOfx, 'fitid'>[]): boolean {
-  if (!linhas.length) return false;
-  const primeiro = Number(linhas[0].fitid);
-  if (!/^\d{1,7}$/.test(linhas[0].fitid) || primeiro > 1) return false;
-  return linhas.every((l, i) => /^\d{1,7}$/.test(l.fitid) && Number(l.fitid) === primeiro + i);
+export function fitidVale(fitid: string | null | undefined): boolean {
+  const f = String(fitid ?? '').trim();
+  if (!f) return false;
+  return !(/^\d+$/.test(f) && Number(f) < 10_000_000);
 }
 
 export interface LancamentoPreparado {
@@ -71,10 +74,11 @@ const ehInformativa = (l: LinhaOfx) => l.valorCentavos === 0 || ehLinhaDeSaldo(d
 export const diasComLancamento = (extrato: Pick<ExtratoOfx, 'linhas'>): string[] => extrato.linhas.filter((l) => !ehInformativa(l)).map((l) => l.data);
 
 /**
- * Prepara as linhas do arquivo: tira as informativas, mascara a descrição e monta a chave. A chave usa FITID + data + valor.
- * Sem FITID confiável (vazio, repetido no arquivo ou numeração do arquivo), usa data + valor + descrição + a ordem entre as
- * linhas IGUAIS do mesmo dia: dois Pix idênticos no mesmo dia continuam sendo dois, e a ordem não muda quando outra exportação
- * traz mais linhas nesse dia. O sal é da empresa; o texto cru só existe aqui, enquanto a função roda.
+ * Prepara as linhas do arquivo: tira as informativas, mascara a descrição e monta a chave. Com FITID que vale (`fitidVale`),
+ * a chave usa FITID + data + valor (e a ordem entre as linhas com esses três iguais, se o banco repetir o FITID no dia).
+ * Sem FITID que vale, usa data + valor + descrição + a ordem entre as linhas IGUAIS do mesmo dia. Nos dois casos, dois Pix
+ * idênticos no mesmo dia continuam sendo dois, e a ordem não muda quando outra exportação traz mais linhas nesse dia. A
+ * escolha entre as duas chaves só olha a própria linha. O sal é da empresa; o texto cru só existe aqui, enquanto a função roda.
  */
 export function prepararLinhas(sal: string, extrato: Pick<ExtratoOfx, 'linhas'>): LinhasPreparadas {
   const reais: { l: LinhaOfx; cru: string }[] = [];
@@ -84,24 +88,16 @@ export function prepararLinhas(sal: string, extrato: Pick<ExtratoOfx, 'linhas'>)
     else reais.push({ l, cru: descricaoCrua(l.nome, l.memo) });
   }
 
-  // Olha o arquivo INTEIRO: tirar a linha de saldo do meio quebraria a sequência e faria a numeração valer como identidade.
-  const semSequencia = !fitidsSaoSequencia(extrato.linhas);
-  const vezesDoFitid = new Map<string, number>();
-  if (semSequencia) {
-    for (const { l } of reais) {
-      if (!l.fitid) continue;
-      const k = `${l.fitid}|${l.data}|${l.valorCentavos}`;
-      vezesDoFitid.set(k, (vezesDoFitid.get(k) ?? 0) + 1);
-    }
-  }
-
+  const ordemDoFitid = new Map<string, number>();
   const ordemIgual = new Map<string, number>();
   const lancamentos = reais.map(({ l, cru }) => {
-    const k = `${l.fitid}|${l.data}|${l.valorCentavos}`;
-    const confiavel = semSequencia && !!l.fitid && vezesDoFitid.get(k) === 1;
     let chave: string;
-    if (confiavel) {
-      chave = resumoComSal(sal, `f|${k}`);
+    if (fitidVale(l.fitid)) {
+      const k = `${String(l.fitid).trim()}|${l.data}|${l.valorCentavos}`;
+      const ordem = ordemDoFitid.get(k) ?? 0;
+      ordemDoFitid.set(k, ordem + 1);
+      // a primeira fica com a chave de sempre; o banco que repete o FITID no mesmo dia e valor ganha a ordem nas seguintes
+      chave = resumoComSal(sal, ordem ? `f|${k}|${ordem}` : `f|${k}`);
     } else {
       const igual = `${l.data}|${l.valorCentavos}|${normalizarTexto(cru)}`;
       const ordem = ordemIgual.get(igual) ?? 0;

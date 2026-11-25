@@ -1,5 +1,5 @@
 import { descricaoCrua, ehLinhaDeSaldo, mascararDescricao, origemDaDescricao, resumoComSal, textoDaRegra } from './mascara';
-import { fitidsSaoSequencia, maiorBuraco, prepararLinhas, situacaoDoTipo } from './banco-repasses.regras';
+import { fitidVale, maiorBuraco, prepararLinhas, situacaoDoTipo } from './banco-repasses.regras';
 import type { LinhaOfx } from './ofx';
 
 // A MÁSCARA (V8-3) e as regras puras do extrato. Exemplos no formato real dos bancos, com nomes e documentos inventados.
@@ -168,10 +168,8 @@ describe('a chave do lançamento', () => {
   });
 
   it('FITID que é só a numeração do arquivo não vale como identidade', () => {
-    expect(fitidsSaoSequencia([{ fitid: '1' }, { fitid: '2' }, { fitid: '3' }])).toBe(true);
-    expect(fitidsSaoSequencia([{ fitid: '0' }, { fitid: '1' }])).toBe(true);
-    expect(fitidsSaoSequencia([{ fitid: '9001' }, { fitid: '9002' }])).toBe(false);
-    expect(fitidsSaoSequencia([{ fitid: 'A' }, { fitid: 'B' }])).toBe(false);
+    for (const f of ['1', '2', '0', '9001', '000123', '0000000012', '9999999', '', '  ']) expect(fitidVale(f)).toBe(false);
+    for (const f of ['A', 'ABC123', '10000000', '20261101000123', 'e3b0c442-98fc']) expect(fitidVale(f)).toBe(true);
     const a = chaves([linha({ fitid: '1', memo: 'PIX A' }), linha({ fitid: '2', memo: 'PIX B' })]);
     const b = chaves([linha({ fitid: '1', memo: 'PIX B' }), linha({ fitid: '2', memo: 'PIX A' })]);
     expect(new Set([...a, ...b]).size).toBe(2);
@@ -187,6 +185,38 @@ describe('a chave do lançamento', () => {
     const a = chaves([linha({ fitid: '1', memo: 'PIX A' })]);
     const b = chaves([linha({ fitid: '1', memo: 'PIX Z' }), linha({ fitid: '2', memo: 'PIX A' })]);
     expect(b).toEqual(expect.arrayContaining(a));
+  });
+
+  it('PDV-F-01: arquivo de uma linha com FITID "1" e depois o maior com "1" e "20" — a mesma transação tem a mesma chave', () => {
+    // Antes: o arquivo curto parecia numeração (chave pelo conteúdo) e o maior não (chave pelo FITID): duas chaves, duas linhas.
+    const curto = chaves([linha({ fitid: '1', memo: 'PIX A' })]);
+    const maior = chaves([linha({ fitid: '1', memo: 'PIX A' }), linha({ fitid: '20', memo: 'PIX B' })]);
+    expect(maior).toEqual(expect.arrayContaining(curto));
+    expect(new Set([...curto, ...maior]).size).toBe(2);
+    // e na ordem inversa (o maior primeiro): o curto não traz nada novo
+    expect(maior).toEqual(expect.arrayContaining(chaves([linha({ fitid: '1', memo: 'PIX A' })])));
+  });
+
+  it('PDV-F-01: a escolha da chave não depende das outras linhas do arquivo', () => {
+    const sozinha = (f: string) => chaves([linha({ fitid: f, memo: 'PIX A' })])[0];
+    const comOutras = (f: string) => chaves([linha({ fitid: 'XYZ-9', memo: 'PIX Q' }), linha({ fitid: f, memo: 'PIX A' }), linha({ fitid: '7', memo: 'PIX W' })])[1];
+    for (const f of ['1', '0', '20', 'ABC123', '']) expect(comOutras(f)).toBe(sozinha(f));
+  });
+
+  it('PDV-F-01: dois Pix legítimos com a mesma data, valor e descrição continuam dois, com e sem FITID, em qualquer exportação', () => {
+    const semFitid = [linha({ memo: 'PIX X' }), linha({ memo: 'PIX X' })];
+    const comFitid = [linha({ fitid: 'P-1', memo: 'PIX X' }), linha({ fitid: 'Q-2', memo: 'PIX X' })];
+    const numerados = [linha({ fitid: '1', memo: 'PIX X' }), linha({ fitid: '2', memo: 'PIX X' })];
+    for (const l of [semFitid, comFitid, numerados]) {
+      const c = chaves(l);
+      expect(new Set(c).size).toBe(2);
+      // a exportação do dia seguinte (o mesmo dia inteiro + outro lançamento) não duplica nenhum dos dois
+      expect(chaves([...l, linha({ fitid: 'Z-3', memo: 'PIX Y' })])).toEqual(expect.arrayContaining(c));
+    }
+    // o banco que repete o FITID no mesmo dia e valor: as duas ficam, e a primeira mantém a chave de sempre
+    const repetido = chaves([linha({ fitid: 'R-1', memo: 'PIX X' }), linha({ fitid: 'R-1', memo: 'PIX X' })]);
+    expect(new Set(repetido).size).toBe(2);
+    expect(repetido[0]).toBe(chaves([linha({ fitid: 'R-1', memo: 'PIX X' })])[0]);
   });
 
   it('a linha que só informa saldo e a de valor zero não viram lançamento, e nada cru fica no preparado', () => {
