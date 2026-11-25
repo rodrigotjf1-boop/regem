@@ -278,4 +278,39 @@ descrever('PIX pela Rede no cardápio online (Postgres)', () => {
     expect(devolucoes).toEqual([{ tid, amount: 1000 }]);
     expect((await ler(id)).sinal_status).toBe('reembolsado');
   });
+
+  // ── Revisão do cardápio e delivery de 25/11/2026 (lote C2) ───────────────────────────────────────────────────────────────
+
+  it('CAR-B-04: o sinal aprovado DEPOIS do cancelamento volta ao cliente uma vez, e o aviso "Encomenda confirmada" não sai', async () => {
+    const { t } = await loja();
+    await integracaoRede(t, cifrar('chave-real'));
+    const tid = pixGerado(randomUUID(), 'Approved', new Date());
+    const id = await pedido(t, { sinal_status: 'pendente', sinal_valor: 10, gateway_provider: 'rede', gateway_payment_id: tid, pago: false });
+    await q(`update pedido_externo set status = 'cancelado' where id = $1`, [id]); // o cliente cancelou com o Pix em trânsito
+    let avisos = 0;
+    const avisoAntes = (cardapio as any).avisarSinalPago;
+    (cardapio as any).avisarSinalPago = async () => {
+      avisos++;
+    };
+    try {
+      await (cardapio as any).aprovarPagamento(t, id);
+      await (cardapio as any).aprovarPagamento(t, id); // o webhook repetido não devolve de novo
+    } finally {
+      (cardapio as any).avisarSinalPago = avisoAntes;
+    }
+    expect(devolucoes).toEqual([{ tid, amount: 1000 }]);
+    expect(await ler(id)).toMatchObject({ status: 'cancelado', sinal_status: 'reembolsado' });
+    expect(avisos).toBe(0);
+  });
+
+  it('CAR-B-04: dois pedidos de devolução juntos do mesmo sinal devolvem UMA vez', async () => {
+    const { t } = await loja();
+    await integracaoRede(t, cifrar('chave-real'));
+    const tid = pixGerado(randomUUID(), 'Approved', new Date());
+    const id = await pedido(t, { sinal_status: 'pago', sinal_valor: 10, gateway_provider: 'rede', gateway_payment_id: tid, pago: false });
+    const r = await Promise.all([cardapio.reembolsarSinal(t, id), cardapio.reembolsarSinal(t, id)]);
+    expect(devolucoes).toHaveLength(1);
+    expect(r.filter((x) => x.ok)).toHaveLength(1);
+    expect((await ler(id)).sinal_status).toBe('reembolsado');
+  });
 });

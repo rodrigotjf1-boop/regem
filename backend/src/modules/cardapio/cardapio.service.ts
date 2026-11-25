@@ -74,11 +74,12 @@ type GatewayPix = { provider: 'mercadopago' | 'pagseguro' | 'rede'; token: strin
 
 // Categoria visível agora? Sem janelas = sempre. Senão, hoje (0=Dom..6=Sáb) precisa
 // bater em alguma janela e o horário atual estar entre inicio e fim (HH:MM).
-function categoriaDisponivelAgora(disp: any): boolean {
+// Dia e hora DA LOJA (fuso da operação, CAR-A-04 da revisão de 25/11/2026): antes eram os do servidor — na nuvem (UTC) a janela
+// das 18h às 23h abria às 15h de São Paulo.
+export function categoriaDisponivelAgora(disp: any, agora: Date = new Date()): boolean {
   if (!Array.isArray(disp) || disp.length === 0) return true;
-  const agora = new Date();
-  const dia = agora.getDay();
-  const hhmm = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+  const dia = new Date(`${dataNoFuso(agora)}T12:00:00Z`).getUTCDay();
+  const hhmm = horaNoFuso(agora);
   return disp.some(
     (j: any) =>
       Array.isArray(j?.dias) &&
@@ -135,7 +136,7 @@ import { mensagemDoRobo, resumoDoRobo } from '../atendimento/resumo-do-robo';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { CashbackService } from '../cashback/cashback.service';
 
-import { hojeISO } from '../../common/data';
+import { dataNoFuso, hojeISO, horaNoFuso } from '../../common/data';
 import { MAX_BANNERS, bannerNoPeriodo, lerDestinoDoBanner, lerPeriodoDoBanner, lerImagemAnimadaDoBanner, lerTextoDoBanner } from './banner-destino';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
@@ -2261,7 +2262,10 @@ export class CardapioService {
 
     // Só as categorias disponíveis agora (janelas dias/horários); vazio = sempre.
     const cats = catsRaw.filter((c: any) => c.ativo !== false && categoriaDisponivelAgora(c.disponibilidade));
-    const lista = ((prods as any).rows ?? prods) as any[];
+    // O produto de categoria FECHADA (desligada ou fora da janela) sai junto com ela (CAR-A-04): antes a categoria sumia e os
+    // produtos dela caíam em "Outros" na vitrine — e o pedido aceitava. Produto sem categoria (ou de categoria excluída) segue.
+    const fechadas = new Set(catsRaw.filter((c: any) => c.ativo === false || !categoriaDisponivelAgora(c.disponibilidade)).map((c: any) => c.id));
+    const lista = (((prods as any).rows ?? prods) as any[]).filter((p: any) => !p.categoriaId || !fechadas.has(p.categoriaId));
     const ids = lista.map((p) => p.id);
 
     // Esta loja mede anúncios (ferramenta conectada, mig 299)? Decide se a tela guarda de onde o
@@ -2375,12 +2379,14 @@ export class CardapioService {
     // Fallback: se nenhuma foi marcada ainda, usa o `pagamentos` legado (sem regressão).
     const pagamentosCardapio = formasCardapio.map((f) => f.nome);
     const pagamentosCadastrados: string[] = pagamentosCardapio.length ? pagamentosCardapio : ((cfg.pagamentos as string[] | null) ?? []);
-    // Pix e cartão online só aparecem na loja que consegue cobrar: a mesma regra do fechamento do pedido.
-    const ehOnline = (f: string) => f === 'pix' || f === 'cartao';
-    const pagamentosDaLoja =
-      pagamentosCadastrados.some(ehOnline) && !(await this.cobraOnline(cfg.tenantId))
-        ? pagamentosCadastrados.filter((f) => !ehOnline(f))
-        : pagamentosCadastrados;
+    // Pix só aparece na loja que consegue cobrar: a mesma regra do fechamento do pedido. O CARTÃO ONLINE não aparece em loja
+    // nenhuma (CAR-B-06 da revisão de 25/11/2026): não há cobrança de cartão implementada — os três provedores só geram Pix, e o
+    // cliente que escolhia "Cartão online" caía num QR de Pix. Volta quando houver o fluxo de cartão de verdade.
+    const pagamentosDaLoja = (
+      pagamentosCadastrados.includes('pix') && !(await this.cobraOnline(cfg.tenantId))
+        ? pagamentosCadastrados.filter((f) => f !== 'pix')
+        : pagamentosCadastrados
+    ).filter((f) => f !== 'cartao');
     const alergs = await alergenosDoMenu;
     const comAlergenos = [...alergs.values()].some((a) => a.situacao === 'informado');
 
@@ -3312,16 +3318,20 @@ export class CardapioService {
   // só age quando sinal_status='pago'. Sucesso → 'reembolsado'; falha do gateway
   // (ou sem token) → 'reembolso_pendente' (fallback manual do lojista).
   async reembolsarSinal(tenantId: string, pedidoId: string): Promise<{ ok: boolean; manual?: boolean }> {
+    // RESERVA o estorno numa gravação condicional (CAR-B-04 da revisão de 25/11/2026): só quem tira o sinal de 'pago' segue para o
+    // provedor. Antes a leitura era solta — o cancelamento do cliente e a aprovação tardia do Pix podiam ler 'pago' juntos e
+    // devolver o sinal DUAS vezes. Enquanto o provedor responde, o sinal fica 'reembolso_pendente' (o mesmo estado da falha:
+    // se o processo cair no meio, o lojista vê o estorno a conferir).
     const [p] = await this.db
-      .select({
-        sinalStatus: pedidoExterno.sinalStatus,
+      .update(pedidoExterno)
+      .set({ sinalStatus: 'reembolso_pendente' })
+      .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.sinalStatus, 'pago')))
+      .returning({
         sinalValor: pedidoExterno.sinalValor,
         gatewayPaymentId: pedidoExterno.gatewayPaymentId,
         gatewayProvider: pedidoExterno.gatewayProvider,
-      })
-      .from(pedidoExterno)
-      .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.tenantId, tenantId)));
-    if (!p || p.sinalStatus !== 'pago') return { ok: false };
+      });
+    if (!p) return { ok: false };
     const valor = p.sinalValor != null ? Number(p.sinalValor) : undefined;
     try {
       if (!p.gatewayPaymentId) throw new Error('sem id de pagamento do sinal');
@@ -3344,11 +3354,7 @@ export class CardapioService {
         .where(eq(pedidoExterno.id, pedidoId));
       return { ok: true };
     } catch (e) {
-      // Fallback manual: marca pendente e leva a falha para a distribuição.
-      await this.db
-        .update(pedidoExterno)
-        .set({ sinalStatus: 'reembolso_pendente' })
-        .where(eq(pedidoExterno.id, pedidoId));
+      // Fallback manual: o sinal já está 'reembolso_pendente' (a reserva acima); leva a falha para a distribuição.
       this.logger.error(
         `Reembolso do sinal falhou (pedido ${pedidoId}, tenant ${tenantId}): ${e instanceof Error ? e.message : e}`,
       );
@@ -3401,8 +3407,17 @@ export class CardapioService {
         'O prazo para cancelar com reembolso já passou. Fale com a loja.',
       );
     // Estorna o sinal ANTES de cancelar (para devolver o resultado ao cliente).
-    const reembolso = temSinalPago ? await this.reembolsarSinal(cfg.tenantId, pedidoId) : null;
+    let reembolso = temSinalPago ? await this.reembolsarSinal(cfg.tenantId, pedidoId) : null;
     await this.delivery.cancelarSistema(cfg.tenantId, pedidoId, 'Cancelado pelo cliente (encomenda)');
+    // O Pix do sinal que foi aprovado ENQUANTO o cancelamento corria (CAR-B-04): relido depois de cancelar, ele volta também. A
+    // reserva do estorno (`reembolsarSinal`) garante uma devolução só, mesmo se a aprovação tardia chegar a devolver junto.
+    if (!temSinalPago) {
+      const [depois] = await this.db
+        .select({ sinalStatus: pedidoExterno.sinalStatus })
+        .from(pedidoExterno)
+        .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.tenantId, cfg.tenantId)));
+      if (depois?.sinalStatus === 'pago') reembolso = await this.reembolsarSinal(cfg.tenantId, pedidoId);
+    }
     return {
       ok: true,
       reembolso: reembolso
@@ -3683,15 +3698,27 @@ export class CardapioService {
     if (p.sinalStatus === 'pago') return { tipo: 'nada' }; // já confirmado via sinal
     let tipo: 'sinal' | 'total';
     if (p.sinalStatus === 'pendente') {
-      // ATÔMICO (R1): a guarda de estado no WHERE + returning garante que só o 1º caller que
-      // transita pendente→pago prossegue. Fecha a corrida webhook×polling → nunca confirma/
-      // aceita 2× (que gerava 2 comandas + baixa de estoque dobrada).
-      const upd = await this.db
-        .update(pedidoExterno)
-        .set({ sinalStatus: 'pago', statusPagamento: 'sinal_pago' })
-        .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.sinalStatus, 'pendente')))
-        .returning({ id: pedidoExterno.id });
-      if (!upd.length) return { tipo: 'nada' }; // outro caller já confirmou o sinal
+      // ATÔMICO (R1): com o pedido TRAVADO, só o 1º caller que acha o sinal pendente o transita para pago. Fecha a corrida
+      // webhook×polling → nunca confirma/aceita 2× (que gerava 2 comandas + baixa de estoque dobrada). E lê, na MESMA trava, a
+      // situação do pedido (CAR-B-04 da revisão de 25/11/2026): o Pix que chega DEPOIS do cancelamento da encomenda era gravado
+      // como pago, ia o aviso "Encomenda confirmada" e ninguém devolvia o dinheiro.
+      const situacao = await this.db.transaction(async (tx: any) => {
+        const [atual] = await tx
+          .select({ status: pedidoExterno.status, sinalStatus: pedidoExterno.sinalStatus })
+          .from(pedidoExterno)
+          .where(eq(pedidoExterno.id, pedidoId))
+          .for('update');
+        if (!atual || atual.sinalStatus !== 'pendente') return null; // outro caller já confirmou o sinal
+        await tx.update(pedidoExterno).set({ sinalStatus: 'pago', statusPagamento: 'sinal_pago' }).where(eq(pedidoExterno.id, pedidoId));
+        return String(atual.status);
+      });
+      if (situacao === null) return { tipo: 'nada' };
+      if (situacao === 'cancelado') {
+        // A encomenda já estava cancelada: o sinal recebido volta para o cliente (ou fica a conferir, se o provedor recusar).
+        const r = await this.reembolsarSinal(tenantId, pedidoId);
+        this.logger.warn(`sinal aprovado depois do cancelamento (pedido ${pedidoId}): ${r.ok ? 'devolvido' : 'estorno a conferir'}`);
+        return { tipo: 'nada' };
+      }
       tipo = 'sinal';
       // Confirma ao cliente por WhatsApp (n8n) — sinal pago + prazo de cancelamento.
       void this.avisarSinalPago(tenantId, pedidoId);
@@ -4152,10 +4179,23 @@ export class CardapioService {
         disponivelCardapio: produto.disponivelCardapio,
         pausadoEstoque: produto.pausadoEstoque,
         atacadoAtivo: produto.atacadoAtivo,
+        categoriaId: produto.categoriaId,
       })
       .from(produto)
-      .where(and(eq(produto.tenantId, cfg.tenantId), inArray(produto.id, ids)));
+      // Produto EXCLUÍDO não entra (CAR-A-04 da revisão de 25/11/2026): a exclusão marca `deleted_at`, e o fechamento lia sem
+      // esse filtro — o carrinho aberto antes da exclusão fechava o pedido com ele.
+      .where(and(eq(produto.tenantId, cfg.tenantId), inArray(produto.id, ids), isNull(produto.deletedAt)));
     const porId = new Map(prods.map((p) => [p.id, p]));
+    // Categoria FECHADA agora (desligada ou fora da janela, no horário da loja): o produto dela não fecha pedido — a mesma
+    // decisão do menu (CAR-A-04). Antes só o menu escondia a categoria, e o carrinho que ficou aberto passava.
+    const catIds = [...new Set(prods.map((p) => p.categoriaId).filter((c): c is string => !!c))];
+    const cats = catIds.length
+      ? await this.db
+          .select({ id: categoriaProduto.id, ativo: categoriaProduto.ativo, disponibilidade: categoriaProduto.disponibilidade })
+          .from(categoriaProduto)
+          .where(and(eq(categoriaProduto.tenantId, cfg.tenantId), inArray(categoriaProduto.id, catIds), isNull(categoriaProduto.deletedAt)))
+      : [];
+    const categoriaFechada = new Set(cats.filter((c: any) => c.ativo === false || !categoriaDisponivelAgora(c.disponibilidade)).map((c) => c.id));
     // Pausa por estoque DA LOJA do cardápio (mig 260); sem loja, o campo antigo do produto.
     const lojaPedido = await lojaDoCanal(this.db, cfg.tenantId, cfg.unidadeId);
     const pausadosPedido = lojaPedido ? await pausadosNaLoja(this.db, cfg.tenantId, lojaPedido, ids) : null;
@@ -4166,6 +4206,8 @@ export class CardapioService {
       // Só entra no cardápio produto ativo E marcado para o canal cardápio digital.
       if (!p || p.ativo === false || p.disponivelCardapio === false)
         throw new BadRequestException('Produto indisponível no pedido.');
+      if (p.categoriaId && categoriaFechada.has(p.categoriaId))
+        throw new BadRequestException(`${p.nome} não está disponível neste horário. Tire do carrinho para continuar.`);
       // A auto-pausa por estoque era checada só na MONTAGEM do menu: quem estava com a
       // página aberta desde antes de esgotar — ou quem chama a API direto — passava
       // batido e o pedido entrava. A trava tem de estar aqui, no checkout.
@@ -4768,7 +4810,10 @@ export class CardapioService {
     // sem o cliente estar esperando; sem Pix online, vale o "na entrega".
     if (ehAgendado && forma !== 'pix' && (await this.temPixOnlineNoCardapio(cfg)))
       throw new BadRequestException('O pedido agendado é pago no Pix, na hora do agendamento.');
-    const online = !orcamento && (forma === 'pix' || forma === 'cartao' || exigeSinal);
+    // Cartão online não existe ainda (CAR-B-06): o pedido não nasce esperando uma cobrança que viraria Pix.
+    if (!orcamento && forma === 'cartao')
+      throw new BadRequestException('O pagamento com cartão online ainda não está disponível. Escolha o Pix ou pagar na entrega.');
+    const online = !orcamento && (forma === 'pix' || exigeSinal);
     // Sem como cobrar, o pedido não nasce esperando um pagamento que nunca vem: o cliente escolhe outra forma.
     if (online && !(await this.cobraOnline(cfg.tenantId)))
       throw new BadRequestException(

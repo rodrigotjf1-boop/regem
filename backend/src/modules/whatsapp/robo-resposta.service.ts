@@ -253,6 +253,10 @@ export class RoboRespostaService {
     // Os BALÕES (17/11/2026, `ROBO_BALOES=1` — nasce desligado): a resposta longa com parágrafos sai em até 3 mensagens, com
     // o "digitando…" antes de cada uma. Não com a voz nem com o botão do link (uma mensagem só, como antes).
     const partes = baloesLigados() && !audio ? emBaloes(texto) : [texto];
+    // A pessoa pode assumir a conversa DURANTE o "digitando…" entre dois balões (CAR-E-03 da revisão de 25/11/2026): a pausa
+    // lida acima vale só para o primeiro envio. Depois de cada espera, o robô confere de novo e, assumida, para ali.
+    let interrompida = false;
+    const aindaDoRobo = async () => !(await this.pausada(cfg, para));
     try {
       // A REAÇÃO (a linha `REACAO:`) vai antes do texto. Não deu para reagir e não há mais nada: o emoji vai como texto.
       if (reacao) {
@@ -297,8 +301,9 @@ export class RoboRespostaService {
         enviados.push(r?.comFoto ? 'botao_link_com_foto' : 'botao_link');
       } else if (opcoes.length) {
         // Com balões, os de antes vão como texto e o último leva as opções.
-        const ultimo = await this.baloesAntesDoUltimo(via, loja.tenantId, para, p, partes, ids, enviados);
-        if (via === 'cloud' && opcoes.length <= 10) {
+        const ultimo = await this.baloesAntesDoUltimo(via, loja.tenantId, para, p, partes, ids, enviados, aindaDoRobo);
+        if (ultimo === null) interrompida = true;
+        else if (via === 'cloud' && opcoes.length <= 10) {
           ids.push(idDoEnvio(await this.cloud.enviarOpcoes(loja.tenantId, para, ultimo, opcoes, p?.botaoLista)));
           enviados.push(cabeEmBotoes(opcoes) ? 'botoes' : 'lista');
         } else if (via === 'evolution' && p?.opcoesComo === 'enquete' && opcoes.length >= 2 && opcoes.length <= 12) {
@@ -309,13 +314,16 @@ export class RoboRespostaService {
           enviados.push('menu_numerado');
         }
       } else if (texto) {
-        const ultimo = await this.baloesAntesDoUltimo(via, loja.tenantId, para, p, partes, ids, enviados);
-        ids.push(idDoEnvio(await this.enviarTexto(via, loja.tenantId, para, ultimo)));
-        enviados.push('texto');
+        const ultimo = await this.baloesAntesDoUltimo(via, loja.tenantId, para, p, partes, ids, enviados, aindaDoRobo);
+        if (ultimo === null) interrompida = true;
+        else {
+          ids.push(idDoEnvio(await this.enviarTexto(via, loja.tenantId, para, ultimo)));
+          enviados.push('texto');
+        }
       }
       // A LOCALIZAÇÃO DA LOJA (D5, a linha `LOCAL: loja`): o alfinete do mapa vai DEPOIS do texto que diz o endereço, só com
       // as coordenadas cadastradas. Não saiu: o endereço escrito já respondeu.
-      const ondeFica = lida.local ? localizacaoDaLoja(cfg) : null;
+      const ondeFica = lida.local && !interrompida ? localizacaoDaLoja(cfg) : null;
       if (ondeFica) {
         try {
           const r = via === 'cloud' ? await this.cloud.enviarLocalizacao(loja.tenantId, para, ondeFica) : await this.evolution.enviarLocalizacao(loja.tenantId, para, ondeFica);
@@ -327,6 +335,10 @@ export class RoboRespostaService {
       }
     } finally {
       await marcarDoRobo(this.db, loja.tenantId, para, ids, this.logger);
+    }
+    if (interrompida) {
+      this.logger.log(`resposta do robô interrompida: a conversa foi assumida entre os balões (${via}) de=***${para.slice(-4)} — saíram ${enviados.length}`);
+      return { ok: true, enviado: enviados.length > 0, enviados, motivo: 'conversa_pausada_no_meio' };
     }
     return { ok: true, enviado: true, enviados };
   }
@@ -546,7 +558,8 @@ export class RoboRespostaService {
     partes: string[],
     ids: (string | null)[],
     enviados: string[],
-  ): Promise<string> {
+    aindaDoRobo: () => Promise<boolean> = async () => true,
+  ): Promise<string | null> {
     for (let i = 0; i < partes.length - 1; i++) {
       ids.push(idDoEnvio(await this.enviarTexto(via, tenantId, para, partes[i])));
       enviados.push('texto');
@@ -556,6 +569,8 @@ export class RoboRespostaService {
         if (wamid) this.cloud.mostrarDigitando(String(p?.phoneNumberId ?? ''), wamid);
       } else this.evolution.mostrarDigitando(String(p?.instancia ?? ''), para, ms);
       await this.esperar(ms);
+      // `null` = a pessoa assumiu durante a espera: o resto não sai (CAR-E-03).
+      if (!(await aindaDoRobo())) return null;
     }
     return partes[partes.length - 1] ?? '';
   }
