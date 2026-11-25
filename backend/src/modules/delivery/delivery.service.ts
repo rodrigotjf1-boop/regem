@@ -12,6 +12,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { repetirNoImpasse } from '../../common/repetir-no-impasse';
+import { centavosDevidosNaPorta, centavosPrePagos, reaisDeCentavos } from './valor-na-porta';
 import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { CANAL_REDE, PV_VALIDO, abrirChaveRede, cifrarChaveRede } from '../../common/credencial-rede';
 import { validarCredencialRede } from '../../common/erede';
@@ -2018,7 +2019,13 @@ export class DeliveryService {
         'Abra o caixa de entregas para registrar o recebimento do entregador.',
       );
     // A divisão, o pedido pago e o lançamento no caixa de entregas entram juntos, ou nenhum (ERR-579).
-    const recebido = await this.gravarRecebimento(tenantId, id, { sessaoId: sessao.id, forma: formaFinal, pagamentos: opts.pagamentos });
+    // O valor que o entregador trouxe vai junto: menos que o devido não quita o pedido (CAR-C-04).
+    const recebido = await this.gravarRecebimento(tenantId, id, {
+      sessaoId: sessao.id,
+      forma: formaFinal,
+      pagamentos: opts.pagamentos,
+      valorRecebido: !opts.pagamentos?.length && formaFinal === 'dinheiro' ? opts.valorRecebido ?? null : null,
+    });
     if (!recebido) {
       // Outro toque recebeu primeiro: não grava de novo, e o pedido segue de onde está.
       const agora = await this.carregar(tenantId, id);
@@ -2649,17 +2656,17 @@ export class DeliveryService {
         )
         .for('share');
       if (!sessao) return; // sem caixa do delivery aberto: fica só como receita
-      await tx
-        .update(lancamentoCaixa)
-        .set({ sessaoId: sessao.id, forma: 'dinheiro' })
-        .where(
-          and(
-            eq(lancamentoCaixa.tenantId, tenantId),
-            eq(lancamentoCaixa.comandaId, ped.comandaId),
-            eq(lancamentoCaixa.tipo, 'entrada'),
-            eq(lancamentoCaixa.categoria, 'venda'),
-          ),
-        );
+      // Com o valor que o cliente paga na porta (CAR-C-03): o total com o frete, menos o já pago no canal — o mesmo do recebimento.
+      await this.lancarRecebimentoNoCaixa(
+        tx,
+        tenantId,
+        ped.comandaId,
+        sessao.id,
+        'dinheiro',
+        centavosDevidosNaPorta(ped.total, ped.pagamentos),
+        [],
+        centavosPrePagos(ped.pagamentos),
+      );
     });
   }
 
@@ -2945,7 +2952,7 @@ export class DeliveryService {
   private gravarRecebimento(
     tenantId: string,
     id: string,
-    o: { sessaoId: string; forma: string; pagamentos?: any[] | null; patch?: Record<string, unknown> },
+    o: { sessaoId: string; forma: string; pagamentos?: any[] | null; patch?: Record<string, unknown>; valorRecebido?: number | null },
   ): Promise<any | null> {
     return repetirNoImpasse(() =>
       this.db.transaction(async (tx: any) => {
@@ -2953,31 +2960,109 @@ export class DeliveryService {
           select 1 from caixa_sessao where id = ${o.sessaoId}::uuid and tenant_id = ${tenantId}::uuid and status = 'aberta' for share`);
         if (!(caixa.rows ?? caixa).length) throw new ConflictException('O caixa fechou enquanto o pagamento era registrado. Abra o caixa e tente de novo.');
         const lido: any = await tx.execute(sql`
-          select pago, status from pedido_externo where id = ${id}::uuid and tenant_id = ${tenantId}::uuid for update`);
+          select pago, status, total, pagamentos from pedido_externo where id = ${id}::uuid and tenant_id = ${tenantId}::uuid for update`);
         const atual = (lido.rows ?? lido)[0];
         if (!atual || atual.pago || atual.status === 'cancelado' || atual.status === 'concluido') return null;
+        // O que o cliente deve NA PORTA (CAR-C-03 e CAR-C-04 da revisão de 25/11/2026): o total do pedido — com o frete e já sem
+        // o desconto — menos o que ele já pagou antes (a parcela pré-paga do canal). Conferido aqui, com o pedido travado.
+        const devidoCent = centavosDevidosNaPorta(atual.total, atual.pagamentos);
+        const linhas = o.pagamentos?.length ? this.linhasDoSplit(o.pagamentos).linhas : [];
+        if (devidoCent > 0) {
+          if (linhas.length) {
+            const somaCent = linhas.reduce((s, l) => s + Math.round(l.valor * 100), 0);
+            if (somaCent !== devidoCent)
+              throw new BadRequestException(
+                `A soma das formas (${reaisDeCentavos(somaCent)}) não fecha com o valor a receber (${reaisDeCentavos(devidoCent)}). Confira com o entregador.`,
+              );
+          } else if (o.valorRecebido != null && Number.isFinite(Number(o.valorRecebido)) && Math.round(Number(o.valorRecebido) * 100) < devidoCent) {
+            throw new BadRequestException(
+              `O valor recebido (${reaisDeCentavos(Math.round(Number(o.valorRecebido) * 100))}) é menor que o valor a receber (${reaisDeCentavos(devidoCent)}). Confira com o entregador antes de confirmar.`,
+            );
+          }
+        }
         if (o.pagamentos?.length) await this.registrarSplit(tenantId, id, o.pagamentos, tx);
         const [row] = await tx
           .update(pedidoExterno)
           .set({ ...(o.patch ?? {}), pago: true, statusPagamento: 'aprovado', caixaSessaoId: o.sessaoId, ...(o.forma ? { formaPagamento: o.forma } : {}) })
           .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.tenantId, tenantId)))
           .returning();
-        if (row.comandaId) {
-          await tx
-            .update(lancamentoCaixa)
-            .set({ sessaoId: o.sessaoId, forma: o.forma || 'dinheiro' })
-            .where(
-              and(
-                eq(lancamentoCaixa.tenantId, tenantId),
-                eq(lancamentoCaixa.comandaId, row.comandaId),
-                eq(lancamentoCaixa.tipo, 'entrada'),
-                eq(lancamentoCaixa.categoria, 'venda'),
-              ),
-            );
-        }
+        if (row.comandaId)
+          await this.lancarRecebimentoNoCaixa(tx, tenantId, row.comandaId, o.sessaoId, o.forma, devidoCent, linhas, centavosPrePagos(atual.pagamentos));
         return row;
       }),
     );
+  }
+
+  /**
+   * A venda do pedido entra no turno com o valor que o cliente pagou NA PORTA e com a forma de cada parte (CAR-C-03 da revisão de
+   * 25/11/2026). Antes o lançamento ia para o turno com o valor de quando foi criado — a soma dos itens, sem o frete e sem o desconto:
+   * o pedido de R$ 40 + R$ 5 de entrega entrava como R$ 40, e a gaveta (que paga o entregador por sangria, pela taxa real) fechava com
+   * sobra; e o pagamento dividido ia como uma linha só, "dinheiro + pix", que não casava com o contado por forma.
+   * A parte que o cliente já pagou no canal (CAR-D-04) vira uma entrada "online" SEM turno: é receita, mas não passa pela gaveta.
+   * A venda com mais de um lançamento (caso antigo) segue como era: só ganha o turno e a forma.
+   */
+  private async lancarRecebimentoNoCaixa(
+    tx: any,
+    tenantId: string,
+    comandaId: string,
+    sessaoId: string,
+    forma: string,
+    devidoCent: number,
+    linhas: { forma: string; valor: number }[],
+    prePagoCent = 0,
+  ) {
+    const daVenda = and(
+      eq(lancamentoCaixa.tenantId, tenantId),
+      eq(lancamentoCaixa.comandaId, comandaId),
+      eq(lancamentoCaixa.tipo, 'entrada'),
+      eq(lancamentoCaixa.categoria, 'venda'),
+    );
+    const vendas = await tx.select().from(lancamentoCaixa).where(and(daVenda, isNull(lancamentoCaixa.estornoDe)));
+    if (vendas.length !== 1 || devidoCent <= 0) {
+      await tx.update(lancamentoCaixa).set({ sessaoId, forma: forma || 'dinheiro' }).where(daVenda);
+      return;
+    }
+    const base = vendas[0];
+    if (prePagoCent > 0)
+      await tx.insert(lancamentoCaixa).values({
+        tenantId,
+        unidadeId: base.unidadeId,
+        comandaId,
+        tipo: 'entrada',
+        valor: (prePagoCent / 100).toFixed(2),
+        data: base.data,
+        categoria: 'venda',
+        forma: 'online',
+        descricao: `${base.descricao ?? 'Venda delivery'} (pago no canal)`,
+        criadoPorId: base.criadoPorId,
+      });
+    if (linhas.length > 1) {
+      const [primeira, ...resto] = linhas;
+      await tx
+        .update(lancamentoCaixa)
+        .set({ sessaoId, forma: primeira.forma, valor: (Math.round(primeira.valor * 100) / 100).toFixed(2) })
+        .where(eq(lancamentoCaixa.id, base.id));
+      await tx.insert(lancamentoCaixa).values(
+        resto.map((l) => ({
+          tenantId,
+          unidadeId: base.unidadeId,
+          comandaId,
+          tipo: 'entrada',
+          valor: (Math.round(l.valor * 100) / 100).toFixed(2),
+          data: base.data,
+          categoria: 'venda',
+          forma: l.forma,
+          descricao: base.descricao,
+          criadoPorId: base.criadoPorId,
+          sessaoId,
+        })),
+      );
+      return;
+    }
+    await tx
+      .update(lancamentoCaixa)
+      .set({ sessaoId, forma: linhas[0]?.forma || forma || 'dinheiro', valor: (devidoCent / 100).toFixed(2) })
+      .where(eq(lancamentoCaixa.id, base.id));
   }
 
   // ===== Alterar / reimprimir / entregadores =====

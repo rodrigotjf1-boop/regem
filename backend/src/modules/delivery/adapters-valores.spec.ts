@@ -331,6 +331,16 @@ describe('adaptarAnotaAi — valores separados por origem', () => {
     expect(r.pago).toBe(true);
   });
 
+  it('CAR-D-04: pagamento misto (Pix antecipado + dinheiro na entrega) fica a receber nas DUAS ordens; todas pré-pagas = pago', () => {
+    const pix = { code: 'pix', name: 'pix', value: '30', prepaid: true };
+    const dinheiro = { code: 'money', name: 'money', value: '20', prepaid: false };
+    const pedido = (payments: any[]) => adaptarAnotaAi({ ...base, items: [{ name: 'Combo', quantity: 1, price: 50 }], total: 50, payments, discounts: [] });
+    expect(pedido([pix, dinheiro]).pago).toBe(false); // antes: true — a flag da 1ª parcela decidia
+    expect(pedido([dinheiro, pix]).pago).toBe(false);
+    expect(pedido([pix, { ...pix, value: '20' }]).pago).toBe(true);
+    expect(pedido([dinheiro, pix]).pagamentos!.map((p) => p.prepago)).toEqual([false, true]); // o detalhe segue guardado
+  });
+
   it('guarda a bandeira do cartão, que hoje se perde', () => {
     const r = adaptarAnotaAi({
       ...base,
