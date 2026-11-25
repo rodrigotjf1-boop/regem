@@ -469,6 +469,28 @@ describe('resposta do robô — formato, reação e balões (17/11/2026)', () =>
     ]);
   });
 
+  it('CAR-E-03: a pessoa assume a conversa durante o "digitando…" — o resto dos balões (e as opções) não sai', async () => {
+    process.env.ROBO_BALOES = '1';
+    for (const loja of [LOJA_EVO, LOJA_CLOUD]) {
+      const m = montar(loja);
+      let assumiu = false;
+      (m.svc as any).pausada = async () => assumiu; // livre na leitura do começo; assumida a partir da 1ª espera
+      (m.svc as any).esperar = async () => {
+        assumiu = true;
+      };
+      const r = await m.svc.responder(SENHA, {
+        instancia: 'inst-1',
+        phoneNumberId: loja === LOJA_CLOUD ? '123456' : undefined,
+        para: TEL,
+        texto: [p1, p2, p3].join('\n\n'),
+        opcoes: ops(2),
+      } as any);
+      const saiu = m.chamadas.filter((c: any[]) => /\.(texto|opcoes|enquete)$/.test(c[0]));
+      expect(saiu).toEqual([[loja === LOJA_CLOUD ? 'cloud.texto' : 'evo.texto', TEL, p1]]);
+      expect(r).toMatchObject({ enviado: true, motivo: 'conversa_pausada_no_meio' });
+    }
+  });
+
   it('balões ligados, mas com voz: uma mensagem só depois da voz (como antes)', async () => {
     process.env.ROBO_BALOES = '1';
     const { svc, chamadas } = montar(LOJA_EVO);

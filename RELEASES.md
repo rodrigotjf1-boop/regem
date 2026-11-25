@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Cardápio: sinal devolvido, cartão online fora, categoria pelo horário da loja e robô que para (25/11; ERR-612; SEM migration).**
+  Lote C2 da revisão do cardápio e delivery: o Pix do sinal aprovado depois do cancelamento volta ao cliente (uma vez só) e não sai
+  "Encomenda confirmada"; o "Cartão online" sai da vitrine (não há cobrança de cartão — virava um QR de Pix); o produto de categoria
+  fora do horário some do menu e não fecha pedido, e a janela é a do horário da loja (a nuvem roda em UTC); produto excluído não
+  fecha pedido; com os balões ligados, o robô para quando alguém assume a conversa. Só a nuvem (cardápio e robô). **Vai no `.zip`
+  sem efeito na loja.**
+
 - **Caixa de entregas: o valor que o cliente pagou na porta (25/11; ERR-611; SEM migration).** Lote C1 da revisão do cardápio e
   delivery: a venda entra no turno com o total do pedido (com o frete e já sem o desconto), menos o que foi pago antes no canal —
   antes entrava a soma dos itens (na loja, 111 pedidos em 30 dias, R$ 171 a menos esperados); dinheiro a menos que o devido e

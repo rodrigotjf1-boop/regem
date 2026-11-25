@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { hojeISO } from '../../common/data';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
@@ -7,7 +8,7 @@ import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { FiscalService } from '../fiscal/fiscal.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { VendasService } from '../vendas/vendas.service';
-import { CardapioService } from './cardapio.service';
+import { CardapioService, categoriaDisponivelAgora } from './cardapio.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -140,16 +141,61 @@ descrever('pagamento online só com cobrança de verdade (Postgres real)', () =>
     const l = await loja();
     gravados.length = 0;
     await expect(pedir(l, 'pix')).rejects.toThrow('Escolha outra forma de pagamento');
-    await expect(pedir(l, 'cartao')).rejects.toThrow('Escolha outra forma de pagamento');
+    await expect(pedir(l, 'cartao')).rejects.toThrow('cartão online ainda não está disponível');
     expect(gravados).toHaveLength(0);
     await expect(pedir(l, 'entrega')).resolves.toMatchObject({ ok: true, pagamentoOnline: false });
     expect(gravados).toHaveLength(1);
   });
 
-  it('o cardápio só mostra Pix e cartão online na loja que consegue cobrar', async () => {
+  it('o cardápio só mostra o Pix na loja que consegue cobrar; o cartão online não aparece em loja nenhuma (CAR-B-06)', async () => {
     const l = await loja();
     expect(((await cardapio.menu(l.token)) as any).loja.pagamentos).toEqual(['entrega']);
     await q(`insert into integracao (tenant_id, canal, ativo, token) values ($1,'mercadopago',true,'token-de-teste')`, [l.t]);
-    expect(((await cardapio.menu(l.token)) as any).loja.pagamentos).toEqual(['pix', 'cartao', 'entrega']);
+    expect(((await cardapio.menu(l.token)) as any).loja.pagamentos).toEqual(['pix', 'entrega']);
+  });
+
+  it('CAR-B-06: com o provedor de Pix ligado, o pedido em "Cartão online" é recusado antes de gravar (antes virava um QR de Pix)', async () => {
+    const l = await loja();
+    await q(`insert into integracao (tenant_id, canal, ativo, token) values ($1,'mercadopago',true,'token-de-teste')`, [l.t]);
+    gravados.length = 0;
+    await expect(pedir(l, 'cartao')).rejects.toThrow('cartão online ainda não está disponível');
+    expect(gravados).toHaveLength(0);
+  });
+
+  it('CAR-A-04: categoria fechada agora (desligada ou fora do dia) — o produto some do menu e o pedido é recusado', async () => {
+    const l = await loja();
+    const hoje = new Date(`${hojeISO()}T12:00:00Z`).getUTCDay();
+    const outroDia = (hoje + 1) % 7;
+    await q(
+      `update categoria_produto set disponibilidade = $2::jsonb where id = (select categoria_id from produto where id = $1)`,
+      [l.lanche, JSON.stringify([{ dias: [outroDia], inicio: '00:00', fim: '23:59' }])],
+    );
+    const menu: any = await cardapio.menu(l.token);
+    expect(menu.produtos.map((p: any) => p.id)).not.toContain(l.lanche);
+    gravados.length = 0;
+    await expect(pedir(l, 'entrega')).rejects.toThrow('não está disponível neste horário');
+    expect(gravados).toHaveLength(0);
+    // Desligada: o mesmo.
+    await q(`update categoria_produto set disponibilidade = '[]'::jsonb, ativo = false where id = (select categoria_id from produto where id = $1)`, [l.lanche]);
+    expect(((await cardapio.menu(l.token)) as any).produtos.map((p: any) => p.id)).not.toContain(l.lanche);
+    await expect(pedir(l, 'entrega')).rejects.toThrow('não está disponível neste horário');
+    // Aberta de novo: volta e vende.
+    await q(`update categoria_produto set ativo = true where id = (select categoria_id from produto where id = $1)`, [l.lanche]);
+    await expect(pedir(l, 'entrega')).resolves.toMatchObject({ ok: true });
+  });
+
+  it('CAR-A-04: produto EXCLUÍDO não fecha pedido (o carrinho aberto antes da exclusão)', async () => {
+    const l = await loja();
+    await q(`update produto set deleted_at = now() where id = $1`, [l.lanche]);
+    gravados.length = 0;
+    await expect(pedir(l, 'entrega')).rejects.toThrow('Produto indisponível');
+    expect(gravados).toHaveLength(0);
+  });
+
+  it('CAR-A-04: a janela da categoria é a do horário da LOJA, não a do servidor (a nuvem roda em UTC)', () => {
+    const janela = [{ dias: [1], inicio: '18:00', fim: '23:00' }]; // segunda, das 18h às 23h em São Paulo
+    expect(categoriaDisponivelAgora(janela, new Date('2026-11-30T19:30:00Z'))).toBe(false); // 16h30 em SP
+    expect(categoriaDisponivelAgora(janela, new Date('2026-11-30T21:30:00Z'))).toBe(true); // 18h30 em SP
+    expect(categoriaDisponivelAgora(janela, new Date('2026-12-01T02:30:00Z'))).toBe(false); // 23h30 em SP (já é terça em UTC)
   });
 });
