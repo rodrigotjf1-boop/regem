@@ -2535,7 +2535,13 @@ MESMO serviço da tela, com a permissão da rota e o efeito conferido. Dinheiro,
 pela conversa (texto a muitos clientes; na API oficial, modelo aprovado pela Meta): só na tela. Repetir campanha do Clube, da hora
 habitual, agendada, com cupom ou pelo perfil: só na tela. Abono e atestado de ponto: só na tela.
 
-## Versão 10 — a IA conduz e alcança o Regem inteiro (proposta de 25/11/2026, A APROVAR)
+## Versão 10 — a IA conduz e alcança o Regem inteiro (APROVADA pelo dono em 25/11/2026, com a C9 e a C10)
+
+**Aprovação (25/11/2026, à noite):** o dono aprovou a proposta com dois acréscimos, "a única coisa a adicionar ao protótipo, e
+iniciarmos": (1) "até na saída robótica: ideal é a IA tratar também a saída, dar uma variada de vez em quando" (virou a C9); (2) a
+imagem pedida na conversa, "gráficos, ou uma lista, ou uma representação": o pedido do usuário vira um prompt com o contexto do
+Regem, vai ao nanobanana pelo DMS Graph, e a imagem aparece na conversa; "fazemos um teste: se ficar bom continuamos, se não
+deixamos só o protótipo sem esse detalhe" (virou a C10, que começa pelo teste). Valem as recomendadas, V10-1 a V10-12.
 
 Pedido do dono em 25/11, depois da P4a e da P4b de "Pedidos e recebimento": "não podemos ter código para entender tudo que é
 perguntado… parece que temos que cadastrar possíveis perguntas para já ter o código das possíveis ações e respostas; dessa forma
@@ -2561,6 +2567,12 @@ de conseguir. Protótipo: `mockups/regem-mister-v10.html`.
     motivo nem o caminho.
   - **Aprender** é a memória anotada, o modelo por fornecedor e os apelidos (O2). A tarefa feita não é guardada.
   - **O PIN** é só digitado, na página do link (F4.2).
+  - **A resposta é frase de código:** cerca de 340 frases fixas em 16 tabelas `TEXTOS_*` (o "feito" depois do botão, os erros, as
+    perguntas do documento, o lembrete e o desfecho dos avisos). Os avisos escritos pela IA (M4c, `mister-avisos-escritos.ts`,
+    mig 447) valem só em 4 dos 6 grupos e só ao abrir e ao escalar.
+  - **A imagem:** o gráfico desenhado pelo código (M5d.2 e o "refazer" M6i, `mister/grafico/`) sai de 8 consultas fixas. A imagem
+    do DMS Graph (M6l, `criar_imagem`, `MISTER_CRIAR_IMAGEM=1`) é para cartaz e post, nunca saiu de verdade, e a instrução proíbe
+    número da loja nela ("a IA de imagem erra número").
 
 **O princípio.** A IA conversa e decide o caminho; o mapa do Regem diz o que cada função faz e como se confirma; o Regem confere e
 executa pela mesma função da tela; a pessoa confirma. O bloco "Vou fazer" que a pessoa confirma é montado pelo Regem a partir da
@@ -2576,6 +2588,10 @@ proposta, nunca escrito pela IA. Assim o que se confirma é o que acontece, e o 
 | C5 · Falar o PIN | Por pessoa: liga pela conversa, digitando o PIN uma vez, com o aviso do risco. O áudio que chega com um PIN esperando é transcrito e conferido pelo código, antes da IA e da memória; nada é guardado (nem o áudio nem os números); áudio encaminhado não vale (o WhatsApp marca o encaminhado); depois o Mister pede para apagar o áudio; erros falados e digitados somam no bloqueio de 5. Mister › Pessoas mostra quem ligou e o presidente desliga | sim, 1 (a marca por pessoa) |
 | C7 · Aprender pela tarefa feita | A tarefa confirmada vira exemplo da empresa: o pedido nas palavras da pessoa e o que foi feito, sem dado pessoal. A próxima parecida recebe até 3 exemplos. Mister › O que aprendi (ver e esquecer). Ajuste "Aprender pela tarefa feita", sem custo, nasce desligado | sim, 1 (só na nuvem) |
 | C8 · Ideias da semana | Uma vez por semana (dia e hora escolhidos), a IA olha os números pelas análises que já existem e manda até 3 ideias, cada uma com o que os números mostram, a sugestão e "quer que eu faça?". Ajuste "Ideias da semana", desligado, com o preço | sim, 1 (o ajuste) |
+| C9 · A resposta é da IA | O que sai depois do botão, os erros, as perguntas e os avisos (todos os grupos, o lembrete e o desfecho) são escritos pela IA (Haiku) a partir do fato que o Regem dá (o que fez, os números gravados e relidos), no jeito da empresa, sem repetir a abertura das últimas respostas. A conferência da M4c vale para tudo: número que não veio do fato, link ou mais de 5 segundos → a frase fixa de hoje. Ficam fixos: o "Vou fazer", o modelo da Meta fora das 24 horas e a conversa antes de ligar o WhatsApp (código de ligar, telefone não ligado). Ajuste "A IA escreve as respostas", desligado, com o preço | sim, 1 (o ajuste) |
+| C10a · O teste da imagem | A imagem do DMS Graph passa a poder levar números do Regem: só os que vieram das consultas da conversa (o código confere o pedido antes de mostrar "Vou pedir assim"). Depois de gerada, o Regem lê a imagem (Anthropic, a leitura de foto que já existe) e compara cada número do pedido; se algum não bater, a imagem não sai, a pessoa sabe qual número veio errado e escolhe gerar de novo ou o gráfico desenhado pelo Regem. Cada conferência fica gravada (bateu ou não) para medir o teste. Liga só com o `MISTER_CRIAR_IMAGEM=1` que já existe | não |
+| C10b · Qualquer gráfico | O Regem desenha o gráfico de qualquer consulta, não só das 8 de hoje: a IA escolhe a forma (as 5 que o desenho já tem) e os itens, e o código confere que cada número veio de uma consulta da conversa antes de desenhar. Sem custo | não |
+| C10c · A imagem para todos | Só se o teste passar: o ajuste "Imagem na conversa", por empresa, desligado, com o preço (cerca de R$ 0,35 por imagem) | sim, 1 (o ajuste) |
 
 **Decisões, a recomendada primeiro.**
 - V10-1: a IA conversa livre e o "Vou fazer" é montado pelo Regem (× a IA escreve tudo × como hoje).
@@ -2587,7 +2603,16 @@ proposta, nunca escrito pela IA. Assim o que se confirma é o que acontece, e o 
 - V10-6: o motivo, os caminhos e "peço a quem pode" (× o motivo e o link).
 - V10-7: a tarefa confirmada vira exemplo da empresa, com a tela, sem dado pessoal (× sem tela × não guardar).
 - V10-8: ideias uma vez por semana, até 3, desligadas com o preço (× todo dia × só quando pedir).
-- V10-9: a ordem C1, C2, C3, C6, C4, C5, C7, C8.
+- V10-9: a ordem C10a (o teste: o dono testa enquanto o resto segue), C1, C9, C10b, C2, C3, C6, C4, C5, C7, C8 e, se o teste
+  passar, C10c.
+- V10-10: a IA escreve o que sai, menos o "Vou fazer", o modelo da Meta e a conversa antes de ligar, com a frase fixa de reserva
+  (× só os avisos, como hoje × tudo fixo).
+- V10-11: gráfico com número, o Regem desenha (exato, sem custo); representação livre, DMS Graph (nanobanana) com o contexto do
+  Regem e os números conferidos na imagem antes de mandar (× tudo pelo DMS Graph, com a conferência × só o gráfico do Regem).
+  Motivo: modelo de imagem escreve letra e número pelo desenho, e pode trocar um dígito; o gráfico do código não erra número.
+- V10-12: o teste passa se, em 10 imagens diferentes com números da loja pedidas pelo dono, 9 chegarem certas na primeira
+  tentativa e legíveis no celular. Não passou: a imagem com números fica só no protótipo (a regra do dono), e os números seguem
+  pelo gráfico do Regem.
 
 **O risco do PIN falado (dito ao dono em 25/11).** O áudio fica gravado no celular: quem pegar o celular destravado pode ouvir o
 PIN. Por isso a pessoa liga para si sabendo do risco, o Mister pede para apagar o áudio e o digitado continua sempre disponível.
@@ -2597,9 +2622,17 @@ PIN. Por isso a pessoa liga para si sabendo do risco, o Mister pede para apagar 
 - conversa de um documento com o Sonnet nas tarefas: cerca de R$ 0,50 a mais por documento (30 no mês: uns R$ 15);
 - ideias da semana: cerca de R$ 0,45 por semana;
 - montar o mapa uma vez, por conta da DMS: cerca de R$ 60;
-- aprender e PIN falado: quase nada.
+- aprender e PIN falado: quase nada;
+- uma resposta escrita pela IA (Haiku, ~2.000 tokens de entrada e 150 de saída): cerca de R$ 0,002 (600 no mês: uns R$ 1);
+- gráfico desenhado pelo Regem: sem custo;
+- imagem pelo DMS Graph com a conferência: cerca de R$ 0,35 (R$ 0,19 do nanobanana em 1K, US$ 0,0336 com o IOF; R$ 0,15 da
+  leitura da imagem pelo Sonnet, medida na leitura de fotos), e usa 1 da franquia de imagem da conta no DMS Graph (30 por mês na
+  Mister Burguer Steakhouse, dividida com o Liame);
+- o teste da imagem (10 pedidos): cerca de R$ 3,50 e 10 da franquia.
 
 **O que ainda não se sabe.**
 - Se o Haiku conduz bem a conversa do documento ou se precisa do Sonnet (a avaliação real mede).
 - Quantas funções ficam em cada marca (sai na C2).
 - Se a transcrição entende bem os números falados (teste com 20 áudios antes de ligar a C5).
+- Se o nanobanana escreve os números certos na imagem (o teste C10a mede, com cada conferência gravada).
+- Quanto a resposta escrita pela IA atrasa a conversa (o prazo de 5 segundos limita; a avaliação mede o tempo).

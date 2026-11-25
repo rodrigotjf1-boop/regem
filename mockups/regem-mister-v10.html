@@ -8,8 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
-/* REGEM · PROTÓTIPO DO MISTER, VERSÃO 10 (25/11/2026), para aprovação do dono: a IA conduz e alcança o Regem inteiro.
-   A IA conversa e decide o caminho, o mapa do Regem diz o que cada função faz e como se confirma, a pessoa confirma.
+/* REGEM · PROTÓTIPO DO MISTER, VERSÃO 10 (25/11/2026), APROVADO pelo dono em 25/11/2026 com dois acréscimos: a resposta
+   escrita pela IA (C9) e a imagem pedida na conversa (C10, que começa por um teste). A IA conduz e alcança o Regem inteiro:
+   a IA conversa e decide o caminho, o mapa do Regem diz o que cada função faz e como se confirma, a pessoa confirma.
    Os estilos são os da versão 9; os novos vêm no fim. Dados inventados, menos os de "O que achei". */
 :root{
   --bg:#EDF0F4; --card:#FFFFFF; --ink:#0F2230; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
@@ -578,6 +579,22 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
 .passos-g{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:6px}
 .passos-g li{display:grid;grid-template-columns:22px minmax(0,1fr);gap:6px;align-items:start;font-size:14px}
 .passos-g .m{font:700 12px var(--mono);background:#EEF2F6;border-radius:999px;text-align:center;line-height:22px;height:22px}
+/* C10: a imagem que chega na conversa (gráfico desenhado pelo Regem e cartaz do DMS Graph) */
+.img-graf{display:block;background:#fff;border:1px solid #E1E6EA;border-radius:6px;padding:8px 10px 6px;margin-bottom:5px}
+.img-graf > b{display:block;font:700 12.5px var(--display);color:var(--navy);margin-bottom:6px}
+.img-graf .bar{display:grid;grid-template-columns:minmax(0,78px) minmax(0,1fr) auto;gap:6px;align-items:center;font-size:11.5px;margin-bottom:3px}
+.img-graf .bar span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.img-graf .bar i{display:block;height:9px;border-radius:2px;background:var(--navy);width:var(--w)}
+.img-graf .bar.d i{background:var(--gold)}
+.img-graf .bar span:last-child{font:600 11px var(--mono);white-space:nowrap}
+.img-graf small{display:block;font-size:10.5px;color:#5E6E7A;margin-top:4px}
+.img-cartaz{display:grid;place-content:center;justify-items:center;text-align:center;gap:5px;aspect-ratio:1/1;background:radial-gradient(circle at 50% 32%,#2A4A63 0,#0F2230 72%);color:#fff;border-radius:6px;padding:14px;margin-bottom:5px}
+.img-cartaz .ic{font-size:34px;line-height:1}
+.img-cartaz b{font:800 17px/1.15 var(--display);color:var(--gold)}
+.img-cartaz span{font:700 13px var(--mono)}
+.img-cartaz small{font-size:10.5px;color:#C9D5DF}
+.confere{display:block;font-size:13px;background:var(--ok-bg);border-left:3px solid var(--ok);border-radius:4px;padding:4px 8px;margin:4px -3px 2px;color:#0B4A33}
+.confere.erro{background:var(--crit-bg);border-left-color:var(--crit);color:#7A1F1F}
 </style>
 </head>
 <body>
@@ -610,6 +627,8 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
         <li>Todo texto livre vai à IA (Claude, pela API): Haiku no dia a dia, Sonnet nas tarefas e nas análises. Não existe lista de perguntas cadastradas.</li>
         <li>Ela tem <b>55 ferramentas</b> (vendas, estoque, caixa, ponto, delivery, campanhas, financeiro, banco, clima; cada loja ou a soma) e faz <b>43 ações</b>, sempre pela porta da tela, com botão ou PIN.</li>
         <li>Na Mister Burguer, todos os ajustes de IA estão ligados.</li>
+        <li>Os avisos já podem sair escritos pela IA, com a frase fixa de reserva e a conferência dos números. Mas isso vale só em 4 dos 6 grupos, e só quando o aviso abre ou escala.</li>
+        <li>Ele já manda <b>gráfico desenhado pelo Regem</b> (o número é o da consulta, sem custo), mas só em 8 consultas. Também cria imagem pelo <b>DMS Graph</b> (nanobanana), só para cartaz e post: a criação nasce desligada e não pode levar número da loja.</li>
         <li>As 119 perguntas da avaliação são uma prova para medir as mudanças, não o cérebro do Mister.</li>
       </ul>
     </div>
@@ -622,6 +641,8 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
         <li><b>Ele não aprende a tarefa.</b><span>Guarda o que você pede para lembrar, o modelo de cada fornecedor e os apelidos. Não guarda "esta tarefa foi feita assim" para a próxima parecida.</span></li>
         <li><b>Ideia só quando você pergunta.</b><span>Os avisos são 18 tipos fixos e os padrões que ele percebe sozinho são 4. As análises trazem "Minha sugestão", mas só se você pedir.</span></li>
         <li><b>O PIN é só digitado.</b><span>Pela página que o link abre. Não dá para falar.</span></li>
+        <li><b>A resposta ainda é frase de código.</b><span>São cerca de <b>340 frases fixas</b> em 16 tabelas do código: o "feito" depois do botão, os erros, as perguntas do documento, o lembrete e o desfecho dos avisos. A mesma situação sai sempre com as mesmas palavras.</span></li>
+        <li><b>A imagem só sai nos 8 gráficos prontos.</b><span>Fora deles, ele responde em texto. E a imagem do DMS Graph não pode levar os números da loja.</span></li>
       </ol>
     </div>
     <div class="cartao">
@@ -634,6 +655,8 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
         <div><b>Diz o motivo</b><span>Quando não dá, explica por quê e oferece os caminhos para chegar lá.</span></div>
         <div><b>Aprende</b><span>A tarefa que você confirmou vira exemplo da empresa. A próxima parecida sai mais rápida.</span></div>
         <div><b>Sugere</b><span>Toda semana, até 3 ideias a partir dos números, com "quer que eu faça?".</span></div>
+        <div><b>Fala do seu jeito</b><span>A IA também escreve a resposta e varia as palavras. Os números são os que o Regem gravou.</span></div>
+        <div><b>Mostra em imagem</b><span>Qualquer gráfico, desenhado pelo Regem. E a imagem que você pedir, pelo DMS Graph, com os números conferidos antes de chegar.</span></div>
       </div>
     </div>
   </div>
@@ -779,6 +802,73 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
       </article>
 
     </div>
+
+    <h2 class="secao">A resposta é da IA <span class="fase">C9</span></h2>
+    <p class="secao-sub">Depois do botão, o Regem diz à IA o que foi feito e os números que gravou, e a IA escreve a resposta, sem repetir as palavras das últimas. O que você confirma continua montado pelo Regem.</p>
+    <div class="par">
+      <div>
+        <div class="etq"><span class="selo neutro">Hoje</span>a mesma frase, só trocam os números</div>
+        <div class="cel antes"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Quarta, 02/12</div>
+          <div class="toque">tocou em Lançar</div>
+          <div class="bolha dele larga"><span class="robo">✅ Feito em Estoque › Produtos: entrada de 10 kg de Bacon fatiado. Saldo agora: 14 kg.</span><span class="hora">10:12</span></div>
+          <div class="dia-wa">Sábado, 05/12</div>
+          <div class="toque">tocou em Lançar</div>
+          <div class="bolha dele larga"><span class="robo">✅ Feito em Estoque › Produtos: entrada de 6 kg de Bacon fatiado. Saldo agora: 9 kg.</span><span class="hora">09:47</span></div>
+        </div></div>
+      </div>
+      <div>
+        <div class="etq"><span class="selo ok">Versão 10</span>a IA escreve, com os números do Regem</div>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Quarta, 02/12</div>
+          <div class="toque">tocou em Lançar</div>
+          <div class="bolha dele larga">Pronto, entraram os 10 kg de bacon. O estoque ficou com <b>14 kg</b>.<span class="hora">10:12</span></div>
+          <div class="dia-wa">Sábado, 05/12</div>
+          <div class="toque">tocou em Lançar</div>
+          <div class="bolha dele larga">Lancei os 6 kg de bacon. Ficou com <b>9 kg</b>, ainda abaixo do mínimo de 12 kg. Quer que eu ponha no próximo pedido?<span class="hora">09:47</span></div>
+        </div></div>
+        <p class="sub peq">Os números são os que o Regem gravou e releu. Se a IA passar de 5 segundos, ou escrever um número que não veio do Regem, vai a frase de hoje. Continuam fixos: o "Vou fazer", o modelo da Meta fora das 24 horas e a conversa com quem ainda não ligou o WhatsApp.</p>
+      </div>
+    </div>
+
+    <h2 class="secao">Mostrar em imagem <span class="fase">C10</span></h2>
+    <p class="secao-sub">Gráfico com números: o Regem desenha, com o número exato da consulta, sem custo. Representação livre (cartaz, infográfico): a IA monta o pedido com o contexto do Regem, o DMS Graph (nanobanana) gera a imagem e o Regem confere os números nela antes de mandar. Começa por um teste.</p>
+    <div class="celulares">
+
+      <article class="caso"><h3>Qualquer gráfico</h3><p class="sub">Desenhado pelo Regem, de qualquer consulta, não só das 8 de hoje. <span class="fase">C10b</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Terça, 01/12</div>
+          <div class="bolha meu">me mostra num gráfico as contas de novembro por categoria<span class="hora">08:20</span></div>
+          <div class="bolha dele com-foto"><span class="img-graf" role="img" aria-label="Gráfico de barras das contas de novembro por categoria: Fornecedores R$ 18.420, Folha R$ 14.900, Aluguel R$ 6.500, Energia R$ 2.310 e Marketing R$ 1.180"><b>Contas de novembro · R$ 43.310</b>
+            <span class="bar d"><span>Fornecedores</span><i style="--w:100%"></i><span>18.420</span></span>
+            <span class="bar"><span>Folha</span><i style="--w:81%"></i><span>14.900</span></span>
+            <span class="bar"><span>Aluguel</span><i style="--w:35%"></i><span>6.500</span></span>
+            <span class="bar"><span>Energia</span><i style="--w:13%"></i><span>2.310</span></span>
+            <span class="bar"><span>Marketing</span><i style="--w:6%"></i><span>1.180</span></span>
+            <small>Mister Burger · Financeiro › Contas · lido em 01/12 08:20</small></span>Novembro fechou com <b>R$ 43.310</b> em contas. Fornecedores são a maior parte: <b>43%</b>.<span class="hora">08:20</span></div>
+        </div></div>
+        <p class="sub peq">A IA escolhe a forma (barras, linha, pizza, tabela) e os itens. O código confere que cada número veio da consulta antes de desenhar.</p>
+      </article>
+
+      <article class="caso"><h3>Uma imagem pedida do seu jeito</h3><p class="sub">O pedido vai ao DMS Graph com o contexto do Regem. <span class="fase">C10a · teste</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Terça, 01/12</div>
+          <div class="bolha meu">faz uma imagem pra eu mandar no grupo da equipe: novembro foi o melhor mês do ano<span class="hora">11:02</span></div>
+          <div class="bolha dele larga">Conferi no Regem: novembro vendeu <b>R$ 98.400</b>, o maior mês de 2026 (o segundo foi outubro, R$ 91.250), com <b>3.120 pedidos</b>.
+            <span class="prop"><b>Vou pedir assim ao DMS Graph</b>Cartaz quadrado para a equipe da Mister Burger. Fundo azul-marinho, detalhes dourados, um hambúrguer com coroa. Texto exato: "Novembro, o melhor mês do ano!" e "R$ 98.400 · 3.120 pedidos". Sem pessoas e sem dado de cliente.<span class="montado">USA 1 DA FRANQUIA DE IMAGEM · 12 DE 30 EM DEZEMBRO</span></span>
+            <div class="botoes-wa dois"><span>Gerar</span><span>Mudar</span></div><span class="hora">11:02</span></div>
+          <div class="toque">tocou em Gerar</div>
+          <div class="bolha dele com-foto"><span class="img-cartaz" role="img" aria-label="Cartaz azul-marinho com um hambúrguer de coroa e os textos: Novembro, o melhor mês do ano! e R$ 98.400 · 3.120 pedidos"><span class="ic" aria-hidden="true">🍔</span><b>Novembro, o melhor mês do ano!</b><span>R$ 98.400 · 3.120 pedidos</span><small>Mister Burger</small></span><span class="confere">Conferi a imagem: R$ 98.400 e 3.120 pedidos, como no Regem.</span><span class="hora">11:03</span></div>
+        </div></div>
+        <p class="sub peq">Os números do pedido saem das consultas da conversa: número que não veio do Regem não vai ao DMS Graph.</p>
+      </article>
+
+      <article class="caso"><h3>Quando a imagem erra o número</h3><p class="sub">Ela não chega, e você escolhe outro caminho. <span class="fase">C10a · teste</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>administrador virtual</span></div></div><div class="conv"><div class="dia-wa">Terça, 01/12</div>
+          <div class="toque">tocou em Gerar</div>
+          <div class="bolha dele larga"><span class="confere erro">A imagem saiu com R$ 89.400 no lugar de R$ 98.400.</span>Não te mandei, para não circular número errado no grupo. Essa tentativa já usou 1 da franquia. Posso gerar de novo (mais 1, ficaria 14 de 30) ou fazer em gráfico, desenhado pelo Regem, sem custo.
+            <div class="botoes-wa dois"><span>Gerar de novo</span><span>Fazer em gráfico</span></div><span class="hora">11:03</span></div>
+        </div></div>
+        <p class="sub peq">Antes de mandar, o Regem lê a imagem gerada e compara cada número com o do pedido. No teste, cada conferência fica gravada: bateu ou não bateu.</p>
+      </article>
+
+    </div>
   </div>
 </section>
 
@@ -868,7 +958,7 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
   <div class="pagina">
     <div class="cab">
       <h1 id="h-loja">Na loja</h1>
-      <p class="sub">Duas partes novas no Mister e dois ajustes na Conversa. O que tem custo nasce desligado, com o preço ao lado. Só o presidente mexe.</p>
+      <p class="sub">Duas partes novas no Mister e quatro ajustes na Conversa. O que tem custo nasce desligado, com o preço ao lado. Só o presidente mexe.</p>
     </div>
     <div class="app">
       <aside class="lado" aria-label="Menu do app"><div class="marca">Regem</div><ul><li>Painel</li><li>Estoque</li><li>Delivery</li><li>Financeiro</li><li class="atual">Mister</li><li>Configurações</li></ul></aside>
@@ -910,6 +1000,8 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
               <div class="grupo-aj">Conversa <span>Como o Mister entende, faz e sugere</span></div>
               <div class="aj"><div><div class="t" id="aj-ideias">Ideias da semana <span class="selo info">novo</span></div><div class="d">Toda semana a IA olha os números da loja e manda até 3 ideias, cada uma com "quer que eu faça?". Vai para o presidente.</div><span class="preco">Cerca de R$ 0,45 por semana; uns R$ 2 por mês</span></div><div class="ctrl"><label class="sr" for="dia-ideias">Quando</label><select id="dia-ideias"><option>Segunda às 9h</option><option>Domingo às 20h</option><option>Sexta às 9h</option></select><button class="liga" role="switch" aria-checked="false" aria-labelledby="aj-ideias"></button></div></div>
               <div class="aj"><div><div class="t" id="aj-aprender">Aprender pela tarefa feita <span class="selo info">novo</span></div><div class="d">A tarefa que alguém confirmou vira exemplo para a próxima parecida. Você vê e esquece em "O que aprendi". Sem custo.</div></div><div class="ctrl"><button class="liga" role="switch" aria-checked="false" aria-labelledby="aj-aprender"></button></div></div>
+              <div class="aj"><div><div class="t" id="aj-resposta">A IA escreve as respostas <span class="selo info">novo</span></div><div class="d">O "feito", os erros e as perguntas saem escritos pela IA, no jeito da empresa, variando as palavras. Os números são os do Regem; se ela passar de 5 segundos ou errar um número, vai a frase fixa. Os avisos seguem o ajuste de cada grupo, que passa a valer em todos os grupos, no lembrete e no desfecho.</div><span class="preco">Cerca de R$ 0,002 por mensagem; com 600 mensagens no mês, uns R$ 1</span></div><div class="ctrl"><button class="liga" role="switch" aria-checked="false" aria-labelledby="aj-resposta"></button></div></div>
+              <div class="aj"><div><div class="t" id="aj-imagem">Imagem na conversa <span class="selo info">novo</span></div><div class="d">Quando alguém pede uma imagem (cartaz, representação, infográfico), a IA monta o pedido com os números do Regem, o DMS Graph gera a imagem e o Regem confere os números nela antes de mandar. Usa a franquia de imagem do DMS Graph. Gráfico desenhado pelo Regem não usa franquia nem custa. Só entra se o teste passar.</div><span class="preco">Cerca de R$ 0,35 por imagem (R$ 0,19 do DMS Graph e R$ 0,15 da conferência); com 10 no mês, uns R$ 3,50</span></div><div class="ctrl"><button class="liga" role="switch" aria-checked="false" aria-labelledby="aj-imagem"></button></div></div>
               <div class="aj"><div><div class="t" id="aj-forte">IA mais forte nas tarefas <span class="ja">já existe</span></div><div class="d">A conversa dos documentos passa a usar este modelo enquanto a tarefa está aberta.</div><span class="preco">Cerca de R$ 0,50 a mais por documento; com 30 documentos no mês, uns R$ 15</span></div><div class="ctrl"><button class="liga" role="switch" aria-checked="true" aria-labelledby="aj-forte"></button></div></div>
             </div>
           </div>
@@ -941,7 +1033,7 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
   <div class="pagina notas">
     <div class="cab">
       <h1 id="h-notas">Notas e decisões</h1>
-      <p class="sub">As fases e o que precisa da sua decisão. Em cada decisão, a recomendada vem primeiro. Cada fase entra num PR, com a avaliação.</p>
+      <p class="sub">Aprovado pelo dono em 25/11/2026, com dois acréscimos: a resposta escrita pela IA (C9) e a imagem na conversa (C10). Em cada decisão, a recomendada vem primeiro e é a que vale. Cada fase entra num PR, com a avaliação.</p>
     </div>
     <div class="cartao">
       <h2>As fases</h2>
@@ -956,6 +1048,10 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
           <tr><td data-rot="Fase">C5 · Falar o PIN</td><td data-rot="O que entra">Por pessoa, ligado pela conversa com o PIN digitado uma vez. O áudio que chega com um PIN esperando é conferido pelo código; nada guardado; encaminhado não vale; erros falados e digitados somam</td><td data-rot="Migration">sim, 1 (a marca por pessoa)</td><td data-rot="Depende de">—</td></tr>
           <tr><td data-rot="Fase">C7 · Aprender pela tarefa feita</td><td data-rot="O que entra">A tarefa confirmada vira exemplo da empresa (o pedido nas palavras da pessoa e o que foi feito, sem dado pessoal); a próxima parecida recebe os exemplos. Mister › O que aprendi</td><td data-rot="Migration">sim, 1 (só na nuvem)</td><td data-rot="Depende de">C1</td></tr>
           <tr><td data-rot="Fase">C8 · Ideias da semana</td><td data-rot="O que entra">Toda semana a IA olha os números e manda até 3 ideias, com "quer que eu faça?". Desligada, com o preço</td><td data-rot="Migration">sim, 1 (o ajuste)</td><td data-rot="Depende de">C4</td></tr>
+          <tr><td data-rot="Fase">C9 · A resposta é da IA</td><td data-rot="O que entra">O que sai depois do botão, os erros, as perguntas e os avisos (todos os grupos, o lembrete e o desfecho) são escritos pela IA a partir do que o Regem fez, sem repetir as últimas palavras. Frase fixa de reserva (5 segundos ou número que não veio do Regem). Fixos: o "Vou fazer", o modelo da Meta e a conversa antes de ligar</td><td data-rot="Migration">sim, 1 (o ajuste)</td><td data-rot="Depende de">—</td></tr>
+          <tr><td data-rot="Fase">C10a · O teste da imagem</td><td data-rot="O que entra">A imagem do DMS Graph passa a levar os números do Regem que vieram das consultas da conversa. Antes de mandar, o Regem lê a imagem gerada e confere cada número; errou, não manda e oferece gerar de novo ou o gráfico. Cada conferência fica gravada. Liga só com a chave que já existe, que você liga, para o teste</td><td data-rot="Migration">não</td><td data-rot="Depende de">—</td></tr>
+          <tr><td data-rot="Fase">C10b · Qualquer gráfico</td><td data-rot="O que entra">O Regem desenha o gráfico de qualquer consulta, não só das 8 de hoje: a IA escolhe a forma e os itens, e o código confere cada número. Sem custo</td><td data-rot="Migration">não</td><td data-rot="Depende de">—</td></tr>
+          <tr><td data-rot="Fase">C10c · A imagem para todos</td><td data-rot="O que entra">Só se o teste passar: o ajuste "Imagem na conversa", por empresa, com o preço</td><td data-rot="Migration">sim, 1 (o ajuste)</td><td data-rot="Depende de">C10a passar</td></tr>
         </tbody>
       </table>
     </div>
@@ -969,7 +1065,10 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
       <div class="decisao"><h3>V10-6 · Quando não dá</h3><ol><li>O motivo, os caminhos e "peço a quem pode" <span class="rec">recomendada</span></li><li>O motivo e o link da tela</li></ol></div>
       <div class="decisao"><h3>V10-7 · O que ele aprende</h3><ol><li>A tarefa confirmada vira exemplo da empresa, com a tela para ver e esquecer, sem dado pessoal <span class="rec">recomendada</span></li><li>Guardar sem tela</li><li>Não guardar</li></ol></div>
       <div class="decisao"><h3>V10-8 · Ideias sem pedir</h3><ol><li>Uma vez por semana, até 3, desligada e com o preço <span class="rec">recomendada</span></li><li>Todo dia</li><li>Só quando pedir, como hoje</li></ol></div>
-      <div class="decisao"><h3>V10-9 · A ordem</h3><ol><li>C1, C2, C3, C6, C4, C5, C7, C8 <span class="rec">recomendada</span></li><li>Outra ordem, que você indicar</li></ol></div>
+      <div class="decisao"><h3>V10-9 · A ordem</h3><ol><li>C10a (o teste: você testa enquanto eu sigo), C1, C9, C10b, C2, C3, C6, C4, C5, C7, C8 e, se o teste passar, C10c <span class="rec">recomendada</span></li><li>Outra ordem, que você indicar</li></ol></div>
+      <div class="decisao"><h3>V10-10 · Quem escreve a resposta</h3><ol><li>A IA escreve o que sai, menos o "Vou fazer", o modelo da Meta e a conversa antes de ligar; frase fixa de reserva <span class="rec">recomendada</span></li><li>Só os avisos, como hoje</li><li>Tudo fixo</li></ol></div>
+      <div class="decisao"><h3>V10-11 · A imagem pedida na conversa</h3><ol><li>Gráfico com número: o Regem desenha (número exato, sem custo). Representação livre: DMS Graph (nanobanana) com o contexto do Regem e os números conferidos antes de mandar <span class="rec">recomendada</span></li><li>Tudo pelo DMS Graph, com a conferência</li><li>Só o gráfico desenhado pelo Regem</li></ol></div>
+      <div class="decisao"><h3>V10-12 · Quando o teste da imagem passa</h3><ol><li>Você pede 10 imagens diferentes com números da loja: passa se 9 chegarem certas na primeira tentativa e legíveis no celular. Se não passar, a imagem com números fica só no protótipo <span class="rec">recomendada</span></li><li>Outro critério, que você indicar</li></ol></div>
     </div>
     <div class="dois-lados">
       <div class="cartao">
@@ -980,6 +1079,10 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
           <div><span>Ideias da semana (Sonnet)</span><b>R$ 0,45 por semana</b></div>
           <div><span>Montar o mapa, uma vez, por conta da DMS</span><b>cerca de R$ 60</b></div>
           <div><span>Aprender e PIN falado</span><b>quase nada</b></div>
+          <div><span>Uma resposta escrita pela IA (Haiku)</span><b>cerca de R$ 0,002</b></div>
+          <div><span>Gráfico desenhado pelo Regem</span><b>sem custo</b></div>
+          <div><span>Imagem pelo DMS Graph, com a conferência</span><b>cerca de R$ 0,35</b></div>
+          <div><span>O teste da imagem (10 pedidos)</span><b>cerca de R$ 3,50 e 10 da franquia</b></div>
         </div>
         <p class="sub peq">Pela tabela do Claude (Haiku 5.5: US$ 0,10 e 0,50 por milhão de tokens; Sonnet 5.5: US$ 2 e 10), com o dólar a R$ 5,50. O real aparece em Mister › IA e uso.</p>
       </div>
@@ -989,6 +1092,8 @@ details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--
           <li>Se o Haiku conduz bem a conversa do documento ou se precisa do Sonnet: a avaliação com o modelo real mede.</li>
           <li>Quantas das 1.275 funções ficam em cada marca: sai na C2.</li>
           <li>Se a transcrição entende bem os números falados: teste com 20 áudios antes de ligar.</li>
+          <li>Se o nanobanana escreve os números certos na imagem: o teste C10a mede, com cada conferência gravada.</li>
+          <li>Quanto a resposta escrita pela IA atrasa a conversa: o prazo de 5 segundos limita, e a avaliação mede o tempo.</li>
         </ul>
       </div>
     </div>
