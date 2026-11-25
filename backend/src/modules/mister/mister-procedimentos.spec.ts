@@ -36,7 +36,7 @@ describe('o catálogo das propostas do Mister', () => {
   it('os de botão valem 10 minutos e nascem de um aviso; o cancelamento é de PIN, vale 15 minutos e nasce da pergunta', () => {
     for (const p of Object.values(PROCEDIMENTOS)) {
       // M6d: a sessão com PIN também é de PIN, vale 15 minutos e nasce da conversa.
-      if (p.id === 'cancelar_pedido' || p.id === 'abrir_sessao' || p.id === 'mudar_preco' || p.id === 'mudar_horario' || p.id === 'pagar_conta' || p.id === 'criar_cupom' || p.id === 'lancar_conta' || p.id === 'classificar_banco' || p.id === 'fechar_caixa' || p.id === 'sangria' || p.id === 'pagar_entregador' || p.id === 'incluir_marcacao' || p.id === 'desconsiderar_marcacao') expect(p).toMatchObject({ nivel: 'pin', prazoMin: 15, tipoDoAviso: null });
+      if (p.id === 'cancelar_pedido' || p.id === 'abrir_sessao' || p.id === 'mudar_preco' || p.id === 'mudar_horario' || p.id === 'pagar_conta' || p.id === 'criar_cupom' || p.id === 'lancar_conta' || p.id === 'classificar_banco' || p.id === 'fechar_caixa' || p.id === 'sangria' || p.id === 'pagar_entregador' || p.id === 'incluir_marcacao' || p.id === 'desconsiderar_marcacao' || p.id === 'promocao_do_produto') expect(p).toMatchObject({ nivel: 'pin', prazoMin: 15, tipoDoAviso: null });
       else expect(p).toMatchObject({ nivel: 'botao', prazoMin: p.id === 'criar_imagem' ? 30 : 10 });
       // M6j: as ações da porta `propor_acao` são de botão e nascem da conversa (de quem pediu), não de um aviso.
       if (p.nivel === 'botao') expect(p.tipoDoAviso === null).toBe(ehAcaoDoMister(p.id));

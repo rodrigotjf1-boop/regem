@@ -65,6 +65,7 @@ import { MOTIVO_MINIMO, nomeDoCaixa, resumoDaSangria, resumoDoFechamento, type P
 import { acharEntregador, recusaDoAcerto, resumoDoPagamento, type LinhaDoAcerto, type ParametrosDoEntregador } from './mister-acoes-entregador';
 import { marcacoesDoDia, resumoDoPonto, type ParametrosDoPonto } from './mister-acoes-ponto';
 import { NOME_DO_CANAL, resumoDoEnvio, type ParametrosDoEnvio } from './mister-acoes-compra';
+import { conferirPromocao, reaisCardapio, resumoDaPromocao, resumoDoProdutoNovo, type ParametrosDoCardapio } from './mister-acoes-cardapio';
 import { agendadosParaDepois, pendenciasDoTurno } from '../delivery/pendencias-turno';
 import { ModuleRef } from '@nestjs/core';
 import type { ParametrosDeCadastro } from './mister-acoes-cadastro';
@@ -432,6 +433,14 @@ export class MisterAcoesService implements OnModuleInit {
         Object.assign(parametros, { entregadorId: l.colaboradorId, nomeDoEntregador: l.nome, entregas: l.entregas, diaria: l.diaria, taxas: l.taxas, total: l.total, periodo: l.periodo });
         resumo = resumoDoPagamento(l);
         alvo = `entregador:${l.colaboradorId}`;
+      }
+      if (c.parametros.acao === 'criar_categoria' || c.parametros.acao === 'criar_produto' || c.parametros.acao === 'promocao_do_produto') {
+        // Etapa 7 (24/11): o cardápio pelo serviço de Cadastros › Cardápio.
+        const r = await this.prepararCardapio(e, c.parametros as ParametrosDoCardapio, e.lojaUnica && !loja.atual ? null : lojas);
+        if ('erro' in r) return recusa(r.erro);
+        Object.assign(parametros, r.parametros);
+        resumo = r.resumo;
+        alvo = r.alvo;
       }
       if (c.parametros.acao === 'pedido_enviado') {
         // Etapa 6 (24/11): o pedido de compra pelo nome ou pelo fornecedor (a mesma busca da exclusão).
@@ -1040,6 +1049,94 @@ export class MisterAcoesService implements OnModuleInit {
       return { feita: true, texto: `Marquei o pedido "${x.nomeDoPedido}" como enviado ao fornecedor pelo ${NOME_DO_CANAL[x.canal]}. Está em Estoque › Pedidos.` };
     } catch (err: any) {
       return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240)) };
+    }
+  }
+
+  /** Etapa 7 (24/11): a categoria e o produto novos (sem repetir o nome) e a promoção (menor que o preço normal). */
+  private async prepararCardapio(
+    e: EscopoDoMister,
+    x: ParametrosDoCardapio,
+    lojas: string[] | null,
+  ): Promise<{ parametros: Record<string, unknown>; resumo: string; alvo: string } | { erro: string }> {
+    if (x.acao === 'criar_categoria') {
+      const [ja] = linhas(
+        await this.db.execute(sql`select nome from categoria_produto where tenant_id = ${e.tenantId}::uuid and deleted_at is null and lower(nome) = lower(${x.nome}) limit 1`),
+      );
+      if (ja) return { erro: TEXTOS_DAS_ACOES.categoriaJaExiste(String(ja.nome)) };
+      return { parametros: {}, resumo: `Criar a categoria "${x.nome}" em Cadastros › Cardápio, no fim da lista (sem produtos ainda).`, alvo: `categoria:${semAcento(x.nome)}` };
+    }
+    if (x.acao === 'criar_produto') {
+      const [ja] = linhas(
+        await this.db.execute(sql`select nome from produto where tenant_id = ${e.tenantId}::uuid and deleted_at is null and lower(nome) = lower(${x.nome}) limit 1`),
+      );
+      if (ja) return { erro: TEXTOS_DAS_ACOES.produtoJaExiste(String(ja.nome)) };
+      let categoria: { id: string; nome: string } | null = null;
+      if (x.categoria) {
+        const achadas = linhas(
+          await this.db.execute(sql`
+            select id::text as id, nome from categoria_produto
+             where tenant_id = ${e.tenantId}::uuid and deleted_at is null and coalesce(ativo, true) and nome ilike ${comoTexto(x.categoria)}
+             order by nome limit 6`),
+        );
+        const r = escolherUm(achadas, x.categoria, (a) => String(a.nome), TEXTOS_DAS_ACOES.categoriaNaoAchada, TEXTOS_DAS_ACOES.categoriasDemais, (a) => ({ id: String(a.id), nome: String(a.nome) }));
+        if ('erro' in r) return r;
+        categoria = r;
+      }
+      return {
+        parametros: { categoriaId: categoria?.id ?? null, categoriaNome: categoria?.nome ?? null },
+        resumo: resumoDoProdutoNovo(x, categoria?.nome ?? null),
+        alvo: `produto-novo:${semAcento(x.nome)}`,
+      };
+    }
+    const pr = await this.acharProduto(e.tenantId, x.produto, lojas);
+    if ('erro' in pr) return pr;
+    const [p] = linhas(await this.db.execute(sql`select preco_venda::float8 as "precoVenda", preco_promocional::float8 as "precoPromocional" from produto where id = ${pr.id}::uuid`));
+    const atual = { nome: pr.nome, precoVenda: Number(p?.precoVenda ?? 0), precoPromocional: p?.precoPromocional == null ? null : Number(p.precoPromocional) };
+    const nao = conferirPromocao(atual, x.precoPromocional);
+    if (nao) return { erro: nao };
+    return {
+      parametros: { produtoId: pr.id, nomeDoProduto: pr.nome, precoVenda: atual.precoVenda, promocaoDeAntes: atual.precoPromocional },
+      resumo: resumoDaPromocao(atual, x.precoPromocional),
+      alvo: `promocao:${pr.id}`,
+    };
+  }
+
+  /** Cria e muda pelo MESMO serviço de Cadastros › Cardápio e confere o que ficou gravado. */
+  private async aplicarCardapio(
+    p: { id: string; tenantId: string; unidadeId: string | null },
+    x: ParametrosDoCardapio & { categoriaId?: string | null; categoriaNome?: string | null; produtoId?: string; nomeDoProduto?: string; promocaoDeAntes?: number | null },
+    e: EscopoDoMister,
+    quem: string,
+  ): Promise<{ feita: boolean; texto: string }> {
+    if (!this.produtos) return { feita: false, texto: 'isso não está disponível agora. Nada foi feito.' };
+    const motivo = (err: any) => String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240);
+    try {
+      if (x.acao === 'criar_categoria') {
+        const c: any = await (this.produtos as any).criarCategoria(p.tenantId, { nome: x.nome });
+        const [ok] = linhas(await this.db.execute(sql`select nome from categoria_produto where id = ${c?.id ?? null}::uuid and tenant_id = ${p.tenantId}::uuid`));
+        return ok ? { feita: true, texto: `Criei a categoria "${ok.nome}" em Cadastros › Cardápio.` } : { feita: false, texto: 'a categoria não apareceu em Cadastros › Cardápio. Confira lá.' };
+      }
+      if (x.acao === 'criar_produto') {
+        const [ja] = linhas(await this.db.execute(sql`select 1 from produto where tenant_id = ${p.tenantId}::uuid and deleted_at is null and lower(nome) = lower(${x.nome}) limit 1`));
+        if (ja) return { feita: false, texto: TEXTOS_DAS_ACOES.produtoJaExiste(x.nome) };
+        const dto: Record<string, unknown> = { nome: x.nome, precoVenda: x.preco, controlaEstoque: false, ...(x.categoriaId ? { categoriaId: x.categoriaId } : {}), ...(x.descricao ? { descricao: x.descricao } : {}) };
+        const novo: any = await (this.produtos as any).criar(p.tenantId, quem, e.nivel, dto);
+        const [ok] = linhas(await this.db.execute(sql`select nome, preco_venda::float8 as preco from produto where id = ${novo?.id ?? null}::uuid and tenant_id = ${p.tenantId}::uuid and deleted_at is null`));
+        if (!ok || Math.abs(Number(ok.preco) - x.preco) > 0.005) return { feita: false, texto: 'o produto não apareceu em Cadastros › Cardápio. Confira lá.' };
+        return { feita: true, texto: `Criei o produto "${ok.nome}" por ${reaisCardapio(x.preco)}${x.categoriaNome ? ` na categoria "${x.categoriaNome}"` : ''}. A foto, a ficha técnica e o código PDV ficam em Cadastros › Cardápio.` };
+      }
+      const [antes] = linhas(await this.db.execute(sql`select preco_promocional::float8 as promo from produto where id = ${String(x.produtoId)}::uuid and tenant_id = ${p.tenantId}::uuid`));
+      const promoAntes = antes?.promo == null ? null : Number(antes.promo);
+      if ((promoAntes ?? -1) !== (x.promocaoDeAntes ?? -1)) return { feita: false, texto: 'A promoção desse produto mudou desde a pergunta. Nada foi feito: peça de novo.' };
+      await (this.produtos as any).atualizar(p.tenantId, String(x.produtoId), { precoPromocional: x.precoPromocional });
+      const [ok] = linhas(await this.db.execute(sql`select preco_promocional::float8 as promo from produto where id = ${String(x.produtoId)}::uuid and tenant_id = ${p.tenantId}::uuid`));
+      const agora = ok?.promo == null ? null : Number(ok.promo);
+      if (agora !== x.precoPromocional) return { feita: false, texto: 'a promoção não ficou gravada. Confira em Cadastros › Cardápio.' };
+      return x.precoPromocional === null
+        ? { feita: true, texto: `Tirei a promoção de "${x.nomeDoProduto}": o preço voltou ao normal no cardápio digital.` }
+        : { feita: true, texto: `Pus "${x.nomeDoProduto}" em promoção por ${reaisCardapio(x.precoPromocional)} no cardápio digital. Fica até alguém tirar.` };
+    } catch (err: any) {
+      return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(motivo(err)) };
     }
   }
 
@@ -1823,6 +1920,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (parametros.acao === 'pagar_entregador') return this.aplicarEntregador(p, parametros as any, quem);
     if (parametros.acao === 'incluir_marcacao' || parametros.acao === 'desconsiderar_marcacao') return this.aplicarPonto(p, parametros as any, e, quem);
     if (parametros.acao === 'pedido_enviado') return this.aplicarEnvio(p, parametros as any, quem);
+    if (parametros.acao === 'criar_categoria' || parametros.acao === 'criar_produto' || parametros.acao === 'promocao_do_produto') return this.aplicarCardapio(p, parametros as any, e, quem);
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };

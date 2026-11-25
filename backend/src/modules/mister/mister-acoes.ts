@@ -20,6 +20,7 @@ import { conferirCaixa, type ParametrosDoCaixa } from './mister-acoes-caixa';
 import { conferirEntregador, type ParametrosDoEntregador } from './mister-acoes-entregador';
 import { conferirPonto, type ParametrosDoPonto } from './mister-acoes-ponto';
 import { conferirEnvio, type ParametrosDoEnvio } from './mister-acoes-compra';
+import { conferirCardapio, type ParametrosDoCardapio } from './mister-acoes-cardapio';
 import { NOMES_DOS_DIAS, ehHoraDoDia, horasDaJanela, lerDiaDaSemana, textoDaJanela, type JanelaDoDia } from '../../common/horarios-da-loja';
 
 // AS AÇÕES DO MISTER — a porta `propor_acao` (versão 6, M6j; plano aprovado em 20/11/2026, `docs/plano-mister.md` § "Versão
@@ -83,6 +84,10 @@ export const ACOES_DO_MISTER = [
   'desconsiderar_marcacao',
   // Etapa 6 de 24/11: o pedido de compra marcado como enviado ao fornecedor.
   'pedido_enviado',
+  // Etapa 7 de 24/11: o cardápio — categoria nova, produto novo e a promoção "de/por".
+  'criar_categoria',
+  'criar_produto',
+  'promocao_do_produto',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -161,6 +166,11 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   // A rota do pagamento (Delivery › Entregadores) pede o Delivery; é dinheiro saindo do caixa de entregas: PIN e "Ver valores".
   // As rotas de Gerenciamento de ponto: incluir pede ponto.criar e o ajuste, ponto.editar. Mexe na jornada (e no salário): PIN.
   // A rota "Marcar como enviado" de Estoque › Pedidos pede estoque.criar. Só registra o que a pessoa diz: botão.
+  // Cadastros › Cardápio pede a permissão da loja (como o "mudar produto"). Criar não muda o que já existe: botão. A promoção é
+  // preço: PIN e "Ver valores", como o preço do canal.
+  criar_categoria: { id: 'criar_categoria', nivel: 'botao', permissao: 'loja', prazoMin: 10, nome: 'criar uma categoria do cardápio' },
+  criar_produto: { id: 'criar_produto', nivel: 'botao', permissao: 'loja', prazoMin: 10, nome: 'criar um produto do cardápio' },
+  promocao_do_produto: { id: 'promocao_do_produto', nivel: 'pin', permissao: 'loja', prazoMin: 15, nome: 'pôr ou tirar a promoção de um produto', pedeVerValores: true },
   pedido_enviado: { id: 'pedido_enviado', nivel: 'botao', permissao: 'estoque', crud: 'criar', prazoMin: 10, nome: 'marcar um pedido de compra como enviado' },
   incluir_marcacao: { id: 'incluir_marcacao', nivel: 'pin', permissao: 'ponto', crud: 'criar', prazoMin: 15, nome: 'incluir uma marcação de ponto' },
   desconsiderar_marcacao: { id: 'desconsiderar_marcacao', nivel: 'pin', permissao: 'ponto', crud: 'editar', prazoMin: 15, nome: 'desconsiderar uma marcação de ponto' },
@@ -508,7 +518,8 @@ export type ParametrosDaAcao =
   | ParametrosDoCaixa
   | ParametrosDoEntregador
   | ParametrosDoPonto
-  | ParametrosDoEnvio;
+  | ParametrosDoEnvio
+  | ParametrosDoCardapio;
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -526,6 +537,7 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
   if (acao === 'pagar_entregador') return conferirEntregador(en);
   if (acao === 'incluir_marcacao' || acao === 'desconsiderar_marcacao') return conferirPonto(acao, en);
   if (acao === 'pedido_enviado') return conferirEnvio(en);
+  if (acao === 'criar_categoria' || acao === 'criar_produto' || acao === 'promocao_do_produto') return conferirCardapio(acao, en);
   if (acao === 'pausar_canal' || acao === 'reabrir_canal') {
     const brutos = Array.isArray(en.canais) ? en.canais : en.canal !== undefined ? [en.canal] : [];
     const canais = [...new Set(brutos.map(lerCanal))];
@@ -735,7 +747,9 @@ export const TEXTOS_DAS_ACOES = {
   semPermissaoCupons: 'O seu perfil no Regem não dá acesso aos Cupons: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
   semPermissaoCadastros: 'O seu perfil no Regem não dá acesso aos Cadastros (Fornecedores): essa ação não sai por aqui. Quem muda o perfil é o presidente.',
   semPermissaoEscalas: 'O seu perfil no Regem não permite mudar a Escala: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
-  categoriaNaoAchada: 'Não achei essa categoria em Cadastros › Cardápio › Categorias. Diga o nome como está lá; categoria nova se cria na tela.',
+  categoriaNaoAchada: 'Não achei essa categoria em Cadastros › Cardápio › Categorias. Diga o nome como está lá — ou peça para criar a categoria antes.',
+  categoriaJaExiste: (nome: string) => `Já existe a categoria "${nome}" em Cadastros › Cardápio.`,
+  produtoJaExiste: (nome: string) => `Já existe o produto "${nome}" no cardápio. Para mudar, peça para mudar o produto.`,
   categoriasDemais: (nomes: string) => `Achei mais de uma categoria com esse nome: ${nomes}. Qual delas?`,
   pessoaNaoAchada: 'Não achei essa pessoa entre os colaboradores ativos da loja. Diga o nome como está em Pessoas.',
   pessoasDemais: (nomes: string) => `Achei mais de uma pessoa com esse nome: ${nomes}. Qual delas?`,
