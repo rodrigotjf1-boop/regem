@@ -402,6 +402,9 @@ export class ComprasService {
     atorId?: string | null,
     dto?: ReceberCompraDto,
     atual: string | null = null,
+    // P4 de "Pedidos e recebimento": o pedido recebido pela nota ou pelo cupom do Mister — a despesa sai da nota (o cupom já
+    // pago, as parcelas da NF), não da soma dos itens; sem isto seriam duas contas da mesma compra.
+    opcoes: { semConta?: boolean } = {},
   ) {
     // TUDO numa transação: antes, cada insert ia solto. Falha no meio do laço deixava
     // parte dos itens no estoque com a lista ainda "pendente" — e o operador clicava de
@@ -616,7 +619,7 @@ export class ComprasService {
       // chegaram 7 é o mesmo erro do estoque, do lado do dinheiro.
       // UMA POR FORNECEDOR (P2, PR-5): a lista de compras do mercado vira uma conta por lugar de onde veio. A linha sem
       // fornecedor (nem dela, nem do pedido) não gera conta, como antes. `valorConferido` continua o total da tela.
-      const contas = [...valorPorFornecedor.entries()].filter(([, v]) => v > 0);
+      const contas = opcoes.semConta ? [] : [...valorPorFornecedor.entries()].filter(([, v]) => v > 0);
       for (const [fornecedorDaConta, valorDaConta] of contas) {
         // Data de pagamento (decisão do dono): a da conferência vence a da criação;
         // sem nenhuma das duas, o prazo do fornecedor a partir do recebimento. Título
@@ -883,6 +886,39 @@ export class ComprasService {
 
   // "Marcar como enviado": é a PESSOA quem diz que enviou (o sistema só abriu o aplicativo dela —
   // não tem como saber se a mensagem saiu). Fica no pedido quando e por onde, e na auditoria quem.
+  /**
+   * P4 de "Pedidos e recebimento" (a decisão do dono, 25/11: "ao receber pedido, perguntar se é para lançar no estoque"): o
+   * pedido recebido pela nota do Mister com "Não" — fica RECEBIDO sem mexer no estoque (nem movimento, nem lote, nem custo,
+   * nem conta: a despesa é a da nota). As linhas ficam sem conferência. A gravação confere de novo que não foi recebido.
+   */
+  async marcarRecebidoSemEstoque(tenantId: string, id: string, atual: string | null = null, atorId?: string | null, notaRef?: string | null) {
+    const [antes] = await this.db
+      .select({ id: compraLista.id, status: compraLista.status, nome: compraLista.nome })
+      .from(compraLista)
+      .where(and(eq(compraLista.id, id), eq(compraLista.tenantId, tenantId), isNull(compraLista.deletedAt), condUnidadeOuRede(compraLista.unidadeId, atual)));
+    if (!antes) throw new NotFoundException('Pedido não encontrado');
+    if (antes.status === 'recebida') throw new BadRequestException('Compra já recebida.');
+    const agora = new Date();
+    const nota = limparNome(notaRef) || null;
+    const [feito] = await this.db
+      .update(compraLista)
+      .set({ status: 'recebida', recebidaEm: agora, updatedAt: agora, ...(nota ? { notaRef: nota } : {}) })
+      .where(and(eq(compraLista.id, id), eq(compraLista.tenantId, tenantId), isNull(compraLista.deletedAt), ne(compraLista.status, 'recebida')))
+      .returning({ id: compraLista.id });
+    if (!feito) throw new BadRequestException('Compra já recebida.');
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: atorId ?? null,
+      atorPerfil: '',
+      tipo: 'estoque',
+      acao: 'recebeu_pedido_sem_estoque',
+      entidadeTipo: 'compra_lista',
+      entidadeId: id,
+      detalhe: { nome: antes.nome, notaRef: nota },
+    });
+    return { ok: true };
+  }
+
   /**
    * P3 de "Pedidos e recebimento" (25/11): a nova previsão de recebimento de um pedido ainda não recebido — o "Mudar a previsão"
    * do aviso do pedido atrasado do Mister. A gravação confere de novo que não foi recebido (o recebimento no meio não muda a data).

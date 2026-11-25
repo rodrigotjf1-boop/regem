@@ -358,6 +358,25 @@ export interface NotaNoMister {
    * "Aprender o modelo de cada fornecedor" ligado). Ausente = o resumo de sempre.
    */
   modelo?: { conhecidos: number; mudancas: string[] } | null;
+  /**
+   * P4 de "Pedidos e recebimento": o pedido de compra aberto que bate com a nota pelos itens (PR-7) e a resposta ao "Registrar o
+   * recebimento?". Ausente ou null = a nota segue sozinha, como sempre.
+   */
+  pedido?: PedidoDaNota | null;
+}
+
+/** P4 de "Pedidos e recebimento": o pedido aberto que bate com a nota (metade ou mais dos itens dele estão nela). */
+export interface PedidoDaNota {
+  listaId: string;
+  nome: string;
+  fornecedor: string | null;
+  /** Quando o pedido foi criado, "DD/MM". */
+  criado: string;
+  /** Quantos itens o pedido tem, e quantos deles estão na nota. */
+  itens: number;
+  batem: number;
+  /** "receber" = "Receber o pedido"; "nao" = "Não é deste pedido" (a nota segue sozinha); null = ainda sem resposta. */
+  resposta: 'receber' | 'nao' | null;
 }
 
 /** Versão 9, O2: até quantas mudanças a linha do modelo mostra. */
