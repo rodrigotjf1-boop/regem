@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { UNIDADES_ESTOQUE, exigirUnidade, normalizarUnidade } from './unidades';
+import { UNIDADES_ESTOQUE, conferirConversoes, exigirUnidade, normalizarUnidade } from './unidades';
 
 // LISTA FECHADA de unidades de medida do estoque: o que já existe no banco e as abreviações das
 // planilhas caem numa unidade da lista; o resto é recusado (não vira unidade nova).
@@ -46,5 +46,31 @@ describe('unidades de medida do estoque', () => {
     expect(() => exigirUnidade('bandejinha', 'Unidade principal')).toThrow(BadRequestException);
     expect(() => exigirUnidade('bandejinha', 'Unidade principal')).toThrow(/Unidade principal.*"bandejinha".*lista/);
     expect(() => exigirUnidade(undefined, 'Conversão')).toThrow(/Conversão.*vazia/);
+  });
+
+  it('EST-A-02: conversões que se contradizem são recusadas em qualquer ordem; a cadeia que fecha passa', () => {
+    const caixa2kg = { unidadeDe: 'caixa', fator: 2, unidadePara: 'kg' };
+    const pacote3kg = { unidadeDe: 'pacote', fator: 3, unidadePara: 'kg' };
+    const caixa4pacotes = { unidadeDe: 'caixa', fator: 4, unidadePara: 'pacote' };
+    expect(() => conferirConversoes([caixa2kg, pacote3kg, caixa4pacotes])).toThrow(/se contradizem/);
+    expect(() => conferirConversoes([caixa4pacotes, pacote3kg, caixa2kg])).toThrow(/se contradizem/);
+    expect(conferirConversoes([caixa2kg, caixa4pacotes])).toHaveLength(2); // 1 pacote = 0,5 kg, sem outro caminho
+    // Pela medida fixa: 1 galão = 30 ml e 1 galão = 3,3 litro não fecham (o caso real que a régua acha).
+    expect(() =>
+      conferirConversoes([
+        { unidadeDe: 'galão', fator: 30, unidadePara: 'ml' },
+        { unidadeDe: 'galão', fator: 3.3, unidadePara: 'litro' },
+      ]),
+    ).toThrow(/se contradizem/);
+    expect(conferirConversoes([{ unidadeDe: 'galão', fator: 3300, unidadePara: 'ml' }, { unidadeDe: 'galão', fator: 3.3, unidadePara: 'litro' }])).toHaveLength(2);
+    // A cadeia longa da loja (caixa → kg → fita → unidade, porção → fita) fecha.
+    expect(
+      conferirConversoes([
+        { unidadeDe: 'caixa', fator: 9, unidadePara: 'kg' },
+        { unidadeDe: 'fita', fator: 1, unidadePara: 'unidade' },
+        { unidadeDe: 'kg', fator: 72, unidadePara: 'fita' },
+        { unidadeDe: 'porção', fator: 2, unidadePara: 'fita' },
+      ]),
+    ).toHaveLength(4);
   });
 });

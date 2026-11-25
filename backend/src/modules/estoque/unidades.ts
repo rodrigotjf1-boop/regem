@@ -116,7 +116,7 @@ export function conferirConversoes(
   conversoes?: { unidadeDe: string; fator: number; unidadePara: string }[] | null,
 ): { unidadeDe: string; fator: number; unidadePara: string }[] | undefined {
   if (!conversoes) return undefined;
-  return conversoes
+  const linhas = conversoes
     .filter((c) => c.unidadeDe?.trim() && c.unidadePara?.trim() && Number(c.fator) > 0)
     .map((c) => {
       const unidadeDe = exigirUnidade(c.unidadeDe, 'Conversão');
@@ -130,4 +130,63 @@ export function conferirConversoes(
         );
       return { unidadeDe, fator: Number(c.fator), unidadePara };
     });
+  conferirCaminhosDasConversoes(linhas);
+  return linhas;
+}
+
+/**
+ * As conversões, JUNTAS, não podem se contradizer (EST-A-02 da revisão de 25/11/2026): cada linha era conferida sozinha, e
+ * "1 caixa = 2 kg", "1 pacote = 3 kg" e "1 caixa = 4 pacotes" passavam — o pacote valia 3 kg ou 0,5 kg conforme a ORDEM das
+ * linhas (no servidor e na tela). Aqui cada unidade ganha um valor seguindo as linhas (e as medidas fixas entre as unidades de
+ * massa ou de volume que aparecem: 1 kg = 1000 grama), e todo caminho tem de dar o mesmo valor, com tolerância de 1 parte em
+ * um milhão. Recusa (400) dizendo as linhas que não fecham.
+ */
+export function conferirCaminhosDasConversoes(linhas: { unidadeDe: string; fator: number; unidadePara: string }[]): void {
+  type Aresta = { de: string; para: string; fator: number; texto: string };
+  const arestas: Aresta[] = linhas.map((l) => ({
+    de: l.unidadeDe,
+    para: l.unidadePara,
+    fator: l.fator,
+    texto: `1 ${l.unidadeDe} = ${String(l.fator).replace('.', ',')} ${l.unidadePara}`,
+  }));
+  const unidades = [...new Set(arestas.flatMap((a) => [a.de, a.para]))];
+  for (let i = 0; i < unidades.length; i++)
+    for (let j = i + 1; j < unidades.length; j++) {
+      const fixa = proporcaoFixa(unidades[i], unidades[j]);
+      if (fixa != null) arestas.push({ de: unidades[i], para: unidades[j], fator: fixa, texto: `1 ${unidades[i]} = ${String(fixa).replace('.', ',')} ${unidades[j]}` });
+    }
+  // valor(u) = quanto 1 u vale numa unidade de referência do grupo: 1 `de` = fator `para` ⇒ valor(para) = valor(de) / fator.
+  const valor = new Map<string, number>();
+  const usadas: Aresta[] = [];
+  for (const inicio of unidades) {
+    if (valor.has(inicio)) continue;
+    valor.set(inicio, 1);
+    for (let mudou = true; mudou; ) {
+      mudou = false;
+      for (const a of arestas) {
+        const vDe = valor.get(a.de);
+        const vPara = valor.get(a.para);
+        if (vDe !== undefined && vPara === undefined) {
+          valor.set(a.para, vDe / a.fator);
+          usadas.push(a);
+          mudou = true;
+        } else if (vPara !== undefined && vDe === undefined) {
+          valor.set(a.de, vPara * a.fator);
+          usadas.push(a);
+          mudou = true;
+        }
+      }
+    }
+  }
+  for (const a of arestas) {
+    const esperado = (valor.get(a.de) as number) / a.fator;
+    const tem = valor.get(a.para) as number;
+    if (Math.abs(esperado / tem - 1) > 1e-6) {
+      const outras = usadas.filter((u) => u !== a && (u.de === a.de || u.para === a.para || u.de === a.para || u.para === a.de)).map((u) => u.texto);
+      throw new BadRequestException(
+        `Conversões que se contradizem: "${a.texto}" não fecha com ${outras.length ? `"${outras.join('", "')}"` : 'as outras linhas'}. ` +
+          'Confira os números: cada unidade só pode valer um tanto.',
+      );
+    }
+  }
 }

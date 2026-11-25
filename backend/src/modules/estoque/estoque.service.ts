@@ -307,6 +307,20 @@ export class EstoqueService {
             .from(itemConversao)
             .where(and(eq(itemConversao.tenantId, tenantId), eq(itemConversao.itemId, id)))
         : [];
+      // A UNIDADE PRINCIPAL não muda em produto com histórico (EST-A-01 da revisão de 25/11/2026): o saldo, os lotes, o custo
+      // médio e o mínimo já gravados estão na unidade antiga — trocar kg por grama só trocava o rótulo, e 10 kg a R$ 20/kg
+      // viravam 10 g a R$ 20/g. Trocar a grafia da mesma unidade ("KG" → "kg") segue livre; produto sem movimento nem lote, também.
+      if (velho && patch.unidadeMedida !== undefined && normalizarUnidade(velho.unidade) !== patch.unidadeMedida) {
+        const hist: any = await tx.execute(sql`
+          select exists (select 1 from movimento_estoque where tenant_id = ${tenantId} and item_id = ${id}) as mov,
+                 exists (select 1 from lote where tenant_id = ${tenantId} and item_id = ${id} and deleted_at is null) as lote`);
+        const h = (hist.rows ?? hist)[0] ?? {};
+        if (h.mov || h.lote)
+          throw new ConflictException(
+            `A unidade principal não muda em produto que já tem ${h.mov ? 'movimentos de estoque' : 'lotes'}: o saldo, o custo e o mínimo estão em "${velho.unidade}". ` +
+              'Para usar outra unidade, crie uma conversão (ex.: 1 kg = 1000 grama) ou cadastre um produto novo na unidade certa.',
+          );
+      }
       if (nome !== undefined) {
         // Só confere o nome quando ele MUDA: produto que já estava repetido antes desta regra
         // continua editável (para o dono poder arrumar), mas ninguém vira repetido por edição.
@@ -589,7 +603,13 @@ export class EstoqueService {
                   where tenant_id = ${tenantId} and item_id = ${id} and deleted_at is null
                  union all
                  select nome from complemento_opcao
-                  where tenant_id = ${tenantId} and item_id = ${id} and deleted_at is null) o) as complementos
+                  where tenant_id = ${tenantId} and item_id = ${id} and deleted_at is null) o) as complementos,
+        -- Pedido de compra ABERTO e nota ainda não confirmada com este produto (EST-D-03 da revisão de 25/11/2026): a
+        -- entrega chegaria num produto excluído — entrada e conta a pagar sem o produto aparecer na lista.
+        (select count(distinct c.id)::int from compra_lista c join compra_item ci on ci.lista_id = c.id
+          where c.tenant_id = ${tenantId} and ci.item_id = ${id} and c.status = 'aberta' and c.deleted_at is null) as "comprasAbertas",
+        (select count(distinct r.id)::int from recebimento r join recebimento_item ri on ri.recebimento_id = r.id
+          where r.tenant_id = ${tenantId} and ri.item_id = ${id} and r.status <> 'conferido' and r.deleted_at is null) as "notasAbertas"
     `);
     const r = (res.rows ?? res)[0] ?? {};
     const lista = (nomes: string[]) =>
@@ -612,6 +632,16 @@ export class EstoqueService {
     if (cardapio.length) {
       motivos.push(`está ligado ao cardápio (${lista(cardapio)})`);
       comoResolver.push('Desligue o produto do cardápio deste item de estoque.');
+    }
+    const compras = Number(r.comprasAbertas ?? 0);
+    const notas = Number(r.notasAbertas ?? 0);
+    if (compras || notas) {
+      const partes = [
+        compras ? (compras === 1 ? 'um pedido de compra em aberto' : `${compras} pedidos de compra em aberto`) : '',
+        notas ? (notas === 1 ? 'uma nota ainda não confirmada' : `${notas} notas ainda não confirmadas`) : '',
+      ].filter(Boolean);
+      motivos.push(`está em ${partes.join(' e ')}`);
+      comoResolver.push('Receba ou cancele o pedido (ou tire o produto dele) antes de excluir.');
     }
     return { id: alvo.id, nome: alvo.nome, pode: motivos.length === 0, motivos, comoResolver };
   }
@@ -1151,10 +1181,33 @@ export class EstoqueService {
     return { ok: true, data: d };
   }
 
+  /**
+   * Falta o fechamento (snapshot) do dia `data` em alguma loja que tem produto? (EST-G-04 da revisão de 25/11/2026) A rotina diária
+   * pulava a empresa inteira se achasse UMA linha do dia — o fechamento avulso de uma loja deixava a outra sem. Empresa sem loja
+   * cadastrada: o balde sem loja. Empresa sem produto: nada falta.
+   */
+  async fechamentoIncompleto(tenantId: string, data: string): Promise<boolean> {
+    const r: any = await this.db.execute(sql`
+      select (
+        exists (select 1 from unidade u
+                 where u.tenant_id = ${tenantId} and u.deleted_at is null
+                   and exists (select 1 from item_estoque i where i.tenant_id = u.tenant_id and i.deleted_at is null
+                                 and (i.unidade_id is null or i.unidade_id = u.id))
+                   and not exists (select 1 from estoque_snapshot s where s.tenant_id = u.tenant_id and s.data = ${data}
+                                     and s.unidade_id = u.id))
+        or (not exists (select 1 from unidade u where u.tenant_id = ${tenantId} and u.deleted_at is null)
+            and exists (select 1 from item_estoque i where i.tenant_id = ${tenantId} and i.deleted_at is null)
+            and not exists (select 1 from estoque_snapshot s where s.tenant_id = ${tenantId} and s.data = ${data}))
+      ) as falta`);
+    return !!(r.rows ?? r)[0]?.falta;
+  }
+
   // §1.3 — CMV real (EI + Compras − EF) × CMV teórico consumido → desvio.
   async cmvReal(tenantId: string, inicio: string, fim: string, atual: string | null = null) {
-    // Valor do snapshot mais recente com data <= alvo (EI/EF).
-    const valorSnapshot = async (alvo: string): Promise<number> => {
+    // Valor do snapshot mais recente com data <= alvo (EI/EF) E se há fechamento nenhum (EST-G-01 da revisão de 25/11/2026): o
+    // fechamento que vale R$ 0 é um fechamento — antes "zero" e "nenhuma linha" eram o mesmo número, e o estoque final de R$ 0
+    // virava o estoque de HOJE (o CMV do mês encerrado mudava quando a loja repunha depois).
+    const valorSnapshot = async (alvo: string): Promise<{ valor: number; linhas: number }> => {
       const r: any = await this.db.execute(sql`
         -- Snapshot mais recente POR INSUMO E LOJA (mig 255). Agrupando só por insumo, a loja
         -- A com snapshot num dia e a B noutro pegaria a data errada para uma delas.
@@ -1163,13 +1216,14 @@ export class EstoqueService {
           where tenant_id=${tenantId} and data <= ${alvo} ${sqlUnidade('unidade_id', atual)}
           group by item_id, unidade_id
         )
-        select coalesce(sum(s.saldo * s.custo_medio),0) as v
+        select coalesce(sum(s.saldo * s.custo_medio),0) as v, count(*)::int as n
         from estoque_snapshot s
         join ult on ult.item_id = s.item_id and ult.data = s.data
                 and ult.unidade_id is not distinct from s.unidade_id
         where s.tenant_id = ${tenantId} ${sqlUnidade('s.unidade_id', atual)}
       `);
-      return Number((r.rows ?? r)[0].v);
+      const linha = (r.rows ?? r)[0];
+      return { valor: Number(linha.v), linhas: Number(linha.n) };
     };
     const valorAtual = async (): Promise<number> => {
       const r: any = await this.db.execute(sql`
@@ -1193,12 +1247,14 @@ export class EstoqueService {
     // data <= D; usar o do próprio `inicio` punha as compras do 1º dia dentro do estoque
     // inicial E dentro de `compras` — contadas duas vezes. O erro ficava escondido porque
     // o job das 02:00 fotografava o dia recém-começado; consertar só a hora o exporia.
-    const estoqueInicial = await valorSnapshot(somarDias(inicio, -1));
-    const semSnapshotInicial = estoqueInicial === 0;
+    const ei = await valorSnapshot(somarDias(inicio, -1));
+    const estoqueInicial = ei.valor;
+    const semSnapshotInicial = ei.linhas === 0;
 
-    let estoqueFinal = await valorSnapshot(fim);
+    const ef = await valorSnapshot(fim);
+    let estoqueFinal = ef.valor;
     let efFonte = 'snapshot';
-    if (estoqueFinal === 0) {
+    if (ef.linhas === 0) {
       estoqueFinal = await valorAtual(); // sem snapshot final → valorização atual
       efFonte = 'atual';
     }
@@ -1220,8 +1276,14 @@ export class EstoqueService {
     // o CMV só somava 'recebimento' — o fluxo com ZERO notas em produção. Resultado: toda
     // compra ficava FORA do CMV, que virava estoque inicial menos final e nada mais.
     const compras = await somaMov(sql`m.tipo='entrada' and m.motivo in ('recebimento','compra')`);
+    // A PRODUÇÃO que deu entrada num produto acabado é TRANSFORMAÇÃO, não consumo (EST-G-02 da revisão de 25/11/2026): a matéria-prima
+    // vira o produto pronto, e o custo dele conta quando ELE sai na venda. Contar as duas saídas punha R$ 20 de carne produzida e
+    // vendida como R$ 40 de CMV teórico (furo de −R$ 20 sem perda nenhuma). A produção SEM produto de saída continua consumo.
     const cmvTeorico = await somaMov(
-      sql`m.tipo='saida' and m.motivo in ('venda','producao')`,
+      sql`m.tipo='saida' and (m.motivo = 'venda' or (m.motivo = 'producao' and not exists (
+            select 1 from movimento_estoque pe
+             where pe.tenant_id = m.tenant_id and pe.tipo = 'entrada' and pe.motivo = 'producao'
+               and pe.ref_tipo = 'producao' and pe.ref_id = m.ref_id)))`,
     );
     // Desperdício valorizado no período (saídas com motivo 'desperdicio').
     const desperdicioValor = await somaMov(

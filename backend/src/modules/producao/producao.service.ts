@@ -11,6 +11,7 @@ import {
   fichaTecnica,
   fichaIngrediente,
   movimentoEstoque,
+  itemEstoque,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { qtdBaixaExplosao } from '../../common/regras-negocio';
@@ -18,6 +19,7 @@ import { custoMedioDaSaida, ponderarCustoDaEntrada } from '../../common/custo-lo
 import { ProduzirDto } from './dto/produzir.dto';
 import { hojeISO } from '../../common/data';
 import { consumirLotes } from '../../common/lotes';
+import { normalizarUnidade } from '../estoque/unidades';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -27,6 +29,30 @@ export class ProducaoService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
   ) {}
+
+  /**
+   * O produto de saída tem de ser contado na unidade em que a ficha rende (EST-F-01 da revisão de 25/11/2026) — a mesma régua
+   * de `conferirFichaDoProduto` (fichas-carga.ts). Recusa (400) dizendo as duas unidades. Exportada para a ordem de produção
+   * conferir já na criação.
+   */
+  async exigirMesmaUnidade(db: any, tenantId: string, fichaId: string, itemSaidaId: string): Promise<void> {
+    const [f] = await db
+      .select({ nome: fichaTecnica.nome, rende: fichaTecnica.rendimentoUnidade })
+      .from(fichaTecnica)
+      .where(and(eq(fichaTecnica.id, fichaId), eq(fichaTecnica.tenantId, tenantId)));
+    const [it] = await db
+      .select({ nome: itemEstoque.nome, unidade: itemEstoque.unidadeMedida })
+      .from(itemEstoque)
+      .where(and(eq(itemEstoque.id, itemSaidaId), eq(itemEstoque.tenantId, tenantId), isNull(itemEstoque.deletedAt)));
+    if (!f) throw new NotFoundException('Ficha técnica não encontrada.');
+    if (!it) throw new BadRequestException('O produto de saída não existe mais no estoque.');
+    const rende = normalizarUnidade(f.rende);
+    if (!rende || rende !== (normalizarUnidade(it.unidade) ?? it.unidade))
+      throw new BadRequestException(
+        `A ficha "${f.nome}" rende em "${f.rende || 'unidade não informada'}" e o produto "${it.nome}" é contado em "${it.unidade}". ` +
+          'Para a produção dar entrada nele, a ficha tem de render na unidade principal do produto.',
+      );
+  }
 
   // Explode `qtdProduzir` unidades da ficha nos ITENS-RAIZ (acumula em consumoPorItem)
   // e devolve o custo teórico total. Sub-fichas explodem recursivamente; `visitados`
@@ -175,6 +201,10 @@ export class ProducaoService {
         // Entrada do produto acabado ao custo teórico (opcional).
         const custoUnitProduzido = qtd > 0 ? custoTotal / qtd : 0;
         if (dto.itemSaidaId) {
+          // A entrada é na unidade em que a ficha RENDE (EST-F-01 da revisão de 25/11/2026): a ficha que rende 1 kg com o
+          // produto de saída contado em grama dava entrada de 1 g a R$ 20/g. A mesma regra da ficha ligada ao produto
+          // (`conferirFichaDoProduto`): só com as duas unidades iguais.
+          await this.exigirMesmaUnidade(tx, tenantId, dto.fichaId, dto.itemSaidaId);
           const [entrada] = await tx.insert(movimentoEstoque).values({
             tenantId,
             unidadeId: unidadeId ?? undefined,
