@@ -21,6 +21,7 @@ import { conferirEntregador, type ParametrosDoEntregador } from './mister-acoes-
 import { conferirPonto, type ParametrosDoPonto } from './mister-acoes-ponto';
 import { conferirEnvio, type ParametrosDoEnvio } from './mister-acoes-compra';
 import { conferirCardapio, type ParametrosDoCardapio } from './mister-acoes-cardapio';
+import { conferirCampanha, type ParametrosDaCampanha } from './mister-acoes-campanha';
 import { NOMES_DOS_DIAS, ehHoraDoDia, horasDaJanela, lerDiaDaSemana, textoDaJanela, type JanelaDoDia } from '../../common/horarios-da-loja';
 
 // AS AÇÕES DO MISTER — a porta `propor_acao` (versão 6, M6j; plano aprovado em 20/11/2026, `docs/plano-mister.md` § "Versão
@@ -88,6 +89,9 @@ export const ACOES_DO_MISTER = [
   'criar_categoria',
   'criar_produto',
   'promocao_do_produto',
+  // Etapa 8 de 24/11: as campanhas — pausar/retomar e repetir uma montada na tela, com o custo antes.
+  'pausar_campanha',
+  'repetir_campanha',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -168,6 +172,10 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   // A rota "Marcar como enviado" de Estoque › Pedidos pede estoque.criar. Só registra o que a pessoa diz: botão.
   // Cadastros › Cardápio pede a permissão da loja (como o "mudar produto"). Criar não muda o que já existe: botão. A promoção é
   // preço: PIN e "Ver valores", como o preço do canal.
+  // Delivery › Marketing: a rota pede o Delivery (e é do gerente ou do presidente — a regra geral das ações). Pausar só para:
+  // botão. Repetir manda mensagem a muitos clientes (e, na API oficial, custa): PIN.
+  pausar_campanha: { id: 'pausar_campanha', nivel: 'botao', permissao: 'delivery', prazoMin: 10, nome: 'pausar ou retomar uma campanha' },
+  repetir_campanha: { id: 'repetir_campanha', nivel: 'pin', permissao: 'delivery', prazoMin: 15, nome: 'repetir uma campanha' },
   criar_categoria: { id: 'criar_categoria', nivel: 'botao', permissao: 'loja', prazoMin: 10, nome: 'criar uma categoria do cardápio' },
   criar_produto: { id: 'criar_produto', nivel: 'botao', permissao: 'loja', prazoMin: 10, nome: 'criar um produto do cardápio' },
   promocao_do_produto: { id: 'promocao_do_produto', nivel: 'pin', permissao: 'loja', prazoMin: 15, nome: 'pôr ou tirar a promoção de um produto', pedeVerValores: true },
@@ -519,7 +527,8 @@ export type ParametrosDaAcao =
   | ParametrosDoEntregador
   | ParametrosDoPonto
   | ParametrosDoEnvio
-  | ParametrosDoCardapio;
+  | ParametrosDoCardapio
+  | ParametrosDaCampanha;
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -538,6 +547,7 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
   if (acao === 'incluir_marcacao' || acao === 'desconsiderar_marcacao') return conferirPonto(acao, en);
   if (acao === 'pedido_enviado') return conferirEnvio(en);
   if (acao === 'criar_categoria' || acao === 'criar_produto' || acao === 'promocao_do_produto') return conferirCardapio(acao, en);
+  if (acao === 'pausar_campanha' || acao === 'repetir_campanha') return conferirCampanha(acao, en);
   if (acao === 'pausar_canal' || acao === 'reabrir_canal') {
     const brutos = Array.isArray(en.canais) ? en.canais : en.canal !== undefined ? [en.canal] : [];
     const canais = [...new Set(brutos.map(lerCanal))];
@@ -748,6 +758,8 @@ export const TEXTOS_DAS_ACOES = {
   semPermissaoCadastros: 'O seu perfil no Regem não dá acesso aos Cadastros (Fornecedores): essa ação não sai por aqui. Quem muda o perfil é o presidente.',
   semPermissaoEscalas: 'O seu perfil no Regem não permite mudar a Escala: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
   categoriaNaoAchada: 'Não achei essa categoria em Cadastros › Cardápio › Categorias. Diga o nome como está lá — ou peça para criar a categoria antes.',
+  campanhaIndisponivel: 'As campanhas não estão disponíveis agora. Nada foi feito.',
+  campanhaMudou: 'A campanha (ou o público dela) mudou desde a pergunta. Nada foi feito: peça de novo para ver os números certos.',
   categoriaJaExiste: (nome: string) => `Já existe a categoria "${nome}" em Cadastros › Cardápio.`,
   produtoJaExiste: (nome: string) => `Já existe o produto "${nome}" no cardápio. Para mudar, peça para mudar o produto.`,
   categoriasDemais: (nomes: string) => `Achei mais de uma categoria com esse nome: ${nomes}. Qual delas?`,

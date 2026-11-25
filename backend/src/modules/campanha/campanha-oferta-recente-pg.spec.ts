@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { acharCampanhaDaLista, recusaDaRepeticao, type LinhaDaCampanha } from '../mister/mister-acoes-campanha';
 import { join } from 'node:path';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -117,6 +118,33 @@ descrever('a campanha pula quem recebeu oferta automática (3B)', () => {
     expect(await svc.previa(t, 'todos')).toEqual({ total: 4, foraPorOferta: 3, intervaloOfertasDias: 7 });
     await q(`insert into relacionamento_config (tenant_id, intervalo_ofertas_dias) values ($1, 15)`, [t]);
     expect(await svc.previa(t, 'todos')).toEqual({ total: 3, foraPorOferta: 4, intervaloOfertasDias: 15 });
+  });
+
+  it('o Mister lê, pausa e repete por este serviço (etapa 8 de 24/11): a lista, a campanha guardada e o criar com o que ela devolve', async () => {
+    const t = await empresa();
+    await cliente(t, 'Ana Repete', '21987678001');
+    await cliente(t, 'Bia Repete', '21987678002');
+    const r = await svc.criar(t, null, null, { segmento: 'todos', tipo: 'frete_gratis', mensagem: 'Hoje tem frete grátis E8', intervaloSeg: 5 });
+    const lista = (await svc.listar(t)) as LinhaDaCampanha[];
+    const achado = acharCampanhaDaLista(lista, 'frete grátis', () => '24/11 18:00');
+    expect(achado).toMatchObject({ linha: { id: r.id, status: 'enviando' } });
+    const guardada = (await svc.paraRepetir(t, r.id))!;
+    expect(guardada).toMatchObject({ segmento: 'todos', tipo: 'frete_gratis', mensagem: 'Hoje tem frete grátis E8', cupom_codigo: null, clube_premio_id: null, agendada: false });
+    expect(recusaDaRepeticao({ ...(achado as any).linha, ...guardada })).toBeNull();
+    expect(await svc.previa(t, guardada.segmento, undefined, null)).toMatchObject({ total: 2 });
+    await svc.pausar(t, r.id, true);
+    expect(((await svc.listar(t)) as LinhaDaCampanha[]).find((c) => c.id === r.id)).toMatchObject({ status: 'pausada' });
+    // O criar com os campos que o Mister manda: a campanha nova, com o mesmo público.
+    const nova = await svc.criar(t, null, null, {
+      segmento: guardada.segmento, tipo: guardada.tipo, mensagem: guardada.mensagem, mensagemB: guardada.mensagem_b ?? null, link: guardada.link ?? null,
+      imagemRef: guardada.imagem_ref ?? null, intervaloSeg: guardada.intervalo_seg, tetoDia: guardada.teto_dia ?? null, tetoSemana: guardada.teto_semana ?? null,
+      tetoMes: guardada.teto_mes ?? null, instanciaTipo: guardada.instancia_tipo, agendada: false, templateNome: guardada.template_nome ?? null,
+      templateIdioma: guardada.template_idioma ?? null, templateVars: guardada.template_vars ?? null, envioHabitual: false,
+    });
+    expect(nova).toMatchObject({ id: expect.any(String), total: 2 });
+    expect(await svc.paraRepetir(t, randomUUID())).toBeNull();
+    // As campanhas deste teste param aqui: o envio dos testes seguintes (o `worker`) pega toda campanha "enviando" do schema.
+    await q(`update campanha set status = 'concluida' where tenant_id = $1`, [t]);
   });
 
   it('sem oferta automática no intervalo, a prévia fica como antes', async () => {

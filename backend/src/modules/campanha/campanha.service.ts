@@ -263,6 +263,19 @@ export class CampanhaService {
     }));
   }
 
+  /**
+   * A campanha guardada como o "repetir" do Mister precisa (etapa 8 de 24/11): o que o `criar` recebe e o que decide se ela se
+   * repete pela conversa (Clube, hora habitual, agendada, cupom, público). A tabela é só da nuvem: o Mister lê por aqui.
+   */
+  async paraRepetir(tenantId: string, id: string) {
+    const r: any = await this.db.execute(sql`
+      select segmento, tipo, mensagem, mensagem_b, link, imagem_ref, intervalo_seg, teto_dia, teto_semana, teto_mes, instancia_tipo,
+             template_nome, template_idioma, template_vars, cupom_codigo, clube_premio_id, agendada,
+             (to_jsonb(campanha) ->> 'envio_habitual') = 'true' as envio_habitual
+        from campanha where id = ${id} and tenant_id = ${tenantId} limit 1`);
+    return ((r.rows ?? r)[0] ?? null) as Record<string, any> | null;
+  }
+
   // Pausa/retoma o disparo de uma campanha. Pausada = o worker não a pega (só 'enviando').
   // Não mexe em campanha concluída. Presidente/gerência (RBAC no controller).
   async pausar(tenantId: string, id: string, pausar: boolean) {
