@@ -13,6 +13,7 @@ import { perfilPadrao } from '../../auth/permissoes';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { dataNoFuso, hojeISO, horaNoFuso, somarDias } from '../../common/data';
 import { agendadosParaDepois, pendenciasDoTurno } from '../delivery/pendencias-turno';
+import { diaComSemana } from './mister-acoes-loja';
 import { idEntitlement, uuidDeChave } from '../../common/id-deterministico';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
@@ -12628,6 +12629,74 @@ export function testesDoMisterComPostgres(): void {
           for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
         }
       });
+
+      it('etapa 3 de 24/11: a agenda das encomendas — por dia da loja, o que produzir, o atacado, sem o nome do cliente', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+        const amanha = somarDias(hojeISO(), 1);
+        const depois = somarDias(hojeISO(), 3);
+        const criados: string[] = [];
+        let ficha: string | null = null;
+        // O que outros testes deixaram na empresa conta igual: as contas são feitas pela diferença.
+        const antes = (await ferramentas.executar(e, 'agenda_de_encomendas', { de: amanha, ate: depois })).dados as any;
+        const antesSemPeriodo = (await ferramentas.executar(e, 'agenda_de_encomendas', {})).dados as any;
+        const soE3 = (xs: any[] | undefined) => (xs ?? []).filter((x) => JSON.stringify(x).includes('E3'));
+        try {
+          const enc = async (dia: string, hora: string, status: string, itens: any[], extra: { tipo?: string; pago?: boolean; total?: number } = {}) => {
+            const [{ id }] = await q(
+              `insert into pedido_externo (tenant_id, unidade_id, canal, tipo, status, total, pago, agendamento, retirada_tipo, display_id, cliente_nome, itens)
+               values ($1, $2, 'proprio', $3, $4, $5, $6, ($7 || ' ' || $8)::timestamp at time zone 'America/Sao_Paulo', 'encomenda', $9, 'Fulana Encomenda E3', $10::jsonb) returning id::text as id`,
+              [A, lojaDeA, extra.tipo ?? 'retirada', status, extra.total ?? 50, extra.pago ?? false, dia, hora, `E3-${criados.length + 1}`, JSON.stringify(itens)],
+            );
+            criados.push(id);
+          };
+          // Amanhã: duas encomendas (a das 21h30 é do dia da loja, não do seguinte em UTC) e uma cancelada que não conta.
+          await enc(amanha, '10:00', 'confirmado', [{ descricao: 'Bolo de pote E3', quantidade: 10 }, { descricao: 'Torta E3', quantidade: 1 }], { pago: true, total: 210 });
+          await enc(amanha, '21:30', 'novo', [{ descricao: 'Bolo de pote E3', quantidade: '8' }], { tipo: 'entrega', total: 188.9 });
+          await enc(amanha, '12:00', 'cancelado', [{ descricao: 'Bolo de pote E3', quantidade: 50 }]);
+          // Depois: uma encomenda e o atacado da ordem de produção.
+          await enc(depois, '09:00', 'confirmado', [{ nome: 'Bolo de pote E3', quantidade: 24 }], { pago: true, total: 146.95 });
+          [{ id: ficha }] = await q(`insert into ficha_tecnica (tenant_id, nome) values ($1, 'Molho E3') returning id::text as id`, [A]);
+          await q(
+            `insert into ordem_producao (tenant_id, unidade_id, ficha_id, quantidade_planejada, unidade, data_producao, data_entrega, origem, status) values ($1, $2, $3, 10, 'kg', $4::date, $4::date, 'encomenda_atacado', 'planejada')`,
+            [A, lojaDeA, ficha, depois],
+          );
+          const r = await ferramentas.executar(e, 'agenda_de_encomendas', { de: amanha, ate: depois });
+          expect(r.ok).toBe(true);
+          const d = r.dados as any;
+          expect(JSON.stringify(d)).not.toContain('Fulana');
+          const doAmanha = d.dias.find((x: any) => x.dia === diaComSemana(amanha));
+          expect(soE3(doAmanha.produzir)).toEqual([{ item: 'Bolo de pote E3', quantidade: 18 }, { item: 'Torta E3', quantidade: 1 }]);
+          expect(soE3(doAmanha.lista).map((p: any) => [p.hora, p.como, p.pago, p.total, p.itens])).toEqual([
+            ['10:00', 'retirada', true, 210, '10× Bolo de pote E3; 1× Torta E3'],
+            ['21:30', 'entrega', false, 188.9, '8× Bolo de pote E3'],
+          ]);
+          const doDepois = d.dias.find((x: any) => x.dia === diaComSemana(depois));
+          expect(soE3(doDepois.lista).map((p: any) => p.itens)).toEqual(['24× Bolo de pote E3']);
+          expect(soE3(doDepois.atacado)).toEqual([{ produto: 'Molho E3', quantidade: '10 kg', situacao: 'planejada' }]);
+          // A cancelada não entra; as contas sobem só pelas três encomendas e pelo atacado.
+          expect(d.encomendas).toBe(antes.encomendas + 3);
+          expect(d.encomendasDeAtacado).toBe(antes.encomendasDeAtacado + 1);
+          expect(d.valorDasEncomendas).toBeCloseTo((antes.valorDasEncomendas ?? 0) + 545.85, 2);
+          expect(d.aReceber).toBeCloseTo((antes.aReceber ?? 0) + 188.9, 2);
+          expect(((await ferramentas.executar(e, 'agenda_de_encomendas', {})).dados as any).encomendas).toBe(antesSemPeriodo.encomendas + 3);
+          // Sem "Ver valores": nenhum R$; sem o Delivery: nada; período ao contrário e longo demais: a recusa.
+          const sem = (await ferramentas.executar({ ...e, nivel: 'gerente', verValores: false, permissoes: { delivery: true } } as any, 'agenda_de_encomendas', { de: amanha, ate: depois })).dados as any;
+          expect(sem).not.toHaveProperty('valorDasEncomendas');
+          expect(soE3(sem.dias.find((x: any) => x.dia === diaComSemana(amanha)).lista)[0]).not.toHaveProperty('total');
+          expect((await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true } } } as any, 'agenda_de_encomendas', {})).ok).toBe(false);
+          expect((await ferramentas.executar(e, 'agenda_de_encomendas', { de: depois, ate: amanha })).dados.erro).toBe('O fim do período vem antes do início.');
+          expect((await ferramentas.executar(e, 'agenda_de_encomendas', { de: amanha, ate: somarDias(amanha, 40) })).dados.erro).toBe('Peça no máximo 31 dias de cada vez.');
+        } finally {
+          await q(`delete from pedido_externo where id = any($1::uuid[])`, [criados]);
+          if (ficha) {
+            await q(`delete from ordem_producao where ficha_id = $1`, [ficha]);
+            await q(`delete from ficha_tecnica where id = $1`, [ficha]);
+          }
+        }
+      });
+
       it('pausar e reabrir o cardápio, aceitar, despachar e marcar pronto — só no "Autorizar" de quem pediu, pelo serviço da tela, com o efeito conferido', async () => {
         const tel = telefone();
         const telCarlos = telefone();

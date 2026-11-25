@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
+import { diaComSemana } from './mister-acoes-loja';
 import { MODELO_DO_ENTREGADOR, periodoDoAcerto, type LinhaDoAcerto } from './mister-acoes-entregador';
 import { ModuleRef } from '@nestjs/core';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -8,7 +9,7 @@ import { FUSO_OPERACAO, hojeISO, horaAgora, horaNoFuso, somarDias } from '../../
 import { brutoPedido, comandaEhDeCanal, pedidoVale } from '../../common/faturamento';
 import { sqlUnidade, sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { lerEstacoes } from '../../common/fluxo-kds';
-import { FUSO_SQL, noPeriodo } from '../../common/fuso-sql';
+import { FUSO_SQL, noFuso, noPeriodo } from '../../common/fuso-sql';
 import { idadeDoTurno } from '../../common/turno';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { CANAIS_DA_PAUSA, NOME_DO_CANAL } from '../../common/pausa-do-canal';
@@ -620,6 +621,8 @@ export class MisterFerramentasService {
         return this.mesasEComandas(e, loja);
       case 'acerto_dos_entregadores':
         return this.acertoDosEntregadores(e);
+      case 'agenda_de_encomendas':
+        return this.agendaDeEncomendas(e, en, loja);
       case 'equipe_do_dia':
         return this.equipeDoDia(e, en, loja);
       case 'historia_do_pedido':
@@ -3610,6 +3613,94 @@ export class MisterFerramentasService {
             quantosSuprimentos: inteiro(m.qtdSuprimentos),
           })),
         },
+      },
+    };
+  }
+
+  /**
+   * Etapa 3 de 24/11 (o dono): a agenda das encomendas — os pedidos com dia e hora marcados (os de Delivery › Encomendas) e as
+   * encomendas de atacado (as ordens de produção da venda), por dia da LOJA, com o que produzir. O nome e o telefone do cliente
+   * nunca vão ao modelo.
+   */
+  private async agendaDeEncomendas(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'delivery')) return recusa(SEM_PERMISSAO);
+    const hoje = hojeISO();
+    const lerDia = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.trim()) ? v.trim() : null);
+    const de = lerDia(en.de) ?? hoje;
+    const ate = lerDia(en.ate) ?? somarDias(de, 6);
+    if (ate < de) return recusa('O fim do período vem antes do início.');
+    if (diasEntre(de, ate).length > 31) return recusa('Peça no máximo 31 dias de cada vez.');
+    const LIMITE = 150;
+    const pedidos = linhas(
+      await this.db.execute(sql`
+        select pe.canal, pe.display_id as "displayId", pe.numero, pe.status, pe.tipo,
+               to_char(${noFuso('pe.agendamento')}, 'YYYY-MM-DD') as dia, to_char(${noFuso('pe.agendamento')}, 'HH24:MI') as hora,
+               pe.total::float8 as total, (pe.pago or pe.pago_online) as pago,
+               (select coalesce(jsonb_agg(jsonb_build_object('nome', coalesce(nullif(btrim(i->>'descricao'), ''), nullif(btrim(i->>'nome'), ''), 'item'), 'quantidade', i->>'quantidade')), '[]'::jsonb)
+                  from jsonb_array_elements(case when jsonb_typeof(pe.itens) = 'array' then pe.itens else '[]'::jsonb end) i) as itens
+          from pedido_externo pe
+         where pe.tenant_id = ${e.tenantId}::uuid and pe.deleted_at is null and pe.agendamento is not null and pe.status <> 'cancelado'
+           and ${noPeriodo('pe.agendamento', `${de} 00:00:00`, `${ate} 23:59:59.999`)}
+           ${sqlUnidadeOuRede('pe.unidade_id', loja.atual)}
+         order by pe.agendamento
+         limit ${LIMITE + 1}`),
+    );
+    const atacado = linhas(
+      await this.db.execute(sql`
+        select op.data_entrega::text as dia, f.nome as produto, op.quantidade_planejada::float8 as quantidade, op.unidade, op.status
+          from ordem_producao op
+          join ficha_tecnica f on f.id = op.ficha_id
+         where op.tenant_id = ${e.tenantId}::uuid and op.origem = 'encomenda_atacado' and op.status <> 'cancelada'
+           and op.data_entrega between ${de}::date and ${ate}::date ${sqlUnidade('op.unidade_id', loja.atual)}
+         order by op.data_entrega, f.nome
+         limit 200`),
+    );
+    const qtd = (v: unknown) => {
+      const n = Number(String(v ?? '').replace(',', '.'));
+      return Number.isFinite(n) && n > 0 ? n : 1;
+    };
+    const mostrar = pedidos.slice(0, LIMITE);
+    const dias = diasEntre(de, ate)
+      .map((d) => {
+        const doDia = mostrar.filter((p) => p.dia === d);
+        const deAtacado = atacado.filter((o) => String(o.dia).slice(0, 10) === d);
+        const produzir = new Map<string, number>();
+        for (const p of doDia) for (const i of (p.itens as any[]) ?? []) produzir.set(String(i.nome), (produzir.get(String(i.nome)) ?? 0) + qtd(i.quantidade));
+        return {
+          dia: diaComSemana(d),
+          pedidos: doDia.length,
+          ...(doDia.length
+            ? {
+                produzir: [...produzir.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([item, quantidade]) => ({ item, quantidade })),
+                lista: doDia.map((p) => ({
+                  hora: String(p.hora),
+                  pedido: pedidoComoNoQuadro(p),
+                  como: p.tipo === 'retirada' ? 'retirada' : p.tipo === 'local' ? 'no local' : 'entrega',
+                  situacao: SITUACAO_DO_PEDIDO[String(p.status)] ?? String(p.status),
+                  pago: !!p.pago,
+                  ...(e.verValores ? { total: reais(p.total) } : {}),
+                  itens: ((p.itens as any[]) ?? []).map((i) => `${qtd(i.quantidade)}× ${i.nome}`).join('; '),
+                })),
+              }
+            : {}),
+          ...(deAtacado.length
+            ? { atacado: deAtacado.map((o) => ({ produto: String(o.produto), quantidade: `${Number(o.quantidade)} ${o.unidade ?? 'un'}`, situacao: String(o.status).replace(/_/g, ' ') })) }
+            : {}),
+        };
+      })
+      .filter((d) => d.pedidos > 0 || d.atacado);
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        de: diaComSemana(de),
+        ate: diaComSemana(ate),
+        encomendas: mostrar.length,
+        encomendasDeAtacado: atacado.length,
+        ...(e.verValores ? { valorDasEncomendas: reais(mostrar.reduce((s, p) => s + Number(p.total ?? 0), 0)), aReceber: reais(mostrar.filter((p) => !p.pago).reduce((s, p) => s + Number(p.total ?? 0), 0)) } : { aviso: SEM_VALORES }),
+        ...(pedidos.length > LIMITE ? { maisDe: LIMITE, observacao: `Há mais de ${LIMITE} encomendas no período: peça menos dias.` } : {}),
+        dias,
+        comoLer: 'Cada dia traz o que produzir (a soma dos itens das encomendas) e a lista na ordem da hora. "atacado" são as ordens de produção das vendas de atacado. O nome do cliente não vem.',
       },
     };
   }

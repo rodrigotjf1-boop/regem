@@ -904,6 +904,35 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         sangriasESuprimentos: [{ tipo: 'sangria', valor: v(480.35), hora: '19:30', por: 'Bruna', motivo: 'dinheiro demais no caixa' }],
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
       });
+    case 'agenda_de_encomendas':
+      return ok({
+        loja: LOJA,
+        de: `hoje (${ROTULO.hoje})`,
+        ate: 'daqui a 6 dias',
+        encomendas: 5,
+        encomendasDeAtacado: 1,
+        ...(perfil.verValores ? { valorDasEncomendas: v(642.35), aReceber: v(188.9) } : { aviso: SEM_VALORES }),
+        dias: [
+          {
+            dia: 'amanhã',
+            pedidos: 3,
+            produzir: [{ item: 'Bolo de pote', quantidade: 18 }, { item: 'Torta de limão', quantidade: 2 }],
+            lista: [
+              { hora: '10:00', pedido: 'pedido 412 do Cardápio Regem', como: 'retirada', situacao: 'aceito', pago: true, ...(perfil.verValores ? { total: v(210) } : {}), itens: '10× Bolo de pote; 1× Torta de limão' },
+              { hora: '15:30', pedido: 'pedido 418 do Cardápio Regem', como: 'entrega', situacao: 'novo', pago: false, ...(perfil.verValores ? { total: v(188.9) } : {}), itens: '8× Bolo de pote' },
+              { hora: '18:00', pedido: 'pedido 420 do Cardápio Regem', como: 'retirada', situacao: 'aceito', pago: true, ...(perfil.verValores ? { total: v(96.5) } : {}), itens: '1× Torta de limão' },
+            ],
+          },
+          {
+            dia: 'sábado',
+            pedidos: 2,
+            produzir: [{ item: 'Bolo de pote', quantidade: 24 }],
+            lista: [{ hora: '09:00', pedido: 'pedido 431 do Cardápio Regem', como: 'retirada', situacao: 'aceito', pago: true, ...(perfil.verValores ? { total: v(146.95) } : {}), itens: '24× Bolo de pote' }],
+            atacado: [{ produto: 'Molho da casa', quantidade: '10 kg', situacao: 'planejada' }],
+          },
+        ],
+        comoLer: 'Cada dia traz o que produzir (a soma dos itens das encomendas) e a lista na ordem da hora. "atacado" são as ordens de produção das vendas de atacado. O nome do cliente não vem.',
+      });
     case 'acerto_dos_entregadores':
       return ok({
         lidoAs: '23:40',
@@ -1305,6 +1334,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Etapa 2 de 24/11: o acerto dos entregadores.
   { id: 'c102', pergunta: 'Quanto tenho que pagar aos entregadores hoje? O Rafa já recebeu?', consultas: ['acerto_dos_entregadores'], numeros: ['268,75'], contem: ['Rafa'] },
   { id: 'c103', pergunta: 'Paga o acerto do Jefferson.', consultas: ['propor_acao'], contem: ['PIN'] },
+  // Etapa 3 de 24/11: a agenda das encomendas.
+  { id: 'c104', pergunta: 'Quanto bolo de pote eu tenho que produzir para as encomendas de amanhã?', consultas: ['agenda_de_encomendas'], numeros: ['18'], contem: ['Bolo de pote'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────
