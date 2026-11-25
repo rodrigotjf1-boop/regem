@@ -173,4 +173,56 @@ descrever('conferência do pedido com os valores da nota (Postgres real)', () =>
     await y.c.receber(y.t, y.id, null, { itens: [y.linha.queijo, y.linha.carne, y.linha.sal].map((compraItemId) => ({ compraItemId, qtdRecebida: 10, validadeIndefinida: true })) } as any, y.u);
     expect(await q(`select valor::float8 as valor, descricao from titulo_financeiro where tenant_id = $1`, [y.t])).toEqual([{ valor: 60, descricao: 'Compra: Compra de teste' }]);
   });
+
+  it('EST-D-01 na compra: dois pedidos com os mesmos insumos em ordem invertida, recebidos juntos — os dois entram, sem impasse', async () => {
+    const x = await cenario();
+    // O segundo pedido com a carne ANTES do queijo (o primeiro tem o queijo antes): sem a trava única e em ordem, cada um
+    // travava o seu primeiro insumo e esperava o do outro — o Postgres derrubava um com impasse (40P01).
+    const p2: any = await x.c.createLista(x.t, { nome: 'Compra invertida', itens: [{ itemId: x.carne, quantidade: 5, custoUnitario: 3 }, { itemId: x.queijo, quantidade: 5, custoUnitario: 5 }] } as any, x.u);
+    const linhasP2 = await q(`select id, item_id from compra_item where lista_id = $1`, [p2.id]);
+    const daP2 = (item: string) => linhasP2.find((l: any) => l.item_id === item).id as string;
+    const receberP1 = () =>
+      x.c.receber(x.t, x.id, null, { itens: [x.linha.queijo, x.linha.carne, x.linha.sal].map((compraItemId) => ({ compraItemId, qtdRecebida: 10, validadeIndefinida: true })) } as any, x.u);
+    const receberP2 = () =>
+      x.c.receber(x.t, p2.id, null, { itens: [daP2(x.carne), daP2(x.queijo)].map((compraItemId) => ({ compraItemId, qtdRecebida: 5, validadeIndefinida: true })) } as any, x.u);
+
+    // A conexão do teste segura os dois insumos; as duas chamadas começam e ficam presas atrás dela (V72: pela fila que nasce
+    // no pid do teste, nunca por tempo); aí solta.
+    const c = await pool.connect();
+    try {
+      await c.query('begin');
+      const [{ pid }] = (await c.query('select pg_backend_pid() as pid')).rows;
+      await c.query(`select id from item_estoque where id = any($1::uuid[]) for no key update`, [[x.queijo, x.carne]]);
+      const ps = [receberP1(), receberP2()];
+      ps.forEach((p) => p.catch(() => undefined));
+      let presas = 0;
+      for (let i = 0; i < 120 && presas < 2; i++) {
+        presas = (
+          await q(
+            `with recursive presas(p) as (
+               select a.pid from pg_stat_activity a where $1 = any(pg_blocking_pids(a.pid))
+               union
+               select a.pid from pg_stat_activity a join presas on presas.p = any(pg_blocking_pids(a.pid))
+             )
+             select count(*)::int as n from presas`,
+            [pid],
+          )
+        )[0].n;
+        if (presas < 2) await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(presas).toBeGreaterThanOrEqual(2);
+      await c.query('commit');
+      const r = await Promise.allSettled(ps);
+      expect(r.map((s) => (s.status === 'fulfilled' ? 'recebido' : String((s.reason as any)?.code ?? (s.reason as any)?.cause?.code ?? (s.reason as any)?.message)))).toEqual(['recebido', 'recebido']);
+    } finally {
+      await c.query('rollback').catch(() => undefined);
+      c.release();
+    }
+    // As duas entradas de cada insumo estão lá.
+    expect(await q(`select item_id::text as i, sum(quantidade)::float8 as q from movimento_estoque where tenant_id = $1 and item_id = any($2::uuid[]) group by item_id order by sum(quantidade)`, [x.t, [x.queijo, x.carne]])).toEqual([
+      { i: expect.any(String), q: 15 },
+      { i: expect.any(String), q: 15 },
+    ]);
+    expect(await q(`select count(*)::int as n from compra_lista where id = any($1::uuid[]) and status = 'recebida'`, [[x.id, p2.id]])).toEqual([{ n: 2 }]);
+  });
 });
