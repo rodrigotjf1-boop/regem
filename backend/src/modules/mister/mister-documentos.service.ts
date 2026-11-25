@@ -315,7 +315,7 @@ export class MisterDocumentosService implements OnModuleInit {
         await this.falar(quem.telefone, { texto: mudou ? 'Certo: não lancei a nota.' : FRASES_DO_DOCUMENTO.jaRespondido });
         return true;
       }
-      await this.falar(quem.telefone, { texto: 'A nota entrou pelo Estoque › Recebimento: o que mudar nela é por lá.' });
+      await this.falar(quem.telefone, { texto: `A nota entrou pelo ${d.peloPedido ? 'Estoque › Pedidos' : 'Estoque › Recebimento'}: o que mudar nela é por lá.` });
       return true;
     }
 
@@ -648,7 +648,8 @@ export class MisterDocumentosService implements OnModuleInit {
     if (!d) throw new NotFoundException('Documento não encontrado.');
     // M6h: o cupom lançado como só despesa se desfaz pela tela também (a conta paga: o estorno e o cancelamento).
     const cupomDespesa = d.tipo === 'nota' && d.especie === 'cupom' && d.comoLancar === 'despesa';
-    if (d.tipo === 'nota' && !cupomDespesa) throw new BadRequestException('A nota entrou pelo Estoque › Recebimento: o que mudar nela é por lá.');
+    if (d.tipo === 'nota' && !cupomDespesa)
+      throw new BadRequestException(`A nota entrou pelo ${d.peloPedido ? 'Estoque › Pedidos' : 'Estoque › Recebimento'}: o que mudar nela é por lá.`);
     const r = cupomDespesa && this.notas ? await this.notas.desfazerCupom(d, atorId, atorPerfil) : await this.desfazer(d, atorId, atorPerfil);
     if (r === 'nao_da') throw new BadRequestException(FRASES_DO_DOCUMENTO.naoDaParaDesfazer);
     if (r === 'ja_respondido') throw new BadRequestException(d.situacao === 'desfeito' ? 'Este lançamento já foi desfeito.' : 'Este documento não foi lançado.');
@@ -755,7 +756,8 @@ export class MisterDocumentosService implements OnModuleInit {
     const [d] = linhas(
       await this.db.execute(sql`
         select id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", situacao, tipo, titulo_id::text as "tituloId",
-               dados->'nota'->>'especie' as especie, dados->'nota'->>'comoLancar' as "comoLancar"
+               dados->'nota'->>'especie' as especie, dados->'nota'->>'comoLancar' as "comoLancar",
+               dados->'nota'->'pedido'->>'resposta' = 'receber' as "peloPedido"
           from mister_documento
          where id = ${documentoId}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})`),
     );

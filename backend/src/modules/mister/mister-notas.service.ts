@@ -1045,6 +1045,9 @@ export class MisterNotasService implements OnModuleInit {
     const pedido = recebePedido(nota) ? (nota.pedido as PedidoDaNota) : null;
     let doPedido: { entraram: number; faltaram: string[]; naoVieram: string[]; pendentes: string[]; aMais: number } | null = null;
     let pedidoFeito = false;
+    // PR-8: a nota sem pedido que dá entrada vira um pedido já recebido (sem o serviço de compras, a nota de sempre).
+    let pedidoCriado: PedidoDaNota | null = null;
+    let pendentesDoCriado: string[] = [];
     let pago = !cupom;
     // M3b.3: o custo médio de cada insumo ANTES da entrada (a mesma leitura das telas: o da loja, ou o do cadastro).
     // Numa consulta só, e nunca derruba o lançamento: sem a leitura, a resposta sai sem a linha do custo.
@@ -1075,6 +1078,25 @@ export class MisterNotasService implements OnModuleInit {
           await this.compras.marcarRecebidoSemEstoque(tenantId, pedido.listaId, loja, colaboradorId, nota.numero ?? null);
         }
         pedidoFeito = true;
+      }
+      if (itens.length && !pedido && this.compras) {
+        const criado = await this.compras.registrarPedidoRecebido(
+          tenantId,
+          {
+            nome: `${cupom ? 'Cupom' : 'NF'} ${nota.numero ?? 's/n'} · ${nota.emitenteNome ?? 'fornecedor'}`,
+            fornecedorId: d.fornecedorId ?? null,
+            dataRecebimento: cupom ? (nota.dataEmissao ?? hojeISO()) : hojeISO(),
+            notaRef: nota.numero ?? null,
+            itens: itens.map((i) => ({ itemId: i.itemId, quantidade: i.qtdRecebida, custoUnitario: i.custoUnitario })),
+          },
+          loja,
+          colaboradorId,
+        );
+        const hoje = hojeISO();
+        pedidoCriado = { listaId: criado.id, nome: criado.nome, fornecedor: nota.emitenteNome ?? null, criado: `${hoje.slice(8, 10)}/${hoje.slice(5, 7)}`, itens: criado.itens, batem: criado.itens, resposta: 'receber', criadoPelaNota: true };
+        pendentesDoCriado = criado.pendentes;
+        pedidoFeito = true;
+        itens = [];
       }
       if (itens.length) {
         const rec: any = await this.recebimento.create(
@@ -1128,9 +1150,10 @@ export class MisterNotasService implements OnModuleInit {
       if (pedidoFeito) {
         await this.db.execute(sql`
           update mister_documento set recebimento_id = ${recebimentoId}::uuid, titulo_id = ${titulos[0] ?? null}::uuid, atualizado_em = clock_timestamp()
+                 ${pedidoCriado ? sql`, dados = jsonb_set(dados, '{nota,pedido}', ${JSON.stringify(pedidoCriado)}::jsonb)` : sql``}
            where id = ${documentoId}::uuid`);
         return {
-          texto: `O pedido "${pedido!.nome}" ficou recebido em Estoque › Pedidos, mas não consegui lançar ${titulos.length ? 'o pagamento da despesa' : 'a despesa'}. Lance em Financeiro › Contas a pagar.`,
+          texto: `O pedido "${(pedido ?? pedidoCriado)!.nome}" ficou recebido em Estoque › Pedidos, mas não consegui lançar ${titulos.length ? 'o pagamento da despesa' : 'a despesa'}. Lance em Financeiro › Contas a pagar.`,
         };
       }
       // M6h: a conta do cupom já entrou e só a baixa falhou — não volta a "confirmar" (o "Lançar" de novo criaria outra).
@@ -1148,6 +1171,7 @@ export class MisterNotasService implements OnModuleInit {
     }
     await this.db.execute(sql`
       update mister_documento set recebimento_id = ${recebimentoId}::uuid, titulo_id = ${titulos[0] ?? null}::uuid, atualizado_em = clock_timestamp()
+             ${pedidoCriado ? sql`, dados = jsonb_set(dados, '{nota,pedido}', ${JSON.stringify(pedidoCriado)}::jsonb)` : sql``}
        where id = ${documentoId}::uuid`);
     await this.auditoria
       ?.registrar({
@@ -1163,6 +1187,7 @@ export class MisterNotasService implements OnModuleInit {
           titulos,
           ...(cupom || pedido ? { comoLancar: nota.comoLancar ?? null } : {}),
           ...(pedido ? { pedido: pedido.listaId, pedidoComEstoque: comEstoque } : {}),
+          ...(pedidoCriado ? { pedidoCriado: pedidoCriado.listaId } : {}),
         },
       } as any)
       .catch(() => undefined);
@@ -1185,15 +1210,21 @@ export class MisterNotasService implements OnModuleInit {
       const c = depois?.get(it.insumoId as string);
       if (a != null && c != null) mudancas.push({ insumo: it.insumoNome ?? '', unidade: it.unidadeDoEstoque ?? 'unidade', antes: a, depois: c });
     }
-    const doPedidoNaResposta = pedido ? `${doPedido ? FRASES_DO_PEDIDO_DA_NOTA.recebido(pedido, doPedido) : FRASES_DO_PEDIDO_DA_NOTA.semEstoque(pedido)}\n\n` : '';
+    const doPedidoNaResposta = pedido
+      ? `${doPedido ? FRASES_DO_PEDIDO_DA_NOTA.recebido(pedido, doPedido) : FRASES_DO_PEDIDO_DA_NOTA.semEstoque(pedido)}\n\n`
+      : pedidoCriado
+        ? `${FRASES_DO_PEDIDO_DA_NOTA.criado(pedidoCriado, pendentesDoCriado)}\n\n`
+        : '';
+    // Onde a entrada ficou: pelo pedido (o da nota ou o criado), e o que veio a mais pelo recebimento avulso.
+    const onde = doPedido ? (doPedido.aMais ? 'Estoque › Pedidos (o que veio a mais, em Estoque › Recebimento)' : 'Estoque › Pedidos') : pedidoCriado ? 'Estoque › Pedidos' : 'Estoque › Recebimento';
     if (cupom) {
       return {
-        texto: doPedidoNaResposta + FRASES_DA_NOTA.cupomLancado(nota, custosQueMudaram(mudancas)),
+        texto: doPedidoNaResposta + FRASES_DA_NOTA.cupomLancado(nota, custosQueMudaram(mudancas), onde),
         // V6-8: o "Desfazer" vale para a conta — só no "Só despesa" (a entrada no estoque não se desfaz pela conversa).
         ...(comEstoque ? {} : { botoes: [{ id: `doc:desfazer:${documentoId}`, titulo: 'Desfazer' }] }),
       };
     }
-    return { texto: doPedidoNaResposta + FRASES_DA_NOTA.lancada(nota, titulos.length, custosQueMudaram(mudancas)) };
+    return { texto: doPedidoNaResposta + FRASES_DA_NOTA.lancada(nota, titulos.length, custosQueMudaram(mudancas), onde) };
   }
 
   /**
@@ -1230,7 +1261,12 @@ export class MisterNotasService implements OnModuleInit {
       const base =
         nota.especie === 'cupom' ? FRASES_DA_NOTA.resumoDoCupom(nota) : lancaEstoque(nota) ? FRASES_DA_NOTA.resumo(nota) : FRASES_DO_PEDIDO_DA_NOTA.soDespesaDaNota(nota);
       return {
-        texto: recebePedido(nota) && nota.pedido ? `${FRASES_DO_PEDIDO_DA_NOTA.noResumo(nota, nota.pedido)}\n\n${base}` : base,
+        texto:
+          recebePedido(nota) && nota.pedido
+            ? `${FRASES_DO_PEDIDO_DA_NOTA.noResumo(nota, nota.pedido)}\n\n${base}`
+            : lancaEstoque(nota) && this.compras
+              ? `${FRASES_DO_PEDIDO_DA_NOTA.semPedidoNoResumo(nota)}\n\n${base}`
+              : base,
         botoes: [
           { id: `doc:lancar:${id}`, titulo: 'Lançar' },
           { id: `doc:outra:${id}`, titulo: 'Cancelar' },
