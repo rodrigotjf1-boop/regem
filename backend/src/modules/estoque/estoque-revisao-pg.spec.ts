@@ -10,6 +10,8 @@ import { FichasService } from '../fichas/fichas.service';
 import { DesperdicioService } from '../desperdicio/desperdicio.service';
 import { EtiquetaValidadeService } from '../etiqueta-validade/etiqueta-validade.service';
 import { hojeISO, somarDias } from '../../common/data';
+import { ProducaoService } from '../producao/producao.service';
+import { ProdutoService } from '../produto/produto.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -284,5 +286,110 @@ descrever('o estoque não anda duas vezes (Postgres)', () => {
     await etiquetas.perda(T, null, et, loja, 1);
     expect(await saldoDoLote(loteB)).toBe(9);
     expect(await saldoDoLote(loteA)).toBe(10);
+  });
+
+  // ── Lote E2 (unidades, produção, exclusão e indicadores) ─────────────────────────────────────────────────────────────
+
+  /** Uma empresa só para o teste: o CMV e o fechamento somam a empresa inteira. */
+  const empresaSo = async (lojas = 1) => {
+    const t2 = randomUUID();
+    await q(`insert into empresa (id, nome) values ($1, 'teste estoque e2')`, [t2]);
+    const ids: string[] = [];
+    for (let i = 0; i < lojas; i++) ids.push((await q(`insert into unidade (tenant_id, nome) values ($1, $2) returning id`, [t2, `Loja ${i + 1}`]))[0].id);
+    return { t2, lojas: ids };
+  };
+
+  it('EST-A-01: a unidade principal não muda em produto com movimento; a mesma unidade em outra grafia e o produto sem histórico mudam', async () => {
+    const comHist = await novoInsumo('Farinha A01');
+    await entrada(comHist, 10, 20);
+    await expect(estoque.updateItem(T, comHist, { unidadeMedida: 'grama' } as any, loja)).rejects.toMatchObject({ status: 409 });
+    expect((await q(`select unidade_medida from item_estoque where id = $1`, [comHist]))[0].unidade_medida).toBe('kg');
+    await estoque.updateItem(T, comHist, { unidadeMedida: 'KG' } as any, loja); // a mesma unidade, outra grafia
+    const semHist = await novoInsumo('Açúcar A01');
+    await estoque.updateItem(T, semHist, { unidadeMedida: 'grama' } as any, loja);
+    expect((await q(`select unidade_medida from item_estoque where id = $1`, [semHist]))[0].unidade_medida).toBe('grama');
+  });
+
+  it('EST-F-01: a produção não dá entrada no produto contado em outra unidade que a do rendimento da ficha', async () => {
+    const carne = await novoInsumo('Carne F01', 'kg', { custo: 20 });
+    await entrada(carne, 5, 20);
+    const emGrama = await novoInsumo('Molho pronto F01 g', 'grama');
+    const emKg = await novoInsumo('Molho pronto F01 kg', 'kg');
+    const ficha: any = await fichas.create(T, { nome: 'Molho F01', rendimento: 1, rendimentoUnidade: 'kg', ingredientes: [{ itemId: carne, insumoNome: 'Carne', quantidade: 1, unidade: 'kg' }] } as any, null);
+    const producao = new ProducaoService(db, aud);
+    await expect(producao.produzir(T, null as any, 'gerente', { fichaId: ficha.id, quantidade: 1, itemSaidaId: emGrama } as any, undefined, loja)).rejects.toMatchObject({ status: 400 });
+    expect(await saldo(carne)).toBe(5); // nada baixou
+    expect(await saldo(emGrama)).toBe(0);
+    await producao.produzir(T, null as any, 'gerente', { fichaId: ficha.id, quantidade: 1, itemSaidaId: emKg } as any, undefined, loja);
+    expect(await saldo(emKg)).toBe(1);
+    expect(await saldo(carne)).toBe(4);
+  });
+
+  it('EST-D-03: produto num pedido de compra em aberto não é excluído', async () => {
+    const item = await novoInsumo('Óleo D03');
+    const [{ id: lista }] = await q(`insert into compra_lista (tenant_id, unidade_id, nome, status) values ($1, $2, 'Compra D03', 'aberta') returning id`, [T, loja]);
+    await q(`insert into compra_item (tenant_id, lista_id, item_id, quantidade) values ($1, $2, $3, 5)`, [T, lista, item]);
+    const exame: any = await estoque.exclusaoDoItem(T, item, null);
+    expect(exame.pode).toBe(false);
+    expect(exame.motivos.join(' ')).toMatch(/pedido de compra em aberto/);
+    await expect(estoque.removerItem(T, item, null)).rejects.toMatchObject({ status: 409 });
+    await q(`update compra_lista set status = 'cancelada' where id = $1`, [lista]);
+    expect(((await estoque.exclusaoDoItem(T, item, null)) as any).pode).toBe(true);
+  });
+
+  it('EST-G-01: o fechamento final de R$ 0 é um fechamento — não vira o estoque de hoje', async () => {
+    const { t2, lojas } = await empresaSo();
+    const [{ id: item }] = await q(`insert into item_estoque (tenant_id, unidade_id, nome, unidade_medida, custo_medio) values ($1, $2, 'Queijo G01', 'kg', 10) returning id`, [t2, lojas[0]]);
+    await q(
+      `insert into estoque_snapshot (tenant_id, unidade_id, item_id, data, saldo, custo_medio) values ($1, $2, $3, '2026-09-30', 10, 10), ($1, $2, $3, '2026-10-31', 0, 10)`,
+      [t2, lojas[0], item],
+    );
+    // Reposição DEPOIS do mês: hoje há R$ 60 em estoque.
+    await q(`insert into movimento_estoque (tenant_id, unidade_id, item_id, tipo, quantidade, custo_unitario, motivo, data) values ($1, $2, $3, 'entrada', 6, 10, 'teste', $4)`, [t2, lojas[0], item, hojeISO()]);
+    const r: any = await estoque.cmvReal(t2, '2026-10-01', '2026-10-31', null);
+    expect(r).toMatchObject({ estoqueInicial: 100, estoqueFinal: 0, efFonte: 'snapshot', cmvReal: 100, semSnapshotInicial: false });
+  });
+
+  it('EST-G-02: a carne produzida e vendida conta o custo UMA vez no CMV teórico', async () => {
+    const { t2, lojas } = await empresaSo();
+    const [{ id: carne }] = await q(`insert into item_estoque (tenant_id, unidade_id, nome, unidade_medida, custo_medio) values ($1, $2, 'Carne G02', 'kg', 20) returning id`, [t2, lojas[0]]);
+    const [{ id: pronto }] = await q(`insert into item_estoque (tenant_id, unidade_id, nome, unidade_medida, custo_medio) values ($1, $2, 'Hambúrguer G02', 'unidade', 20) returning id`, [t2, lojas[0]]);
+    const ref = randomUUID();
+    const mov = (item: string, tipo: string, motivo: string, refTipo: string | null, refId: string | null) =>
+      q(`insert into movimento_estoque (tenant_id, unidade_id, item_id, tipo, quantidade, custo_unitario, motivo, ref_tipo, ref_id, data) values ($1, $2, $3, $4, 1, 20, $5, $6, $7, '2026-10-10')`, [
+        t2, lojas[0], item, tipo, motivo, refTipo, refId,
+      ]);
+    await mov(carne, 'saida', 'producao', 'producao', ref);
+    await mov(pronto, 'entrada', 'producao', 'producao', ref);
+    await mov(pronto, 'saida', 'venda', 'venda_teste', randomUUID());
+    const r: any = await estoque.cmvReal(t2, '2026-10-01', '2026-10-31', null);
+    expect(r.cmvTeorico).toBe(20);
+  });
+
+  it('EST-G-04: o fechamento avulso de UMA loja não deixa a outra sem o fechamento do dia', async () => {
+    const { t2, lojas } = await empresaSo(2);
+    await q(`insert into item_estoque (tenant_id, nome, unidade_medida, custo_medio) values ($1, 'Arroz G04', 'kg', 5)`, [t2]); // compartilhado
+    const ontem = somarDias(hojeISO(), -1);
+    await estoque.gerarSnapshot(t2, ontem, lojas[0]); // só a loja 1 (o botão do painel)
+    expect(await estoque.fechamentoIncompleto(t2, ontem)).toBe(true);
+    await estoque.gerarSnapshot(t2, ontem); // a rotina completa
+    expect(await estoque.fechamentoIncompleto(t2, ontem)).toBe(false);
+    const porLoja = await q(`select unidade_id, count(*)::int as n from estoque_snapshot where tenant_id = $1 and data = $2 group by unidade_id`, [t2, ontem]);
+    expect(porLoja).toHaveLength(2);
+    // Empresa sem produto: nada falta (a rotina não tenta a cada 15 min).
+    const vazia = await empresaSo();
+    expect(await estoque.fechamentoIncompleto(vazia.t2, ontem)).toBe(false);
+  });
+
+  it('EST-C-02: o custo da revenda na Curva ABC é o da loja escolhida (sem loja, o do cadastro)', async () => {
+    const { t2, lojas } = await empresaSo(2);
+    const [{ id: item }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida, custo_medio) values ($1, 'Refri C02', 'unidade', 3) returning id`, [t2]);
+    for (const [l, c] of [[lojas[0], 7], [lojas[1], 11]] as const)
+      await q(`insert into item_estoque_unidade (id, tenant_id, item_id, unidade_id, custo_medio) values ($1, $2, $3, $4, $5)`, [randomUUID(), t2, item, l, c]);
+    const [{ id: prod }] = await q(`insert into produto (tenant_id, nome, preco_venda, item_id, item_fator) values ($1, 'Refri C02', 8, $2, 1) returning id`, [t2, item]);
+    const produtos = new ProdutoService(db, aud, {} as any, { custoPorPorcao: async () => ({}) } as any);
+    expect((await produtos.custoEfetivoMapa(t2, lojas[0]))[prod]).toBe(7);
+    expect((await produtos.custoEfetivoMapa(t2, lojas[1]))[prod]).toBe(11);
+    expect((await produtos.custoEfetivoMapa(t2, null))[prod]).toBe(3);
   });
 });

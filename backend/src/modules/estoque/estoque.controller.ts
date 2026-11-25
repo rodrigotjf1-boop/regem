@@ -21,6 +21,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { EstoqueService } from './estoque.service';
+import { hojeISO } from '../../common/data';
 import { ProdutosPlanilhaService } from './produtos-planilha.service';
 import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
@@ -216,13 +217,10 @@ export class EstoqueController {
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    const hoje = new Date();
-    const ini =
-      inicio ||
-      new Date(hoje.getFullYear(), hoje.getMonth(), 1)
-        .toISOString()
-        .slice(0, 10);
-    return this.service.cmvReal(user.tenantId, ini, fim || hoje.toISOString().slice(0, 10), atual);
+    // O mês corrente DA LOJA (EST-G-03 da revisão de 25/11/2026): antes o relógio do servidor — na nuvem (UTC), às 21h30 do
+    // dia 30 o painel já mostrava "01/12 a 01/12". O intervalo que a pessoa escolhe continua valendo.
+    const hoje = hojeISO();
+    return this.service.cmvReal(user.tenantId, inicio || `${hoje.slice(0, 8)}01`, fim || hoje, atual);
   }
 
   // Gera o snapshot de estoque de hoje (bootstrap/teste; o job mensal faz automático).

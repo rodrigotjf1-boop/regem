@@ -447,10 +447,10 @@ export class JobsService {
     );
     for (const e of (r.rows ?? r) as { id: string; hora: string }[]) {
       if (agora < (e.hora || '06:00')) continue; // ainda não é a hora desta empresa
-      const ja: any = await this.db.execute(
-        sql`select 1 from estoque_snapshot where tenant_id = ${e.id} and data = ${ontem} limit 1`,
-      );
-      if ((ja.rows ?? ja).length) continue; // o de ontem já foi tirado
+      // Pula só se TODA loja que tem produto já tem o fechamento de ontem (EST-G-04 da revisão de 25/11/2026): o snapshot avulso
+      // de UMA loja ("Gerar snapshot" no painel) fazia a rotina achar "o de ontem já foi tirado" e a outra loja ficava sem.
+      // Empresa sem loja cadastrada: o balde sem loja. Empresa sem produto: nada a fotografar (antes tentava a cada 15 min).
+      if (!(await this.estoque.fechamentoIncompleto(e.id, ontem))) continue; // o de ontem já foi tirado em todas as lojas
       try {
         await this.estoque.gerarSnapshot(e.id, ontem);
         n++;

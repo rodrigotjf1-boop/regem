@@ -130,6 +130,8 @@ export class OrdemProducaoService {
     const qtd = Number(dto?.quantidadePlanejada);
     if (!(qtd > 0)) throw new BadRequestException('Informe a quantidade planejada.');
     if (!dto?.dataProducao) throw new BadRequestException('Informe a data de produção.');
+    // O produto de saída na unidade em que a ficha rende (EST-F-01): conferido já na criação, não só ao concluir.
+    if (dto?.itemSaidaId) await this.producao.exigirMesmaUnidade(this.db, tenantId, ficha.id, dto.itemSaidaId);
 
     // Usuário preso a uma loja cria SEMPRE na dele; rede informa e nós conferimos.
     const unidadeIdOrdem = escopoUnidadeId
@@ -525,6 +527,7 @@ export class OrdemProducaoService {
       .from(fichaTecnica)
       .where(and(eq(fichaTecnica.id, dto.fichaId), eq(fichaTecnica.tenantId, tenantId)));
     if (!ficha) throw new NotFoundException('Ficha técnica não encontrada.');
+    if (dto?.itemSaidaId) await this.producao.exigirMesmaUnidade(this.db, tenantId, ficha.id, dto.itemSaidaId); // EST-F-01
     await garantirImpressoraDaLoja(this.db, tenantId, dto?.impressoraId ?? null, unidadeId);
     const [def] = await this.db
       .insert(tarefaDef)

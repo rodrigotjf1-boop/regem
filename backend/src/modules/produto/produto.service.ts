@@ -1630,11 +1630,16 @@ export class ProdutoService {
   // conhecido, e a integração manda `custo_centavos: null`. O zero que alguém digitou no `preco_custo`
   // foi informado de propósito e continua valendo.
   async custoEfetivoMapa(tenantId: string, unidadeId: string | null = null): Promise<Record<string, number>> {
+    // A REVENDA (produto ligado direto a um insumo) vale pelo custo médio DA LOJA (mig 257), como a venda e a ficha (EST-C-02
+    // da revisão de 25/11/2026): antes era o do cadastro — com R$ 3 no cadastro e R$ 7 na loja A, a Curva ABC da loja A dizia R$ 3.
+    // Sem loja escolhida (ou sem custo próprio da loja), o do cadastro. O fator (o fardo vendido por unidade) continua.
     const res: any = await this.db.execute(sql`
       select p.id, p.preco_custo as "precoCusto", p.ficha_id as "fichaId",
-             ie.custo_medio * p.item_fator as "itemCustoMedio"
+             coalesce(iu.custo_medio, ie.custo_medio) * p.item_fator as "itemCustoMedio"
       from produto p
       left join item_estoque ie on ie.id = p.item_id
+      left join item_estoque_unidade iu
+        on iu.item_id = p.item_id and iu.deleted_at is null and ${unidadeId ? sql`iu.unidade_id = ${unidadeId}::uuid` : sql`false`}
       where p.tenant_id = ${tenantId} and p.deleted_at is null
     `);
     const rows = (res.rows ?? res) as any[];

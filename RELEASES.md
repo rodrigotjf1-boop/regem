@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Estoque: unidade, conversões, produção, exclusão e CMV (25/11; ERR-613; SEM migration).** Lote E2 da revisão do estoque: a
+  unidade principal não muda em produto com estoque (só a grafia); conversões que se contradizem são recusadas (na loja, a Mostarda
+  tem "1 galão = 30 ml" e "1 galão = 3,3 litro" — a corrigir no cadastro); a produção só dá entrada no produto contado na unidade em
+  que a ficha rende; produto em pedido de compra aberto não é excluído; o CMV respeita o fechamento de R$ 0, não conta duas vezes a
+  produção que vira produto pronto e usa o mês da loja; a rotina diária fecha todas as lojas; a Curva ABC usa o custo da loja na
+  revenda. **Vai no `.zip`** (estoque, produção e rotinas rodam no servidor da loja).
+
 - **Cardápio: sinal devolvido, cartão online fora, categoria pelo horário da loja e robô que para (25/11; ERR-612; SEM migration).**
   Lote C2 da revisão do cardápio e delivery: o Pix do sinal aprovado depois do cancelamento volta ao cliente (uma vez só) e não sai
   "Encomenda confirmada"; o "Cartão online" sai da vitrine (não há cobrança de cartão — virava um QR de Pix); o produto de categoria
