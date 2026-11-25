@@ -12,6 +12,10 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Importação de produtos casa também pelo nome comercial (25/11; ERR-615; SEM migration).** Regra do dono: lista de compras,
+  pedidos e notas pelo nome comercial; o nome é o das fichas. A prévia e a gravação da importação por planilha comparam pelos dois
+  (a planilha do Alô Chefia criaria em dobro 14 produtos renomeados). Vai no `.zip` (backend e tela); não mexe no edge.
+
 - **Pedido e sincronização inteiros: aceite, benefício e o pagamento que espera o pedido (25/11; ERR-614; SEM migration).** Lote
   C3 da revisão do cardápio e delivery: a reserva do pedido, a venda e o vínculo da comanda entram numa transação só (uma queda não
   deixa pedido "confirmado" sem comanda); o prêmio de fidelidade e o cashback são consumidos antes do aceite e conferidos (o mesmo
