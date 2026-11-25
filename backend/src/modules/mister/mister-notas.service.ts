@@ -58,6 +58,18 @@ import {
   pedidoDaLigacao,
 } from './mister-ligacao';
 import { MisterNumeroService } from './mister-numero.service';
+import { ComprasService } from '../compras/compras.service';
+import {
+  FRASES_DO_PEDIDO_DA_NOTA,
+  botoesDoEstoqueDoPedido,
+  botoesDoPedidoDaNota,
+  lancaEstoque,
+  lerBotaoDoPedidoDaNota,
+  pedidoQueBate,
+  recebePedido,
+  type CandidatoDoPedido,
+} from './mister-nota-pedido';
+import type { PedidoDaNota } from '../../common/nota-por-foto';
 import { Resposta } from './mister.regras';
 import { lerRespostaDoFator, simOuNao } from './resposta-do-fator';
 
@@ -118,6 +130,8 @@ export class MisterNotasService implements OnModuleInit {
     @Optional() private readonly conversa?: MisterConversaConfigService,
     // Versão 9, O2: o modelo do fornecedor (o "Mudou:" e a última vez). Opcional: sem ele, a nota de sempre.
     @Optional() private readonly modelos?: MisterCompraModelosService,
+    // P4 de "Pedidos e recebimento": o pedido aberto recebido pela nota, pelo MESMO serviço de Estoque › Pedidos.
+    @Optional() private readonly compras?: ComprasService,
   ) {}
 
   /**
@@ -244,16 +258,20 @@ export class MisterNotasService implements OnModuleInit {
       nota.modelo = { conhecidos: conhecidos.length, mudancas: mudancasDoModelo(conhecidos.map((it) => ({ ...it, ultima: ultimas.get(chaveDoDePara(it)) ?? null }))) };
     }
     conferirEmbalagens(nota);
+    // P4 de "Pedidos e recebimento" (PR-7): o pedido aberto que bate com a nota pelos itens ligados. A pergunta vem depois das
+    // dúvidas da leitura e antes do "Como deseja lançar?" do cupom.
+    nota.pedido = await this.pedidoQueBateComANota(quem.tenantId, quem.unidadeId ?? null, nota, fornecedorId);
     const daLeitura = pendenciaDaLeitura(nota);
     if (daLeitura) {
       const id = await this.gravar(quem, wamid, 'falta', daLeitura, nota, fornecedorId);
       if (id) await this.perguntarDaLeitura(quem.telefone, id, nota, daLeitura);
       return;
     }
-    if (cupom) {
-      const id = await this.gravar(quem, wamid, 'falta', 'como_lancar', nota, fornecedorId);
+    if (cupom || nota.pedido) {
+      const passo = this.proximoPasso(nota);
+      const id = await this.gravar(quem, wamid, passo.situacao, passo.motivo, nota, fornecedorId);
       if (!id) return;
-      await this.falar(quem.telefone, { texto: FRASES_DA_NOTA.comoLancar(nota), botoes: botoesDoComoLancar(id) });
+      await this.falarDepoisDaLeitura(quem.telefone, id, nota, passo.motivo);
       return;
     }
     const pend = proximaPendencia(nota);
@@ -282,8 +300,12 @@ export class MisterNotasService implements OnModuleInit {
       if (v.nivel !== 'presidente') return { achou: true, resposta: { texto: 'Lançar nota por foto, por enquanto, é só com o presidente.' } } as const;
       const nota: NotaNoMister | undefined = d.dados?.nota;
       const it = nota?.itens?.[e.indice];
+      // P4: antes, a pergunta do pedido de compra que bate com a nota.
+      if (nota && ((nota.pedido && !nota.pedido.resposta) || (recebePedido(nota) && !nota.comoLancar)))
+        return { achou: true, resposta: { texto: 'Responda antes sobre o pedido de compra desta nota.' } } as const;
       // M6h: o cupom só pergunta os itens depois do "Estoque e despesa".
       if (nota?.especie === 'cupom' && nota.comoLancar !== 'estoque') return { achou: true, resposta: { texto: 'Responda antes como deseja lançar este cupom.' } } as const;
+      if (nota && !lancaEstoque(nota)) return { achou: true, resposta: { texto: 'Esta nota vai só como despesa: não há item para ligar.' } } as const;
       if (d.situacao !== 'falta' || !nota || !it || it.estado !== 'item') return { achou: true, resposta: { texto: 'Este item já foi respondido.' } } as const;
 
       if (e.escolha === 'f') {
@@ -380,6 +402,137 @@ export class MisterNotasService implements OnModuleInit {
   }
 
   /**
+   * P4 de "Pedidos e recebimento": o toque em "Receber o pedido" / "Não é deste pedido" e em "Lançar no estoque" / "Só marcar
+   * recebido" — só o presidente, e só o documento que ainda espera AQUELA pergunta (o toque repetido não muda nada). Devolve
+   * false quando o documento não é das empresas de quem tocou.
+   */
+  async pedidoDaNota(botaoId: string, quem: QuemTocou): Promise<boolean> {
+    const e = lerBotaoDoPedidoDaNota(botaoId);
+    const empresas = quem.vinculos.map((v) => v.tenantId);
+    if (!e || !empresas.length) return false;
+    const resultado = await this.db.transaction(async (tx: any) => {
+      const [d] = linhas(
+        await tx.execute(sql`
+          select id::text as id, tenant_id::text as "tenantId", situacao, motivo, tipo, dados
+            from mister_documento
+           where id = ${e.documentoId}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})
+           for update`),
+      );
+      if (!d || d.tipo !== 'nota') return { achou: false } as const;
+      const v = quem.vinculos.find((x) => x.tenantId === d.tenantId)!;
+      if (v.nivel !== 'presidente') return { achou: true, resposta: { texto: 'Lançar nota por foto, por enquanto, é só com o presidente.' } } as const;
+      const nota: NotaNoMister | undefined = d.dados?.nota;
+      const etapa = e.escolha === 'r' || e.escolha === 'n' ? 'pedido' : 'pedido_estoque';
+      if (d.situacao !== 'falta' || d.motivo !== etapa || !nota?.pedido) return { achou: true, resposta: { texto: 'Esta pergunta já foi respondida.' } } as const;
+      if (e.escolha === 'r') nota.pedido.resposta = 'receber';
+      else if (e.escolha === 'n') nota.pedido.resposta = 'nao';
+      else nota.comoLancar = e.escolha === 'e' ? 'estoque' : 'despesa';
+      const passo = this.proximoPasso(nota);
+      await tx.execute(sql`
+        update mister_documento
+           set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), situacao = ${passo.situacao}, motivo = ${passo.motivo},
+               atualizado_em = clock_timestamp()
+         where id = ${d.id}::uuid`);
+      return { achou: true, seguir: { id: d.id as string, nota, motivo: passo.motivo } } as const;
+    });
+    if (!resultado.achou) return false;
+    if ('resposta' in resultado && resultado.resposta) await this.falar(quem.telefone, resultado.resposta);
+    if ('seguir' in resultado && resultado.seguir) await this.falarDepoisDaLeitura(quem.telefone, resultado.seguir.id, resultado.seguir.nota, resultado.seguir.motivo);
+    return true;
+  }
+
+  /**
+   * P4 (PR-7): o pedido de compra aberto (da loja de quem mandou, ou sem loja; dos últimos 90 dias) que bate com a nota pelos
+   * insumos já ligados. Nunca derruba a leitura: sem a busca, a nota segue sozinha, como sempre.
+   */
+  private async pedidoQueBateComANota(tenantId: string, unidadeId: string | null, nota: NotaNoMister, fornecedorId: string | null): Promise<PedidoDaNota | null> {
+    const insumos = nota.itens.filter((it) => it.insumoId && (it.estado === 'ligado' || it.estado === 'fator')).map((it) => it.insumoId as string);
+    if (!insumos.length) return null;
+    try {
+      const candidatos = linhas(
+        await this.db.execute(sql`
+          select c.id::text as "listaId", c.nome, c.fornecedor_id::text as "fornecedorId", f.nome as fornecedor,
+                 to_char(c.created_at at time zone ${FUSO_SQL}, 'DD/MM') as criado,
+                 array(select i.item_id::text from compra_item i where i.lista_id = c.id and i.tenant_id = c.tenant_id) as "itemIds"
+            from compra_lista c
+            left join fornecedor f on f.id = c.fornecedor_id and f.tenant_id = c.tenant_id
+           where c.tenant_id = ${tenantId}::uuid and c.deleted_at is null and c.status <> 'recebida' and c.recebida_em is null
+             and c.created_at > clock_timestamp() - interval '90 days'
+             ${unidadeId ? sql`and (c.unidade_id is null or c.unidade_id = ${unidadeId}::uuid)` : sql``}
+           order by c.created_at desc
+           limit 30`),
+      ) as CandidatoDoPedido[];
+      return pedidoQueBate(
+        candidatos.map((c) => ({ ...c, itemIds: Array.isArray(c.itemIds) ? c.itemIds.map(String) : [] })),
+        insumos,
+        fornecedorId,
+      );
+    } catch (e: any) {
+      this.logger.warn(`a busca do pedido que bate com a nota falhou — ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
+  /**
+   * P4 ("Lançar no estoque"): o pedido recebido pelo MESMO serviço de Estoque › Pedidos, com a quantidade e o valor da nota — a
+   * linha que a nota não tem fica como "não veio"; a validade obrigatória fica pendente (o aviso da P1 pergunta depois); a conta
+   * não sai daqui (é a da nota). Devolve o que a nota tem a mais (vai pelo recebimento avulso) e o resumo para a resposta.
+   */
+  private async receberOPedido<T extends { itemId: string; qtdRecebida: number; custoUnitario?: number }>(
+    tenantId: string,
+    colaboradorId: string,
+    loja: string | null,
+    pedido: PedidoDaNota,
+    daNota: T[],
+    notaRef: string | null,
+  ): Promise<{ aMais: T[]; resumo: { entraram: number; faltaram: string[]; naoVieram: string[]; pendentes: string[]; aMais: number } }> {
+    if (!this.compras) throw new Error('o serviço de compras não está neste servidor');
+    const doPedido = linhas(
+      await this.db.execute(sql`
+        select ci.id::text as id, ci.item_id::text as "itemId", ci.quantidade::float8 as quantidade,
+               coalesce(ie.nome_comercial, ie.nome) as nome, ie.validade_obrigatoria as obrigatoria
+          from compra_item ci
+          join item_estoque ie on ie.id = ci.item_id and ie.tenant_id = ci.tenant_id
+         where ci.lista_id = ${pedido.listaId}::uuid and ci.tenant_id = ${tenantId}::uuid`),
+    );
+    // A nota por insumo: a quantidade somada (na unidade do estoque) e o valor dela (sem valor lido, vale o do pedido).
+    const porInsumo = new Map<string, { qtd: number; total: number; comValor: boolean }>();
+    for (const x of daNota) {
+      const a = porInsumo.get(x.itemId) ?? { qtd: 0, total: 0, comValor: true };
+      a.qtd += x.qtdRecebida;
+      if (x.custoUnitario != null && x.custoUnitario > 0) a.total += x.custoUnitario * x.qtdRecebida;
+      else a.comValor = false;
+      porInsumo.set(x.itemId, a);
+    }
+    const usados = new Set<string>();
+    const resumo = { entraram: 0, faltaram: [] as string[], naoVieram: [] as string[], pendentes: [] as string[], aMais: 0 };
+    const num = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+    const itens = doPedido.map((l) => {
+      const n = porInsumo.get(l.itemId);
+      if (!n || usados.has(l.itemId) || !(n.qtd > 0)) {
+        resumo.naoVieram.push(String(l.nome));
+        return { compraItemId: l.id, qtdRecebida: 0 };
+      }
+      usados.add(l.itemId);
+      const qtd = Math.round(n.qtd * 10000) / 10000;
+      resumo.entraram++;
+      if (qtd < Number(l.quantidade)) resumo.faltaram.push(`${l.nome}: ${num(qtd)} de ${num(Number(l.quantidade))}`);
+      if (l.obrigatoria) resumo.pendentes.push(String(l.nome));
+      return {
+        compraItemId: l.id,
+        qtdRecebida: qtd,
+        custoUnitario: n.comValor && n.total > 0 ? Math.round((n.total / qtd) * 10000) / 10000 : undefined,
+        validadePendente: true,
+      };
+    });
+    await this.compras.receber(tenantId, pedido.listaId, colaboradorId, { itens, notaRef: notaRef ?? undefined } as any, loja, { semConta: true });
+    const doPedidoIds = new Set(doPedido.map((l) => String(l.itemId)));
+    const aMais = daNota.filter((x) => !doPedidoIds.has(x.itemId));
+    resumo.aMais = new Set(aMais.map((x) => x.itemId)).size;
+    return { aMais, resumo };
+  }
+
+  /**
    * O "Desfazer" do cupom lançado como SÓ DESPESA (decisão V6-8: o desfazer vale para a conta; a entrada no estoque não se
    * desfaz pela conversa): o pagamento estornado e a conta cancelada, pelos MESMOS serviços da tela; depois, a passagem
    * condicional "lancado" → "desfeito".
@@ -418,9 +571,12 @@ export class MisterNotasService implements OnModuleInit {
   private proximoPasso(nota: NotaNoMister): { situacao: 'falta' | 'confirmar'; motivo: string } {
     const daLeitura = pendenciaDaLeitura(nota);
     if (daLeitura) return { situacao: 'falta', motivo: daLeitura };
+    // P4: "Registrar o recebimento?" e, com "Receber o pedido", "Lançar no estoque?" (no cupom, no lugar do "Como deseja lançar?").
+    if (nota.pedido && !nota.pedido.resposta) return { situacao: 'falta', motivo: 'pedido' };
+    if (recebePedido(nota) && !nota.comoLancar) return { situacao: 'falta', motivo: 'pedido_estoque' };
     if (nota.especie === 'cupom' && !nota.comoLancar) return { situacao: 'falta', motivo: 'como_lancar' };
-    const pend = nota.especie === 'cupom' && nota.comoLancar !== 'estoque' ? null : proximaPendencia(nota);
-    return pend ? { situacao: 'falta', motivo: `${pend.tipo}:${pend.indice}` } : { situacao: 'confirmar', motivo: nota.comoLancar === 'despesa' ? 'so_despesa' : 'itens_ligados' };
+    const pend = lancaEstoque(nota) ? proximaPendencia(nota) : null;
+    return pend ? { situacao: 'falta', motivo: `${pend.tipo}:${pend.indice}` } : { situacao: 'confirmar', motivo: lancaEstoque(nota) ? 'itens_ligados' : 'so_despesa' };
   }
 
   private respostaDaLeitura(id: string, nota: NotaNoMister, motivo: string): Resposta {
@@ -437,6 +593,8 @@ export class MisterNotasService implements OnModuleInit {
   private respostaDoPasso(id: string, nota: NotaNoMister, motivo: string): Resposta {
     if (ehMotivoDaLeitura(motivo)) return this.respostaDaLeitura(id, nota, motivo);
     if (motivo === 'como_lancar') return { texto: FRASES_DA_NOTA.comoLancar(nota), botoes: botoesDoComoLancar(id) };
+    if (motivo === 'pedido' && nota.pedido) return { texto: FRASES_DO_PEDIDO_DA_NOTA.bate(nota, nota.pedido), botoes: botoesDoPedidoDaNota(id) };
+    if (motivo === 'pedido_estoque' && nota.pedido) return { texto: FRASES_DO_PEDIDO_DA_NOTA.estoque(nota, nota.pedido), botoes: botoesDoEstoqueDoPedido(id) };
     return this.respostaDeSeguir(id, nota);
   }
 
@@ -882,7 +1040,11 @@ export class MisterNotasService implements OnModuleInit {
     // Versão 6, M6h: o cupom fiscal de compra — a conta entra JÁ PAGA (a compra foi paga no caixa da loja que vendeu), com a
     // forma do cupom e no dia dele; o estoque só com "Estoque e despesa".
     const cupom = nota.especie === 'cupom';
-    const comEstoque = !cupom || nota.comoLancar === 'estoque';
+    const comEstoque = lancaEstoque(nota);
+    // P4: o pedido de compra recebido com esta nota (com "Receber o pedido").
+    const pedido = recebePedido(nota) ? (nota.pedido as PedidoDaNota) : null;
+    let doPedido: { entraram: number; faltaram: string[]; naoVieram: string[]; pendentes: string[]; aMais: number } | null = null;
+    let pedidoFeito = false;
     let pago = !cupom;
     // M3b.3: o custo médio de cada insumo ANTES da entrada (a mesma leitura das telas: o da loja, ou o do cadastro).
     // Numa consulta só, e nunca derruba o lançamento: sem a leitura, a resposta sai sem a linha do custo.
@@ -893,7 +1055,7 @@ export class MisterNotasService implements OnModuleInit {
         .catch(() => null);
     const antes = await lerCustos();
     try {
-      const itens = nota.itens
+      let itens = nota.itens
         .filter(() => comEstoque)
         .filter((it) => it.estado === 'ligado' && it.insumoId && it.fator)
         .map((it) => {
@@ -901,6 +1063,19 @@ export class MisterNotasService implements OnModuleInit {
           const totalReais = (it.valorTotalCentavos ?? Math.round((it.valorUnitarioCentavos ?? 0) * it.quantidade)) / 100;
           return { itemId: it.insumoId as string, qtdEsperada: quantidade, qtdRecebida: quantidade, custoUnitario: quantidade > 0 ? Math.round((totalReais / quantidade) * 10000) / 10000 : undefined };
         });
+      // P4: o pedido primeiro — com estoque, pelo recebimento do pedido (o que a nota tem a mais segue pelo avulso); sem, só
+      // marcado como recebido. A despesa continua a da nota, logo abaixo.
+      if (pedido) {
+        if (!this.compras) throw new Error('o serviço de compras não está neste servidor');
+        if (comEstoque) {
+          const r = await this.receberOPedido(tenantId, colaboradorId, loja, pedido, itens, nota.numero ?? null);
+          itens = r.aMais;
+          doPedido = r.resumo;
+        } else {
+          await this.compras.marcarRecebidoSemEstoque(tenantId, pedido.listaId, loja, colaboradorId, nota.numero ?? null);
+        }
+        pedidoFeito = true;
+      }
       if (itens.length) {
         const rec: any = await this.recebimento.create(
           tenantId,
@@ -949,6 +1124,15 @@ export class MisterNotasService implements OnModuleInit {
       }
     } catch (e: any) {
       this.logger.error(`nota ${documentoId}: o lançamento parou no meio — ${e?.message ?? e}`, e?.stack);
+      // P4: o pedido já foi recebido (ou marcado) — não volta a "confirmar" (o "Lançar" de novo tentaria receber de novo).
+      if (pedidoFeito) {
+        await this.db.execute(sql`
+          update mister_documento set recebimento_id = ${recebimentoId}::uuid, titulo_id = ${titulos[0] ?? null}::uuid, atualizado_em = clock_timestamp()
+           where id = ${documentoId}::uuid`);
+        return {
+          texto: `O pedido "${pedido!.nome}" ficou recebido em Estoque › Pedidos, mas não consegui lançar ${titulos.length ? 'o pagamento da despesa' : 'a despesa'}. Lance em Financeiro › Contas a pagar.`,
+        };
+      }
       // M6h: a conta do cupom já entrou e só a baixa falhou — não volta a "confirmar" (o "Lançar" de novo criaria outra).
       if (cupom && titulos.length && !pago) {
         await this.db.execute(sql`
@@ -974,7 +1158,12 @@ export class MisterNotasService implements OnModuleInit {
         acao: cupom ? 'mister_cupom_lancado' : 'mister_nota_lancada',
         entidadeTipo: 'mister_documento',
         entidadeId: documentoId,
-        detalhe: { recebimento: recebimentoId, titulos, ...(cupom ? { comoLancar: nota.comoLancar ?? null } : {}) },
+        detalhe: {
+          recebimento: recebimentoId,
+          titulos,
+          ...(cupom || pedido ? { comoLancar: nota.comoLancar ?? null } : {}),
+          ...(pedido ? { pedido: pedido.listaId, pedidoComEstoque: comEstoque } : {}),
+        },
       } as any)
       .catch(() => undefined);
     // Versão 9, O1: o que a IA ligou e a pessoa lançou vira memória do fornecedor (a próxima nota já vem ligada).
@@ -996,14 +1185,15 @@ export class MisterNotasService implements OnModuleInit {
       const c = depois?.get(it.insumoId as string);
       if (a != null && c != null) mudancas.push({ insumo: it.insumoNome ?? '', unidade: it.unidadeDoEstoque ?? 'unidade', antes: a, depois: c });
     }
+    const doPedidoNaResposta = pedido ? `${doPedido ? FRASES_DO_PEDIDO_DA_NOTA.recebido(pedido, doPedido) : FRASES_DO_PEDIDO_DA_NOTA.semEstoque(pedido)}\n\n` : '';
     if (cupom) {
       return {
-        texto: FRASES_DA_NOTA.cupomLancado(nota, custosQueMudaram(mudancas)),
+        texto: doPedidoNaResposta + FRASES_DA_NOTA.cupomLancado(nota, custosQueMudaram(mudancas)),
         // V6-8: o "Desfazer" vale para a conta — só no "Só despesa" (a entrada no estoque não se desfaz pela conversa).
         ...(comEstoque ? {} : { botoes: [{ id: `doc:desfazer:${documentoId}`, titulo: 'Desfazer' }] }),
       };
     }
-    return { texto: FRASES_DA_NOTA.lancada(nota, titulos.length, custosQueMudaram(mudancas)) };
+    return { texto: doPedidoNaResposta + FRASES_DA_NOTA.lancada(nota, titulos.length, custosQueMudaram(mudancas)) };
   }
 
   /**
@@ -1034,11 +1224,13 @@ export class MisterNotasService implements OnModuleInit {
   }
 
   private respostaDeSeguir(id: string, nota: NotaNoMister): Resposta {
-    // M6h: o cupom do "Só despesa" não pergunta os itens (vão só no resumo da compra).
-    const pend = nota.especie === 'cupom' && nota.comoLancar !== 'estoque' ? null : proximaPendencia(nota);
+    // M6h: o cupom do "Só despesa" não pergunta os itens (vão só no resumo da compra); P4: nem a NF com "Só marcar recebido".
+    const pend = lancaEstoque(nota) ? proximaPendencia(nota) : null;
     if (!pend) {
+      const base =
+        nota.especie === 'cupom' ? FRASES_DA_NOTA.resumoDoCupom(nota) : lancaEstoque(nota) ? FRASES_DA_NOTA.resumo(nota) : FRASES_DO_PEDIDO_DA_NOTA.soDespesaDaNota(nota);
       return {
-        texto: nota.especie === 'cupom' ? FRASES_DA_NOTA.resumoDoCupom(nota) : FRASES_DA_NOTA.resumo(nota),
+        texto: recebePedido(nota) && nota.pedido ? `${FRASES_DO_PEDIDO_DA_NOTA.noResumo(nota, nota.pedido)}\n\n${base}` : base,
         botoes: [
           { id: `doc:lancar:${id}`, titulo: 'Lançar' },
           { id: `doc:outra:${id}`, titulo: 'Cancelar' },

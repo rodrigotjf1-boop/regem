@@ -273,6 +273,8 @@ export class MisterDocumentosService implements OnModuleInit {
     if (String(botaoId ?? '').startsWith('doc:ni:')) return this.notas ? this.notas.escolher(botaoId, quem) : false;
     // Versão 6, M6h: o "Como deseja lançar?" do cupom fiscal ("doc:cl:…") também é do serviço das notas.
     if (String(botaoId ?? '').startsWith('doc:cl:')) return this.notas ? this.notas.comoLancar(botaoId, quem) : false;
+    // P4 de "Pedidos e recebimento": "Receber o pedido" / "Não é deste pedido" e "Lançar no estoque" / "Só marcar recebido".
+    if (String(botaoId ?? '').startsWith('doc:pd:')) return this.notas ? this.notas.pedidoDaNota(botaoId, quem) : false;
     // L2b: o "Lançar assim" da nota cuja soma não fecha ("doc:ns:…").
     if (String(botaoId ?? '').startsWith('doc:ns:')) return this.notas ? this.notas.lancarAssim(botaoId, quem) : false;
     // Versão 9, O1: o "Aceitar as sugestões" da nota ligada pela IA ("doc:ia:…").
