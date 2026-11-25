@@ -262,9 +262,13 @@ export class ComprasService {
         loteCodigo: compraItem.loteCodigo,
         divergencia: compraItem.divergencia,
         custoPedido: compraItem.custoPedido, // o valor do pedido, quando a nota veio com outro (mig 313)
+        fornecedorId: compraItem.fornecedorId, // de onde a linha veio (mig 505); null = o do pedido
+        fornecedorNome: fornecedor.nome,
       })
       .from(compraItem)
       .leftJoin(itemEstoque, eq(compraItem.itemId, itemEstoque.id))
+      // O nome de onde a linha veio, só do cadastro desta empresa (a coluna não tem chave estrangeira).
+      .leftJoin(fornecedor, and(eq(fornecedor.id, compraItem.fornecedorId), eq(fornecedor.tenantId, tenantId)))
       .where(eq(compraItem.listaId, id));
 
     // Memória por insumo: como este insumo foi conferido da ÚLTIMA vez. A tela
@@ -452,6 +456,23 @@ export class ComprasService {
         .from(itemEstoque)
         .where(and(eq(itemEstoque.tenantId, tenantId), inArray(itemEstoque.id, itens.map((i) => i.itemId))));
       const produtoDe = new Map(produtos.map((p) => [p.id, p]));
+      // "De onde veio" (P2, mig 505): cada linha pode dizer o fornecedor ou o mercado; tem de ser do cadastro desta empresa.
+      const ditos = [...new Set((dto?.itens ?? []).map((c) => c.fornecedorId).filter((f): f is string => !!f))];
+      const daEmpresa = ditos.length
+        ? new Set(
+            (
+              await tx
+                .select({ id: fornecedor.id })
+                .from(fornecedor)
+                .where(and(eq(fornecedor.tenantId, tenantId), inArray(fornecedor.id, ditos), isNull(fornecedor.deletedAt)))
+            ).map((f) => f.id),
+          )
+        : new Set<string>();
+      const foraDoCadastro = ditos.find((f) => !daEmpresa.has(f));
+      if (foraDoCadastro) throw new BadRequestException('O fornecedor de um item não está no cadastro desta empresa.');
+      // O valor conferido de cada fornecedor: é uma conta a pagar por fornecedor (PR-5).
+      const valorPorFornecedor = new Map<string, number>();
+      const itensPorFornecedor = new Map<string, number>();
 
       for (const it of itens) {
         const c = conf.get(it.id)!;
@@ -472,6 +493,7 @@ export class ComprasService {
               validadePendente: false,
               loteCodigo: null,
               marcaRecebida: null,
+              fornecedorId: null,
               divergencia: 'nao_veio',
               updatedAt: new Date(),
             })
@@ -528,6 +550,7 @@ export class ComprasService {
             validadePendente: pendente,
             loteCodigo: c.loteCodigo?.trim() || null,
             marcaRecebida,
+            fornecedorId: c.fornecedorId ?? null,
             ...(custoDaNota != null ? { custoUnitario: String(custoDaNota), custoPedido: mudou ? String(custoDoPedido) : null } : {}),
             divergencia: c.divergencia ?? this.divergenciaDe(pedida, qtd),
             updatedAt: new Date(),
@@ -555,7 +578,7 @@ export class ComprasService {
             tenantId,
             itemId: it.itemId,
             unidadeId: lista.unidadeId ?? null,
-            fornecedorId: lista.fornecedorId ?? null,
+            fornecedorId: c.fornecedorId ?? lista.fornecedorId ?? null,
             compraItemId: it.id,
             codigo,
             validade: c.validade ?? null,
@@ -568,6 +591,11 @@ export class ComprasService {
         }
 
         if (custo != null) valorConferido += qtd * custo;
+        const deOnde = c.fornecedorId ?? lista.fornecedorId ?? null;
+        if (deOnde && custo != null) {
+          valorPorFornecedor.set(deOnde, (valorPorFornecedor.get(deOnde) ?? 0) + qtd * custo);
+          itensPorFornecedor.set(deOnde, (itensPorFornecedor.get(deOnde) ?? 0) + 1);
+        }
 
         // Custo médio DA LOJA da lista (mig 257): a compra da loja A não mexe no custo da B.
         // O saldo "antes" sai da transação, então a 2ª linha do mesmo insumo na lista já
@@ -581,7 +609,10 @@ export class ComprasService {
       //
       // O valor usa a quantidade CONFERIDA, nunca a pedida: pagar 10 caixas quando
       // chegaram 7 é o mesmo erro do estoque, do lado do dinheiro.
-      if (lista.fornecedorId && valorConferido > 0) {
+      // UMA POR FORNECEDOR (P2, PR-5): a lista de compras do mercado vira uma conta por lugar de onde veio. A linha sem
+      // fornecedor (nem dela, nem do pedido) não gera conta, como antes. `valorConferido` continua o total da tela.
+      const contas = [...valorPorFornecedor.entries()].filter(([, v]) => v > 0);
+      for (const [fornecedorDaConta, valorDaConta] of contas) {
         // Data de pagamento (decisão do dono): a da conferência vence a da criação;
         // sem nenhuma das duas, o prazo do fornecedor a partir do recebimento. Título
         // sem vencimento não entra em alerta de contas a pagar e some do radar.
@@ -590,7 +621,7 @@ export class ComprasService {
           const [f] = await tx
             .select({ prazo: fornecedor.prazoPagamentoDias })
             .from(fornecedor)
-            .where(and(eq(fornecedor.id, lista.fornecedorId), eq(fornecedor.tenantId, tenantId)));
+            .where(and(eq(fornecedor.id, fornecedorDaConta), eq(fornecedor.tenantId, tenantId)));
           const dias = Number(f?.prazo ?? 0);
           if (dias > 0) {
             const d = new Date(`${data}T12:00:00`);
@@ -602,10 +633,10 @@ export class ComprasService {
           tenantId,
           unidadeId: lista.unidadeId,
           tipo: 'pagar',
-          descricao: `Compra: ${lista.nome}${notaRef ? ` · nota ${notaRef}` : ''}`,
+          descricao: `Compra: ${lista.nome}${contas.length > 1 ? ` (${itensPorFornecedor.get(fornecedorDaConta)} ${itensPorFornecedor.get(fornecedorDaConta) === 1 ? 'item' : 'itens'})` : ''}${notaRef ? ` · nota ${notaRef}` : ''}`,
           categoria: 'fornecedor',
-          fornecedorId: lista.fornecedorId,
-          valor: String(valorConferido.toFixed(2)),
+          fornecedorId: fornecedorDaConta,
+          valor: String(valorDaConta.toFixed(2)),
           vencimento: vencimento ?? undefined,
           origem: 'compra',
           origemId: id,
@@ -617,7 +648,7 @@ export class ComprasService {
         .update(compraLista)
         .set({ status: 'recebida', recebidaEm: new Date(), notaRef })
         .where(and(eq(compraLista.id, id), eq(compraLista.tenantId, tenantId)));
-      return { ...lista, itens: itens.length, comFalta };
+      return { ...lista, itens: itens.length, comFalta, contas: contas.length, valorConferido };
     });
 
     // Mexeu em saldo e em custo — tem de deixar rastro (regra do projeto).
@@ -629,7 +660,7 @@ export class ComprasService {
       acao: 'recebeu_compra',
       entidadeTipo: 'compra_lista',
       entidadeId: id,
-      detalhe: { nome: lista.nome, itens: lista.itens, itensComFalta: lista.comFalta },
+      detalhe: { nome: lista.nome, itens: lista.itens, itensComFalta: lista.comFalta, contasAPagar: lista.contas },
     });
 
     // Com a LOJA da lista (ERR-494): a compra entra no estoque de uma loja; sem ela o aviso ia a todas as lojas da rede.
@@ -643,7 +674,7 @@ export class ComprasService {
         tipo: 'gestao', // aviso de gestão: as telas de preparo não recebem por padrão (mig 408)
       });
     // `itensComFalta`: a tela oferece na hora "gerar lista com o que faltou".
-    return { ok: true, itensComFalta: lista.comFalta };
+    return { ok: true, itensComFalta: lista.comFalta, contasAPagar: lista.contas };
   }
 
   /**

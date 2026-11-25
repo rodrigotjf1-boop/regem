@@ -17,6 +17,12 @@
   "Validade pendente" e "Informar a validade". **Vai no `.zip`**: as colunas novas estão em `item_estoque`, `compra_item` e
   `lote`, que sincronizam com a loja (a 504 roda no servidor da loja com a atualização), e a tela de Pedidos roda lá.
 
+- **"De onde veio" por item no recebimento, com uma conta a pagar por fornecedor (25/11; P2 de "Pedidos e recebimento", PR-4 e
+  PR-5; mig 505 — aplicada na nuvem antes do merge).** No recebimento, cada item marcado diz o fornecedor ou o mercado de onde
+  veio (vem o do pedido; "＋ cadastrar novo" para presidente e gerente); sai uma conta a pagar por fornecedor, e o lote leva o de
+  cada linha. **Vai no `.zip`**: a coluna nova `compra_item.fornecedor_id` sincroniza com a loja (a 505 roda no servidor da loja com
+  a atualização), e o recebimento roda lá. Enquanto a loja não recebe o `.zip`, o recebimento NELA segue como hoje (um fornecedor só).
+
 - **PDV e números: valor digitado, relatórios, DRE, agendados do turno e o extrato sem duplicar (25/11; ERR-608; SEM migration).**
   Lote 5 da segunda volta da revisão do PDV: "12.34,56" é recusado no caixa e no balcão (um leitor só); o relatório de produtos
   separa produtos de mesmo nome histórico, cada um com o seu custo; as formas de uma venda dividida somam o faturamento sem o

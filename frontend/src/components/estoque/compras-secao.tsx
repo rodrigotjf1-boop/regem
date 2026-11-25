@@ -229,7 +229,7 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
           }} />
       )}
       {conferindo && (
-        <ConferirCompra lista={conferindo} aoFechar={() => setConferindo(null)}
+        <ConferirCompra lista={conferindo} fornecedores={fornecedores} aoFechar={() => setConferindo(null)}
           aoReceber={async (itensComFalta) => {
             const recebidaAgora = conferindo;
             setConferindo(null);

@@ -809,6 +809,8 @@ export const compraItem = pgTable('compra_item', {
   // O valor unitário que estava no PEDIDO, guardado quando a conferência informa outro pela nota
   // (mig 313): `custoUnitario` passa a ser o da nota. NULL = o valor não mudou na conferência.
   custoPedido: numeric('custo_pedido'),
+  // "De onde veio" (P2 de "Pedidos e recebimento", mig 505): o fornecedor ou o mercado desta linha. NULL = o do pedido.
+  fornecedorId: uuid('fornecedor_id'),
   divergencia: text('divergencia').notNull().default('ok'), // ok|parcial|nao_veio|danificado|excedente
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), // mig 243
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // cursor do sync (mig 243)

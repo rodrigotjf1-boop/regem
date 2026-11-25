@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { api } from '@/lib/api';
+import { api, getCategoria, podePerm } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,7 +14,10 @@ import { marcasDe, nomeDeApoio, nomeDeCompra, quantoFaltou, textoDaMarcaPedida }
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Conferência: o que de fato chegou, por linha da compra. `recebido` é o MARCADOR — sem ele o
 // item fica registrado como "não veio" e nada entra no estoque.
-type Conf = { recebido: boolean; qtdRecebida: string; custoUnitario: string; validade: string; indefinida: boolean; naoSei: boolean; loteCodigo: string; marcaRecebida: string };
+type Conf = { recebido: boolean; qtdRecebida: string; custoUnitario: string; validade: string; indefinida: boolean; naoSei: boolean; loteCodigo: string; marcaRecebida: string; deOnde: string };
+
+// Valor da opção "＋ cadastrar novo" no "De onde veio" (P2, mig 505).
+const NOVO_FORNECEDOR = '__novo__';
 
 // Título da coluna escrito em cima do campo: só aparece quando a tabela está empilhada (abaixo
 // de 1024 px), em que o cabeçalho some.
@@ -30,8 +33,22 @@ function RotuloDaColuna({ children }: { children: React.ReactNode }) {
 // o do pedido e se corrige pelo que está na nota; é ele que vai para o custo médio e a conta a
 // pagar. Qualquer conferente informa: quem não vê valores em R$ recebe o campo vazio (o servidor não
 // manda o valor do pedido) e digita o da nota — em branco, vale o do pedido.
-export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoFechar: () => void; aoReceber: (itensComFalta: number) => void }) {
+// "DE ONDE VEIO" (P2 de "Pedidos e recebimento", PR-4 e PR-5): cada item marcado diz o fornecedor ou o mercado de onde veio —
+// vem o do pedido; a lista de compras sem fornecedor escolhe item a item, com "＋ cadastrar novo" (o mercado vira fornecedor). Sai
+// uma conta a pagar por fornecedor.
+export function ConferirCompra({ lista, fornecedores = [], aoFechar, aoReceber }: { lista: any; fornecedores?: any[]; aoFechar: () => void; aoReceber: (itensComFalta: number) => void }) {
   const itens: any[] = lista.itens ?? [];
+  const doPedido: string = lista.fornecedorId ?? '';
+  // Os fornecedores do cadastro; o do pedido entra mesmo se a lista não o trouxer (quem não lê o cadastro).
+  const [forns, setForns] = useState<{ id: string; nome: string }[]>(() => {
+    const l = fornecedores.map((f: any) => ({ id: f.id as string, nome: f.nome as string }));
+    return doPedido && !l.some((f) => f.id === doPedido) ? [{ id: doPedido, nome: lista.fornecedorNome ?? 'Fornecedor do pedido' }, ...l] : l;
+  });
+  // Cadastrar fornecedor é de presidente e gerente (a rota confere): os outros escolhem só do cadastro.
+  const podeCadastrar = ['presidente', 'gerente', 'suporte'].includes(getCategoria() ?? '') && podePerm('cadastros');
+  const [novoPara, setNovoPara] = useState<string | null>(null); // o item com o "＋ cadastrar novo" aberto
+  const [nomeNovo, setNomeNovo] = useState('');
+  const [criando, setCriando] = useState(false);
   const [conf, setConf] = useState<Record<string, Conf>>(() =>
     Object.fromEntries(
       itens.map((it) => [
@@ -47,6 +64,7 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
           naoSei: false, // "não sei" (mig 504): só no produto com validade obrigatória
           loteCodigo: '',
           marcaRecebida: it.marca ?? '', // vem a pedida; troca quem recebe, se veio a 2ª opção
+          deOnde: doPedido, // vem o fornecedor do pedido; a lista de compras escolhe item a item
         },
       ]),
     ),
@@ -64,6 +82,35 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
   // O que a nota soma, pelos valores que estão na tela (o servidor refaz a conta com o que gravar).
   const totalConferido = Math.round(marcados.reduce((s, it) => s + (Number(conf[it.id].qtdRecebida) || 0) * (Number(conf[it.id].custoUnitario) || 0), 0) * 100) / 100;
   const marcarTodos = (v: boolean) => setConf((c) => Object.fromEntries(Object.entries(c).map(([id, x]) => [id, { ...x, recebido: v }])));
+  const nomeDoFornecedor = (id: string) => forns.find((f) => f.id === id)?.nome ?? 'Fornecedor';
+  // As contas a pagar que o recebimento vai gerar: uma por fornecedor dos itens marcados (o servidor só gera a que tem valor).
+  const porFornecedor = new Map<string, number>();
+  for (const it of marcados) {
+    const f = conf[it.id].deOnde;
+    if (f) porFornecedor.set(f, (porFornecedor.get(f) ?? 0) + 1);
+  }
+  const semFornecedor = marcados.filter((it) => !conf[it.id].deOnde).length;
+  const textoDasContas = [...porFornecedor.entries()]
+    .map(([f, n]) => `${nomeDoFornecedor(f)}${porFornecedor.size > 1 ? ` (${n} ${n === 1 ? 'item' : 'itens'})` : ''}`)
+    .join(', ');
+
+  async function cadastrarFornecedor(itemId: string) {
+    const nome = nomeNovo.trim();
+    if (!nome || criando) return;
+    setCriando(true);
+    try {
+      const f: any = await api.post('/fornecedores', { nome });
+      setForns((l) => [...l, { id: f.id, nome: f.nome }]);
+      mudar(itemId, { deOnde: f.id });
+      setNovoPara(null);
+      setNomeNovo('');
+      toast.success(`Fornecedor "${f.nome}" cadastrado.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao cadastrar o fornecedor');
+    } finally {
+      setCriando(false);
+    }
+  }
 
   async function confirmar() {
     if (salvando || !marcados.length) return;
@@ -101,10 +148,13 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
             validadePendente: (it.validadeObrigatoria && c.naoSei) || undefined,
             loteCodigo: c.loteCodigo.trim() || undefined,
             marcaRecebida: marcasDe(it).length >= 2 ? c.marcaRecebida || undefined : undefined,
+            // Só o que difere do pedido viaja: o do pedido é o padrão do servidor.
+            fornecedorId: c.deOnde && c.deOnde !== doPedido ? c.deOnde : undefined,
           };
         }),
       });
-      toast.success('Compra conferida e recebida — estoque atualizado.');
+      const contas = Number(r?.contasAPagar) || 0;
+      toast.success(`Compra conferida e recebida — estoque atualizado${contas > 1 ? `, com ${contas} contas a pagar` : ''}.`);
       aoReceber(Number(r?.itensComFalta) || 0);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao receber');
@@ -121,6 +171,12 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
               ? 'Marque o que chegou para confirmar.'
               : `${marcados.length} de ${itens.length} marcado(s)${comFalta ? ` · ${comFalta} com falta` : ''}${naoVieram ? ` · ${naoVieram} sem marcar (não veio)` : ''}`}
             {totalConferido > 0 && <b className="block text-foreground">Total conferido: {brl(totalConferido)}</b>}
+            {porFornecedor.size > 0 && (
+              <span className="block">
+                Contas a pagar: <b className="text-foreground">{porFornecedor.size}</b> — {textoDasContas}
+                {semFornecedor ? ` · ${semFornecedor} sem fornecedor (sem conta)` : ''}
+              </span>
+            )}
           </span>
           <Button type="button" variant="outline" onClick={aoFechar} disabled={salvando}>Cancelar</Button>
           <Button type="button" onClick={confirmar} disabled={salvando || marcados.length === 0}>{salvando ? 'Recebendo…' : 'Confirmar recebimento'}</Button>
@@ -130,8 +186,8 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className={`min-w-0 flex-1 basis-64 ${texto2}`}>
             Marque cada item que chegou. O que ficar sem marcar é registrado como <b className="text-foreground">não veio</b> e não entra no estoque.
-            Acerte o valor unitário pelo que está na nota. A validade só é exigida no produto com <b className="text-foreground">validade obrigatória</b>;
-            quem não souber marca “não sei” e ela fica pendente.
+            Acerte o valor unitário pelo que está na nota e diga <b className="text-foreground">de onde veio</b> cada item: sai uma conta a pagar por fornecedor.
+            A validade só é exigida no produto com <b className="text-foreground">validade obrigatória</b>; quem não souber marca “não sei” e ela fica pendente.
           </p>
           <Button type="button" variant="outline" size="sm" onClick={() => marcarTodos(!todos)}>{todos ? 'Desmarcar todos' : 'Marcar todos'}</Button>
         </div>
@@ -191,6 +247,31 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
                               <option key={m} value={m}>{m}{m === it.marca ? ' (pedida)' : m === it.marcaAlternativa ? ' (2ª opção)' : ''}</option>
                             ))}
                           </Select>
+                        </div>
+                      )}
+                      {c.recebido && (
+                        <div className="mt-1.5 space-y-1 pl-9">
+                          <Label htmlFor={`de-onde-${it.id}`} className="text-xs">De onde veio</Label>
+                          <Select id={`de-onde-${it.id}`} className="w-full max-w-60" value={c.deOnde}
+                            onChange={(e) => {
+                              if (e.target.value === NOVO_FORNECEDOR) { setNovoPara(it.id); setNomeNovo(''); return; }
+                              mudar(it.id, { deOnde: e.target.value });
+                            }}>
+                            {!doPedido && <option value="">— não informado (sem conta a pagar) —</option>}
+                            {forns.map((f) => <option key={f.id} value={f.id}>{f.nome}{f.id === doPedido ? ' (do pedido)' : ''}</option>)}
+                            {podeCadastrar && <option value={NOVO_FORNECEDOR}>＋ cadastrar novo</option>}
+                          </Select>
+                          {novoPara === it.id && (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Input value={nomeNovo} onChange={(e) => setNomeNovo(e.target.value)} placeholder="Nome do fornecedor ou mercado" maxLength={120}
+                                aria-label={`Nome do novo fornecedor de ${titulo}`} className="min-w-0 flex-1 basis-40 text-sm" autoFocus
+                                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); cadastrarFornecedor(it.id); } }} />
+                              <Button type="button" variant="outline" size="sm" onClick={() => cadastrarFornecedor(it.id)} disabled={criando || !nomeNovo.trim()}>
+                                {criando ? 'Cadastrando…' : 'Cadastrar'}
+                              </Button>
+                              <Button type="button" variant="ghost" size="sm" onClick={() => setNovoPara(null)} disabled={criando}>Cancelar</Button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </td>
@@ -258,7 +339,7 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
         <div className="space-y-1.5">
           <Label htmlFor="conf-venc">Data de pagamento</Label>
           <Input id="conf-venc" type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} aria-describedby="conf-venc-ajuda" />
-          <p id="conf-venc-ajuda" className={`text-xs ${texto2}`}>Gera a conta a pagar do fornecedor pelo valor CONFERIDO. Em branco, usa o prazo cadastrado do fornecedor.</p>
+          <p id="conf-venc-ajuda" className={`text-xs ${texto2}`}>Gera a conta a pagar de cada fornecedor pelo valor CONFERIDO. Em branco, usa o prazo cadastrado de cada um.</p>
         </div>
         </div>
         {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 font-medium">{erro}</p>}
