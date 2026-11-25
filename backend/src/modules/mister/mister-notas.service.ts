@@ -26,12 +26,9 @@ import {
   FRASES_DA_LEITURA,
   botaoLancarAssim,
   ehMotivoDaLeitura,
-  lerItemDigitado,
   lerLancarAssim,
-  numeroDaResposta,
   pendenciaDaLeitura,
   podePerguntar,
-  responderDuvidaDoItem,
 } from '../../common/duvida-da-nota';
 import { FUSO_SQL } from '../../common/fuso-sql';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -41,7 +38,7 @@ import { normalizarUnidade } from '../estoque/unidades';
 import { FinanceiroService } from '../financeiro/financeiro.service';
 import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { RecebimentoService } from '../recebimento/recebimento.service';
-import { DOCUMENTO_ABERTO_H, acharInsumo, corrigirLinha, fraseDoFeito, lerAlteracoes, limpo, linhasParaOAgente } from './mister-documento-conversa';
+import { DOCUMENTO_ABERTO_H, acharInsumo, corrigirLinha, fraseDoFeito, lerAlteracoes, lerExtrasDaNota, limpo, linhasParaOAgente, temExtras, type AlteracaoDoDocumento } from './mister-documento-conversa';
 import { QuemMandou, QuemTocou } from './mister-entrada.service';
 import { MisterFerramentasService, type EscopoDoMister, type ResultadoDaFerramenta } from './mister-ferramentas.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
@@ -71,7 +68,6 @@ import {
 } from './mister-nota-pedido';
 import type { PedidoDaNota } from '../../common/nota-por-foto';
 import { Resposta } from './mister.regras';
-import { lerRespostaDoFator, simOuNao } from './resposta-do-fator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -168,6 +164,13 @@ export class MisterNotasService implements OnModuleInit {
   /** ERR-594: o agente vê e corrige o documento aberto (o mesmo jeito da lista de compras). */
   onModuleInit(): void {
     this.ferramentas?.registrarDocumento((e, en) => this.ferramentaDoDocumento(e, en));
+  }
+
+  // Versão 10, C1a: o boleto e a conta (o serviço dos documentos, que injeta este — por isso ele se apresenta). Null = nenhum
+  // em aberto desta pessoa.
+  private boleto: ((e: EscopoDoMister, acao: 'ver' | 'informar', en: Record<string, unknown>) => Promise<ResultadoDaFerramenta | null>) | null = null;
+  registrarBoleto(f: (e: EscopoDoMister, acao: 'ver' | 'informar', en: Record<string, unknown>) => Promise<ResultadoDaFerramenta | null>): void {
+    this.boleto = f;
   }
 
   /** A nota por foto está ligada nesta instalação? (A regra mora em `notasNaInstalacao`: a tela lê a mesma.) */
@@ -608,65 +611,6 @@ export class MisterNotasService implements OnModuleInit {
     return { ...it, insumoId: null, insumoNome: null, unidadeDoEstoque: null, fator: null, fatorProposto: null, fatorConfirmado: false, estado: 'item', sugestoes };
   }
 
-  /**
-   * A resposta à dúvida da leitura: a linha, o total ou o item que faltou. Só a nota desta pessoa, das últimas 4 horas. O que não
-   * parece resposta devolve false e segue como conversa com o Mister. Nada é lançado aqui.
-   */
-  async responderLeitura(quem: QuemMandou, texto: string): Promise<boolean> {
-    const espera = sql`tenant_id = ${quem.tenantId}::uuid and colaborador_id = ${quem.colaboradorId}::uuid and tipo = 'nota' and situacao = 'falta'
-      and (motivo like 'duvida:%' or motivo in ('total', 'soma')) and atualizado_em > clock_timestamp() - interval '4 hours'`;
-    const [tem] = linhas(await this.db.execute(sql`select 1 as x from mister_documento where ${espera} limit 1`));
-    if (!tem) return false;
-    const insumos = await this.insumos(quem.tenantId);
-    let fala: string | null = null;
-    const resultado = await this.db.transaction(async (tx: any) => {
-      const [d] = linhas(await tx.execute(sql`select id::text as id, dados, motivo from mister_documento where ${espera} order by atualizado_em desc limit 1 for update`));
-      const nota: NotaNoMister | undefined = d?.dados?.nota;
-      if (!d || !nota || !ehMotivoDaLeitura(d.motivo)) return null;
-      const motivo = String(d.motivo);
-      if (motivo === 'total') {
-        const n = numeroDaResposta(texto);
-        if (n === null) return null;
-        if (n === 'varios') {
-          fala = FRASES_DA_LEITURA.repeteTotal;
-          return null;
-        }
-        nota.valorTotalCentavos = Math.round(n * 100);
-      } else if (motivo === 'soma') {
-        const novo = lerItemDigitado(texto);
-        if (!novo) return null;
-        nota.itens.push(this.itemSemInsumo(novo, insumos));
-      } else {
-        const i = Number(motivo.split(':')[1]);
-        const it = nota.itens[i];
-        if (!it) return null;
-        const campo = it.duvida?.campo;
-        const r = responderDuvidaDoItem(it, texto);
-        if (r === 'outro') return null;
-        if (r === 'repete') {
-          fala = FRASES_DA_LEITURA.repete(it);
-          return null;
-        }
-        // O nome mudou: o insumo ligado pelo nome antigo não vale mais.
-        if (campo === 'descricao') nota.itens[i] = this.itemSemInsumo(it, insumos);
-      }
-      const prox = this.proximoPasso(nota);
-      await tx.execute(sql`
-        update mister_documento
-           set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), valor_centavos = ${nota.valorTotalCentavos || null},
-               situacao = ${prox.situacao}, motivo = ${prox.motivo}, atualizado_em = clock_timestamp()
-         where id = ${d.id}::uuid`);
-      return { id: d.id as string, nota, motivo: prox.motivo };
-    });
-    if (fala) {
-      await this.falar(quem.telefone, { texto: fala });
-      return true;
-    }
-    if (!resultado) return false;
-    await this.falarDepoisDaLeitura(quem.telefone, resultado.id, resultado.nota, resultado.motivo);
-    return true;
-  }
-
   /** O toque em "Lançar assim": a soma não fecha, e a pessoa decidiu seguir. Só o presidente, e só a nota que espera isso. */
   async lancarAssim(botaoId: string, quem: QuemTocou): Promise<boolean> {
     const documentoId = lerLancarAssim(botaoId);
@@ -696,73 +640,6 @@ export class MisterNotasService implements OnModuleInit {
     if (!resultado.achou) return false;
     if ('resposta' in resultado && resultado.resposta) await this.falar(quem.telefone, resultado.resposta);
     if ('seguir' in resultado && resultado.seguir) await this.falarDepoisDaLeitura(quem.telefone, resultado.seguir.id, resultado.seguir.nota, resultado.seguir.motivo);
-    return true;
-  }
-
-  /**
-   * O texto que responde "1 CX tem quantos kg?". Só a nota desta pessoa esperando um fator, das últimas 4 horas (a mesma janela
-   * do que o Mister lembra). O número puro vale; a frase mostra a conta e espera o "sim", porque o fator fica guardado para as
-   * próximas notas do fornecedor; a dúvida pergunta de novo (ERR-588).
-   */
-  async responderFator(quem: QuemMandou, texto: string): Promise<boolean> {
-    let fala: string | null = null;
-    const resultado = await this.db.transaction(async (tx: any) => {
-      const [d] = linhas(
-        await tx.execute(sql`
-          select id::text as id, dados, motivo from mister_documento
-           where tenant_id = ${quem.tenantId}::uuid and colaborador_id = ${quem.colaboradorId}::uuid and tipo = 'nota'
-             and situacao = 'falta' and motivo like 'fator:%' and atualizado_em > clock_timestamp() - interval '4 hours'
-           order by atualizado_em desc limit 1
-           for update`),
-      );
-      const nota: NotaNoMister | undefined = d?.dados?.nota;
-      const indice = Number(String(d?.motivo ?? '').split(':')[1]);
-      const it = nota?.itens?.[indice];
-      if (!d || !nota || !it || it.estado !== 'fator') return null;
-      const guardarNota = () =>
-        tx.execute(sql`update mister_documento set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), atualizado_em = clock_timestamp() where id = ${d.id}::uuid`);
-      let fator: number;
-      const resposta = it.fatorProposto != null ? simOuNao(texto) : null;
-      if (resposta === 'sim') fator = it.fatorProposto as number;
-      else if (resposta === 'nao') {
-        it.fatorProposto = null;
-        await guardarNota();
-        fala = FRASES_DA_NOTA.perguntaFator(it);
-        return null;
-      } else {
-        const r = lerRespostaDoFator(texto, it.unidade, it.unidadeDoEstoque);
-        if (r.tipo === 'outro') return null;
-        if (r.tipo === 'duvida') {
-          // ERR-594: a explicação longa vai ao agente, que entende a frase e grava pela ferramenta. A curta pergunta de novo.
-          if (String(texto).trim().split(/\s+/).length > 6) return null;
-          fala = FRASES_DA_NOTA.duvidaDoFator(it);
-          return null;
-        }
-        if (r.tipo === 'confirmar') {
-          it.fatorProposto = r.fator;
-          await guardarNota();
-          fala = FRASES_DA_NOTA.confirmarFator(it, r.fator);
-          return null;
-        }
-        fator = r.fator;
-      }
-      Object.assign(it, { fator, fatorProposto: null, fatorConfirmado: true, estado: 'ligado' });
-      await this.lembrar(tx, quem.tenantId, nota.emitenteCnpj, it, quem.colaboradorId);
-      conferirEmbalagens(nota);
-      const pend = proximaPendencia(nota);
-      await tx.execute(sql`
-        update mister_documento
-           set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), situacao = ${pend ? 'falta' : 'confirmar'},
-               motivo = ${pend ? `${pend.tipo}:${pend.indice}` : 'itens_ligados'}, atualizado_em = clock_timestamp()
-         where id = ${d.id}::uuid`);
-      return { id: d.id as string, nota };
-    });
-    if (fala) {
-      await this.falar(quem.telefone, { texto: fala });
-      return true;
-    }
-    if (!resultado) return false;
-    await this.seguir(quem.telefone, resultado.id, resultado.nota);
     return true;
   }
 
@@ -895,20 +772,24 @@ export class MisterNotasService implements OnModuleInit {
    */
   async ferramentaDoDocumento(e: EscopoDoMister, en: Record<string, unknown>): Promise<ResultadoDaFerramenta> {
     const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
-    if (!this.ligadas()) return recusa('A leitura de nota por foto não está ligada neste servidor.');
     if (e.nivel !== 'presidente') return recusa('Mexer em nota por foto, por enquanto, é só com o presidente.');
     if (e.pinPendente) return recusa('O documento espera o PIN: o link para confirmar vai logo depois desta resposta. Diga isso em uma frase.');
-    const SEM_DOCUMENTO = `Não há cupom nem nota em aberto desta pessoa nas últimas ${DOCUMENTO_ABERTO_H} horas. Se ela quiser lançar, peça a foto.`;
-    const aberto = sql`tenant_id = ${e.tenantId}::uuid and colaborador_id = ${e.colaboradorId}::uuid and tipo = 'nota' and situacao in ('falta', 'confirmar')
-      and atualizado_em > clock_timestamp() - make_interval(hours => ${DOCUMENTO_ABERTO_H}::int)`;
     // 24/11 (o caso real): a IA chamou sem a ação, a recusa "acao precisa ser…" voltou e ela disse à pessoa que a leitura "não está
     // disponível". Chamada vazia é "ver": é o que a IA quer quando não diz.
     const acao = en.acao === undefined || en.acao === null || en.acao === '' ? 'ver' : en.acao;
+    // Versão 10, C1a: o valor e o vencimento do boleto ou da conta que esperam (o serviço dos documentos).
+    if (acao === 'informar')
+      return (await this.boleto?.(e, 'informar', en)) ?? recusa('Não há boleto nem conta esperando o valor ou o vencimento desta pessoa. Se ela quiser lançar, peça a foto.');
+    if (!this.ligadas()) return (acao === 'ver' && (await this.boleto?.(e, 'ver', en))) || recusa('A leitura de nota por foto não está ligada neste servidor.');
+    const SEM_DOCUMENTO = `Não há cupom, nota nem boleto em aberto desta pessoa nas últimas ${DOCUMENTO_ABERTO_H} horas. Se ela quiser lançar, peça a foto.`;
+    const aberto = sql`tenant_id = ${e.tenantId}::uuid and colaborador_id = ${e.colaboradorId}::uuid and tipo = 'nota' and situacao in ('falta', 'confirmar')
+      and atualizado_em > clock_timestamp() - make_interval(hours => ${DOCUMENTO_ABERTO_H}::int)`;
     if (acao === 'esquecer') return this.esquecerDocumentos(e, en, aberto, SEM_DOCUMENTO);
     if (acao === 'ver') {
       const [d] = linhas(await this.db.execute(sql`select dados, situacao, to_char(criado_em at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as hora from mister_documento where ${aberto} order by atualizado_em desc limit 1`));
       const nota: NotaNoMister | undefined = d?.dados?.nota;
-      if (!nota?.itens) return recusa(SEM_DOCUMENTO);
+      // Sem nota em aberto, o boleto ou a conta que espera (C1a).
+      if (!nota?.itens) return (await this.boleto?.(e, 'ver', en)) ?? recusa(SEM_DOCUMENTO);
       const outros = linhas(
         await this.db.execute(sql`
           select to_char(criado_em at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as "recebidoEm", beneficiario as emitente,
@@ -934,8 +815,14 @@ export class MisterNotasService implements OnModuleInit {
         },
       };
     }
-    if (acao !== 'alterar') return recusa('acao precisa ser ver, alterar ou esquecer.');
-    const lidas = lerAlteracoes(en.alteracoes);
+    if (acao !== 'alterar') return recusa('acao precisa ser ver, alterar, informar ou esquecer.');
+    // Versão 10, C1a: o total, os itens que a leitura não pegou e o "lançar mesmo com a soma diferente" (antes, leitores de
+    // código liam a resposta antes da IA). Só eles, sem linhas, também vale.
+    const lidosExtras = lerExtrasDaNota(en);
+    if ('erro' in lidosExtras) return recusa(lidosExtras.erro);
+    const extras = lidosExtras.extras;
+    const semLinhas = (en.alteracoes === undefined || en.alteracoes === null || (Array.isArray(en.alteracoes) && !en.alteracoes.length)) && temExtras(extras);
+    const lidas: { alteracoes: AlteracaoDoDocumento[] } | { erro: string } = semLinhas ? { alteracoes: [] } : lerAlteracoes(en.alteracoes);
     if ('erro' in lidas) return recusa(lidas.erro);
     const insumos = await this.insumos(e.tenantId);
     const r = await this.db.transaction(async (tx: any): Promise<{ erro: string } | { id: string; nota: NotaNoMister; feito: string[]; motivo: string }> => {
@@ -991,6 +878,22 @@ export class MisterNotasService implements OnModuleInit {
         const fator = fatorParaEstoque(unidadeImpressa(it.unidade), insumo.unidadeMedida, conv);
         Object.assign(it, { insumoId: insumo.id, insumoNome: insumo.nome, unidadeDoEstoque: insumo.unidadeMedida, fator, fatorProposto: null, fatorConfirmado: false, estado: fator == null ? 'fator' : 'ligado', sugestoes: [], duvida: null, pelaIa: false, propostaDaIa: false });
       }
+      // Versão 10, C1a: o total, os itens que faltaram (sem insumo: a pergunta de cada um segue pelo caminho de sempre) e o
+      // "lançar mesmo com a soma diferente" (o mesmo do botão "Lançar assim").
+      const reais = (c: number) => `R$ ${(c / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const feitoExtra: string[] = [];
+      if (extras.totalCentavos !== undefined) {
+        nota.valorTotalCentavos = extras.totalCentavos;
+        feitoExtra.push(e.verValores ? `Total da nota: ${reais(extras.totalCentavos)}.` : 'Total da nota gravado.');
+      }
+      for (const x of extras.incluir ?? []) {
+        nota.itens.push(this.itemSemInsumo({ descricao: x.descricao, codigo: null, quantidade: x.quantidade, unidade: x.unidade, valorUnitarioCentavos: Math.round(x.valorTotalCentavos / x.quantidade), valorTotalCentavos: x.valorTotalCentavos }, insumos));
+        feitoExtra.push(`Linha ${nota.itens.length} incluída: ${x.descricao} (${x.quantidade}${x.unidade ? ` ${x.unidade}` : ''})${e.verValores ? `, ${reais(x.valorTotalCentavos)}` : ''}.`);
+      }
+      if (extras.semSomar) {
+        nota.semSomar = true;
+        feitoExtra.push('Segue mesmo com a soma das linhas diferente do total.');
+      }
       conferirEmbalagens(nota);
       // Tudo conferido: só agora grava. Corrigir o nome ou o valor não ensina nada à memória do fornecedor.
       for (const a of lidas.alteracoes) if (a.tipo !== 'corrigir') await this.lembrar(tx, e.tenantId, nota.emitenteCnpj, nota.itens[a.linha - 1], e.colaboradorId);
@@ -1000,11 +903,25 @@ export class MisterNotasService implements OnModuleInit {
            set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), valor_centavos = ${nota.valorTotalCentavos || null},
                situacao = ${prox.situacao}, motivo = ${prox.motivo}, atualizado_em = clock_timestamp()
          where id = ${d.id}::uuid`);
-      return { id: d.id, nota, motivo: prox.motivo, feito: lidas.alteracoes.map((a) => fraseDoFeito(a, nota.itens[a.linha - 1], e.verValores)) };
+      return { id: d.id, nota, motivo: prox.motivo, feito: [...lidas.alteracoes.map((a) => fraseDoFeito(a, nota.itens[a.linha - 1], e.verValores)), ...feitoExtra] };
     });
     if ('erro' in r) return recusa(r.erro);
     await this.auditoria
-      ?.registrar({ tenantId: e.tenantId, atorId: e.colaboradorId, atorPerfil: e.nivel, tipo: 'mister', acao: 'mister_documento_alterado', entidadeTipo: 'mister_documento', entidadeId: r.id, detalhe: { alteracoes: lidas.alteracoes.map((a) => ({ linha: a.linha, tipo: a.tipo })) } } as any)
+      ?.registrar({
+        tenantId: e.tenantId,
+        atorId: e.colaboradorId,
+        atorPerfil: e.nivel,
+        tipo: 'mister',
+        acao: 'mister_documento_alterado',
+        entidadeTipo: 'mister_documento',
+        entidadeId: r.id,
+        detalhe: {
+          alteracoes: lidas.alteracoes.map((a) => ({ linha: a.linha, tipo: a.tipo })),
+          ...(extras.totalCentavos !== undefined ? { total: true } : {}),
+          ...(extras.incluir?.length ? { incluidos: extras.incluir.length } : {}),
+          ...(extras.semSomar ? { semSomar: true } : {}),
+        },
+      } as any)
       .catch(() => undefined);
     const proxima = this.respostaDoPasso(r.id, r.nota, r.motivo);
     return {

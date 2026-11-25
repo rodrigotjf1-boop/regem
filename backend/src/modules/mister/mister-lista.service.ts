@@ -19,9 +19,8 @@ import { MAX_TOKENS_DA_LIGACAO, MODELO_DA_LIGACAO, PRAZO_DA_LIGACAO_MS, RECURSO_
 import { lerAlteracoesDaLista, lerBotaoDasSugestoes, listaPelaIa, perguntasJuntas, juntarLinhas, type AlteracaoDaLista } from './mister-lista-ia';
 import { acharInsumo } from './mister-documento-conversa';
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
-import { InsumoDaLista, LEITURA_VALE_H, LISTA_VALE_H, MAX_LINHAS_DA_LISTA, LinhaDaLista, ListaLida, PREFIXO_DA_LISTA, PedidoDaLinha, TEXTOS_DA_LISTA, aplicarFator, comAsRespostas, duvidaDoFator, ehParteDaLeitura, lerBotaoDaLista, lerPedidos, ligarAoInsumo, marcaDoTexto, montarLinha, pedidosDaPlanilha, perguntaDaLinha, perguntaDoFornecedor, proximaPendencia, quantidadeNoEstoque, resumoDaLista, textoDaLeitura } from './mister-lista';
+import { InsumoDaLista, LEITURA_VALE_H, LISTA_VALE_H, MAX_LINHAS_DA_LISTA, LinhaDaLista, ListaLida, PREFIXO_DA_LISTA, PedidoDaLinha, TEXTOS_DA_LISTA, aplicarFator, comAsRespostas, ehParteDaLeitura, lerBotaoDaLista, lerPedidos, ligarAoInsumo, marcaDoTexto, montarLinha, pedidosDaPlanilha, perguntaDaLinha, perguntaDoFornecedor, proximaPendencia, quantidadeNoEstoque, resumoDaLista, textoDaLeitura } from './mister-lista';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
-import { lerRespostaDoFator, simOuNao } from './resposta-do-fator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -70,7 +69,7 @@ export class MisterListaService implements OnModuleInit {
     this.ferramentas.registrarLista((e, en) => this.ferramenta(e, en));
     this.entrada?.registrarBotao(PREFIXO_DA_LISTA, (botaoId, quem) => this.tocou(botaoId, quem));
     this.entrada?.registrarPlanilha((quem, midia, wamid) => this.planilha(quem, midia, wamid));
-    this.entrada?.registrarTextoDaLista((quem, texto) => this.texto(quem, texto));
+    // Versão 10, C1a: a resposta por texto (o fator, a marca) vai à IA, que grava pela ferramenta `lista_de_compras`.
     this.entrada?.registrarListaLida((quem, lida) => this.guardarLida(quem, lida));
   }
 
@@ -421,57 +420,6 @@ export class MisterListaService implements OnModuleInit {
       return true;
     }
     await this.falar(quem.telefone, await this.seguir(b.listaId));
-    return true;
-  }
-
-  /** O texto que responde a lista que espera: o fator ("1 caixa tem quantos kg?") ou a marca escrita. */
-  async texto(quem: QuemMandou, t: string): Promise<boolean> {
-    let listaId = '';
-    let fim: Mensagem | null = null;
-    const tratou = await this.db.transaction(async (tx: any) => {
-      const [l] = linhas(
-        await tx.execute(sql`
-          select id::text as id, itens from mister_lista_compra
-           where tenant_id = ${quem.tenantId}::uuid and colaborador_id = ${quem.colaboradorId}::uuid and situacao = 'montando'
-             and vence_em > clock_timestamp()
-           order by atualizada_em desc limit 1
-           for update`),
-      );
-      const itens: LinhaDaLista[] = Array.isArray(l?.itens) ? l.itens : [];
-      const pend = proximaPendencia(itens);
-      if (!l || !pend || pend.tipo === 'item') return false;
-      const ln = itens[pend.indice];
-      if (pend.tipo === 'fator') {
-        // A conta mostrada espera o "certo"; o resto é lido como resposta nova (ERR-584).
-        const resposta = ln.fatorProposto != null ? simOuNao(t) : null;
-        if (resposta === 'sim') aplicarFator(ln, ln.fatorProposto as number);
-        else if (resposta === 'nao') ln.fatorProposto = null;
-        else {
-          const r = lerRespostaDoFator(t, ln.unidade, ln.unidadeDoEstoque);
-          if (r.tipo === 'outro') return false;
-          if (r.tipo === 'duvida') {
-            fim = duvidaDoFator(l.id, pend.indice, ln);
-            return true;
-          }
-          if (r.tipo === 'numero') aplicarFator(ln, r.fator);
-          else ln.fatorProposto = r.fator;
-        }
-      } else {
-        const marca = marcaDoTexto(ln.marcas, t);
-        if (!marca) return false;
-        Object.assign(ln, { marca, estado: 'ligado' });
-      }
-      const [mudou] = linhas(
-        await tx.execute(sql`
-          update mister_lista_compra set itens = ${JSON.stringify(itens)}::jsonb, atualizada_em = clock_timestamp()
-           where id = ${l.id}::uuid and situacao = 'montando' returning id`),
-      );
-      if (!mudou) return false;
-      listaId = String(l.id);
-      return true;
-    });
-    if (!tratou) return false;
-    await this.falar(quem.telefone, fim ?? (await this.seguir(listaId)));
     return true;
   }
 

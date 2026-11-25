@@ -2637,7 +2637,7 @@ PIN. Por isso a pessoa liga para si sabendo do risco, o Mister pede para apagar 
 - Se o nanobanana escreve os números certos na imagem (o teste C10a mede, com cada conferência gravada).
 - Quanto a resposta escrita pela IA atrasa a conversa (o prazo de 5 segundos limita; a avaliação mede o tempo).
 
-### C10a — o teste da imagem (25/11/2026; SEM migration; só na nuvem)
+### C10a — o teste da imagem (25/11/2026, #1348, NO AR; SEM migration; só na nuvem)
 
 - **Antes de propor** (`mister-imagem-numeros.ts`, `numerosSemOrigem`): o laço do agente passa ao `propor_acao` a origem dos
   números, que são o que as consultas desta pergunta trouxeram e o que a pessoa escreveu (esta pergunta e as anteriores da memória). O
@@ -2678,3 +2678,38 @@ PIN. Por isso a pessoa liga para si sabendo do risco, o Mister pede para apagar 
   3. Passa com 9 de 10 certas na primeira tentativa (V10-12). A contagem sai da auditoria:
      `select detalhe->>'situacao', count(*) from audit_log where acao = 'mister_imagem_conferida' group by 1`.
   Custo: cerca de R$ 3,50 e 10 da franquia de imagem (30 por mês na Steakhouse, dividida com o Liame).
+
+### C1a — a resposta ao documento vai à IA (25/11/2026; SEM migration; só na nuvem)
+
+A C1 foi dividida em duas. A C1a tira os leitores de código da frente da IA. A C1b é o pedido que bate (a P4c): a conversa sobre
+o que veio e o "Vou fazer" montado pelo Regem.
+
+- **A entrada** (`mister-entrada.service.ts`, `atender`) não chama mais `textoDoDocumento` nem `textoDaLista`. Com documento ou
+  lista em aberto, o texto vai à fila da IA como qualquer pergunta. A IA já via o trabalho em andamento (ERR-588) e agora é a
+  única a entender a resposta. Os botões continuam como atalho.
+- **Saíram dos serviços** os leitores que interceptavam o texto:
+  - `completarPeloTexto` (o valor e o vencimento do boleto);
+  - `responderLeitura` (a dúvida da linha, o total e o item que faltou);
+  - `responderFator` (o "1 CX tem quantos kg?" da nota);
+  - o `texto` da lista (o fator e a marca).
+  Os leitores puros de `common/` (`lerRespostaDoQueFaltou`, `numeroDaResposta`, `responderDuvidaDoItem`, `lerItemDigitado`) e
+  `resposta-do-fator.ts` ficaram sem uso no Mister, com os testes deles. Saem numa limpeza.
+- **A ferramenta `documento_em_andamento`** cobre o que os leitores faziam:
+  - `alterar` ganhou `total` (o total da nota), `incluir` (os itens que a leitura não pegou: produto, quantidade, unidade,
+    valor_total) e `lancar_mesmo_sem_somar` (o mesmo do botão "Lançar assim"). Esses campos valem também sem `alteracoes`.
+  - A ação nova `informar` grava o valor e o vencimento (AAAA-MM-DD) do boleto ou da conta que espera, pelo
+    `MisterDocumentosService.boletoPelaConversa`: a mesma gravação condicional e o mesmo "Lanço assim?" com os botões, que sai
+    depois da resposta.
+  - `ver` sem nota em aberto mostra o boleto e o que falta.
+  - A janela do boleto passou de 30 minutos (pelo `criado_em`) para a do trabalho em aberto (72 horas, pelo `atualizado_em`).
+  - O vencimento é conferido: a data existe, não venceu há mais de 1 ano e não passa de 5 anos à frente (o ano dito ou lido
+    errado volta para a IA confirmar).
+- **A lista de compras:** a resposta (o fator, a marca) vai à IA, que grava pela `lista_de_compras` (`conversao`, `marca`), que
+  já existia.
+- **Instrução da IA:** ninguém lê a resposta antes dela. O que não deu para entender ("2 ou 7", "tem 12 unidades") ela pergunta
+  de novo, sem gravar. A conversão que não veio como número direto ela confirma pela conta ("então 1 KG = 2 pacotes") e só grava
+  depois do "sim" (a conversão fica para as próximas notas do fornecedor: ERR-588).
+- **Avaliação:** o dublê do documento aceita os campos novos e o `informar`. Casos c121 (o total da nota dito na conversa) e c122
+  (o valor e o vencimento do boleto). São 122 perguntas.
+- **O que ainda é fixo** (fica para a C1b e a C9): a próxima pergunta do documento depois de cada gravação, as perguntas com
+  botões do pedido que bate ("Receber o pedido", "Lançar no estoque?") e o "Como deseja lançar?" do cupom.

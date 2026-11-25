@@ -16,7 +16,7 @@ import type { ResultadoDaFerramenta } from './mister-ferramentas.service';
 import type { FimDaPergunta } from './mister-laco';
 import { GUIA_DE_USO, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { conferirMemoria } from './mister-memoria';
-import { lerAlteracoes } from './mister-documento-conversa';
+import { lerAlteracoes, lerExtrasDaNota, lerInformado, temExtras } from './mister-documento-conversa';
 import { lerAlteracoesDaLista } from './mister-lista-ia';
 import { canalDito, conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
 import { AVISOS_QUE_NAO_SE_CALAM, Regra, conferirRegra, descreverRegra, fraseDoQueDeixaDeChegar } from './mister-regra';
@@ -472,12 +472,32 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
     case 'documento_em_andamento': {
       // ERR-594: a mesma conferência da de verdade; na avaliação nada é gravado.
       if (perfil.nivel !== 'presidente') return recusa('Mexer em nota por foto, por enquanto, é só com o presidente.');
+      const brl = (c: number) => `R$ ${(c / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+      // Versão 10, C1a: o valor e o vencimento do boleto que espera (a mesma conferência da de verdade).
+      if (en.acao === 'informar') {
+        const i = lerInformado(en, AGORA_DA_AVALIACAO_INSTANTE.toISOString().slice(0, 10));
+        if ('erro' in i) return recusa(i.erro);
+        return ok({
+          gravado: true,
+          feito: [...(i.valorCentavos !== undefined ? [`Valor: ${brl(i.valorCentavos)}.`] : []), ...(i.vencimento ? [`Vencimento: ${i.vencimento.split('-').reverse().join('/')}.`] : [])],
+          lancado: false,
+          siga: 'Diga em uma frase o que foi gravado. O resumo com o botão "Lançar" sai sozinho logo depois da sua resposta: não repita nem pergunte. Nada foi lançado.',
+        });
+      }
       if (en.acao === 'alterar') {
-        const l = lerAlteracoes(en.alteracoes);
+        const x = lerExtrasDaNota(en);
+        if ('erro' in x) return recusa(x.erro);
+        const semLinhas = (en.alteracoes === undefined || en.alteracoes === null || (Array.isArray(en.alteracoes) && !en.alteracoes.length)) && temExtras(x.extras);
+        const l = semLinhas ? { alteracoes: [] } : lerAlteracoes(en.alteracoes);
         if ('erro' in l) return recusa(l.erro);
         return ok({
           gravado: true,
-          feito: l.alteracoes.map((a) => (a.tipo === 'corrigir' && a.valorTotalCentavos ? `Linha ${a.linha} corrigida, total R$ ${(a.valorTotalCentavos / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.` : `Linha ${a.linha} gravada.`)),
+          feito: [
+            ...l.alteracoes.map((a) => (a.tipo === 'corrigir' && a.valorTotalCentavos ? `Linha ${a.linha} corrigida, total ${brl(a.valorTotalCentavos)}.` : `Linha ${a.linha} gravada.`)),
+            ...(x.extras.totalCentavos !== undefined ? [`Total da nota: ${brl(x.extras.totalCentavos)}.`] : []),
+            ...(x.extras.incluir ?? []).map((it, k) => `Linha ${3 + k} incluída: ${it.descricao}, ${brl(it.valorTotalCentavos)}.`),
+            ...(x.extras.semSomar ? ['Segue mesmo com a soma das linhas diferente do total.'] : []),
+          ],
           faltam: 1,
           lancado: false,
           siga: 'Diga em uma frase o que foi gravado, como está em "feito". A próxima pergunta do documento sai sozinha logo depois da sua resposta: não repita nem pergunte. Nada foi lançado.',
@@ -1454,6 +1474,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 10, C10a (25/11): a imagem com número da loja — consultar antes de propor (sem a consulta, o número não tem origem
   // e o `propor_acao` recusa).
   { id: 'c120', pergunta: 'Faz uma imagem pra eu mandar no grupo da equipe com quanto vendemos hoje até agora.', umaDasConsultas: ['resumo_do_dia', 'vendas_do_periodo'], consultas: ['propor_acao'], contem: ['Gerar'] },
+  // Versão 10, C1a (25/11): a resposta à dúvida do documento vai à IA (antes, um leitor de código lia antes dela).
+  { id: 'c121', pergunta: 'Na nota que mandei, o total que não deu para ler é R$ 9.496,96.', consultas: ['documento_em_andamento'], contem: ['9.496,96'] },
+  { id: 'c122', pergunta: 'O boleto da Light que mandei é de 480 reais e vence dia 10/12.', consultas: ['documento_em_andamento'], contem: ['480', '10/12'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

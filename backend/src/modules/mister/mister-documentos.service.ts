@@ -15,7 +15,6 @@ import {
   documentosNaInstalacao,
   instrucoesDoDocumento,
   lerLeituraDaFoto,
-  lerRespostaDoQueFaltou,
 } from '../../common/documento-por-foto';
 import { MAX_BYTES_DA_FOTO, mimeDaFoto } from '../../common/foto-do-cliente';
 import { NotaNoMister, destinosDosItens } from '../../common/nota-por-foto';
@@ -26,12 +25,12 @@ import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { MidiaDoMister, MisterEntradaService, QuemMandou, QuemTocou } from './mister-entrada.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { MisterNotasService } from './mister-notas.service';
+import type { EscopoDoMister, ResultadoDaFerramenta } from './mister-ferramentas.service';
+import { DOCUMENTO_ABERTO_H, lerInformado } from './mister-documento-conversa';
 import { PdfDoDocumento, gerarPdfDoDocumento, nomeDoPdf } from './documento-pdf';
 import { MisterNumeroService } from './mister-numero.service';
 import { Resposta } from './mister.regras';
 
-/** Quanto tempo o documento que espera o valor ou o vencimento aceita a resposta em texto. */
-const COMPLETAR_EM_MIN = 30;
 const DIAS_DA_LISTA = [7, 30, 90] as const;
 /** Para achar o boleto pelo nome dito (M3g): minúsculas, sem acento. */
 const semAcento = (s: unknown) =>
@@ -135,10 +134,11 @@ export class MisterDocumentosService implements OnModuleInit {
     @Optional() private readonly notas?: MisterNotasService,
   ) {}
 
-  /** A foto, o texto que completa e os botões chegam pela entrada do WhatsApp, que mora no módulo de baixo. */
+  /** A foto e os botões chegam pela entrada do WhatsApp, que mora no módulo de baixo. */
   onModuleInit(): void {
     this.entrada?.registrarDocumento((quem, midia, wamid) => this.receber(quem, midia, wamid));
-    this.entrada?.registrarTextoDoDocumento((quem, texto) => this.completarPeloTexto(quem, texto));
+    // Versão 10, C1a: o valor e o vencimento ditos na conversa chegam pela ferramenta da IA (`documento_em_andamento`).
+    this.notas?.registrarBoleto((e, acao, en) => this.boletoPelaConversa(e, acao, en));
     this.entrada?.registrarBotao(PREFIXO_DO_BOTAO, (botaoId, quem) => this.responderBotao(botaoId, quem));
   }
 
@@ -383,19 +383,18 @@ export class MisterDocumentosService implements OnModuleInit {
     return true;
   }
 
-  // ───────────────────────────── o texto que completa ──────────────────────────
+  // ───────────────────── versão 10, C1a: o boleto e a conta pela conversa ─────────────────────
 
   /**
-   * A conversa 13: o documento que esperava o valor ou o vencimento recebe o que a pessoa escreveu ("vence dia 30, 480
-   * reais"). Só o último documento ESPERANDO desta pessoa, dos últimos 30 minutos, e só quando o texto traz o que faltou
-   * (senão é pergunta ao Mister, como sempre). Completo, pergunta "Lanço assim?" — nunca lança sozinho o que foi dito.
+   * A conversa 13, agora pela IA: o boleto ou a conta que esperava o valor ou o vencimento recebe o que a pessoa disse, do
+   * jeito que ela disse ("vence dia 30, 480 reais") — quem entende a frase é a IA, que chama `documento_em_andamento` com
+   * `informar` (antes, um leitor de código lia o texto antes dela). Só o último documento ESPERANDO desta pessoa, dentro do
+   * tempo do trabalho em aberto. Completo, o "Lanço assim?" com os botões sai depois da resposta — nunca lança sozinho.
+   * `ver` mostra o que ele traz e o que falta. Null = não há boleto nem conta em aberto (quem chamou decide a resposta).
    */
-  async completarPeloTexto(quem: QuemMandou, texto: string): Promise<boolean> {
-    if (!this.ligado() || quem.nivel !== 'presidente') return false;
-    // L2b: a resposta à dúvida da leitura (a linha, o total ou o item que faltou).
-    if (this.notas?.ligadas() && (await this.notas.responderLeitura(quem, texto))) return true;
-    // M3b: a resposta ao "1 CX tem quantos kg?" da nota que espera o fator.
-    if (this.notas?.ligadas() && (await this.notas.responderFator(quem, texto))) return true;
+  async boletoPelaConversa(e: EscopoDoMister, acao: 'ver' | 'informar', en: Record<string, unknown>): Promise<ResultadoDaFerramenta | null> {
+    const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
+    if (!this.ligado()) return acao === 'informar' ? recusa('A leitura de boleto por foto não está ligada neste servidor.') : null;
     let d: any;
     try {
       [d] = linhas(
@@ -403,23 +402,36 @@ export class MisterDocumentosService implements OnModuleInit {
           select id::text as id, tipo, motivo, valor_centavos as "valorCentavos", vencimento::text as vencimento, beneficiario,
                  linha_digitavel as linha, codigo_barras as codigo, dados
             from mister_documento
-           where tenant_id = ${quem.tenantId}::uuid and colaborador_id = ${quem.colaboradorId}::uuid and situacao = 'falta'
+           where tenant_id = ${e.tenantId}::uuid and colaborador_id = ${e.colaboradorId}::uuid and situacao = 'falta'
              and tipo <> 'nota'
-             and criado_em > clock_timestamp() - make_interval(mins => ${COMPLETAR_EM_MIN})
-           order by criado_em desc
+             and atualizado_em > clock_timestamp() - make_interval(hours => ${DOCUMENTO_ABERTO_H}::int)
+           order by atualizado_em desc
            limit 1`),
       );
-    } catch (e: any) {
-      if (e?.code === '42P01' || e?.cause?.code === '42P01') return false;
-      throw e;
+    } catch (err: any) {
+      if (err?.code === '42P01' || err?.cause?.code === '42P01') return null;
+      throw err;
     }
-    if (!d) return false;
+    if (!d) return null;
     const falta = String(d.motivo ?? '')
       .split(',')
       .filter((f): f is 'valor' | 'vencimento' => f === 'valor' || f === 'vencimento');
-    const dito = falta.length ? lerRespostaDoQueFaltou(texto, falta) : null;
-    if (!dito) return false;
-
+    const nome = d.tipo === 'conta' ? 'Conta' : 'Boleto';
+    if (acao === 'ver') {
+      return {
+        ok: true,
+        dados: {
+          documento: nome,
+          beneficiario: d.beneficiario ?? null,
+          ...(e.verValores && d.valorCentavos != null ? { valor: Number(d.valorCentavos) / 100 } : {}),
+          vencimento: d.vencimento ?? null,
+          falta: falta.length ? falta : ['nada'],
+          siga: 'Peça o que falta do jeito da conversa. Quando a pessoa disser, chame documento_em_andamento com acao informar (valor em reais e vencimento AAAA-MM-DD).',
+        },
+      };
+    }
+    const dito = lerInformado(en, hojeISO());
+    if ('erro' in dito) return recusa(dito.erro);
     const valor = dito.valorCentavos ?? (d.valorCentavos != null ? Number(d.valorCentavos) : null);
     const vencimento = dito.vencimento ?? d.vencimento ?? null;
     const origem = {
@@ -436,11 +448,20 @@ export class MisterDocumentosService implements OnModuleInit {
          where id = ${d.id}::uuid and situacao = 'falta'
         returning id`),
     );
-    // Outra mensagem completou no mesmo instante: ela responde; esta não vira pergunta.
-    if (!mudou) return true;
+    // Outra resposta completou no mesmo instante: ela segue; esta não grava de novo.
+    if (!mudou) return recusa('Esse documento acabou de ser respondido: nada mais foi gravado.');
+    await this.auditoria
+      ?.registrar({ tenantId: e.tenantId, atorId: e.colaboradorId, atorPerfil: e.nivel, tipo: 'mister', acao: 'mister_documento_informado', entidadeTipo: 'mister_documento', entidadeId: d.id, origem: 'whatsapp', detalhe: { valor: dito.valorCentavos != null, vencimento: !!dito.vencimento } } as any)
+      .catch(() => undefined);
+    const feito = [
+      ...(dito.valorCentavos != null ? [`Valor: R$ ${(dito.valorCentavos / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`] : []),
+      ...(dito.vencimento ? [`Vencimento: ${dito.vencimento.slice(8, 10)}/${dito.vencimento.slice(5, 7)}/${dito.vencimento.slice(0, 4)}.`] : []),
+    ];
     if (resta.length) {
-      await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.perguntar([...resta]) });
-      return true;
+      return {
+        ok: true,
+        dados: { gravado: true, feito, falta: resta, lancado: false, siga: 'Diga em uma frase o que foi gravado e peça o que ainda falta, do jeito da conversa. Nada foi lançado.' },
+      };
     }
     const dados: DadosDoLancamento = {
       tipo: d.tipo === 'conta' ? 'conta' : 'boleto',
@@ -451,11 +472,16 @@ export class MisterDocumentosService implements OnModuleInit {
       boleto: d.linha ? ({ ok: true, linhaDigitavel: d.linha, codigoDeBarras: d.codigo } as any) : null,
       origem,
     };
-    await this.falar(quem.telefone, {
-      texto: FRASES_DO_DOCUMENTO.confirmar(dados, 'informado'),
-      botoes: [botao('lancar', d.id, 'Lançar'), botao('outra', d.id, 'Mandar outra foto')],
-    });
-    return true;
+    return {
+      ok: true,
+      dados: {
+        gravado: true,
+        feito,
+        lancado: false,
+        siga: 'Diga em uma frase o que foi gravado. O resumo com o botão "Lançar" sai sozinho logo depois da sua resposta: não repita nem pergunte. Nada foi lançado.',
+      },
+      mensagens: [{ texto: FRASES_DO_DOCUMENTO.confirmar(dados, 'informado'), botoes: [botao('lancar', d.id, 'Lançar'), botao('outra', d.id, 'Mandar outra foto')], chave: `documento:${d.id}` }],
+    };
   }
 
   // ───────────────────────────── a tela ("Documentos") ──────────────────────────

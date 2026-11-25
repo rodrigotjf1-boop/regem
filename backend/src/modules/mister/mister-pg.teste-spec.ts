@@ -4172,6 +4172,9 @@ export function testesDoMisterComPostgres(): void {
         c119: { acao: 'mudar_previsao', pedidoDeCompra: 'pedido da semana do Rucas', novaPrevisao: '2026-11-28' },
         // C10a: o número da imagem é o da consulta feita ANTES (o resumo de hoje da avaliação: R$ 4.321,45).
         c120: { acao: 'criar_imagem', proporcao: '1:1', pedidoDaImagem: 'Cartaz quadrado para o grupo da equipe. Fundo azul-marinho e dourado, um hambúrguer. Texto exato: "Hoje até agora: R$ 4.321,45".' },
+        // C1a: o total da nota e o valor e o vencimento do boleto, ditos na conversa, pela ferramenta do documento.
+        c121: { acao: 'alterar', total: 9496.96 },
+        c122: { acao: 'informar', valor: 480, vencimento: '2026-12-10' },
         c110: { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' },
         c111: { acao: 'repetir_campanha', campanhaDaConversa: 'a última' },
         c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },
@@ -7366,6 +7369,9 @@ export function testesDoMisterComPostgres(): void {
         );
       const tocar = (tel: string, botaoId: string) => mandar(tel, 'botão', { botaoId });
       const baixou = () => numero.pedidos.filter((p) => p.metodo === 'GET').map((p) => p.url);
+      // Versão 10, C1a: a resposta ao documento chega pela ferramenta da IA (o escopo de quem conversa).
+      const escopoDaAna = (o: Record<string, unknown> = {}): any => ({ tenantId: A, colaboradorId: pessoa.ana, empresa: 'A', nome: 'Ana', nivel: 'presidente', lojas: [], lojaUnica: true, presa: null, semLoja: false, permissoes: {}, verValores: true, ...o });
+      const pelaIa = (en: Record<string, unknown>, o: Record<string, unknown> = {}) => notas.ferramentaDoDocumento(escopoDaAna(o), en);
 
       beforeAll(async () => {
         // O toque em "Desfazer"/"Lançar" e a foto chegam pela entrada: o serviço se apresenta a ela, como ao subir o app.
@@ -7520,7 +7526,7 @@ export function testesDoMisterComPostgres(): void {
           expect(ver.dados.sobreOsOutros).toContain('esquecer');
           // Esquecer pede a hora ou "todos menos o mais novo"; ação desconhecida diz as três.
           expect((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'esquecer' })).dados.erro).toContain('Diga qual documento esquecer');
-          expect((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'apagar' })).dados.erro).toBe('acao precisa ser ver, alterar ou esquecer.');
+          expect((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'apagar' })).dados.erro).toBe('acao precisa ser ver, alterar, informar ou esquecer.');
           const r: any = await notas.ferramentaDoDocumento(escopoDe(), { acao: 'esquecer', todosMenosOMaisNovo: true });
           expect(r).toMatchObject({ ok: true, dados: { gravado: true } });
           expect(r.dados.esquecidos).toHaveLength(2);
@@ -7534,7 +7540,7 @@ export function testesDoMisterComPostgres(): void {
           // Pela hora, como o "ver" mostra: o mais novo também sai, e então não há nada em aberto.
           const hora = ver.dados.recebidoEm as string;
           expect(((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'esquecer', recebidoEm: hora.slice(-5) })) as any).dados.esquecidos).toEqual([hora]);
-          expect((await notas.ferramentaDoDocumento(escopoDe(), {})).dados.erro).toContain('Não há cupom nem nota em aberto');
+          expect((await notas.ferramentaDoDocumento(escopoDe(), {})).dados.erro).toContain('Não há cupom, nota nem boleto em aberto');
           expect(auditados.filter((a) => a.acao === 'mister_documento_esquecido').length).toBeGreaterThanOrEqual(2);
         });
 
@@ -8137,48 +8143,53 @@ export function testesDoMisterComPostgres(): void {
         await q(`delete from mister_memoria where tenant_id = any($1::uuid[])`, [[A, B]]);
       });
 
-      it('a foto ruim pergunta o valor e o vencimento; o texto completa e pergunta "Lanço assim?"; pergunta de verdade segue para o Mister; depois de 30 min não completa', async () => {
+      it('C1a: a foto ruim pergunta o valor e o vencimento; a resposta vai à IA, que grava pela ferramenta e o "Lanço assim?" sai depois; o gerente não completa', async () => {
         ia.roteiro = [leitura({ legivel: false, beneficiario: 'Gás Rio' })];
         expect(await foto(telAna, novaMidia())).toBe('documento');
         expect(numero.enviadas.map((m) => m.texto)).toEqual([FRASES_DO_DOCUMENTO.perguntar(['valor', 'vencimento'])]);
         const [d] = await docs();
         expect(d).toMatchObject({ situacao: 'falta', motivo: 'valor,vencimento', beneficiario: 'Gás Rio' });
 
-        // Uma pergunta de verdade, com o documento esperando: segue para a fila do Mister.
-        expect(await mandar(telAna, 'quanto vendi hoje?')).toBe('pergunta');
-        expect((await docs())[0].situacao).toBe('falta');
+        // A resposta da pessoa não passa por leitor de código: vai à fila da IA, e o documento continua esperando.
+        expect(await mandar(telAna, 'são 480 reais')).toBe('pergunta');
+        expect((await docs())[0]).toMatchObject({ situacao: 'falta', motivo: 'valor,vencimento', valor_centavos: null });
 
-        // Só o valor: pergunta o que ainda falta.
-        numero.pedidos.length = 0;
-        expect(await mandar(telAna, 'são 480 reais')).toBe('documento');
-        expect(numero.enviadas.map((m) => m.texto)).toEqual([FRASES_DO_DOCUMENTO.perguntar(['vencimento'])]);
+        // "ver" sem nota em aberto mostra o boleto e o que falta.
+        expect(await pelaIa({ acao: 'ver' })).toMatchObject({ ok: true, dados: { documento: 'Boleto', beneficiario: 'Gás Rio', falta: ['valor', 'vencimento'] } });
+
+        // A IA grava só o valor: o que ainda falta volta para ela perguntar do jeito da conversa.
+        const r1: any = await pelaIa({ acao: 'informar', valor: 480 });
+        expect(r1).toMatchObject({ ok: true, dados: { gravado: true, feito: ['Valor: R$ 480,00.'], falta: ['vencimento'], lancado: false } });
+        expect(r1.mensagens).toBeUndefined();
         expect((await docs())[0]).toMatchObject({ situacao: 'falta', motivo: 'vencimento', valor_centavos: '48000' });
 
-        // O vencimento: completo — pergunta "Lanço assim?" (o que foi dito nunca lança sozinho).
-        numero.pedidos.length = 0;
-        expect(await mandar(telAna, 'vence 15/03/2030, é do gás')).toBe('documento');
+        // O vencimento: completo — o "Lanço assim?" com os botões sai depois da resposta (nunca lança sozinho).
+        const r2: any = await pelaIa({ acao: 'informar', vencimento: '2030-03-15' });
         const [completo] = await docs();
         expect(completo).toMatchObject({ situacao: 'confirmar', motivo: 'informado', valor_centavos: '48000' });
         expect(completo.dados).toMatchObject({ origem: { valor: 'pessoa', vencimento: 'pessoa' }, vencimento: '2030-03-15' });
-        expect(numero.enviadas[0].texto).toContain('R$ 480,00 · vence 15/03 (sexta)');
-        expect(numero.enviadas[0].texto).toContain('Sem o código de barras, ele entra sem a linha para pagar. Lanço assim?');
-        expect(numero.enviadas[0].botoes).toEqual([
+        expect(r2.dados).toMatchObject({ gravado: true, feito: ['Vencimento: 15/03/2030.'], lancado: false });
+        expect(r2.mensagens[0].texto).toContain('R$ 480,00 · vence 15/03 (sexta)');
+        expect(r2.mensagens[0].texto).toContain('Sem o código de barras, ele entra sem a linha para pagar. Lanço assim?');
+        expect(r2.mensagens[0].botoes).toEqual([
           { id: `doc:lancar:${completo.id}`, titulo: 'Lançar' },
           { id: `doc:outra:${completo.id}`, titulo: 'Mandar outra foto' },
         ]);
         expect(await titulos()).toEqual([]);
+        // Já respondido: nada mais a informar.
+        expect((await pelaIa({ acao: 'informar', valor: 500 })).dados.erro).toContain('Não há boleto nem conta esperando');
         numero.pedidos.length = 0;
         expect(await tocar(telAna, `doc:lancar:${completo.id}`)).toBe('respondeu_proposta');
         expect(await titulos()).toMatchObject([{ vencimento: '2030-03-15', descricao: 'Boleto · Gás Rio', status: 'aberto' }]);
         expect(numero.enviadas.map((m) => m.texto)).toEqual(['Lancei nas contas a pagar, para 15/03.']);
 
-        // Outro documento esperando, mas de 31 minutos atrás: o texto já não completa (é pergunta).
+        // A data que não existe, ou longe demais, volta para a IA confirmar; o gerente nunca completa o documento de ninguém.
         ia.roteiro = [leitura({ legivel: false, beneficiario: 'Água' })];
         expect(await foto(telAna, novaMidia())).toBe('documento');
-        await q(`update mister_documento set criado_em = criado_em - interval '31 minutes' where tenant_id = $1 and situacao = 'falta'`, [A]);
-        expect(await mandar(telAna, '120 reais vence 10/04/2030')).toBe('pergunta');
-        // O gerente nunca completa o documento de ninguém.
-        expect(await mandar(telCarlos, '120 reais vence 10/04/2030')).toBe('pergunta');
+        expect((await pelaIa({ acao: 'informar', vencimento: '2027-02-30' })).dados.erro).toContain('AAAA-MM-DD');
+        expect((await pelaIa({ acao: 'informar', vencimento: '2062-04-10' })).dados.erro).toContain('longe demais');
+        expect((await pelaIa({ acao: 'informar', valor: 120 }, { nivel: 'gerente' })).dados.erro).toBe('Mexer em nota por foto, por enquanto, é só com o presidente.');
+        expect((await docs()).slice(-1)[0]).toMatchObject({ situacao: 'falta', valor_centavos: null });
       });
 
       it('a parte "Documentos": a situação pela conta (pago, cancelado), quem mandou e o "Desfazer" pela tela — só da empresa e só com a conta em aberto', async () => {
@@ -8472,24 +8483,18 @@ export function testesDoMisterComPostgres(): void {
           const emAndamento = await fila.andamento(A, pessoa.ana);
           expect(linhasDoAndamento(emAndamento.documentos, emAndamento.listas, true).join('\n')).toContain('tem quantos pacote?');
           expect(linhasDoAndamento(emAndamento.documentos, emAndamento.listas, false).join('\n')).not.toContain('R$');
-          // A resposta que não diz quantos pergunta de novo, sem gravar.
+          // C1a: a resposta da pessoa ("1 KG tem 2 pacotes") vai à IA, sem leitor de código antes; nada é gravado por ela.
           numero.pedidos.length = 0;
-          expect(await mandar(telAna, 'tem 8 unidades')).toBe('documento');
-          expect(numero.enviadas.at(-1)!.texto).toContain('Não consegui saber quantos pacote');
-          // A frase mostra a conta; "não" volta à pergunta; o "sim" vale, e só então o fator fica guardado.
-          numero.pedidos.length = 0;
-          expect(await mandar(telAna, '1 KG tem 2 pacotes')).toBe('documento');
-          expect(numero.enviadas.at(-1)!.texto).toContain('= 2 pacote. Certo? Responda sim ou não.');
+          expect(await mandar(telAna, '1 KG tem 2 pacotes')).toBe('pergunta');
           expect(await q(`select fator::float as fator from mister_de_para where tenant_id = $1 and chave = 'cod:2001'`, [A])).toEqual([{ fator: null }]);
-          numero.pedidos.length = 0;
-          expect(await mandar(telAna, 'não')).toBe('documento');
-          expect(numero.enviadas.at(-1)!.texto).toContain('1 KG tem quantos pacote?');
-          expect(await mandar(telAna, '1 KG tem 2 pacotes')).toBe('documento');
-          numero.pedidos.length = 0;
-          expect(await mandar(telAna, 'sim')).toBe('documento');
+          // A IA confirma a conta na conversa e, com o "sim", grava a conversão pela ferramenta: o fator fica guardado para
+          // as próximas notas do fornecedor, e a pergunta seguinte do documento vem na resposta da ferramenta.
+          const conv: any = await pelaIa({ acao: 'alterar', alteracoes: [{ linha: 2, tipo: 'conversao', quanto_no_estoque: 2 }] });
+          expect(conv).toMatchObject({ ok: true, dados: { gravado: true, lancado: false } });
+          expect(await q(`select fator::float as fator from mister_de_para where tenant_id = $1 and chave = 'cod:2001'`, [A])).toEqual([{ fator: 2 }]);
           // 3º item: o detergente não tem insumo parecido — "Cadastrar novo" ou "Fora do estoque".
-          expect(numero.enviadas.at(-1)!.texto).toBe('Não achei o "DETERGENTE NEUTRO" (10 UN) no seu estoque. Cadastro um novo, ou ele não entra no estoque?');
-          expect(numero.enviadas.at(-1)!.botoes.map((b) => b.titulo)).toEqual(['Cadastrar novo', 'Fora do estoque']);
+          expect(conv.mensagens[0].texto).toBe('Não achei o "DETERGENTE NEUTRO" (10 UN) no seu estoque. Cadastro um novo, ou ele não entra no estoque?');
+          expect(conv.mensagens[0].botoes.map((b: any) => b.titulo)).toEqual(['Cadastrar novo', 'Fora do estoque']);
           numero.pedidos.length = 0;
           expect(await tocar(telAna, `doc:ni:${d.id}:2:f`)).toBe('respondeu_proposta');
           // O resumo antes de lançar (nunca lança sem o "Lançar").
@@ -8725,26 +8730,24 @@ export function testesDoMisterComPostgres(): void {
           expect(ultimaFala().texto).toContain('*ARROZ T1 5KG*, quantidade *2 ou 7*');
           expect(ultimaFala().texto).toContain('Com 2, a soma fecha com o total de R$ 642,30.');
           expect(ultimaFala().texto).toContain('Com 7, daria R$ 766,80.');
-          // Resposta que não decide pergunta de novo, sem gravar.
+          // C1a: a resposta da pessoa vai à IA (nenhum leitor de código antes); a dúvida continua até a IA gravar.
           numero.pedidos.length = 0;
-          expect(await mandar(telAna, '2 ou 7')).toBe('documento');
-          expect(ultimaFala().texto).toContain('Não entendi qual é');
+          expect(await mandar(telAna, 'são 2')).toBe('pergunta');
           expect((await ultimo()).motivo).toBe('duvida:1');
-          // A resposta certa corrige a linha, e a nota segue pelo caminho de sempre.
-          numero.pedidos.length = 0;
-          expect(await mandar(telAna, 'são 2')).toBe('documento');
+          // A IA corrige a linha pela ferramenta, e a nota segue pelo caminho de sempre (a pergunta seguinte vem na resposta).
+          const r1: any = await pelaIa({ acao: 'alterar', alteracoes: [{ linha: 2, tipo: 'corrigir', quantidade: 2 }] });
+          expect(r1).toMatchObject({ ok: true, dados: { gravado: true, lancado: false } });
           const d1b = await ultimo();
           expect(d1b).toMatchObject({ id: d1.id, situacao: 'falta', motivo: 'item:0' });
           expect(d1b.dados.nota.itens[1]).toMatchObject({ quantidade: 2, valorTotalCentavos: 4980, duvida: null });
           expect(await q(`select count(*)::int as n from recebimento where tenant_id = $1`, [A])).toEqual([{ n: 0 }]);
           expect(await titulos()).toEqual([]);
 
-          // 2) A resposta com a quantidade errada não fecha a soma: pergunta o que faltou antes de lançar.
+          // 2) A quantidade errada não fecha a soma: pergunta o que faltou antes de lançar.
           const d2 = await fotoDe();
-          numero.pedidos.length = 0;
-          expect(await mandar(telAna, '7')).toBe('documento');
+          const r2: any = await pelaIa({ acao: 'alterar', alteracoes: [{ linha: 2, tipo: 'corrigir', quantidade: 7 }] });
           expect(await ultimo()).toMatchObject({ id: d2.id, situacao: 'falta', motivo: 'soma' });
-          expect(ultimaFala().texto).toContain('Sobram R$ 124,50');
+          expect(r2.mensagens[0].texto).toContain('Sobram R$ 124,50');
 
           // 3) A foto nova toma o lugar da que esperava resposta.
           const d3 = await fotoDe({ itens: SEM_DUVIDA });
@@ -8753,12 +8756,14 @@ export function testesDoMisterComPostgres(): void {
           expect(ultimaFala().texto).toContain('Faltam R$ 49,80');
           expect(ultimaFala().botoes.map((b) => b.id)).toEqual([`doc:ns:${d3.id}`, `doc:outra:${d3.id}`]);
 
-          // 4) O item que faltou, escrito pela pessoa, fecha a soma.
-          numero.pedidos.length = 0;
-          expect(await mandar(telAna, '2 cx tomate 49,80')).toBe('documento');
+          // 4) O item que faltou, dito pela pessoa, entra pela ferramenta e fecha a soma.
+          const r4: any = await pelaIa({ acao: 'alterar', incluir: [{ produto: 'tomate', quantidade: 2, unidade: 'cx', valor_total: 49.8 }] });
+          expect(r4.dados.feito).toEqual(['Linha 2 incluída: tomate (2 CX), R$ 49,80.']);
           const d3b = await ultimo();
           expect(d3b).toMatchObject({ id: d3.id, situacao: 'falta', motivo: 'item:0' });
           expect(d3b.dados.nota.itens[1]).toMatchObject({ descricao: 'tomate', quantidade: 2, unidade: 'CX', valorTotalCentavos: 4980, estado: 'item' });
+          // Item sem valor não entra (a soma depende dele).
+          expect((await pelaIa({ acao: 'alterar', incluir: [{ produto: 'cebola', quantidade: 1 }] })).dados.erro).toBe('cebola: diga o valor total do item, em reais.');
 
           // 5) "Lançar assim": o gerente não pode; o presidente segue, e o toque repetido não muda nada.
           const d4 = await fotoDe({ itens: SEM_DUVIDA });
@@ -8781,9 +8786,19 @@ export function testesDoMisterComPostgres(): void {
           expect(ultimaFala().texto).toContain('não consegui ler o total da nota');
           const andamento = await fila.andamento(A, pessoa.ana);
           expect(linhasDoAndamento(andamento.documentos, andamento.listas, true).join('\n')).toContain('não deu para ler o total');
-          numero.pedidos.length = 0;
-          expect(await mandar(telAna, '592,50')).toBe('documento');
+          // A IA grava o total que a pessoa disse pela ferramenta.
+          const r6: any = await pelaIa({ acao: 'alterar', total: 592.5 });
+          expect(r6.dados.feito).toEqual(['Total da nota: R$ 592,50.']);
           expect(await ultimo()).toMatchObject({ id: d5.id, situacao: 'falta', motivo: 'item:0', valor_centavos: '59250' });
+
+          // 6b) "Lança assim mesmo" dito na conversa: o mesmo do botão "Lançar assim".
+          const d6 = await fotoDe({ itens: SEM_DUVIDA });
+          expect(d6).toMatchObject({ situacao: 'falta', motivo: 'soma' });
+          const r6b: any = await pelaIa({ acao: 'alterar', lancar_mesmo_sem_somar: true });
+          expect(r6b.dados.feito).toEqual(['Segue mesmo com a soma das linhas diferente do total.']);
+          const d6b = await ultimo();
+          expect(d6b).toMatchObject({ id: d6.id, situacao: 'falta', motivo: 'item:0' });
+          expect(d6b.dados.nota.semSomar).toBe(true);
 
           // 7) Foto sem nada aproveitável continua pedindo outra foto.
           ia.roteiro = [leitura({ tipo: 'nota' }), nota({ legivel: false, itens: [] })];
@@ -10342,11 +10357,14 @@ export function testesDoMisterComPostgres(): void {
         numero.pedidos.length = 0;
         expect(await tocar(tel, `lc:${l.id}:0:m0`)).toBe('respondeu_proposta');
         expect(textos()).toEqual(['Você pediu 2 caixas de "tomate", e o "Tomate" é contado em kg. 1 caixa tem quantos kg? Responda com o número.']);
-        // o fator por texto
+        // C1a: a resposta por texto vai à IA (sem leitor de código antes), que grava a conta pela ferramenta da lista
         numero.pedidos.length = 0;
-        expect(await mandar(tel, '20')).toBe('documento');
-        expect(textos()).toEqual(['Não achei "guardanapo" (5) no seu estoque. Cadastro um novo, ou deixo de fora da lista?']);
-        expect(numero.enviadas[0].botoes.map((b: any) => b.titulo)).toEqual(['Cadastrar novo', 'Deixar de fora']);
+        expect(await mandar(tel, '20')).toBe('pergunta');
+        expect((await ultima()).itens[1]).toMatchObject({ fator: null, estado: 'fator' });
+        const fat: any = await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'alterar', alteracoes: [{ linha: 2, tipo: 'conversao', quanto_no_estoque: 20 }] });
+        expect(fat).toMatchObject({ ok: true, dados: { gravado: true, feito: ['Linha 2: 1 caixas = 20 kg.'] } });
+        expect(fat.mensagens[0].texto).toBe('Não achei "guardanapo" (5) no seu estoque. Cadastro um novo, ou deixo de fora da lista?');
+        expect(fat.mensagens[0].botoes.map((b: any) => b.titulo)).toEqual(['Cadastrar novo', 'Deixar de fora']);
         // de fora; o toque repetido no item já respondido não muda nada
         numero.pedidos.length = 0;
         expect(await tocar(tel, `lc:${l.id}:2:f`)).toBe('respondeu_proposta');
@@ -10457,23 +10475,17 @@ export function testesDoMisterComPostgres(): void {
         }
       });
 
-      it('ERR-584: a frase do dono não vira 840: a dúvida pergunta de novo, a conta aparece e o "sim" fecha em 70', async () => {
+      it('ERR-584 e C1a: a frase do dono não vira 840 — ela vai à IA e nada é gravado por leitor de código; o botão da mesma unidade fecha em 70', async () => {
         const tel = telefone();
         await ligar('ana', tel);
         await ferramentas.executar(await escopo('ana'), 'lista_de_compras', { acao: 'montar', itens: [{ texto: 'tomate', quantidade: 70, unidade: 'pacotes' }] });
         const l = await ultima();
+        // C1a: as duas frases vão à IA (que confirma a conta na conversa e grava pela ferramenta); a lista não muda sozinha.
         numero.pedidos.length = 0;
-        expect(await mandar(tel, 'tem 12 unidades')).toBe('documento');
-        expect(textos()).toEqual(['Não consegui saber quantos kg tem 1 pacote de "Tomate". Responda com o número ou toque em "É a mesma unidade".']);
+        expect(await mandar(tel, 'tem 12 unidades')).toBe('pergunta');
+        expect(await mandar(tel, 'Pacote e kg sao sinônimos e tem 12 unidades cada')).toBe('pergunta');
+        expect(textos()).toEqual([]);
         expect((await ultima()).itens[0]).toMatchObject({ fator: null, estado: 'fator' });
-        numero.pedidos.length = 0;
-        expect(await mandar(tel, 'Pacote e kg sao sinônimos e tem 12 unidades cada')).toBe('documento');
-        expect(textos()).toEqual(['Então 70 pacotes de "tomate" = 70 kg. Certo?']);
-        expect((await ultima()).itens[0]).toMatchObject({ fator: null, fatorProposto: 1, estado: 'fator' });
-        // "Não" volta à pergunta, sem a conta.
-        numero.pedidos.length = 0;
-        expect(await tocar(tel, `lc:${l.id}:0:fn`)).toBe('respondeu_proposta');
-        expect(textos()[0]).toContain('1 pacote tem quantos kg?');
         // O "sim" sem conta na mesa não vale.
         numero.pedidos.length = 0;
         expect(await tocar(tel, `lc:${l.id}:0:fs`)).toBe('respondeu_proposta');

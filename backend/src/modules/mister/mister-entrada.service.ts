@@ -113,8 +113,6 @@ export type TratarDocumento = (quem: QuemMandou, midia: MidiaDoMister, wamid: st
  */
 export type ResultadoDaMidia = null | 'sem_graph' | 'tratada' | { pergunta: string; documento: boolean };
 export type TratarMidia = (quem: QuemMandou, midia: MidiaDoMister, wamid: string | null) => Promise<ResultadoDaMidia>;
-/** Quem trata o TEXTO que completa um documento (M3a parte 3: o valor ou o vencimento que a foto não trouxe). `false` = é pergunta. */
-export type TratarTextoDoDocumento = (quem: QuemMandou, texto: string) => Promise<boolean>;
 
 /** Versão 6, M6g: o arquivo é uma planilha (Excel ou CSV)? Pelo tipo que a Meta informou. */
 export const ehPlanilha = (mime: string | null | undefined): boolean =>
@@ -192,19 +190,10 @@ export class MisterEntradaService {
   registrarDocumento(tratar: TratarDocumento): void {
     this.documento = tratar;
   }
-  /** M3a parte 3: quem completa, pelo texto, o documento que ficou esperando o valor ou o vencimento. */
-  private textoDoDocumento: TratarTextoDoDocumento | null = null;
-  registrarTextoDoDocumento(tratar: TratarTextoDoDocumento): void {
-    this.textoDoDocumento = tratar;
-  }
-  /** Versão 6, M6g: quem lê a planilha (a lista de compras) e quem trata a resposta por texto à lista que espera. */
+  /** Versão 6, M6g: quem lê a planilha (a lista de compras). */
   private planilha: TratarDocumento | null = null;
   registrarPlanilha(tratar: TratarDocumento): void {
     this.planilha = tratar;
-  }
-  private textoDaLista: TratarTextoDoDocumento | null = null;
-  registrarTextoDaLista(tratar: TratarTextoDoDocumento): void {
-    this.textoDaLista = tratar;
   }
   /** ERR-584: quem guarda as linhas de uma lista lida de foto ou PDF. A mídia entrega aqui; a lista mora em outro serviço. */
   private listaLida: ((quem: QuemMandou, lida: ListaLida) => Promise<boolean>) | null = null;
@@ -719,23 +708,9 @@ export class MisterEntradaService {
       await this.responder(tel, { texto: semGraph ? TEXTOS_DA_MIDIA.semGraph : TEXTOS_DO_AGENTE.soTexto });
       return { desfecho: 'so_texto', tenantId: v.tenantId };
     }
-    // M3a parte 3: o texto que completa um documento que esperava o valor ou o vencimento (conversa 13). Só quando há um
-    // documento esperando desta pessoa e o texto traz o que faltou; senão, é pergunta como sempre.
-    if (this.textoDoDocumento) {
-      const completou = await this.textoDoDocumento(quem, texto).catch((err: any) => {
-        this.logger.error(`mister: o texto do documento de ${mascarar(tel)} não foi tratado — ${err?.message ?? err}`, err?.stack);
-        return false;
-      });
-      if (completou) return { desfecho: 'documento', tenantId: v.tenantId };
-    }
-    // Versão 6, M6g: a resposta por texto à lista de compras que espera ("1 caixa tem quantos kg?", o nome da marca).
-    if (this.textoDaLista) {
-      const respondeu = await this.textoDaLista(quem, texto).catch((err: any) => {
-        this.logger.error(`mister: o texto da lista de compras de ${mascarar(tel)} não foi tratado — ${err?.message ?? err}`, err?.stack);
-        return false;
-      });
-      if (respondeu) return { desfecho: 'documento', tenantId: v.tenantId };
-    }
+    // Versão 10, C1a: a resposta ao documento ou à lista em aberto ("o total é 1.240", "vence dia 30, 480 reais", "1 caixa tem
+    // 20 kg") não passa mais por leitores de código: vai à IA, que vê o trabalho em andamento e grava pela ferramenta
+    // (`documento_em_andamento`, `lista_de_compras`). Os botões continuam como atalho.
     // Uma pergunta: entra na fila com a empresa, a pessoa, a loja e o nível DESTE vínculo, e o agente é acordado.
     const nova = await this.fila.enfileirar({ tenantId: v.tenantId, colaboradorId: v.colaboradorId, unidadeId: v.unidadeId ?? null, nivel: v.nivel, telefone: tel }, texto, chave, wamid);
     return { desfecho: nova ? 'pergunta' : 'repetida', tenantId: v.tenantId };
