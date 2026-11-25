@@ -64,7 +64,7 @@ import { resumoDaContagem, type ParametrosDaContagem } from './mister-acoes-cont
 import { MOTIVO_MINIMO, nomeDoCaixa, resumoDaSangria, resumoDoFechamento, type ParametrosDoCaixa } from './mister-acoes-caixa';
 import { acharEntregador, recusaDoAcerto, resumoDoPagamento, type LinhaDoAcerto, type ParametrosDoEntregador } from './mister-acoes-entregador';
 import { marcacoesDoDia, resumoDoPonto, type ParametrosDoPonto } from './mister-acoes-ponto';
-import { NOME_DO_CANAL, resumoDoEnvio, type ParametrosDoEnvio } from './mister-acoes-compra';
+import { NOME_DO_CANAL, resumoDaValidade, resumoDoEnvio, type ParametrosDaValidade, type ParametrosDoEnvio } from './mister-acoes-compra';
 import { conferirPromocao, reaisCardapio, resumoDaPromocao, resumoDoProdutoNovo, type ParametrosDoCardapio } from './mister-acoes-cardapio';
 const dataHoraCurta = (v: unknown): string => { const d = new Date(String(v)); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ''); };
 import { acharCampanhaDaLista, nomeDaCampanha, recusaDaRepeticao, resumoDaRepeticao, textoDoCusto, type LinhaDaCampanha, type ParametrosDaCampanha } from './mister-acoes-campanha';
@@ -451,6 +451,15 @@ export class MisterAcoesService implements OnModuleInit {
         Object.assign(parametros, r.parametros);
         resumo = r.resumo;
         alvo = r.alvo;
+      }
+      if (c.parametros.acao === 'informar_validade') {
+        // P1 de "Pedidos e recebimento" (25/11): a validade pendente pela conversa.
+        const r = await this.prepararValidade(e, c.parametros as ParametrosDaValidade, e.lojaUnica && !loja.atual ? null : lojas);
+        if ('erro' in r) return recusa(r.erro);
+        Object.assign(parametros, r.parametros);
+        resumo = r.resumo;
+        alvo = r.alvo;
+        unidadeId = r.unidadeId ?? unidadeId;
       }
       if (c.parametros.acao === 'pedido_enviado') {
         // Etapa 6 (24/11): o pedido de compra pelo nome ou pelo fornecedor (a mesma busca da exclusão).
@@ -1274,6 +1283,56 @@ export class MisterAcoesService implements OnModuleInit {
     }
   }
 
+  /** P1 de "Pedidos e recebimento" (25/11): a linha recebida com "não sei" pelo nome do produto (e o pedido, se há dois). */
+  private async prepararValidade(
+    e: EscopoDoMister,
+    x: ParametrosDaValidade,
+    lojas: string[] | null,
+  ): Promise<{ parametros: Record<string, unknown>; resumo: string; alvo: string; unidadeId: string | null } | { erro: string }> {
+    const achados = linhas(
+      await this.db.execute(sql`
+        select ci.id::text as id, cl.id::text as "listaId", cl.nome as pedido, coalesce(ie.nome_comercial, ie.nome) as nome,
+               to_char(cl.recebida_em at time zone ${FUSO_SQL}, 'DD/MM') as recebido, cl.unidade_id::text as "unidadeId"
+          from compra_item ci
+          join compra_lista cl on cl.id = ci.lista_id and cl.tenant_id = ci.tenant_id and cl.deleted_at is null
+          join item_estoque ie on ie.id = ci.item_id and ie.tenant_id = ci.tenant_id
+         where ci.tenant_id = ${e.tenantId}::uuid and ci.validade_pendente
+           and (ie.nome ilike ${comoTexto(x.insumo)} or ie.nome_comercial ilike ${comoTexto(x.insumo)})
+           ${x.pedido ? sql`and cl.nome ilike ${comoTexto(x.pedido)}` : sql``}
+           ${lojas ? sql`and (cl.unidade_id is null or cl.unidade_id in (${sql.join(lojas.map((l) => sql`${l}::uuid`), sql`, `)}))` : sql``}
+         order by cl.recebida_em desc
+         limit 6`),
+    );
+    if (!achados.length) return { erro: `Não há validade pendente de "${x.insumo}". As pendentes ficam em Estoque › Pedidos › Validade pendente.` };
+    if (achados.length > 1)
+      return { erro: `Há mais de um "${x.insumo}" com a validade pendente: ${achados.map((a) => `"${a.pedido}"${a.recebido ? ` (recebido em ${a.recebido})` : ''}`).join('; ')}. Diga de qual pedido.` };
+    const a = achados[0];
+    return {
+      parametros: { listaId: a.listaId, compraItemId: a.id, nomeDoItem: a.nome, nomeDoPedido: a.pedido },
+      resumo: resumoDaValidade(String(a.nome), String(a.pedido), a.recebido ?? null, x),
+      alvo: `validade:${a.id}`,
+      unidadeId: a.unidadeId ?? null,
+    };
+  }
+
+  /** Informa pelo MESMO serviço de Estoque › Pedidos e confere que a linha saiu da pendência. */
+  private async aplicarValidade(
+    p: { id: string; tenantId: string; unidadeId: string | null },
+    x: ParametrosDaValidade & { listaId: string; compraItemId: string; nomeDoItem: string },
+    quem: string,
+  ): Promise<{ feita: boolean; texto: string }> {
+    if (!this.compras) return { feita: false, texto: 'isso não está disponível agora. Nada foi feito.' };
+    try {
+      await this.compras.informarValidade(p.tenantId, x.listaId, x.compraItemId, x.semValidade ? { validadeIndefinida: true } : { validade: x.validade as string }, p.unidadeId, quem);
+      const [ok] = linhas(await this.db.execute(sql`select validade_pendente as p from compra_item where id = ${x.compraItemId}::uuid and tenant_id = ${p.tenantId}::uuid`));
+      if (ok?.p !== false) return { feita: false, texto: 'a validade não ficou gravada. Confira em Estoque › Pedidos › Validade pendente.' };
+      const quando = x.semValidade ? 'sem validade' : `vence em ${String(x.validade).slice(8, 10)}/${String(x.validade).slice(5, 7)}/${String(x.validade).slice(0, 4)}`;
+      return { feita: true, texto: `Informei a validade de "${x.nomeDoItem}": ${quando}. Saiu da validade pendente.` };
+    } catch (err: any) {
+      return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240)) };
+    }
+  }
+
   /** O serviço dos entregadores (Delivery › Entregadores), achado na hora: o módulo dele não exporta o serviço. Os testes usam `entregadorDeTeste`. */
   entregadorDeTeste: { fechamentoEntregadores: (t: string) => Promise<any[]>; pagarEntregador: (t: string, ator: string | null, id: string) => Promise<any> } | null = null;
   private async servicoDoEntregador() {
@@ -2054,6 +2113,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (parametros.acao === 'pagar_entregador') return this.aplicarEntregador(p, parametros as any, quem);
     if (parametros.acao === 'incluir_marcacao' || parametros.acao === 'desconsiderar_marcacao') return this.aplicarPonto(p, parametros as any, e, quem);
     if (parametros.acao === 'pedido_enviado') return this.aplicarEnvio(p, parametros as any, quem);
+    if (parametros.acao === 'informar_validade') return this.aplicarValidade(p, parametros as any, quem);
     if (parametros.acao === 'criar_categoria' || parametros.acao === 'criar_produto' || parametros.acao === 'promocao_do_produto') return this.aplicarCardapio(p, parametros as any, e, quem);
     if (parametros.acao === 'pausar_campanha' || parametros.acao === 'repetir_campanha') return this.aplicarCampanha(p, parametros as any, quem);
     try {

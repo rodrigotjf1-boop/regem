@@ -4166,6 +4166,7 @@ export function testesDoMisterComPostgres(): void {
         c100: { acao: 'fechar_caixa', caixaDaLoja: 'balcão', semContagem: true },
         c101: { acao: 'sangria', caixaDaLoja: 'balcão', valorDaSangria: 200, motivoDoCaixa: 'pagar o gás' },
         c103: { acao: 'pagar_entregador', entregadorDoAcerto: 'Jefferson' },
+        c118: { acao: 'informar_validade', insumoDaValidade: 'Carne 56 g', validadeInformada: '2026-12-02' },
         c110: { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' },
         c111: { acao: 'repetir_campanha', campanhaDaConversa: 'a última' },
         c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },
@@ -4377,7 +4378,9 @@ export function testesDoMisterComPostgres(): void {
       // Os nove do protótipo aprovado em 14/11, o do boleto perto de vencer (versão 3, M3a parte 4), o do ponto esquecido (M3e)
       // e o do arquivo do ponto do mês (M3e parte 2) e os dois do gasto do WhatsApp oficial (G2, 18/11 — no fim; a tela os
       // põe em "Documentos e dinheiro").
-      expect(tela.avisos).toHaveLength(14);
+      // E o da validade pendente (P1 de "Pedidos e recebimento", 25/11): no fim, ao gerente; a tela o põe em "Na loja".
+      expect(tela.avisos).toHaveLength(15);
+      expect(tela.avisos[14]).toMatchObject({ tipo: 'validade_pendente', grupo: 'Na loja', padrao: true, regra: { ligado: true, destinos: ['gerente'], parametro: null } });
       expect(tela.avisos[11]).toMatchObject({ tipo: 'ponto_do_mes', grupo: 'Pessoas e ponto', regra: { ligado: true, destinos: ['presidente'], parametro: null } });
       expect(tela.avisos[12]).toMatchObject({ tipo: 'gasto_whatsapp', grupo: 'Documentos e dinheiro', padrao: true, regra: { ligado: false, destinos: ['presidente'], valores: [] } });
       expect(tela.avisos[13]).toMatchObject({ tipo: 'franquia_atendimento', grupo: 'Documentos e dinheiro', regra: { ligado: true, destinos: ['presidente'] } });
@@ -13209,6 +13212,82 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from colaborador where id = $1`, [carlosC]).catch(() => undefined);
           // A empresa da auditoria fica (a linha da audit_log não sai — mig 023).
           await q(`delete from empresa where id = $1`, [C]).catch(() => undefined);
+        }
+      });
+
+      it('P1 de "Pedidos e recebimento" (25/11): a validade pendente — o aviso só depois das 9h do dia seguinte, e informada pela conversa pelo serviço de Estoque › Pedidos', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+        const autorizar = async (r: any) => {
+          const id = idDaProposta(r);
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          return esperarFim(id);
+        };
+        const compras = new ComprasService(db, { emit: () => true } as any, auditoria);
+        const comprasAntes = (acoes as any).compras;
+        (acoes as any).compras = compras;
+        const itens: string[] = [];
+        const listas: string[] = [];
+        try {
+          const insumo = async (nome: string) => {
+            const [{ id }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida, validade_obrigatoria) values ($1, $2, 'kg', true) returning id::text as id`, [A, nome]);
+            itens.push(id);
+            return id;
+          };
+          const carne = await insumo('Carne P1b');
+          const queijo = await insumo('Queijo P1b');
+          // Dois pedidos recebidos com "não sei": a carne nos dois (para a pergunta "de qual pedido"), o queijo num só.
+          const receberComNaoSei = async (nome: string, ids: string[]) => {
+            const l: any = await compras.createLista(A, { nome, itens: ids.map((itemId) => ({ itemId, quantidade: 5 })) } as any, lojaDeA);
+            listas.push(l.id);
+            const det: any = await compras.getLista(A, l.id, lojaDeA);
+            await compras.receber(A, l.id, null, { itens: det.itens.map((i: any) => ({ compraItemId: i.id, qtdRecebida: 5, validadePendente: true })) } as any, lojaDeA);
+            return det.itens as any[];
+          };
+          await receberComNaoSei('Semanal P1b', [carne, queijo]);
+          await receberComNaoSei('Extra P1b', [carne]);
+
+          // O aviso: hoje, nada (recebido depois das 9h do dia do aviso); amanhã às 10h, um por pedido, com o dia como marco.
+          const doTeste = (ss: any[]) => ss.filter((s) => s.tipo === 'validade_pendente' && listas.includes(String(s.dados?.listaId)));
+          expect(doTeste(await avisos.situacoes([A]))).toEqual([]);
+          const amanha = somarDias(hojeISO(), 1);
+          const amanha10 = new Date(`${amanha}T10:00:00-03:00`);
+          const situacoes = doTeste(await avisos.situacoes([A], amanha10));
+          expect(situacoes.map((s) => [s.titulo, s.dados.marco])).toEqual([
+            [expect.stringMatching(/^Falta a validade de 2 itens recebidos: Carne P1b, Queijo P1b \(Semanal P1b, recebido em \d{2}\/\d{2}\)$/), amanha],
+            [expect.stringMatching(/^Falta a validade de 1 item recebido: Carne P1b \(Extra P1b, recebido em \d{2}\/\d{2}\)$/), amanha],
+          ]);
+
+          // Pela conversa: a carne pendente em dois pedidos pede o pedido; o queijo vai direto.
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'informar_validade', insumoDaValidade: 'carne p1b', validadeInformada: '2026-12-02' })).dados.erro).toMatch(
+            /^Há mais de um "carne p1b" com a validade pendente: "Extra P1b" \(recebido em \d{2}\/\d{2}\); "Semanal P1b" \(recebido em \d{2}\/\d{2}\)\. Diga de qual pedido\.$/,
+          );
+          const r = await ferramentas.executar(e, 'propor_acao', { acao: 'informar_validade', insumoDaValidade: 'carne p1b', pedidoDaValidade: 'semanal', validadeInformada: '2026-12-02' });
+          expect(r.dados.oQueVouFazer).toMatch(/^Informar a validade de "Carne P1b" \(pedido "Semanal P1b", recebido em \d{2}\/\d{2}\): vence em 02\/12\/2026\. O item e o lote saem da validade pendente\.$/);
+          expect(await autorizar(r)).toMatchObject({ situacao: 'feita', resultado: 'Informei a validade de "Carne P1b": vence em 02/12/2026. Saiu da validade pendente.' });
+          expect(
+            await q(`select ci.validade::text as v, ci.validade_pendente as p, l.validade::text as lv, l.validade_pendente as lp from compra_item ci join lote l on l.compra_item_id = ci.id where ci.lista_id = $1 and ci.item_id = $2`, [listas[0], carne]),
+          ).toEqual([{ v: '2026-12-02', p: false, lv: '2026-12-02', lp: false }]);
+          const rq = await ferramentas.executar(e, 'propor_acao', { acao: 'informar_validade', insumoDaValidade: 'Queijo P1b', semValidadeInformada: true });
+          expect(await autorizar(rq)).toMatchObject({ situacao: 'feita', resultado: 'Informei a validade de "Queijo P1b": sem validade. Saiu da validade pendente.' });
+          // O pedido "Semanal" sem pendência sai do aviso; o "Extra" continua.
+          expect(doTeste(await avisos.situacoes([A], amanha10)).map((s) => s.dados.listaId)).toEqual([listas[1]]);
+          // Nada pendente do queijo: a recusa diz onde ficam as pendentes. Sem "editar" do Estoque: não sai.
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'informar_validade', insumoDaValidade: 'Queijo P1b', validadeInformada: '2026-12-10' })).dados.erro).toBe(
+            'Não há validade pendente de "Queijo P1b". As pendentes ficam em Estoque › Pedidos › Validade pendente.',
+          );
+          expect(
+            await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true, criar: true, editar: false, excluir: false } } } as any, 'propor_acao', { acao: 'informar_validade', insumoDaValidade: 'carne p1b', pedidoDaValidade: 'extra', validadeInformada: '2026-12-02' }),
+          ).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
+        } finally {
+          (acoes as any).compras = comprasAntes;
+          await q(`delete from titulo_financeiro where origem = 'compra' and origem_id = any($1::uuid[])`, [listas]).catch(() => undefined);
+          await q(`delete from lote where item_id = any($1::uuid[])`, [itens]);
+          await q(`delete from movimento_estoque where item_id = any($1::uuid[])`, [itens]);
+          await q(`delete from compra_item where lista_id = any($1::uuid[])`, [listas]);
+          await q(`delete from compra_lista where id = any($1::uuid[])`, [listas]);
+          await q(`delete from item_estoque where id = any($1::uuid[])`, [itens]);
         }
       });
 
