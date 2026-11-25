@@ -56,6 +56,8 @@ describe('Mister · ações — o catálogo e os canais', () => {
       // Etapa 8 de 24/11: as campanhas.
       'pausar_campanha',
       'repetir_campanha',
+      // P1 de "Pedidos e recebimento" (25/11): a validade pendente.
+      'informar_validade',
     ]);
     expect(ACOES.criar_tarefa).toMatchObject({ nivel: 'botao', permissao: 'checklist' });
     for (const a of ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] as const)

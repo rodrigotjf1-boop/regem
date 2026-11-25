@@ -1440,6 +1440,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c115', pergunta: 'O que a cozinha tem de produzir hoje? O molho já saiu?', consultas: ['ordens_de_producao'], contem: ['Molho'] },
   { id: 'c116', pergunta: 'Chegou ficha nova de candidato? Quantas estão esperando análise?', consultas: ['candidatos_das_vagas'], numeros: ['5'], contem: ['1042'] },
   { id: 'c117', pergunta: 'Quanto de cashback os clientes têm para resgatar e quanto vence esta semana?', consultas: ['fidelidade_e_cashback'], numeros: ['2.486,35', '287,15'] },
+  // P1 de "Pedidos e recebimento" (25/11): a resposta ao aviso da validade pendente.
+  { id: 'c118', pergunta: 'A carne 56 g que chegou ontem vence dia 02/12.', consultas: ['propor_acao'], contem: ['02/12', 'Autorizar'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

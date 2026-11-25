@@ -55,7 +55,9 @@ export type TipoDeAviso =
   | 'ponto_do_mes'
   // G2 do protótipo `mockups/regem-whatsapp-gasto.html` (aprovado em 18/11/2026): o gasto do WhatsApp oficial (mig 445/446).
   | 'gasto_whatsapp'
-  | 'franquia_atendimento';
+  | 'franquia_atendimento'
+  // P1 de "Pedidos e recebimento" (protótipo aprovado em 25/11/2026, PR-2): o item recebido com "não sei" na validade.
+  | 'validade_pendente';
 
 export interface RegraDoAviso {
   ligado: boolean;
@@ -209,6 +211,16 @@ export const TIPOS_DE_AVISO: TipoDoAviso[] = [
     descricao:
       'A Meta dá 1.000 mensagens de atendimento grátis por mês em cada número; da 1.001ª em diante, cada resposta do robô e da equipe é cobrada. Avisa quando um número passa de 900. Sem forma de pagamento na Meta, as respostas param depois das 1.000. Só nas empresas com o WhatsApp oficial.',
     padrao: regra(['presidente']),
+    jaFunciona: true,
+  },
+  // P1 de "Pedidos e recebimento" (protótipo `mockups/regem-pedidos-recebimento.html`, aprovado em 25/11/2026, PR-2): a validade
+  // pendente ao gerente, às 9h da loja, uma vez por dia até alguém informar. No fim da lista; a tela o põe em "Na loja".
+  {
+    tipo: 'validade_pendente',
+    grupo: 'Na loja',
+    titulo: 'Validade pendente',
+    descricao: 'Itens recebidos com "não sei" na validade. Às 9h da loja, uma vez por dia, até alguém informar a data pela conversa ou em Estoque › Pedidos › Validade pendente.',
+    padrao: regra(['gerente']),
     jaFunciona: true,
   },
 ];
@@ -850,6 +862,37 @@ export function situacaoDoBoleto(b: BoletoAVencer): Situacao {
       dias: b.dias,
       ...(b.pix ? { pix: b.pix } : {}),
     },
+  };
+}
+
+/** Um pedido com linhas recebidas com "não sei" (mig 504) — o que a volta lê para o aviso da validade pendente. */
+export interface ValidadePendente {
+  tenantId: string;
+  unidadeId: string | null;
+  listaId: string;
+  pedido: string;
+  recebidaEm: string | Date | null;
+  itens: number;
+  nomes: string[];
+  /** O "hoje" do aviso (vira às 9h da loja, como o do boleto): é o marco que faz o aviso aberto lembrar uma vez por dia. */
+  dia: string;
+}
+
+/**
+ * A validade pendente de um pedido (P1 de "Pedidos e recebimento", PR-2). A chave é do pedido: a última linha informada fecha o
+ * aviso. O marco é o dia do aviso — muda às 9h da loja e o aviso aberto lembra pelo WhatsApp, uma vez por dia.
+ */
+export function situacaoDaValidadePendente(v: ValidadePendente): Situacao {
+  const recebido = v.recebidaEm ? dataNoFuso(new Date(v.recebidaEm as any)) : null;
+  const nomes = v.nomes.slice(0, 3).join(', ') + (v.itens > Math.min(v.nomes.length, 3) ? ` e mais ${v.itens - Math.min(v.nomes.length, 3)}` : '');
+  return {
+    tenantId: v.tenantId,
+    unidadeId: v.unidadeId,
+    tipo: 'validade_pendente',
+    chave: `validade:${v.listaId}`,
+    titulo: `Falta a validade de ${v.itens === 1 ? '1 item recebido' : `${v.itens} itens recebidos`}: ${nomes} (${v.pedido}${recebido ? `, recebido em ${recebido.slice(8, 10)}/${recebido.slice(5, 7)}` : ''})`,
+    detalhe: 'Responda a data (ex.: "a carne vence 02/12") ou informe em Estoque › Pedidos › Validade pendente.',
+    dados: { marco: v.dia, listaId: v.listaId, itens: v.itens },
   };
 }
 

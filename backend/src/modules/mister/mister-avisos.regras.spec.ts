@@ -9,6 +9,7 @@ import {
   DESTINOS,
   MARCOS_DO_CERTIFICADO,
   TIPOS_DE_AVISO,
+  situacaoDaValidadePendente,
   PONTE_ATALHO,
   PONTE_ICONE,
   PONTE_MENU_ABRIR_IFOOD,
@@ -76,6 +77,8 @@ describe('Mister — os avisos: o padrão aprovado em 14/11', () => {
       // G2 do gasto do WhatsApp oficial (18/11/2026): no fim; a tela os põe no grupo "Documentos e dinheiro".
       'gasto_whatsapp',
       'franquia_atendimento',
+      // P1 de "Pedidos e recebimento" (25/11): a validade pendente, ao gerente; a tela o põe em "Na loja".
+      'validade_pendente',
     ]);
     // M3e parte 2: o arquivo do ponto do mês, ao presidente (o protótipo: "Vai para: WhatsApp do presidente"), sem parâmetro.
     expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'ponto_do_mes')).toMatchObject({
@@ -645,5 +648,32 @@ describe('Mister — o gasto do WhatsApp oficial (G2)', () => {
     expect(tela).toMatch(/>\s*Uso e gasto\s*</);
     expect(shell).toMatch(/href: '\/mister', label: 'Mister'/);
     expect(readFileSync(join(raiz, 'app/mister/page.tsx'), 'utf8')).toContain("avisos: 'Avisos e relatórios'");
+  });
+});
+
+describe('o aviso da validade pendente (P1 de "Pedidos e recebimento", PR-2)', () => {
+  it('ao gerente, em "Na loja", ligado de partida; a situação por pedido, com o dia como marco (lembra uma vez por dia)', () => {
+    expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'validade_pendente')).toMatchObject({
+      grupo: 'Na loja',
+      titulo: 'Validade pendente',
+      padrao: { ligado: true, destinos: ['gerente'], escalaMin: null, escalaPara: [], parametro: null },
+      jaFunciona: true,
+    });
+    const s = situacaoDaValidadePendente({
+      tenantId: 't', unidadeId: 'u', listaId: 'l1', pedido: 'Nota 48.213', recebidaEm: '2026-11-23T21:00:00Z', itens: 5,
+      nomes: ['Carne 56 g', 'Queijo', 'Tomate'], dia: '2026-11-25',
+    });
+    expect(s).toEqual({
+      tenantId: 't',
+      unidadeId: 'u',
+      tipo: 'validade_pendente',
+      chave: 'validade:l1',
+      titulo: 'Falta a validade de 5 itens recebidos: Carne 56 g, Queijo, Tomate e mais 2 (Nota 48.213, recebido em 23/11)',
+      detalhe: 'Responda a data (ex.: "a carne vence 02/12") ou informe em Estoque › Pedidos › Validade pendente.',
+      dados: { marco: '2026-11-25', listaId: 'l1', itens: 5 },
+    });
+    expect(situacaoDaValidadePendente({ tenantId: 't', unidadeId: null, listaId: 'l2', pedido: 'Semanal', recebidaEm: null, itens: 1, nomes: ['Carne 56 g'], dia: '2026-11-25' }).titulo).toBe(
+      'Falta a validade de 1 item recebido: Carne 56 g (Semanal)',
+    );
   });
 });

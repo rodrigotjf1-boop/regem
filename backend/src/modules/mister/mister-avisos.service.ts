@@ -53,6 +53,8 @@ import {
   botoesDoAvisoDoBoleto,
   diaDoAvisoDoBoleto,
   situacaoDoBoleto,
+  situacaoDaValidadePendente,
+  HORA_DO_AVISO_DO_BOLETO,
   TurnoDoPonto,
   pontoNoTempoDoAviso,
   situacoesDoPonto,
@@ -468,6 +470,31 @@ export class MisterAvisosService implements OnModuleInit {
     // 10) O arquivo do ponto do mês (M3e parte 2): do dia 1 às 06:00 da loja até o dia 5, o fechamento do mês anterior que
     //     a rotina do dia 1 gravou e ainda não foi mandado à contabilidade, das empresas que usaram o ponto no mês.
     fora.push(...(await this.pontosDoMes(so, agora)));
+    // 11) A validade pendente (P1 de "Pedidos e recebimento", mig 504): as linhas recebidas com "não sei", por pedido. Só o
+    //     que chegou ANTES das 9h do dia do aviso (o recebido de noite avisa na manhã seguinte); o marco é o dia, então o aviso
+    //     aberto lembra uma vez por dia até a última validade ser informada.
+    try {
+      const pendentes = linhas(
+        await this.db.execute(sql`
+          select cl.tenant_id::text as "tenantId", cl.unidade_id::text as "unidadeId", cl.id::text as "listaId", cl.nome as pedido,
+                 cl.recebida_em as "recebidaEm", count(*)::int as itens,
+                 (array_agg(coalesce(ie.nome_comercial, ie.nome) order by ie.nome))[1:3] as nomes
+            from compra_item ci
+            join compra_lista cl on cl.id = ci.lista_id and cl.tenant_id = ci.tenant_id and cl.deleted_at is null
+            join item_estoque ie on ie.id = ci.item_id and ie.tenant_id = ci.tenant_id
+            join empresa emp on emp.id = cl.tenant_id and emp.deleted_at is null
+           where ci.validade_pendente
+             and coalesce(cl.recebida_em, cl.created_at) < ((${dia} || ' ' || ${String(HORA_DO_AVISO_DO_BOLETO).padStart(2, '0')} || ':00')::timestamp at time zone ${FUSO_SQL})
+             ${so('ci.tenant_id')}
+           group by cl.id
+           order by cl.recebida_em
+           limit 500`),
+      );
+      for (const v of pendentes)
+        fora.push(situacaoDaValidadePendente({ ...v, unidadeId: v.unidadeId ?? null, itens: Number(v.itens), nomes: Array.isArray(v.nomes) ? v.nomes.map(String) : [], dia }));
+    } catch (e: any) {
+      if (!semTabela(e)) throw e;
+    }
     // 11) O gasto do WhatsApp oficial (G2 do protótipo `mockups/regem-whatsapp-gasto.html`; mig 445/446): o gasto do mês
     //     que a nuvem guardou lendo a Meta, contra os valores de cada empresa, e a franquia do atendimento de cada número.
     fora.push(...(await this.gastosDoWhatsapp(so, agora)));
