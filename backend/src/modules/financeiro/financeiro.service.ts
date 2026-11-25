@@ -32,6 +32,7 @@ import { proximaData } from '../../common/regras-negocio';
 import { uuidDeChave } from '../../common/id-deterministico';
 import { sqlUnidade, condUnidade } from '../../common/filtro-unidade';
 import { gorjetaComanda } from '../../common/faturamento';
+import { formaDoCaixa, somarPorFormaDoCaixa } from '../../common/forma-do-caixa';
 import { instanteDe } from '../../common/fuso-sql';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { CreateTituloDto } from './dto/create-titulo.dto';
@@ -780,10 +781,14 @@ export class FinanceiroService {
       // O dinheiro que o sistema espera na gaveta antes da sangria (a mesma conta do fechamento: abertura + dinheiro).
       let esperadoCent: number | null = null;
       if (sangria) {
+        // O dinheiro pela chave de conferência (PDV-C-01): a venda do balcão grava "Dinheiro", não "dinheiro".
         const d: any = await tx.execute(sql`
-          select coalesce(sum(case when tipo = 'entrada' then valor else -valor end), 0) as mov
-            from lancamento_caixa where sessao_id = ${s.id} and coalesce(forma, 'dinheiro') = 'dinheiro'`);
-        esperadoCent = somarCentavos(paraCentavos((d.rows ?? d)[0]?.mov ?? 0), paraCentavos(s.valorAbertura));
+          select forma, coalesce(sum(case when tipo = 'entrada' then valor else -valor end), 0) as mov
+            from lancamento_caixa where sessao_id = ${s.id} group by forma`);
+        const movDinheiro = (d.rows ?? d)
+          .filter((x: any) => formaDoCaixa(x.forma) === 'dinheiro')
+          .reduce((soma: number, x: any) => somarCentavos(soma, paraCentavos(x.mov)), 0);
+        esperadoCent = somarCentavos(movDinheiro, paraCentavos(s.valorAbertura));
       }
       await tx.insert(lancamentoCaixa).values({
         tenantId,
@@ -933,6 +938,8 @@ export class FinanceiroService {
       justificativaPendencias?: string;
       /** G8 (mig 455): os pedidos agendados para depois que a pessoa decidiu manter (os ids). */
       agendadosMantidos?: string[];
+      /** O turno que a tela mostrou ao contar (PDV-C-03): a contagem só fecha ESTE turno. */
+      sessaoId?: string | null;
     },
   ) {
     const s = await this.sessaoAberta(
@@ -940,6 +947,10 @@ export class FinanceiroService {
       dto.origem === 'delivery' ? 'delivery' : 'pdv',
       dto.terminalId,
     );
+    // A contagem é do turno que a tela mostrou (PDV-C-03 da revisão de 25/11/2026): a confirmação atrasada de outra aba,
+    // chegando depois de o turno A fechar e o B abrir, fechava o B com a contagem do A. Agora ela é recusada e o B segue aberto.
+    if (dto.sessaoId && (!s || s.id !== dto.sessaoId))
+      throw new ConflictException({ message: 'Este turno já foi fechado. Atualize a tela para ver o turno aberto agora.', code: 'CAIXA_JA_FECHADO', codigo: 'CAIXA_JA_FECHADO' });
     if (!s) throw new BadRequestException('Nenhum caixa aberto.');
     // Chamada sem os valores contados (corpo vazio/malformado) FECHAVA o caixa como se tivessem
     // contado R$ 0 — reproduzido (set/2026): diferença de −R$ 283,40 registrada. O PDV sempre
@@ -998,10 +1009,15 @@ export class FinanceiroService {
     // leitura solta: o lançamento gravado no meio ficava fora do esperado (e dentro de um caixa já fechado), e dois
     // fechamentos juntos gravavam os dois, valendo a contagem do último, com duas auditorias e dois comprovantes.
     const limiteCent = await this.limiteDiferenca(tenantId, s.unidadeId);
-    // Contado por forma (compat: só valorInformado = dinheiro).
-    const informados: Record<string, number> =
+    // Contado por forma (compat: só valorInformado = dinheiro), pela chave de conferência — a mesma do que entrou (PDV-C-01).
+    const informadosCrus: Record<string, number> =
       dto.valoresInformados ??
       (dto.valorInformado != null ? { dinheiro: dto.valorInformado } : {});
+    const informados: Record<string, number> = {};
+    for (const [f, v] of Object.entries(informadosCrus)) {
+      const k = formaDoCaixa(f);
+      informados[k] = paraReais(somarCentavos(paraCentavos(informados[k] ?? 0), paraCentavos(v)));
+    }
     const fechou = await this.db.transaction(async (tx: any) => {
       const trava: any = await tx.execute(sql`select id from caixa_sessao where id = ${s.id} and status = 'aberta' for update`);
       if (!(trava.rows ?? trava).length)
@@ -1011,8 +1027,10 @@ export class FinanceiroService {
                coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as mov
         from lancamento_caixa where sessao_id=${s.id}
         group by coalesce(forma,'dinheiro')`);
-      const espCent: Record<string, number> = {};
-      for (const x of rf.rows ?? rf) espCent[x.forma] = paraCentavos(x.mov);
+      const crus: Record<string, number> = {};
+      for (const x of rf.rows ?? rf) crus[x.forma] = paraCentavos(x.mov);
+      // "Dinheiro" (venda do balcão) e "dinheiro" (delivery, sangria) são a mesma linha (PDV-C-01).
+      const espCent = somarPorFormaDoCaixa(crus);
       espCent['dinheiro'] = somarCentavos(espCent['dinheiro'] ?? 0, paraCentavos(s.valorAbertura));
 
       const formas = Array.from(new Set([...Object.keys(espCent), ...Object.keys(informados)])).sort();
@@ -1233,16 +1251,19 @@ export class FinanceiroService {
              coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as mov
       from lancamento_caixa where sessao_id=${s.id}
       group by coalesce(forma,'dinheiro')`);
-    const recalcCent: Record<string, number> = {};
-    for (const x of rf.rows ?? rf) recalcCent[x.forma] = paraCentavos(x.mov);
+    const recalcCrus: Record<string, number> = {};
+    for (const x of rf.rows ?? rf) recalcCrus[x.forma] = paraCentavos(x.mov);
+    // Pela chave de conferência dos dois lados (PDV-C-01): o fechamento antigo gravou "Dinheiro" e "dinheiro" separados.
+    const recalcCent = somarPorFormaDoCaixa(recalcCrus);
     recalcCent['dinheiro'] = somarCentavos(recalcCent['dinheiro'] ?? 0, paraCentavos(s.valorAbertura));
 
     // Gravado no fechamento (jsonb por forma; fallback legado = só dinheiro).
     const gravado: Record<string, number> =
       (s.esperadoPorForma as Record<string, number>) ??
       (s.valorEsperado != null ? { dinheiro: Number(s.valorEsperado) } : {});
-    const gravadoCent: Record<string, number> = {};
-    for (const [f, v] of Object.entries(gravado)) gravadoCent[f] = paraCentavos(v);
+    const gravadoCrus: Record<string, number> = {};
+    for (const [f, v] of Object.entries(gravado)) gravadoCrus[f] = paraCentavos(v);
+    const gravadoCent = somarPorFormaDoCaixa(gravadoCrus);
 
     const formas = Array.from(new Set([...Object.keys(recalcCent), ...Object.keys(gravadoCent)])).sort();
     const porForma = formas.map((f) => {
