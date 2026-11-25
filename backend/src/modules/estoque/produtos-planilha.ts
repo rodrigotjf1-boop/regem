@@ -36,9 +36,16 @@ export type LinhaProduto = {
   custo: number | null;
   quantidade: number | null;
   situacao: Situacao;
-  /** Produto do Regem igual ou parecido (situação `igual`/`parecido`). */
-  existente: { id: string; nome: string } | null;
+  /**
+   * Produto do Regem igual ou parecido (situação `igual`/`parecido`). `nome` é sempre o do produto (o da ficha);
+   * `pelo` diz se casou pelo nome dele ou pelo NOME COMERCIAL (o da compra — regra do dono, 25/11/2026: planilha de
+   * estoque de outro sistema, lista, pedido e nota trazem o nome de compra; o `nome` foi renomeado para a ficha).
+   */
+  existente: { id: string; nome: string; pelo: 'nome' | 'comercial'; nomeComercial: string | null } | null;
 };
+
+/** Produto do Regem com que a planilha é comparada: o nome (da ficha) e o nome comercial (da compra), quando tem. */
+export type ProdutoExistente = { id: string; nome: string; nomeComercial?: string | null };
 
 const semAcento = (s: string) =>
   s
@@ -158,12 +165,12 @@ export type PreviaPlanilha = {
 
 /**
  * Lê a tabela e classifica cada produto frente ao que já existe. `existentes` = produtos ativos
- * que a pessoa enxerga; `categorias` = nomes das categorias já cadastradas.
+ * que a pessoa enxerga (com o nome comercial); `categorias` = nomes das categorias já cadastradas.
  */
 export function montarPrevia(
   tabela: string[][],
   decimalPonto: boolean,
-  existentes: { id: string; nome: string }[],
+  existentes: ProdutoExistente[],
   categorias: string[],
 ): PreviaPlanilha {
   // Cabeçalho: a primeira das 10 primeiras linhas que tem uma coluna de nome (relatório pode
@@ -199,7 +206,20 @@ export function montarPrevia(
   if (dados.length > PLANILHA_MAX_LINHAS)
     throw new Error(`A planilha tem ${dados.length} linhas; o limite por importação é ${PLANILHA_MAX_LINHAS}. Divida o arquivo.`);
 
-  const porChave = new Map(existentes.map((e) => [chaveNome(e.nome), e]));
+  // Cada produto entra pelo nome E pelo nome comercial. O NOME vence: o comercial de um produto que é igual ao nome de
+  // outro não toma o lugar dele (por isso os nomes entram primeiro e o comercial só ocupa chave livre).
+  type Apelido = { e: ProdutoExistente; texto: string; pelo: 'nome' | 'comercial' };
+  const apelidos: Apelido[] = [
+    ...existentes.map((e): Apelido => ({ e, texto: e.nome, pelo: 'nome' })),
+    ...existentes
+      .filter((e) => (e.nomeComercial ?? '').trim() && chaveNome(e.nomeComercial!) !== chaveNome(e.nome))
+      .map((e): Apelido => ({ e, texto: e.nomeComercial!, pelo: 'comercial' })),
+  ];
+  const porChave = new Map<string, Apelido>();
+  for (const a of apelidos) if (!porChave.has(chaveNome(a.texto))) porChave.set(chaveNome(a.texto), a);
+  const existenteDe = (a: Apelido): NonNullable<LinhaProduto['existente']> => ({
+    id: a.e.id, nome: a.e.nome, pelo: a.pelo, nomeComercial: (a.e.nomeComercial ?? '').trim() || null,
+  });
   const categoriasExistentes = new Set(categorias.map(chaveNome));
   const vistos = new Set<string>();
   const linhas: LinhaProduto[] = [];
@@ -217,14 +237,16 @@ export function montarPrevia(
     const unidadeArquivo = cel(idx.unidade);
     const categoria = formatarTexto(cel(idx.categoria).split(',').map((c) => c.trim()).find(Boolean) ?? '');
     const chave = chaveNome(nome);
+    // O nome comercial da própria linha (planilha que traz a coluna) também acha o produto.
+    const comercialDaLinha = limparNome(cel(idx.comercial));
     let situacao: Situacao = 'novo';
     let existente: LinhaProduto['existente'] = null;
-    const igual = porChave.get(chave);
-    if (igual) { situacao = 'igual'; existente = { id: igual.id, nome: igual.nome }; }
+    const igual = porChave.get(chave) ?? (comercialDaLinha ? porChave.get(chaveNome(comercialDaLinha)) : undefined);
+    if (igual) { situacao = 'igual'; existente = existenteDe(igual); }
     else if (vistos.has(chave)) situacao = 'repetido';
     else {
-      const parecido = maisParecido(nome, existentes);
-      if (parecido) { situacao = 'parecido'; existente = { id: parecido.id, nome: parecido.nome }; }
+      const parecido = maisParecido(nome, apelidos.map((a) => ({ ...a, nome: a.texto })));
+      if (parecido) { situacao = 'parecido'; existente = existenteDe(parecido); }
     }
     vistos.add(chave);
     contUnidade.set(unidadeArquivo, (contUnidade.get(unidadeArquivo) ?? 0) + 1);
@@ -234,7 +256,7 @@ export function montarPrevia(
       linha: iCab + 2 + i,
       nome,
       nomeFormatado: formatarTexto(nome),
-      nomeComercial: limparNome(cel(idx.comercial)), // como está na planilha (a padronização é só do nome)
+      nomeComercial: comercialDaLinha, // como está na planilha (a padronização é só do nome)
       marcas: limparMarcas(cel(idx.marcas)),
       unidadeArquivo,
       unidade: normalizarUnidade(unidadeArquivo),

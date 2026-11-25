@@ -24,7 +24,8 @@ type Linha = {
   custo: number | null;
   quantidade: number | null;
   situacao: Situacao;
-  existente: { id: string; nome: string } | null;
+  // `pelo`: casou pelo nome do produto (o da ficha) ou pelo nome comercial (o da compra). Servidor antigo não manda.
+  existente: { id: string; nome: string; pelo?: 'nome' | 'comercial'; nomeComercial?: string | null } | null;
 };
 type Previa = {
   arquivo: string;
@@ -351,7 +352,12 @@ export function ImportarProdutos({
                     const situacao = (
                       <>
                         <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${SELO[l.situacao].cls}`}>{SELO[l.situacao].rotulo}</span>
-                        {l.existente && <span className={`block text-xs ${texto2}`}>no Regem: {l.existente.nome}</span>}
+                        {l.existente && (
+                          <span className={`block text-xs ${texto2}`}>
+                            no Regem: {l.existente.nome}
+                            {l.existente.pelo === 'comercial' && l.existente.nomeComercial ? ` (nome comercial: ${l.existente.nomeComercial})` : ''}
+                          </span>
+                        )}
                       </>
                     );
                     return (
