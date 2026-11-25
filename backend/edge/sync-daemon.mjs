@@ -1192,7 +1192,7 @@ async function aplicarExclusoes(novas, exec = pool) {
 }
 
 // Envia UM request de push (assina + POST). Isolado p/ o push mandar em páginas
-// menores (evita 413 "request entity too large" quando há muita linha acumulada).
+// menores (evita 413 "request entity too large" quando há muita linha acumulada). Devolve a resposta da nuvem.
 async function enviarLote(lote) {
   return enviarLotes([lote]);
 }
@@ -1223,6 +1223,84 @@ async function enviarLotes(lotes) {
     throw err;
   }
   await setState('push_seq', String(seq)); // só avança o seq após sucesso
+  // A resposta da nuvem (`resultado` por tabela, com os `pendentes` — CAR-F-03). Nuvem antiga ou corpo vazio: nada.
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+// ===== REENVIO DAS LINHAS QUE ESPERAM O PAI (CAR-F-03 da revisão de 25/11/2026) =====
+// A nuvem recusa a linha cujo pai ainda não chegou (23503: o pagamento de um pedido que ficou visível aqui DEPOIS de a
+// tabela dos pedidos ser lida neste ciclo) e diz quais foram (`pendentes`). Antes o cursor da tabela andava assim mesmo e a
+// linha nunca mais subia — o pedido chegava à nuvem quitado, sem o detalhe das formas. Agora ela fica na `sync_fila`
+// (tipo 'reenvio') e sobe de novo no FIM de cada envio, depois de as tabelas-pai terem subido. Até 50 tentativas.
+const REENVIO_MAX_TENTATIVAS = 50;
+async function guardarPendentes(tabela, resposta) {
+  const ids = resposta?.resultado?.[tabela]?.pendentes;
+  if (!Array.isArray(ids) || !ids.length) return 0;
+  for (const id of ids.slice(0, 5000)) {
+    await pool.query(
+      `insert into sync_fila (tipo, tabela, registro_id, conteudo, tentativas)
+       values ('reenvio', $1, $2, '{}', 0)
+       on conflict (tipo, tabela, registro_id) do nothing`,
+      [tabela, String(id)],
+    );
+  }
+  console.warn(`  push: ${ids.length} linha(s) de ${tabela} esperam o pai na nuvem — sobem de novo no fim do envio`);
+  return ids.length;
+}
+
+async function reenviarPendentes(fila) {
+  let r;
+  try {
+    r = await pool.query(`select tabela, registro_id, tentativas from sync_fila where tipo = 'reenvio' order by tabela limit 1000`);
+  } catch {
+    return 0; // banco antigo sem a fila: nada a reenviar
+  }
+  if (!r.rows.length) return 0;
+  const porTabela = new Map();
+  for (const x of r.rows) {
+    if (!porTabela.has(x.tabela)) porTabela.set(x.tabela, []);
+    porTabela.get(x.tabela).push(x);
+  }
+  let total = 0;
+  for (const [tabela, itens] of porTabela) {
+    const modo = await recon.modoPush(tabela, fila);
+    if (modo === 'esperar') continue;
+    const tirar = Array.isArray(modo) ? modo : null;
+    const ids = itens.map((x) => String(x.registro_id));
+    const linhas = (await pool.query(`select * from ${q(tabela)} where ${q('id')}::text = any($1::text[])`, [ids])).rows.map((row) => {
+      const c = { ...row };
+      if (tirar) for (const k of tirar) delete c[k];
+      return c;
+    });
+    const achadas = new Set(linhas.map((l) => String(l.id)));
+    let resposta;
+    try {
+      resposta = linhas.length ? await enviarLote({ tabela, linhas }) : null;
+    } catch (e) {
+      console.warn(`  reenvio de ${tabela} fica para o próximo ciclo: ${e?.message ?? e}`);
+      continue;
+    }
+    const aindaPendentes = new Set((resposta?.resultado?.[tabela]?.pendentes ?? []).map(String));
+    for (const x of itens) {
+      const id = String(x.registro_id);
+      if (achadas.has(id) && aindaPendentes.has(id) && (x.tentativas ?? 0) + 1 < REENVIO_MAX_TENTATIVAS) {
+        await pool.query(
+          `update sync_fila set tentativas = tentativas + 1, atualizado_em = now() where tipo = 'reenvio' and tabela = $1 and registro_id = $2`,
+          [tabela, id],
+        );
+        continue;
+      }
+      if (achadas.has(id) && aindaPendentes.has(id))
+        console.warn(`  reenvio ${tabela}/${id} desistido depois de ${REENVIO_MAX_TENTATIVAS} tentativas: o pai não chegou à nuvem`);
+      await pool.query(`delete from sync_fila where tipo = 'reenvio' and tabela = $1 and registro_id = $2`, [tabela, id]);
+    }
+    total += linhas.length;
+  }
+  return total;
 }
 
 // Cursor do push = "<ISO>|<id>" (keyset composto). Compat: cursores antigos são só o ISO —
@@ -1269,7 +1347,7 @@ async function enviarLinhaALinha(t, linhas, enviadas, chave, cursorDe) {
   for (let i = 0; i < linhas.length; i++) {
     const linha = linhas[i];
     try {
-      await enviarLote({ tabela: t.tabela, linhas: [enviadas[i]] });
+      await guardarPendentes(t.tabela, await enviarLote({ tabela: t.tabela, linhas: [enviadas[i]] })); // CAR-F-03
     } catch (e) {
       const st = e?.status;
       if (!recusaDoConteudo(e)) throw e; // para; retoma no próximo ciclo sem perder posição
@@ -1375,7 +1453,9 @@ async function push(limiteMs = null) {
         return true;
       };
       try {
-        await enviarLote({ tabela: t.tabela, linhas: enviadas });
+        const resposta = await enviarLote({ tabela: t.tabela, linhas: enviadas });
+        // As linhas que a nuvem recusou por falta do pai vão para o reenvio ANTES de o cursor andar (CAR-F-03).
+        await guardarPendentes(t.tabela, resposta);
         const ultima = r.rows[r.rows.length - 1]; // ordenado pelo keyset → a última é o máximo
         cur = cursorDe(ultima);
         await setState(chave, cur);
@@ -1406,6 +1486,8 @@ async function push(limiteMs = null) {
       if (r.rows.length < lim) break; // última página desta tabela
     }
   }
+  // As que esperavam o pai: sobem DEPOIS de todas as tabelas (o pai já subiu neste envio) — CAR-F-03.
+  total += await reenviarPendentes(fila);
   return total;
 }
 

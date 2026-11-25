@@ -1539,21 +1539,15 @@ export class DeliveryService {
     const cfg = await this.configRaw(tenantId, ped.unidadeId);
     // Pedido IGUAL ainda sem o "São dois pedidos" (mig 360): a via da cozinha sai com o aviso no alto.
     const repetido = await marcaAbertaDoPedido(this.db, tenantId, ped);
-    // TRAVA DO ACEITE (auditoria do KDS, 11/11/2026): o pedido é RESERVADO antes de a venda nascer — gravação condicional
-    // de 'novo' para 'confirmado'. Antes, dois aceites ao mesmo tempo (o automático com o evento do canal, o servidor da
-    // loja com o resgate da nuvem, dois cliques) liam 'novo', criavam DUAS vendas e dois cartões na cozinha, e a venda
-    // órfã contava como balcão (ERR-251). Quem perde a reserva recebe "já foi aceito"; se a venda falhar, a reserva volta.
-    const reservado = await this.db
-      .update(pedidoExterno)
-      .set({ status: 'confirmado', confirmadoEm: new Date() })
-      .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.status, 'novo'), isNull(pedidoExterno.comandaId)))
-      .returning({ id: pedidoExterno.id });
-    if (!reservado.length) throw new BadRequestException('Pedido já foi aceito.');
+    // TRAVA DO ACEITE (auditoria do KDS, 11/11/2026): o pedido é RESERVADO — gravação condicional de 'novo' para 'confirmado'.
+    // Antes, dois aceites ao mesmo tempo (o automático com o evento do canal, o servidor da loja com o resgate da nuvem, dois
+    // cliques) liam 'novo', criavam DUAS vendas e dois cartões na cozinha, e a venda órfã contava como balcão (ERR-251). Quem perde
+    // a reserva recebe "já foi aceito". A reserva, a venda e o vínculo da comanda entram NA MESMA transação (`reservarPedido`,
+    // CAR-C-05 da revisão de 25/11/2026): uma queda no meio não deixa mais o pedido 'confirmado' sem comanda, nem comanda sem pedido.
     // Retirada/consumo no local = produção do BALCÃO; entrega (courier) = DELIVERY.
     // A plataforma (iFood/Cardápio/Totem) segue no rótulo do card em ambos.
-    let venda: Awaited<ReturnType<VendasService['venderExterno']>>;
-    try {
-      venda = await this.vendas.venderExterno(tenantId, atorId, {
+    const venda = await this.vendas.venderExterno(tenantId, atorId, {
+      reservarPedido: id,
       unidadeId: ped.unidadeId,
       cliente: ped.clienteNome,
       // Normaliza a forma crua do canal → rótulo unificado do Regem (dinheiro/pix/
@@ -1597,32 +1591,18 @@ export class DeliveryService {
         };
       }),
     });
-    } catch (e) {
-      // A venda não nasceu (produto sem cadastro, banco…): a reserva volta — o pedido segue 'novo' e aceitável.
-      await this.db
-        .update(pedidoExterno)
-        .set({ status: 'novo', confirmadoEm: null })
-        .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.status, 'confirmado'), isNull(pedidoExterno.comandaId)))
-        .catch((err: any) => this.logger.error(`aceite do pedido ${id}: a reserva não voltou para 'novo' — ${err?.message ?? err}`));
-      throw e;
-    }
 
-    const [row] = await this.db
-      .update(pedidoExterno)
-      .set({
-        status: 'confirmado',
-        comandaId: venda.comandaId,
-        confirmadoEm: new Date(),
-        autoAceiteFalhou: false,
-      })
-      // Só o pedido ainda reservado por ESTE aceite: se o canal cancelou no meio (o reflexo do cancelado achou a reserva
-      // sem venda), a venda que acabou de nascer é desfeita aqui.
-      .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.status, 'confirmado'), isNull(pedidoExterno.comandaId)))
-      .returning();
-    if (!row) {
+    // O pedido como ficou depois do commit da venda (reservado e com a comanda). O canal que cancelar agora encontra o pedido
+    // aceito e segue o cancelamento normal (com a venda desfeita lá).
+    const [row] = await this.db.select().from(pedidoExterno).where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.tenantId, tenantId)));
+    if (row?.status === 'cancelado') {
+      // O canal cancelou logo depois do commit da venda: o cancelamento já desfaz a venda que achou; aqui só se garante (a
+      // segunda chamada não acha mais nada para desfazer) e o aceite NÃO avisa "confirmado" ao canal.
       await this.desfazerVendaDoCancelado(tenantId, { id, comandaId: venda.comandaId }, 'Pedido cancelado enquanto era aceito');
       throw new ConflictException('O pedido foi cancelado enquanto era aceito: a venda foi desfeita.');
     }
+    if (!row || row.comandaId !== venda.comandaId)
+      throw new ConflictException('O pedido mudou enquanto era aceito. A tela vai atualizar.');
     void this.dispararWebhook(tenantId, row);
     // Código de entrega própria: avisa o cliente por WhatsApp que ele precisará informar o código ao entregador.
     void this.avisarCodigoDeEntrega(tenantId, row);

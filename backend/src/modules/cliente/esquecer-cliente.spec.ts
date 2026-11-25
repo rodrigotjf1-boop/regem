@@ -278,7 +278,9 @@ descrever('esquecer o cliente apaga os dados pessoais dos pedidos dele', () => {
       );
       // O cadastro não volta ("exclusão vence") e o pedido é recusado pela chave estrangeira.
       expect(r.resultado.cliente).toEqual({ aplicadas: 0, ignoradas: 1 });
-      expect(r.resultado.pedido_externo).toEqual({ aplicadas: 0, ignoradas: 1 });
+      // A recusa por chave estrangeira volta em `pendentes` (CAR-F-03): o servidor da loja tenta de novo e desiste depois de 50
+      // vezes — aqui o pai (o cliente esquecido) não volta, e o pedido segue limpo na nuvem.
+      expect(r.resultado.pedido_externo).toEqual({ aplicadas: 0, ignoradas: 1, pendentes: [pedidoDaLoja.id] });
       const p = await linha(antigo);
       for (const c of PESSOAIS) expect({ [c]: p[c] }).toEqual({ [c]: null });
       expect((await pool.query('select 1 from cliente where id = $1', [x])).rowCount).toBe(0);

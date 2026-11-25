@@ -1675,6 +1675,11 @@ export class VendasService {
       // totem com esse número impresso; tirar outra aqui faria a cozinha chamar um
       // número diferente do que está na mão dele.
       senhaReservada?: number | null;
+      // O ACEITE de um pedido de canal (CAR-C-05 da revisão de 25/11/2026): a reserva do pedido ('novo' → 'confirmado'), a venda e
+      // o vínculo da comanda entram NESTA transação — ou tudo, ou o pedido continua 'novo'. Antes eram três gravações: uma queda
+      // depois da reserva deixava o pedido 'confirmado' sem comanda (fora da lista de chegada e de toda retomada), e uma queda
+      // depois da venda deixava a comanda sem pedido.
+      reservarPedido?: string | null;
       itens: {
         produtoId?: string | null;
         descricao: string;
@@ -1692,6 +1697,16 @@ export class VendasService {
     if (!dto.itens?.length)
       throw new BadRequestException('Pedido sem itens.');
     const res = await this.db.transaction(async (tx) => {
+      // A reserva do pedido, PRIMEIRO e na mesma transação (CAR-C-05): dois aceites juntos — o segundo espera a trava da linha e,
+      // relendo, não acha mais 'novo'. Se qualquer passo da venda falhar, a reserva volta junto (o pedido segue 'novo').
+      if (dto.reservarPedido) {
+        const reservado = await tx
+          .update(pedidoExterno)
+          .set({ status: 'confirmado', confirmadoEm: new Date(), autoAceiteFalhou: false })
+          .where(and(eq(pedidoExterno.id, dto.reservarPedido), eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.status, 'novo'), isNull(pedidoExterno.comandaId)))
+          .returning({ id: pedidoExterno.id });
+        if (!reservado.length) throw new BadRequestException('Pedido já foi aceito.');
+      }
       // Senha LOCAL do PDV (sequência central) — o KDS exibe esta; a senha da
       // plataforma vai como metadado ao lado.
       // Delivery numera a PRÓPRIA sequência (mig 275): com um contador só, a nuvem e o
@@ -1855,6 +1870,9 @@ export class VendasService {
         descricao: `Venda ${dto.origem ?? 'delivery'}`,
         criadoPorId: atorId,
       });
+      // O vínculo da comanda ao pedido reservado, no MESMO commit da venda (CAR-C-05).
+      if (dto.reservarPedido)
+        await tx.update(pedidoExterno).set({ comandaId: cmd.id }).where(eq(pedidoExterno.id, dto.reservarPedido));
       return { comandaId: cmd.id, total: Number(total.toFixed(2)), producaoPayloads };
     });
 

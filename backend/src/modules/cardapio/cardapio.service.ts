@@ -208,6 +208,13 @@ type MapasEstoque = {
   comboMap: Map<string, { fichaId: string | null; itemId: string | null }[]>;
 };
 
+/** O benefício do pedido (prêmio, cashback) já foi usado por outro pedido: desfaz a transação do consumo (CAR-B-05). */
+class BeneficioJaUsado extends Error {
+  constructor(readonly qual: string) {
+    super(`${qual} já foi usado em outro pedido`);
+  }
+}
+
 @Injectable()
 export class CardapioService {
   private readonly logger = new Logger(CardapioService.name);
@@ -4881,6 +4888,12 @@ export class CardapioService {
     // então o pedido é aceito, pela mesma regra (`aceitarSeAutomatico`). Aceito antes, o pedido que estourou a janela já
     // estava `confirmado` e o "desfazer" não o achava (achado do vigia de código, 19/11/2026).
     const limiteAntesDoAceite = ehAgendado && !!janelaDoAgendado && ajustesDoAgendado(cfg).limite != null;
+    // O BENEFÍCIO (prêmio de fidelidade, cashback) é consumido logo depois de gravar e ANTES do aceite (CAR-B-05 da revisão de
+    // 25/11/2026): dois carrinhos juntos com o mesmo prêmio de R$ 15 saíam os dois com o desconto — o consumo vinha depois do
+    // aceite e não conferia se tinha consumido. Pedido com benefício entra sem o aceite automático, como o agendado com limite.
+    const comPremio = (premio as any).desconto > 0 && !!(premio as any).resgateId;
+    const comCashback = cb.desconto > 0 && !!d.telefoneDoSaldo;
+    const aceiteDepois = limiteAntesDoAceite || comPremio || comCashback;
     let ped = await this.delivery.ingest(
       cfg.tenantId,
       cfg.unidadeId,
@@ -4928,7 +4941,7 @@ export class CardapioService {
         observacao: textoDaObservacao(dto.observacao) ?? undefined,
         // O cliente já respondeu à pergunta do pedido igual (ou não havia o que perguntar): aqui não se marca.
         repetidoConferido: true,
-        naoAutoAceitar: limiteAntesDoAceite,
+        naoAutoAceitar: aceiteDepois,
       },
     );
 
@@ -4948,8 +4961,33 @@ export class CardapioService {
         ));
       if (desfez) throw new BadRequestException(`O horário das ${janelaDoAgendado.slice(11)} acabou de encher. Escolha outro.`);
     }
-    // Coube na janela: agora, sim, o aceite automático do Delivery (o que o `ingest` faria na entrada).
-    if (limiteAntesDoAceite && ped?.id) ped = await this.delivery.aceitarSeAutomatico(cfg.tenantId, cfg.unidadeId, ped);
+    // O BENEFÍCIO consumido numa transação só, conferido (CAR-B-05): o prêmio só conta se mudou de 'resgatado' para 'usado'; o
+    // cashback, com o saldo travado e os vales todos trocados. Faltou algum: nada é consumido e ESTE pedido é desfeito na hora —
+    // antes do aceite e do Pix — e a recusa pede para conferir o total (o carrinho volta a ser cotado sem o benefício).
+    if ((comPremio || comCashback) && ped?.id) {
+      const pedidoId = String(ped.id);
+      const faltou = await this.db
+        .transaction(async (tx: any) => {
+          if (comPremio && !(await this.fidelidade.marcarPremioUsado(cfg.tenantId, (premio as any).resgateId, pedidoId, tx)))
+            throw new BeneficioJaUsado('O prêmio de fidelidade');
+          if (comCashback && !(await this.cashback.consumir(cfg.tenantId, d.telefoneDoSaldo, pedidoId, cb.saldoUsado, cb.vales.map((v: any) => v.id), tx)))
+            throw new BeneficioJaUsado('O cashback');
+          return null;
+        })
+        .catch((e: any) => {
+          if (e instanceof BeneficioJaUsado) return e.qual;
+          throw e;
+        });
+      if (faltou) {
+        await this.db.execute(sql`
+          update pedido_externo set status = 'cancelado', motivo_cancelamento = 'O benefício já tinha sido usado em outro pedido',
+                 cancelado_em = now(), client_ref = null, updated_at = now()
+           where id = ${pedidoId}::uuid and tenant_id = ${cfg.tenantId}::uuid and status = 'novo'`);
+        throw new BadRequestException(`${faltou} já foi usado em outro pedido. Confira o total do carrinho e confirme de novo.`);
+      }
+    }
+    // Coube na janela e o benefício foi consumido: agora, sim, o aceite automático do Delivery (o que o `ingest` faria na entrada).
+    if (aceiteDepois && ped?.id) ped = await this.delivery.aceitarSeAutomatico(cfg.tenantId, cfg.unidadeId, ped);
 
     // De onde o cliente veio (mig 299) — logo depois do pedido; nunca o derruba.
     if (ped?.id)
@@ -5104,29 +5142,7 @@ export class CardapioService {
       }
     }
 
-    // Prêmio de fidelidade consumido: marca como usado neste pedido.
-    if ((premio as any).desconto > 0 && (premio as any).resgateId && ped?.id) {
-      try {
-        await this.fidelidade.marcarPremioUsado(cfg.tenantId, (premio as any).resgateId, ped.id);
-      } catch {
-        /* não bloqueia o pedido */
-      }
-    }
-
-    // Cashback consumido: debita o saldo usado e marca os vales como usados.
-    if (cb.desconto > 0 && d.telefoneDoSaldo && ped?.id) {
-      try {
-        await this.cashback.consumir(
-          cfg.tenantId,
-          d.telefoneDoSaldo,
-          ped.id,
-          cb.saldoUsado,
-          cb.vales.map((v: any) => v.id),
-        );
-      } catch {
-        /* não bloqueia o pedido */
-      }
-    }
+    // Prêmio de fidelidade e cashback: já consumidos logo depois de gravar, antes do aceite e conferidos (CAR-B-05, acima).
 
     // Fidelidade (L5): pontua os planos que o pedido atende (dedupe por pedido),
     // respeitando o intervalo mínimo entre pedidos (config da loja, padrão 3h).

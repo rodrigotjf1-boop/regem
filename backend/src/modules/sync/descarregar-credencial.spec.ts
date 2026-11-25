@@ -1012,3 +1012,82 @@ descrever('--descarregar leva a TV de senhas que já existia, uma vez só', () =
     }
   });
 });
+
+// ===== A LINHA QUE ESPERA O PAI (CAR-F-03 da revisão de 25/11/2026) =====
+// O daemon real contra uma nuvem que, no primeiro envio, recusa o pagamento por falta do pedido (`pendentes`). Antes o cursor
+// andava e a linha nunca mais subia; agora ela vai para a `sync_fila` (tipo 'reenvio') e sobe de novo no fim do mesmo envio.
+// Mesmo arquivo dos blocos acima: todos mexem no `sync_state`.
+descrever('a linha recusada por falta do pai sobe de novo (CAR-F-03)', () => {
+  const pool = new Pool({ connectionString: URL_PG });
+  const q = (s: string, p: any[] = []) => pool.query(s, p).then((r) => r.rows);
+  let estadoAntes: { chave: string; valor: string }[] = [];
+  let tabelaExistia = false;
+  let empresa: string | null = null;
+  let pagamento = '';
+  let cursor = '';
+
+  beforeAll(async () => {
+    tabelaExistia = !!(await q(`select to_regclass('public.sync_state') t`))[0].t;
+    await q(`create table if not exists sync_state (chave text primary key, valor text)`);
+    estadoAntes = await q(`select chave, valor from sync_state`);
+    empresa = (await q(`insert into empresa (nome) values ('Teste reenvio do pai') returning id`))[0].id;
+    const [ped] = await q(`insert into pedido_externo (tenant_id, canal, tipo, status, total) values ($1, 'anotaai', 'entrega', 'concluido', 50) returning id`, [empresa]);
+    const [pg] = await q(
+      `insert into pedido_externo_pagamento (tenant_id, pedido_externo_id, forma, valor, created_at) values ($1, $2, 'dinheiro', 20, now()) returning id, created_at::text as ts`,
+      [empresa, ped.id],
+    );
+    pagamento = pg.id;
+    cursor = `${new Date(new Date(pg.ts).getTime() - 1000).toISOString()}|00000000-0000-0000-0000-000000000000`;
+    // Só a tabela dos pagamentos sobe (as outras com o cursor no fim).
+    await q(`delete from sync_state where chave like 'push\\_%' or chave in ('sync_falhando_desde', 'relogio_desvio_s')`);
+    const futuro = '2999-01-01T00:00:00Z|ffffffff-ffff-ffff-ffff-ffffffffffff';
+    const tabelas = (await q(`select distinct table_name from information_schema.columns
+                               where table_schema = current_schema() and column_name = 'tenant_id'`)).map((x: any) => x.table_name);
+    for (const tb of tabelas) {
+      await q(`insert into sync_state (chave, valor) values ($1, $2) on conflict (chave) do update set valor = excluded.valor`, [`push_${tb}`, futuro]);
+      await q(`insert into sync_state (chave, valor) values ($1, $2) on conflict (chave) do update set valor = excluded.valor`, [`push_${tb}__id`, 'ffffffff-ffff-ffff-ffff-ffffffffffff']);
+    }
+    await q(`update sync_state set valor = $1 where chave = 'push_pedido_externo_pagamento'`, [cursor]);
+    await q(`delete from sync_fila where tipo = 'reenvio'`);
+  });
+
+  afterAll(async () => {
+    try {
+      await q(`delete from sync_fila where tipo = 'reenvio'`).catch(() => undefined);
+      if (empresa) {
+        await q(`delete from pedido_externo_pagamento where tenant_id = $1`, [empresa]);
+        await q(`delete from pedido_externo where tenant_id = $1`, [empresa]);
+        await q(`delete from empresa where id = $1`, [empresa]);
+      }
+      if (tabelaExistia) {
+        await q(`delete from sync_state`);
+        for (const l of estadoAntes) await q(`insert into sync_state (chave, valor) values ($1, $2)`, [l.chave, l.valor]);
+      } else {
+        await q(`drop table if exists sync_state`);
+      }
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it('a nuvem diz que o pagamento espera o pedido: ele sobe de novo no fim do envio e sai da fila quando entra', async () => {
+    let vezes = 0;
+    const nuvem = await nuvemDoEnvio((_n, lotes) => {
+      const lote = lotes.find((l: any) => l.tabela === 'pedido_externo_pagamento');
+      if (!lote?.linhas?.some((l: any) => l.id === pagamento)) return { status: 201, corpo: { resultado: {} } };
+      vezes++;
+      return vezes === 1
+        ? { status: 201, corpo: { resultado: { pedido_externo_pagamento: { aplicadas: 0, ignoradas: 1, pendentes: [pagamento] } } } }
+        : { status: 201, corpo: { resultado: { pedido_externo_pagamento: { aplicadas: 1, ignoradas: 0 } } } };
+    });
+    try {
+      const r = await rodarDaemon('--um-ciclo', nuvem.url, { SYNC_FETCH_RETRIES: '3' });
+      expect(r.saida).toMatch(/sync ok/);
+      const comPagamento = nuvem.envios.filter((lotes) => lotes.some((l: any) => l.tabela === 'pedido_externo_pagamento' && l.linhas?.some((x: any) => x.id === pagamento)));
+      expect(comPagamento).toHaveLength(2); // antes: 1 — o cursor andava e a linha nunca mais subia
+      expect(await q(`select count(*)::int as n from sync_fila where tipo = 'reenvio'`)).toEqual([{ n: 0 }]);
+    } finally {
+      nuvem.srv.close();
+    }
+  });
+});

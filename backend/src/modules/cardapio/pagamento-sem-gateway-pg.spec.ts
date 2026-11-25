@@ -34,14 +34,15 @@ descrever('pagamento online só com cobrança de verdade (Postgres real)', () =>
   const delivery = {
     ingest: async (tenantId: string, _u: any, canal: string, n: any, x: any) => {
       const [row] = await q(
-        `insert into pedido_externo (tenant_id, canal, client_ref, display_id, cliente_nome, cliente_telefone, tipo, itens, total, forma_pagamento, status, status_pagamento)
-         values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,'novo',$11) returning *`,
-        [tenantId, canal, x.clientRef ?? randomUUID(), n.displayId, n.cliente, n.clienteTelefone, n.tipo, JSON.stringify(n.itens), n.total, n.formaPagamento, x.statusPagamento],
+        `insert into pedido_externo (tenant_id, canal, client_ref, display_id, cliente_nome, cliente_telefone, tipo, itens, total, forma_pagamento, status, status_pagamento, desconto)
+         values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,'novo',$11,$12) returning *`,
+        [tenantId, canal, x.clientRef ?? randomUUID(), n.displayId, n.cliente, n.clienteTelefone, n.tipo, JSON.stringify(n.itens), n.total, n.formaPagamento, x.statusPagamento, x.desconto ?? 0],
       );
       gravados.push(row.id);
       return { ...row, displayId: row.display_id };
     },
     aceitar: async () => undefined,
+    aceitarSeAutomatico: async (_t: string, _u: any, ped: any) => ped,
   } as any;
   const cardapio = new CardapioService(db, vendas, delivery, {} as any, new FidelidadeService(db), new CashbackService(db), eventos, {} as any, auditoria);
   const empresas: string[] = [];
@@ -197,5 +198,49 @@ descrever('pagamento online só com cobrança de verdade (Postgres real)', () =>
     expect(categoriaDisponivelAgora(janela, new Date('2026-11-30T19:30:00Z'))).toBe(false); // 16h30 em SP
     expect(categoriaDisponivelAgora(janela, new Date('2026-11-30T21:30:00Z'))).toBe(true); // 18h30 em SP
     expect(categoriaDisponivelAgora(janela, new Date('2026-12-01T02:30:00Z'))).toBe(false); // 23h30 em SP (já é terça em UTC)
+  });
+
+  it('CAR-B-05: o mesmo prêmio em dois carrinhos — o segundo (com a avaliação de antes) é recusado e não fica pedido com o desconto', async () => {
+    const l = await loja();
+    await q(`update cardapio_config set fidelidade_ativa = true where tenant_id = $1`, [l.t]);
+    const tel = `55219${Math.floor(10000000 + Math.random() * 89999999)}`;
+    const [{ id: plano }] = await q(`insert into fidelidade_plano (tenant_id, nome, recompensa_tipo, recompensa_valor) values ($1, 'Plano B05', 'valor_fixo', 15) returning id`, [l.t]);
+    const [{ id: resgate }] = await q(`insert into fidelidade_resgate (tenant_id, plano_id, telefone, status) values ($1, $2, $3, 'resgatado') returning id`, [l.t, plano, tel]);
+    // Os dois carrinhos avaliaram o prêmio ANTES de qualquer um gravar: o segundo chega com a avaliação de antes.
+    const fid = (cardapio as any).fidelidade;
+    const avaliarAntes = fid.avaliarPremio;
+    fid.avaliarPremio = async () => ({ desconto: 15, resgateId: resgate, plano: 'Plano B05' });
+    const pedirCom = () =>
+      cardapio.receberPedido(l.token, {
+        tipo: 'retirada',
+        cliente: 'Cliente de teste',
+        telefone: tel,
+        formaPagamento: 'entrega',
+        resgateId: resgate,
+        confirmarRepetido: true, // são dois carrinhos de propósito (a pergunta do pedido igual não entra aqui)
+        itens: [{ produtoId: l.lanche, quantidade: 1 } as any],
+      } as any);
+    try {
+      await expect(pedirCom()).resolves.toMatchObject({ ok: true });
+      await expect(pedirCom()).rejects.toThrow('O prêmio de fidelidade já foi usado em outro pedido');
+    } finally {
+      fid.avaliarPremio = avaliarAntes;
+    }
+    const pedidos = await q(`select status, desconto::float8 as d, client_ref from pedido_externo where tenant_id = $1 order by criado_em`, [l.t]);
+    expect(pedidos.filter((p: any) => p.status !== 'cancelado').map((p: any) => p.d)).toEqual([15]); // antes: dois com R$ 15
+    expect(pedidos.filter((p: any) => p.status === 'cancelado').map((p: any) => p.client_ref)).toEqual([null]);
+    expect((await q(`select status from fidelidade_resgate where id = $1`, [resgate]))[0].status).toBe('usado');
+  });
+
+  it('CAR-B-05: dois pedidos juntos com o mesmo saldo de cashback — um consome, o outro ouve "não deu" e o saldo não fica negativo', async () => {
+    const l = await loja();
+    const tel = `219${Math.floor(10000000 + Math.random() * 89999999)}`;
+    await q(`insert into cashback_movimento (tenant_id, telefone, tipo, delta, origem) values ($1, $2, 'valor', 10, 'teste')`, [l.t, tel]);
+    const cashback = new CashbackService(db);
+    const consumir = (pedido: string) => db.transaction((tx: any) => cashback.consumir(l.t, tel, pedido, 10, [], tx));
+    const r = await Promise.all([consumir(randomUUID()), consumir(randomUUID())]);
+    expect(r.sort()).toEqual([false, true]);
+    const [{ s }] = await q(`select coalesce(sum(saldo), 0)::float8 as s from cashback_saldo where tenant_id = $1 and telefone = $2 and tipo = 'valor'`, [l.t, tel]);
+    expect(s).toBe(0);
   });
 });

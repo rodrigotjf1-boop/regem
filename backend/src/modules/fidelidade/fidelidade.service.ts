@@ -526,9 +526,9 @@ export class FidelidadeService {
     return { desconto, resgateId: r.id, plano: plano.nome };
   }
 
-  // Marca o prêmio como consumido no pedido (após o pedido ser criado).
-  async marcarPremioUsado(tenantId: string, resgateId: string, pedidoId: string) {
-    await this.db
+  /** Marca o prêmio como usado no pedido e diz se marcou (CAR-B-05): `false` = outro pedido já o usou. Na transação de quem chama. */
+  async marcarPremioUsado(tenantId: string, resgateId: string, pedidoId: string, tx: any = this.db): Promise<boolean> {
+    const r = await tx
       .update(fidelidadeResgate)
       .set({ status: 'usado', pedidoId })
       .where(
@@ -537,7 +537,9 @@ export class FidelidadeService {
           eq(fidelidadeResgate.tenantId, tenantId),
           eq(fidelidadeResgate.status, 'resgatado'),
         ),
-      );
+      )
+      .returning({ id: fidelidadeResgate.id });
+    return r.length > 0;
   }
 
   async resgatar(tenantId: string, resgateId: string, telefone: string) {
