@@ -54,6 +54,12 @@ import {
   diaDoAvisoDoBoleto,
   situacaoDoBoleto,
   situacaoDaValidadePendente,
+  situacaoDoPedidoAtrasado,
+  diaDoAvisoDeAtraso,
+  botoesDoPedidoAtrasado,
+  lerBotaoDoPedidoAtrasado,
+  PREFIXO_DO_PEDIDO_ATRASADO,
+  TEXTOS_DO_PEDIDO_ATRASADO,
   HORA_DO_AVISO_DO_BOLETO,
   TurnoDoPonto,
   pontoNoTempoDoAviso,
@@ -197,6 +203,38 @@ export class MisterAvisosService implements OnModuleInit {
   /** O toque em "Ver o que fazer" chega pela entrada do WhatsApp, que mora no módulo de baixo: ela chama este serviço. */
   onModuleInit(): void {
     this.entrada?.registrarToque('aviso', (id, quem) => this.mostrarPeloToque(id, quem));
+    this.entrada?.registrarBotao(PREFIXO_DO_PEDIDO_ATRASADO, (botaoId, quem) => this.tocouNoPedidoAtrasado(botaoId, quem));
+  }
+
+  /**
+   * P3 de "Pedidos e recebimento": o toque em "Já chegou" ou "Mudar a previsão" do aviso do pedido atrasado. Só responde a quem
+   * recebe avisos da loja do pedido (a mesma régua do toque no modelo); o pedido recebido ou excluído diz que o aviso fechou.
+   * "Mudar a previsão" só pergunta a data: a mudança é a ação `mudar_previsao`, com o botão "Autorizar".
+   */
+  async tocouNoPedidoAtrasado(botaoId: string, quem: QuemTocou): Promise<boolean> {
+    const b = lerBotaoDoPedidoAtrasado(botaoId);
+    if (!b) return false;
+    const [p] = linhas(
+      await this.db.execute(sql`
+        select tenant_id::text as "tenantId", unidade_id::text as "unidadeId", nome, status, deleted_at is not null as excluido
+          from compra_lista where id = ${b.listaId}::uuid`),
+    );
+    const v = p ? quem.vinculos.find((x) => x.tenantId === p.tenantId) : undefined;
+    if (!p || !v) return false;
+    const recebe = v.nivel === 'presidente' || !p.unidadeId || !v.unidadeId || v.unidadeId === p.unidadeId;
+    const texto = !recebe
+      ? TEXTOS_DO_PEDIDO_ATRASADO.naoDisponivel
+      : p.excluido || p.status === 'recebida'
+        ? TEXTOS_DO_PEDIDO_ATRASADO.fechado
+        : b.acao === 'chegou'
+          ? TEXTOS_DO_PEDIDO_ATRASADO.chegou(String(p.nome))
+          : TEXTOS_DO_PEDIDO_ATRASADO.mudar(String(p.nome));
+    try {
+      await this.numero.enviar(quem.telefone, { texto });
+    } catch (e: any) {
+      this.logger.warn(`a resposta ao botão do pedido atrasado não saiu — ${e?.message ?? e}`);
+    }
+    return true;
   }
 
   /**
@@ -234,7 +272,9 @@ export class MisterAvisosService implements OnModuleInit {
     const doPonto = a.situacao === 'aberto' && a.tipo === 'ponto_do_mes' && v!.nivel === 'presidente' ? botoesDoPontoDoMes(a.id, !!a.dados?.contadorId) : [];
     // Versão 6, M6a: o telefone ligado ainda aberto — o presidente recebe "Não reconheço" no toque também.
     const doLigado = a.situacao === 'aberto' && a.tipo === 'telefone_ligado' && v!.nivel === 'presidente' ? botoesDoTelefoneLigado(a.dados) : [];
-    const botoes = doBoleto.length ? doBoleto : doPonto.length ? doPonto : doLigado;
+    // P3: o pedido atrasado ainda aberto — quem recebe ganha "Já chegou" e "Mudar a previsão".
+    const doAtraso = a.situacao === 'aberto' && a.tipo === 'pedido_atrasado' ? botoesDoPedidoAtrasado(a.dados?.listaId) : [];
+    const botoes = doBoleto.length ? doBoleto : doPonto.length ? doPonto : doLigado.length ? doLigado : doAtraso;
     try {
       await this.numero.enviar(
         quem.telefone,
@@ -492,6 +532,29 @@ export class MisterAvisosService implements OnModuleInit {
       );
       for (const v of pendentes)
         fora.push(situacaoDaValidadePendente({ ...v, unidadeId: v.unidadeId ?? null, itens: Number(v.itens), nomes: Array.isArray(v.nomes) ? v.nomes.map(String) : [], dia }));
+    } catch (e: any) {
+      if (!semTabela(e)) throw e;
+    }
+    // 12) O pedido atrasado (P3 de "Pedidos e recebimento", PR-6): o pedido de compra ainda aberto cuja previsão de recebimento
+    //     ficou para trás — a partir das 10h do dia seguinte a ela. O marco é o dia (vira às 10h): lembra uma vez por dia até
+    //     receber ou excluir o pedido (aí ele sai da lista e o aviso fecha).
+    try {
+      const diaDoAtraso = diaDoAvisoDeAtraso(agora);
+      const atrasados = linhas(
+        await this.db.execute(sql`
+          select cl.tenant_id::text as "tenantId", cl.unidade_id::text as "unidadeId", cl.id::text as "listaId", cl.nome as pedido,
+                 f.nome as fornecedor, cl.data_recebimento::text as previsao
+            from compra_lista cl
+            join empresa emp on emp.id = cl.tenant_id and emp.deleted_at is null
+            left join fornecedor f on f.id = cl.fornecedor_id and f.tenant_id = cl.tenant_id
+           where cl.deleted_at is null and cl.status <> 'recebida' and cl.recebida_em is null
+             and cl.data_recebimento < ${diaDoAtraso}::date
+             ${so('cl.tenant_id')}
+           order by cl.data_recebimento
+           limit 500`),
+      );
+      for (const p of atrasados)
+        fora.push(situacaoDoPedidoAtrasado({ ...p, unidadeId: p.unidadeId ?? null, fornecedor: p.fornecedor ?? null, dia: diaDoAtraso }));
     } catch (e: any) {
       if (!semTabela(e)) throw e;
     }
@@ -1200,7 +1263,9 @@ export class MisterAvisosService implements OnModuleInit {
         // Versão 6, M6a: o telefone ligado — o presidente recebe "Não reconheço" (desliga na hora).
         // Só o telefone ligado tem botão; o acesso encerrado (M6c) vai sem botão.
         const doLigado = ehAvisoDeSeguranca(a.tipo) && (a.tipo as string) === 'telefone_ligado' && l.nivel === 'presidente' ? botoesDoTelefoneLigado(a.dados) : [];
-        const botoes = doBoleto.length ? doBoleto : doPonto.length ? doPonto : doLigado;
+        // P3: o pedido atrasado — "Já chegou" e "Mudar a previsão" a quem recebe.
+        const doAtraso = a.tipo === 'pedido_atrasado' ? botoesDoPedidoAtrasado((a.dados as any)?.listaId) : [];
+        const botoes = doBoleto.length ? doBoleto : doPonto.length ? doPonto : doLigado.length ? doLigado : doAtraso;
         await this.numero.enviar(
           l.telefone,
           comProposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : botoes.length ? { texto, botoes } : { texto },

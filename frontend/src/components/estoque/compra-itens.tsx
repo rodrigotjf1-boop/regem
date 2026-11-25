@@ -168,7 +168,7 @@ export function GerarListaDoQueFaltou({ lista, voltarPara, aoFechar, aoGerar }: 
           {faltas.length === 0 && <li className={`px-3 py-4 text-center ${texto2}`}>Não faltou nada neste pedido.</li>}
         </ul>
         <div className="space-y-1.5 sm:max-w-xs">
-          <Label htmlFor="faltou-data">Data de recebimento (opcional)</Label>
+          <Label htmlFor="faltou-data">Previsão de recebimento (opcional)</Label>
           <Input id="faltou-data" type="date" value={dataRecebimento} onChange={(e) => setDataRecebimento(e.target.value)} />
         </div>
         {erro && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 font-medium">{erro}</p>}

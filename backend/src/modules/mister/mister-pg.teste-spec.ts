@@ -39,6 +39,7 @@ import { FERRAMENTAS, FERRAMENTA_DO_QUE_FALTA, INSTRUCOES_DO_MISTER, TETOS, TEXT
 import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterAvisosService } from './mister-avisos.service';
+import { TEXTOS_DO_PEDIDO_ATRASADO } from './mister-avisos.regras';
 import { AvisosNaTelaService } from './avisos-na-tela.service';
 import { MisterAvisosHistoricoService } from './mister-avisos-historico.service';
 import { MAX_TENTATIVAS_CONSULTA_DA_NOTA } from '../fiscal/fiscal.service';
@@ -4167,6 +4168,7 @@ export function testesDoMisterComPostgres(): void {
         c101: { acao: 'sangria', caixaDaLoja: 'balcão', valorDaSangria: 200, motivoDoCaixa: 'pagar o gás' },
         c103: { acao: 'pagar_entregador', entregadorDoAcerto: 'Jefferson' },
         c118: { acao: 'informar_validade', insumoDaValidade: 'Carne 56 g', validadeInformada: '2026-12-02' },
+        c119: { acao: 'mudar_previsao', pedidoDeCompra: 'pedido da semana do Rucas', novaPrevisao: '2026-11-28' },
         c110: { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' },
         c111: { acao: 'repetir_campanha', campanhaDaConversa: 'a última' },
         c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },
@@ -4379,8 +4381,10 @@ export function testesDoMisterComPostgres(): void {
       // e o do arquivo do ponto do mês (M3e parte 2) e os dois do gasto do WhatsApp oficial (G2, 18/11 — no fim; a tela os
       // põe em "Documentos e dinheiro").
       // E o da validade pendente (P1 de "Pedidos e recebimento", 25/11): no fim, ao gerente; a tela o põe em "Na loja".
-      expect(tela.avisos).toHaveLength(15);
+      // E o do pedido atrasado (P3, 25/11): também ao gerente, em "Na loja".
+      expect(tela.avisos).toHaveLength(16);
       expect(tela.avisos[14]).toMatchObject({ tipo: 'validade_pendente', grupo: 'Na loja', padrao: true, regra: { ligado: true, destinos: ['gerente'], parametro: null } });
+      expect(tela.avisos[15]).toMatchObject({ tipo: 'pedido_atrasado', grupo: 'Na loja', padrao: true, regra: { ligado: true, destinos: ['gerente'], parametro: null } });
       expect(tela.avisos[11]).toMatchObject({ tipo: 'ponto_do_mes', grupo: 'Pessoas e ponto', regra: { ligado: true, destinos: ['presidente'], parametro: null } });
       expect(tela.avisos[12]).toMatchObject({ tipo: 'gasto_whatsapp', grupo: 'Documentos e dinheiro', padrao: true, regra: { ligado: false, destinos: ['presidente'], valores: [] } });
       expect(tela.avisos[13]).toMatchObject({ tipo: 'franquia_atendimento', grupo: 'Documentos e dinheiro', regra: { ligado: true, destinos: ['presidente'] } });
@@ -13288,6 +13292,96 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from compra_item where lista_id = any($1::uuid[])`, [listas]);
           await q(`delete from compra_lista where id = any($1::uuid[])`, [listas]);
           await q(`delete from item_estoque where id = any($1::uuid[])`, [itens]);
+        }
+      });
+
+      it('P3 de "Pedidos e recebimento" (25/11): o pedido atrasado — o aviso às 10h do dia seguinte à previsão, os botões e a nova previsão pela conversa', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+        const autorizar = async (r: any) => {
+          const id = idDaProposta(r);
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          return esperarFim(id);
+        };
+        const compras = new ComprasService(db, { emit: () => true } as any, auditoria);
+        const comprasAntes = (acoes as any).compras;
+        (acoes as any).compras = compras;
+        const itens: string[] = [];
+        const listas: string[] = [];
+        const forns: string[] = [];
+        try {
+          const [{ id: rucas }] = await q(`insert into fornecedor (tenant_id, nome) values ($1, 'Rucas P3') returning id::text as id`, [A]);
+          forns.push(rucas);
+          const [{ id: bacon }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Bacon P3', 'kg') returning id::text as id`, [A]);
+          itens.push(bacon);
+          const hoje = hojeISO();
+          const l: any = await compras.createLista(A, { nome: 'Semana P3', fornecedorId: rucas, dataRecebimento: hoje, itens: [{ itemId: bacon, quantidade: 10 }] } as any, lojaDeA);
+          listas.push(l.id);
+
+          // O aviso: no dia da previsão, nada; no dia seguinte, só a partir das 10h; depois de amanhã, com 2 dias de atraso.
+          const doTeste = (ss: any[]) => ss.filter((s) => s.tipo === 'pedido_atrasado' && listas.includes(String(s.dados?.listaId)));
+          const amanha = somarDias(hoje, 1);
+          expect(doTeste(await avisos.situacoes([A], new Date(`${hoje}T23:00:00-03:00`)))).toEqual([]);
+          expect(doTeste(await avisos.situacoes([A], new Date(`${amanha}T09:59:00-03:00`)))).toEqual([]);
+          expect(doTeste(await avisos.situacoes([A], new Date(`${amanha}T10:00:00-03:00`))).map((s) => [s.titulo, s.dados.marco])).toEqual([
+            [`Tem pedido de fornecedor em aberto para receber: Semana P3 · Rucas P3 (previsão ${hoje.slice(8, 10)}/${hoje.slice(5, 7)}, 1 dia de atraso)`, amanha],
+          ]);
+          const depois = somarDias(hoje, 2);
+          expect(doTeste(await avisos.situacoes([A], new Date(`${depois}T10:30:00-03:00`)))[0]).toMatchObject({ dados: { marco: depois, diasDeAtraso: 2 } });
+
+          // Os botões: "Mudar a previsão" pergunta a data; "Já chegou" diz onde receber. Outra empresa não é deste aviso.
+          numero.pedidos.length = 0;
+          expect(await avisos.tocouNoPedidoAtrasado(`ped:prev:${l.id}`, quem(tel, 'ana', 'presidente'))).toBe(true);
+          expect(await avisos.tocouNoPedidoAtrasado(`ped:chegou:${l.id}`, quem(tel, 'ana', 'presidente'))).toBe(true);
+          expect(numero.enviadas.filter((m: any) => m.para === tel).map((m: any) => m.texto)).toEqual([
+            TEXTOS_DO_PEDIDO_ATRASADO.mudar('Semana P3'),
+            TEXTOS_DO_PEDIDO_ATRASADO.chegou('Semana P3'),
+          ]);
+          expect(await avisos.tocouNoPedidoAtrasado(`ped:prev:${l.id}`, { telefone: tel, vinculos: [{ ...quem(tel, 'ana', 'presidente').vinculos[0], tenantId: randomUUID() }], wamid: null } as any)).toBe(false);
+
+          // A nova previsão pela conversa: antes de hoje é recusada; para daqui a 3 dias, com o botão, pelo serviço de Estoque › Pedidos.
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'mudar_previsao', pedidoDeCompra: 'semana p3', novaPrevisao: somarDias(hoje, -1) })).dados.erro).toMatch(
+            /^A nova previsão não pode ser antes de hoje \(\d{2}\/\d{2}\/\d{4}\)\.$/,
+          );
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'mudar_previsao', pedidoDeCompra: 'Rucas P3', novaPrevisao: hoje })).dados.erro).toBe(
+            `A previsão do pedido "Semana P3" já é ${hoje.slice(8, 10)}/${hoje.slice(5, 7)}.`,
+          );
+          const nova = somarDias(hoje, 3);
+          const br = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
+          const r = await ferramentas.executar(e, 'propor_acao', { acao: 'mudar_previsao', pedidoDeCompra: 'Rucas P3', novaPrevisao: nova });
+          expect(r.dados.oQueVouFazer).toMatch(
+            new RegExp(`^Mudar a previsão de recebimento do pedido "Semana P3 \\(Rucas P3\\), criado em \\d{2}/\\d{2} \\d{2}:\\d{2}" de ${br(hoje)} para ${br(nova)}\\. O aviso de atraso só volta se passar da nova data sem receber\\.$`),
+          );
+          expect(await autorizar(r)).toMatchObject({ situacao: 'feita', resultado: `Mudei a previsão de recebimento do pedido "Semana P3" para ${br(nova)}. Está em Estoque › Pedidos.` });
+          expect(await q(`select data_recebimento::text as d from compra_lista where id = $1`, [l.id])).toEqual([{ d: nova }]);
+          // A auditoria do serviço da tela, em nome de quem autorizou.
+          expect(auditados.filter((a) => a.acao === 'mudou_previsao_pedido' && a.entidadeId === l.id)).toEqual([
+            expect.objectContaining({ tenantId: A, atorId: pessoa.ana, tipo: 'estoque', entidadeTipo: 'compra_lista', detalhe: { nome: 'Semana P3', de: hoje, para: nova } }),
+          ]);
+          // Com a previsão nova, amanhã às 10h não há atraso.
+          expect(doTeste(await avisos.situacoes([A], new Date(`${amanha}T10:00:00-03:00`)))).toEqual([]);
+
+          // Recebido, sai do aviso (mesmo vencido); o botão diz que o aviso fechou e a previsão não muda mais.
+          const det: any = await compras.getLista(A, l.id, lojaDeA);
+          await compras.receber(A, l.id, null, { itens: det.itens.map((i: any) => ({ compraItemId: i.id, qtdRecebida: 10, validadeIndefinida: true })) } as any, lojaDeA);
+          expect(doTeste(await avisos.situacoes([A], new Date(`${somarDias(nova, 2)}T10:00:00-03:00`)))).toEqual([]);
+          numero.pedidos.length = 0;
+          expect(await avisos.tocouNoPedidoAtrasado(`ped:chegou:${l.id}`, quem(tel, 'ana', 'presidente'))).toBe(true);
+          expect(numero.enviadas.filter((m: any) => m.para === tel).map((m: any) => m.texto)).toEqual([TEXTOS_DO_PEDIDO_ATRASADO.fechado]);
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'mudar_previsao', pedidoDeCompra: 'Rucas P3', novaPrevisao: somarDias(hoje, 5) })).dados.erro).toBe(
+            'O pedido "Semana P3" já foi recebido: a previsão não muda mais.',
+          );
+          await expect(compras.mudarPrevisao(A, l.id, somarDias(hoje, 5), lojaDeA, pessoa.ana)).rejects.toThrow('Este pedido já foi recebido: a previsão não muda mais.');
+        } finally {
+          (acoes as any).compras = comprasAntes;
+          await q(`delete from titulo_financeiro where origem = 'compra' and origem_id = any($1::uuid[])`, [listas]).catch(() => undefined);
+          await q(`delete from lote where item_id = any($1::uuid[])`, [itens]);
+          await q(`delete from movimento_estoque where item_id = any($1::uuid[])`, [itens]);
+          await q(`delete from compra_item where lista_id = any($1::uuid[])`, [listas]);
+          await q(`delete from compra_lista where id = any($1::uuid[])`, [listas]);
+          await q(`delete from item_estoque where id = any($1::uuid[])`, [itens]);
+          await q(`delete from fornecedor where id = any($1::uuid[])`, [forns]);
         }
       });
 

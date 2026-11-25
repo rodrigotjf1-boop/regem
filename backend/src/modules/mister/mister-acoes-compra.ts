@@ -52,6 +52,29 @@ export function conferirValidadeInformada(en: Record<string, unknown>): { parame
   };
 }
 
+/**
+ * P3 de "Pedidos e recebimento" (aviso do pedido atrasado, PR-6): a nova previsão de recebimento de um pedido de compra, pela
+ * conversa ("Mudar a previsão"). O pedido pelo nome ou pelo fornecedor; a data a partir de hoje.
+ */
+export type ParametrosDaPrevisao = { acao: 'mudar_previsao'; pedido: string; previsao: string };
+
+export function conferirPrevisao(en: Record<string, unknown>, hoje: string): { parametros: ParametrosDaPrevisao; resumo: string } | { erro: string } {
+  const pedido = texto(en.pedidoDeCompra).slice(0, 120);
+  if (pedido.length < 2) return { erro: 'Diga qual pedido de compra (o nome dele ou o fornecedor).' };
+  const v = texto(en.novaPrevisao);
+  const valida = /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T12:00:00Z`)) && new Date(`${v}T12:00:00Z`).toISOString().slice(0, 10) === v;
+  if (!valida) return { erro: 'Diga a nova previsão de recebimento: a data, no formato AAAA-MM-DD.' };
+  if (v < hoje) return { erro: `A nova previsão não pode ser antes de hoje (${diaBr(hoje)}).` };
+  return { parametros: { acao: 'mudar_previsao', pedido, previsao: v }, resumo: `Mudar a previsão de recebimento do pedido "${pedido}" para ${diaBr(v)}.` };
+}
+
+export function resumoDaPrevisao(nomeDoPedido: string, antes: string | null, previsao: string): string {
+  return (
+    `Mudar a previsão de recebimento do pedido "${nomeDoPedido}"${antes ? ` de ${diaBr(antes)}` : ''} para ${diaBr(previsao)}. ` +
+    'O aviso de atraso só volta se passar da nova data sem receber.'
+  );
+}
+
 export function resumoDaValidade(nome: string, pedido: string, recebido: string | null, x: ParametrosDaValidade): string {
   return (
     `Informar a validade de "${nome}" (pedido "${pedido}"${recebido ? `, recebido em ${recebido}` : ''}): ${x.semValidade ? 'sem validade' : `vence em ${diaBr(x.validade as string)}`}. ` +

@@ -19,7 +19,7 @@ import { conferirContagem, type ParametrosDaContagem } from './mister-acoes-cont
 import { conferirCaixa, type ParametrosDoCaixa } from './mister-acoes-caixa';
 import { conferirEntregador, type ParametrosDoEntregador } from './mister-acoes-entregador';
 import { conferirPonto, type ParametrosDoPonto } from './mister-acoes-ponto';
-import { conferirEnvio, conferirValidadeInformada, type ParametrosDaValidade, type ParametrosDoEnvio } from './mister-acoes-compra';
+import { conferirEnvio, conferirPrevisao, conferirValidadeInformada, type ParametrosDaPrevisao, type ParametrosDaValidade, type ParametrosDoEnvio } from './mister-acoes-compra';
 import { conferirCardapio, type ParametrosDoCardapio } from './mister-acoes-cardapio';
 import { conferirCampanha, type ParametrosDaCampanha } from './mister-acoes-campanha';
 import { NOMES_DOS_DIAS, ehHoraDoDia, horasDaJanela, lerDiaDaSemana, textoDaJanela, type JanelaDoDia } from '../../common/horarios-da-loja';
@@ -94,6 +94,8 @@ export const ACOES_DO_MISTER = [
   'repetir_campanha',
   // P1 de "Pedidos e recebimento" (25/11): a validade pendente informada pela conversa.
   'informar_validade',
+  // P3 de "Pedidos e recebimento" (25/11): a nova previsão de recebimento ("Mudar a previsão" do aviso do pedido atrasado).
+  'mudar_previsao',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -184,6 +186,8 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   // A rota "Informar a validade" de Estoque › Pedidos pede estoque.editar (a de quem recebe). Completa uma pendência: botão.
   informar_validade: { id: 'informar_validade', nivel: 'botao', permissao: 'estoque', crud: 'editar', prazoMin: 10, nome: 'informar a validade de um item recebido' },
   pedido_enviado: { id: 'pedido_enviado', nivel: 'botao', permissao: 'estoque', crud: 'criar', prazoMin: 10, nome: 'marcar um pedido de compra como enviado' },
+  // A previsão é da criação do pedido (Estoque › Pedidos pede estoque.criar). Só muda uma data: botão.
+  mudar_previsao: { id: 'mudar_previsao', nivel: 'botao', permissao: 'estoque', crud: 'criar', prazoMin: 10, nome: 'mudar a previsão de recebimento de um pedido de compra' },
   incluir_marcacao: { id: 'incluir_marcacao', nivel: 'pin', permissao: 'ponto', crud: 'criar', prazoMin: 15, nome: 'incluir uma marcação de ponto' },
   desconsiderar_marcacao: { id: 'desconsiderar_marcacao', nivel: 'pin', permissao: 'ponto', crud: 'editar', prazoMin: 15, nome: 'desconsiderar uma marcação de ponto' },
   pagar_entregador: { id: 'pagar_entregador', nivel: 'pin', permissao: 'delivery', prazoMin: 15, nome: 'pagar um entregador', pedeVerValores: true },
@@ -533,7 +537,8 @@ export type ParametrosDaAcao =
   | ParametrosDoEnvio
   | ParametrosDoCardapio
   | ParametrosDaCampanha
-  | ParametrosDaValidade;
+  | ParametrosDaValidade
+  | ParametrosDaPrevisao;
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -552,6 +557,7 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
   if (acao === 'incluir_marcacao' || acao === 'desconsiderar_marcacao') return conferirPonto(acao, en);
   if (acao === 'pedido_enviado') return conferirEnvio(en);
   if (acao === 'informar_validade') return conferirValidadeInformada(en);
+  if (acao === 'mudar_previsao') return conferirPrevisao(en, dataNoFuso(agora));
   if (acao === 'criar_categoria' || acao === 'criar_produto' || acao === 'promocao_do_produto') return conferirCardapio(acao, en);
   if (acao === 'pausar_campanha' || acao === 'repetir_campanha') return conferirCampanha(acao, en);
   if (acao === 'pausar_canal' || acao === 'reabrir_canal') {

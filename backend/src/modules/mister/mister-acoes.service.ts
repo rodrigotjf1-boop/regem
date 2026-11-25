@@ -64,7 +64,7 @@ import { resumoDaContagem, type ParametrosDaContagem } from './mister-acoes-cont
 import { MOTIVO_MINIMO, nomeDoCaixa, resumoDaSangria, resumoDoFechamento, type ParametrosDoCaixa } from './mister-acoes-caixa';
 import { acharEntregador, recusaDoAcerto, resumoDoPagamento, type LinhaDoAcerto, type ParametrosDoEntregador } from './mister-acoes-entregador';
 import { marcacoesDoDia, resumoDoPonto, type ParametrosDoPonto } from './mister-acoes-ponto';
-import { NOME_DO_CANAL, resumoDaValidade, resumoDoEnvio, type ParametrosDaValidade, type ParametrosDoEnvio } from './mister-acoes-compra';
+import { NOME_DO_CANAL, resumoDaPrevisao, resumoDaValidade, resumoDoEnvio, type ParametrosDaPrevisao, type ParametrosDaValidade, type ParametrosDoEnvio } from './mister-acoes-compra';
 import { conferirPromocao, reaisCardapio, resumoDaPromocao, resumoDoProdutoNovo, type ParametrosDoCardapio } from './mister-acoes-cardapio';
 const dataHoraCurta = (v: unknown): string => { const d = new Date(String(v)); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ''); };
 import { acharCampanhaDaLista, nomeDaCampanha, recusaDaRepeticao, resumoDaRepeticao, textoDoCusto, type LinhaDaCampanha, type ParametrosDaCampanha } from './mister-acoes-campanha';
@@ -451,6 +451,15 @@ export class MisterAcoesService implements OnModuleInit {
         Object.assign(parametros, r.parametros);
         resumo = r.resumo;
         alvo = r.alvo;
+      }
+      if (c.parametros.acao === 'mudar_previsao') {
+        // P3 de "Pedidos e recebimento" (25/11): a nova previsão pelo nome do pedido ou pelo fornecedor (a busca do envio).
+        const r = await this.prepararPrevisao(e, c.parametros as ParametrosDaPrevisao, e.lojaUnica && !loja.atual ? null : lojas);
+        if ('erro' in r) return recusa(r.erro);
+        Object.assign(parametros, r.parametros);
+        resumo = r.resumo;
+        alvo = r.alvo;
+        unidadeId = r.unidadeId ?? unidadeId;
       }
       if (c.parametros.acao === 'informar_validade') {
         // P1 de "Pedidos e recebimento" (25/11): a validade pendente pela conversa.
@@ -1021,7 +1030,8 @@ export class MisterAcoesService implements OnModuleInit {
         select c.id::text as id, c.nome, c.status, f.nome as fornecedor, c.unidade_id::text as "unidadeId",
                to_char(c.created_at at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as criado,
                (select count(*)::int from compra_item i where i.lista_id = c.id and i.tenant_id = c.tenant_id) as itens,
-               to_char(c.enviado_em at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as "enviadoEm", c.enviado_canal as "enviadoCanal"
+               to_char(c.enviado_em at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as "enviadoEm", c.enviado_canal as "enviadoCanal",
+               c.data_recebimento::text as previsao
           from compra_lista c
           left join fornecedor f on f.id = c.fornecedor_id and f.tenant_id = c.tenant_id
          where c.tenant_id = ${e.tenantId}::uuid and c.deleted_at is null and c.created_at > clock_timestamp() - interval '90 days'
@@ -1056,6 +1066,38 @@ export class MisterAcoesService implements OnModuleInit {
       alvo: `pedido:${a.id}:enviado:${x.canal}`,
       unidadeId: a.unidadeId ?? null,
     };
+  }
+
+  /** P3 (25/11): a nova previsão de um pedido ainda não recebido; a mesma data não muda nada. */
+  private async prepararPrevisao(
+    e: EscopoDoMister,
+    x: ParametrosDaPrevisao,
+    lojas: string[] | null,
+  ): Promise<{ parametros: Record<string, unknown>; resumo: string; alvo: string; unidadeId: string | null } | { erro: string }> {
+    const achado = await this.acharPedidoDeCompra(e, x.pedido, lojas);
+    if ('erro' in achado) return achado;
+    const a = achado.a;
+    if (a.status === 'recebida') return { erro: `O pedido "${a.nome}" já foi recebido: a previsão não muda mais.` };
+    if (a.previsao === x.previsao) return { erro: `A previsão do pedido "${a.nome}" já é ${x.previsao.slice(8, 10)}/${x.previsao.slice(5, 7)}.` };
+    return {
+      parametros: { listaId: a.id, nomeDoPedido: a.nome },
+      resumo: resumoDaPrevisao(achado.nomeDoPedido, a.previsao ?? null, x.previsao),
+      alvo: `pedido:${a.id}:previsao:${x.previsao}`,
+      unidadeId: a.unidadeId ?? null,
+    };
+  }
+
+  /** Muda pelo serviço de Estoque › Pedidos e confere a data gravada. */
+  private async aplicarPrevisao(p: { id: string; tenantId: string; unidadeId: string | null }, x: ParametrosDaPrevisao & { listaId: string; nomeDoPedido: string }, quem: string): Promise<{ feita: boolean; texto: string }> {
+    if (!this.compras) return { feita: false, texto: 'isso não está disponível agora. Nada foi feito.' };
+    try {
+      await this.compras.mudarPrevisao(p.tenantId, x.listaId, x.previsao, p.unidadeId, quem);
+      const [ok] = linhas(await this.db.execute(sql`select data_recebimento::text as d from compra_lista where id = ${x.listaId}::uuid and tenant_id = ${p.tenantId}::uuid`));
+      if (ok?.d !== x.previsao) return { feita: false, texto: 'a nova previsão não apareceu em Estoque › Pedidos. Confira lá.' };
+      return { feita: true, texto: `Mudei a previsão de recebimento do pedido "${x.nomeDoPedido}" para ${x.previsao.slice(8, 10)}/${x.previsao.slice(5, 7)}/${x.previsao.slice(0, 4)}. Está em Estoque › Pedidos.` };
+    } catch (err: any) {
+      return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240)) };
+    }
   }
 
   /** Marca pelo MESMO serviço de Estoque › Pedidos e confere a marca gravada. */
@@ -2114,6 +2156,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (parametros.acao === 'incluir_marcacao' || parametros.acao === 'desconsiderar_marcacao') return this.aplicarPonto(p, parametros as any, e, quem);
     if (parametros.acao === 'pedido_enviado') return this.aplicarEnvio(p, parametros as any, quem);
     if (parametros.acao === 'informar_validade') return this.aplicarValidade(p, parametros as any, quem);
+    if (parametros.acao === 'mudar_previsao') return this.aplicarPrevisao(p, parametros as any, quem);
     if (parametros.acao === 'criar_categoria' || parametros.acao === 'criar_produto' || parametros.acao === 'promocao_do_produto') return this.aplicarCardapio(p, parametros as any, e, quem);
     if (parametros.acao === 'pausar_campanha' || parametros.acao === 'repetir_campanha') return this.aplicarCampanha(p, parametros as any, quem);
     try {

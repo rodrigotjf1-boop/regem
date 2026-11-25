@@ -58,6 +58,8 @@ describe('Mister · ações — o catálogo e os canais', () => {
       'repetir_campanha',
       // P1 de "Pedidos e recebimento" (25/11): a validade pendente.
       'informar_validade',
+      // P3 de "Pedidos e recebimento" (25/11): a nova previsão do pedido.
+      'mudar_previsao',
     ]);
     expect(ACOES.criar_tarefa).toMatchObject({ nivel: 'botao', permissao: 'checklist' });
     for (const a of ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] as const)
