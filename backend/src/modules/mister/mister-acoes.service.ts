@@ -8,6 +8,24 @@ import { pausaVigenteDoCanal, type CanalDaPausa } from '../../common/pausa-do-ca
 import { pode, podeAcessar, type Permissoes } from '../../auth/permissoes';
 import type { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { IaEmpresaService } from '../ia/ia-empresa.service';
+import {
+  ACAO_DA_CONFERENCIA,
+  MAX_TOKENS_DA_CONFERENCIA,
+  MODELO_DA_CONFERENCIA_DA_IMAGEM,
+  PRAZO_DA_CONFERENCIA_MS,
+  RECURSO_DA_CONFERENCIA_DA_IMAGEM,
+  TEXTO_DA_IMAGEM_SEM_CONFERENCIA,
+  conferirNumeros,
+  instrucoesDaConferencia,
+  lerConferencia,
+  numerosParaConferir,
+  numerosSemOrigem,
+  origemDe,
+  textoDaImagemConferida,
+  textoDaImagemErrada,
+  type ConferenciaDaImagem,
+} from './mister-imagem-numeros';
 import { DeliveryService } from '../delivery/delivery.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import { ProdutoService } from '../produto/produto.service';
@@ -192,6 +210,8 @@ export class MisterAcoesService implements OnModuleInit {
     @Optional() private readonly moduleRef?: ModuleRef,
     // Versão 9, O5 segunda parte: trocar a pessoa de um turno e dar folga pelo MESMO serviço da Escala (as regras da CLT dele).
     @Optional() private readonly escala?: EscalaService,
+    // Versão 10, C10a: a IA da empresa lê a imagem gerada para conferir os números antes de ela ir à conversa.
+    @Optional() private readonly ia?: IaEmpresaService,
   ) {}
 
   onModuleInit(): void {
@@ -522,7 +542,14 @@ export class MisterAcoesService implements OnModuleInit {
         alvo = `${d.acao}:${d.centavos}:${d.dia}:${campanhaId ?? ''}`;
       }
       // M6l: cada pedido de imagem é um alvo (o mesmo pedido repetido é a mesma proposta e não paga de novo).
-      if (c.parametros.acao === 'criar_imagem') alvo = `${c.parametros.proporcao}:${c.parametros.pedido}`;
+      if (c.parametros.acao === 'criar_imagem') {
+        // C10a: número da loja na imagem só com origem (a consulta desta pergunta ou a fala da pessoa); os que importam
+        // ficam na proposta, para a conferência depois de gerar.
+        const sem = numerosSemOrigem(c.parametros.pedido, origemDe(en.__origem));
+        if (sem.length) return recusa(TEXTOS_DAS_ACOES.imagemNumeroSemOrigem(sem.slice(0, 3).join(', ')));
+        parametros.numeros = numerosParaConferir(c.parametros.pedido);
+        alvo = `${c.parametros.proporcao}:${c.parametros.pedido}`;
+      }
       return { acao: c.parametros.acao, def, unidadeId, parametros, resumo, alvo: `${alvo}:${unidadeId ?? 'empresa'}` };
     }
   }
@@ -2092,10 +2119,15 @@ export class MisterAcoesService implements OnModuleInit {
    */
   private async gerarImagem(
     p: { id: string; tenantId: string; autorizadaPor: string | null },
-    a: { pedido: string; proporcao: ProporcaoDaImagem },
+    a: { pedido: string; proporcao: ProporcaoDaImagem; numeros?: unknown; nivel?: unknown },
   ): Promise<{ feita: boolean; texto: string }> {
     if (!imagemLigada() || !this.imagens || !this.numero) return { feita: false, texto: 'a criação de imagem não está ligada. Nada foi gerado.' };
-    const r = await this.imagens.criarImagem(p.tenantId, { descricao: a.pedido, proporcao: a.proporcao, formato: 'jpeg', chave: `mister:${p.id}` });
+    // C10a: a chave leva a hora em que a proposta foi (re)feita. O "Gerar" tocado duas vezes é a mesma chave e não paga de
+    // novo; o mesmo pedido proposto outra vez (o "gera de novo" depois de um número errado) gera OUTRA imagem — com a chave
+    // só da proposta, o Graph devolvia a mesma imagem errada.
+    const [prop] = linhas(await this.db.execute(sql`select (extract(epoch from criada_em) * 1000)::bigint::text as vez from mister_proposta where id = ${p.id}::uuid`));
+    const chave = prop?.vez ? `mister:${p.id}:${prop.vez}` : `mister:${p.id}`;
+    const r = await this.imagens.criarImagem(p.tenantId, { descricao: a.pedido, proporcao: a.proporcao, formato: 'jpeg', chave });
     if (!r.ok) return { feita: false, texto: r.mensagem.charAt(0).toLowerCase() + r.mensagem.slice(1) };
     const [v] = linhas(
       await this.db.execute(sql`
@@ -2103,6 +2135,27 @@ export class MisterAcoesService implements OnModuleInit {
          where tenant_id = ${p.tenantId}::uuid and colaborador_id = ${p.autorizadaPor}::uuid and ligado_em is not null and telefone is not null`),
     );
     if (!v?.telefone) return { feita: false, texto: 'o seu WhatsApp não está mais ligado ao Mister. A imagem não foi enviada.' };
+    // C10a: com número da loja no pedido, a imagem só vai à conversa se cada número estiver nela, sem valor a mais.
+    const numeros = Array.isArray(a.numeros) ? a.numeros.filter((n): n is string => typeof n === 'string') : [];
+    let conferencia = '';
+    if (numeros.length) {
+      const c = await this.conferirImagem(p.tenantId, r.bytes, r.mimeType, a.pedido);
+      await this.auditoria
+        ?.registrar({
+          tenantId: p.tenantId,
+          atorId: p.autorizadaPor,
+          atorPerfil: a.nivel === 'gerente' ? 'gerente' : 'presidente',
+          tipo: 'mister',
+          acao: ACAO_DA_CONFERENCIA,
+          entidadeTipo: 'mister_proposta',
+          entidadeId: p.id,
+          origem: 'whatsapp',
+          detalhe: { situacao: c?.situacao ?? 'nao_conferida', numeros, faltaram: c?.faltaram ?? [], sobraram: c?.sobraram ?? [] },
+        } as any)
+        .catch((err: any) => this.logger.warn(`a auditoria da conferência da imagem ${p.id} falhou — ${err?.message ?? err}`));
+      if (c && c.situacao !== 'bateu') return { feita: false, texto: textoDaImagemErrada(c) };
+      conferencia = c ? textoDaImagemConferida(numeros) : TEXTO_DA_IMAGEM_SEM_CONFERENCIA;
+    }
     try {
       await this.numero.enviarImagem(v.telefone, r.bytes, '', r.mimeType);
     } catch (err: any) {
@@ -2110,7 +2163,33 @@ export class MisterAcoesService implements OnModuleInit {
       return { feita: false, texto: 'a imagem foi gerada, mas não consegui mandar por aqui. Peça de novo.' };
     }
     const franquia = r.franquia ? ` São ${r.franquia.usados} de ${r.franquia.total} imagens neste mês.` : '';
-    return { feita: true, texto: `A imagem está logo acima.${franquia} Para mudar, me diga o que trocar.` };
+    return { feita: true, texto: `A imagem está logo acima.${conferencia ? ` ${conferencia}` : ''}${franquia} Para mudar, me diga o que trocar.` };
+  }
+
+  /**
+   * C10a: a IA da empresa (a mesma que lê as fotos) transcreve os números da imagem gerada, e o código compara com o pedido.
+   * Null = não conferiu (sem a IA, prazo, recusa, fora do formato): a imagem vai com o aviso de conferir. Nunca lança.
+   */
+  private async conferirImagem(tenantId: string, bytes: Buffer, mime: string, pedido: string): Promise<ConferenciaDaImagem | null> {
+    if (!this.ia) return null;
+    try {
+      if (!(await this.ia.temAcesso(tenantId))) return null;
+      const r = await this.ia.pedir(tenantId, {
+        recurso: RECURSO_DA_CONFERENCIA_DA_IMAGEM,
+        modelo: MODELO_DA_CONFERENCIA_DA_IMAGEM,
+        maxTokens: MAX_TOKENS_DA_CONFERENCIA,
+        system: instrucoesDaConferencia(),
+        messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mime, data: bytes.toString('base64') } }, { type: 'text', text: 'Transcreva os números desta imagem no formato pedido.' }] }],
+        prazoMs: PRAZO_DA_CONFERENCIA_MS,
+      });
+      if (r.recusou || r.parou === 'max_tokens') return null;
+      const lida = lerConferencia(r.texto);
+      if (!lida) this.logger.warn('a conferência da imagem voltou fora do formato');
+      return lida ? conferirNumeros(pedido, lida) : null;
+    } catch (err: any) {
+      this.logger.warn(`a conferência da imagem não rodou: ${String(err?.motivo ?? err?.message ?? err).slice(0, 160)}`);
+      return null;
+    }
   }
 
   // ───────────────────────────── executar ─────────────────────────────

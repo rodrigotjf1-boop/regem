@@ -1,4 +1,5 @@
 import { instanteDeSaoPaulo } from '../../common/pedido-agendado';
+import { pareceDadoPessoalNaImagem } from './mister-imagem-numeros';
 import {
   ACOES,
   ACOES_DO_MISTER,
@@ -7,7 +8,6 @@ import {
   conferirAcao,
   mesmaUnidade,
   resumoDoMovimento,
-  pareceDadoPessoal,
   sigaDaAcao,
   ehAcaoDoMister,
   lerCanal,
@@ -205,9 +205,9 @@ describe('Mister · ações (M6l) — a imagem', () => {
   });
   it('telefone, e-mail, CPF e CNPJ não vão à IA de imagem; preço, data e @ da loja vão', () => {
     for (const t of ['ligue (21) 99999-0000', 'fale em dono@loja.com.br', 'CPF 123.456.789-09', 'CNPJ 12.345.678/0001-95'])
-      expect(pareceDadoPessoal(t)).toBe(true);
+      expect(pareceDadoPessoalNaImagem(t)).toBe(true);
     for (const t of ['R$ 29,90 ou R$ 39,90', 'válido até 25/11/2026', 'siga @mister.burger', 'combo 2 por 1'])
-      expect(pareceDadoPessoal(t)).toBe(false);
+      expect(pareceDadoPessoalNaImagem(t)).toBe(false);
     expect(conferirAcao('criar_imagem', { pedidoDaImagem: `${PEDIDO} Peça pelo (21) 99999-0000.` }, AGORA)).toHaveProperty('erro');
   });
   it('a instrução para a IA diz os botões certos de cada ação', () => {

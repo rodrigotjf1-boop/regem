@@ -22,6 +22,7 @@ import { conferirPonto, type ParametrosDoPonto } from './mister-acoes-ponto';
 import { conferirEnvio, conferirPrevisao, conferirValidadeInformada, type ParametrosDaPrevisao, type ParametrosDaValidade, type ParametrosDoEnvio } from './mister-acoes-compra';
 import { conferirCardapio, type ParametrosDoCardapio } from './mister-acoes-cardapio';
 import { conferirCampanha, type ParametrosDaCampanha } from './mister-acoes-campanha';
+import { pareceDadoPessoalNaImagem } from './mister-imagem-numeros';
 import { NOMES_DOS_DIAS, ehHoraDoDia, horasDaJanela, lerDiaDaSemana, textoDaJanela, type JanelaDoDia } from '../../common/horarios-da-loja';
 
 // AS AÇÕES DO MISTER — a porta `propor_acao` (versão 6, M6j; plano aprovado em 20/11/2026, `docs/plano-mister.md` § "Versão
@@ -209,8 +210,6 @@ export type ProporcaoDaImagem = (typeof PROPORCOES_DA_IMAGEM)[number];
 /** O pedido vai no corpo da mensagem com botões, que a Meta limita a 1.024 letras. */
 export const PEDIDO_DA_IMAGEM_MAX = 800;
 export const BOTOES_DA_IMAGEM = { autorizar: 'Gerar', naoAgora: 'Mudar' } as const;
-/** Telefone, CPF ou CNPJ (10 dígitos ou mais em sequência) e e-mail não vão à IA de imagem. */
-export const pareceDadoPessoal = (t: string): boolean => /[^\s@]+@[^\s@]+\.[^\s@]+/.test(t) || /(?:\d[\s().\/-]*){10,}/.test(t);
 /** O que a IA faz com a resposta da ação. */
 export const sigaDaAcao = (acao: AcaoDoMister): string =>
   ehDadoInformado(acao)
@@ -624,7 +623,9 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
     const pedido = String(en.pedidoDaImagem ?? '').trim().replace(/[ \t]+/g, ' ');
     if (pedido.length < 20 || pedido.length > PEDIDO_DA_IMAGEM_MAX)
       return { erro: `Escreva o pedido da imagem completo (o que aparece, o texto exato, o estilo e as cores), de 20 a ${PEDIDO_DA_IMAGEM_MAX} letras.` };
-    if (pareceDadoPessoal(pedido)) return { erro: 'O pedido da imagem não pode levar telefone, e-mail, CPF ou CNPJ. Tire isso e mande de novo.' };
+    // C10a: a imagem agora leva números da loja ("R$ 18.420 / 14.900 / 6.500"): a trava pega telefone, CPF, CNPJ e e-mail pelo
+    // jeito de cada um, não por "10 dígitos com qualquer separador" (que barrava uma lista de valores).
+    if (pareceDadoPessoalNaImagem(pedido)) return { erro: 'O pedido da imagem não pode levar telefone, e-mail, CPF ou CNPJ. Tire isso e mande de novo.' };
     const proporcao = String(en.proporcao ?? '1:1') as ProporcaoDaImagem;
     if (!PROPORCOES_DA_IMAGEM.includes(proporcao)) return { erro: 'A proporção é 1:1 (feed), 9:16 (story ou cartaz vertical) ou 16:9 (horizontal).' };
     return { parametros: { acao, pedido, proporcao }, resumo: pedido };
@@ -751,6 +752,9 @@ export const TEXTOS_DAS_ACOES = {
   imagemDesligada: 'A criação de imagem ainda não está ligada nesta instalação.',
   imagemGerando: 'Gerando a imagem. Pode levar até um minuto, e ela chega aqui.',
   imagemMudar: 'Certo, não gerei. Me diga o que mudar no pedido.',
+  // C10a: o número do pedido da imagem tem de ter vindo de uma consulta desta pergunta ou da fala da pessoa.
+  imagemNumeroSemOrigem: (numeros: string) =>
+    `O pedido da imagem tem ${numeros}, que não veio de uma consulta desta pergunta nem do que a pessoa disse. Consulte o número agora (a imagem só leva o que o Regem trouxe) ou tire da imagem.`,
   semPermissao: 'O seu perfil no Regem não dá acesso ao Delivery: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
   soGestor: 'Só o presidente e o gerente fazem ações pelo Mister.',
   semBotao: 'Pela conexão por QR Code a ação não tem o botão "Autorizar". Faça no Regem, no painel do Delivery.',

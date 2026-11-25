@@ -165,10 +165,15 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
       // O teto da pergunta decide-se na ordem do pedido, antes de rodar: o que passa dele nem roda.
       const rodam = pedidos.slice(0, Math.max(0, TETOS.ferramentas - trilha.ferramentas.length));
       const juntas = rodam.every((p: any) => podeRodarJunto(p.name)) ? TETOS.consultasJuntas : 1;
+      // Versão 10, C10a: o `propor_acao` recebe a origem dos números (o que as consultas desta pergunta trouxeram e o que a
+      // pessoa escreveu) para a imagem só levar número da loja que tem de onde vir. Sempre a do laço: o que o modelo puser
+      // em `__origem` é sobrescrito. A trilha guarda a entrada do modelo, sem isto.
+      const falas = [pergunta, ...memoria.map((m) => m.pergunta)];
+      const entradaDe = (p: any) => (p.name === 'propor_acao' && p.input && typeof p.input === 'object' ? { ...p.input, __origem: { resultados: [...resultados], falas } } : p.input);
       const feitos = await rodarNaOrdem(
         rodam.map((p: any) => async () => {
           const t0 = Date.now();
-          const feito = await portas.executar(p.name, p.input);
+          const feito = await portas.executar(p.name, entradaDe(p));
           return { feito, ms: Date.now() - t0 };
         }),
         juntas,
