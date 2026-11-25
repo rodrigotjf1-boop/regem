@@ -1362,6 +1362,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c106', pergunta: 'A Bruna esqueceu de bater a saída ontem, saiu às 23:10. Inclui pra mim, foi esquecimento.', consultas: ['propor_acao'], contem: ['23:10', 'PIN'] },
   // Etapa 6 de 24/11: o pedido de compra enviado.
   { id: 'c107', pergunta: 'Já mandei o pedido do Felipão pelo zap, marca como enviado.', consultas: ['propor_acao'], contem: ['Felipão', 'Autorizar'] },
+  // Etapa 7 de 24/11: o cardápio.
+  { id: 'c108', pergunta: 'Cria um produto novo: Smash Duplo Bacon, R$ 34,90, na categoria Burgers.', consultas: ['propor_acao'], contem: ['Smash Duplo Bacon', 'Autorizar'] },
+  { id: 'c109', pergunta: 'Coloca o X-Bacon em promoção por R$ 25,90 no cardápio.', consultas: ['propor_acao'], contem: ['25,90', 'PIN'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

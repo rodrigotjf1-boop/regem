@@ -4166,6 +4166,8 @@ export function testesDoMisterComPostgres(): void {
         c100: { acao: 'fechar_caixa', caixaDaLoja: 'balcão', semContagem: true },
         c101: { acao: 'sangria', caixaDaLoja: 'balcão', valorDaSangria: 200, motivoDoCaixa: 'pagar o gás' },
         c103: { acao: 'pagar_entregador', entregadorDoAcerto: 'Jefferson' },
+        c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },
+        c109: { acao: 'promocao_do_produto', produto: 'X-Bacon', precoPromocional: 25.9 },
         c107: { acao: 'pedido_enviado', pedidoDeCompra: 'Felipão', canalDoEnvio: 'whatsapp' },
         c106: { acao: 'incluir_marcacao', pessoaDoPonto: 'Bruna', tipoDaMarcacao: 'saida', diaDaMarcacao: somarDias(hojeISO(), -1), horaDaMarcacao: '23:10', motivoDoPonto: 'esqueceu de bater a saída' },
         c51: { periodo: 'este_mes' },
@@ -12916,6 +12918,86 @@ export function testesDoMisterComPostgres(): void {
           (acoes as any).compras = comprasAntes;
           await q(`delete from compra_lista where id = any($1::uuid[])`, [ids]);
           if (forn) await q(`delete from fornecedor where id = $1`, [forn]);
+        }
+      });
+
+      it('etapa 7 de 24/11: o cardápio — categoria e produto novos pelo botão, a promoção "de/por" pelo PIN, tudo pelo serviço de Cadastros › Cardápio', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const pinsAntes = await q(`select id, pin_hash from colaborador where id = $1`, [pessoa.ana]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+        const pin = async (r: any) => {
+          const c = codigo(await propostasDasAcoes.enviarLink(r.proposta!.id, pessoa.ana, tel, r.proposta!.pergunta));
+          return { c, vista: await propostasDasAcoes.verPeloLink(c) };
+        };
+        const autorizar = async (r: any) => {
+          const id = idDaProposta(r);
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          return esperarFim(id);
+        };
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          // 1) A categoria nova.
+          const rc = await ferramentas.executar(e, 'propor_acao', { acao: 'criar_categoria', nomeDaCategoria: 'Sobremesas E7' });
+          expect(rc.dados.oQueVouFazer).toBe('Criar a categoria "Sobremesas E7" em Cadastros › Cardápio, no fim da lista (sem produtos ainda).');
+          expect(await q(`select 1 from categoria_produto where tenant_id = $1 and nome = 'Sobremesas E7'`, [A])).toEqual([]);
+          expect(await autorizar(rc)).toMatchObject({ situacao: 'feita', resultado: 'Criei a categoria "Sobremesas E7" em Cadastros › Cardápio.' });
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'criar_categoria', nomeDaCategoria: 'sobremesas e7' })).dados.erro).toBe(TEXTOS_DAS_ACOES.categoriaJaExiste('Sobremesas E7'));
+
+          // 2) O produto novo na categoria nova; a categoria que não existe para na pergunta.
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'criar_produto', nomeDoProduto: 'Pudim E7', precoDoProduto: 12, categoriaDoProduto: 'Nada E7' })).dados.erro).toBe(TEXTOS_DAS_ACOES.categoriaNaoAchada);
+          const rp = await ferramentas.executar(e, 'propor_acao', { acao: 'criar_produto', nomeDoProduto: 'Pudim E7', precoDoProduto: 14.9, categoriaDoProduto: 'sobremesas e7', descricaoDoProduto: 'De leite condensado' });
+          expect(rp.dados.oQueVouFazer).toBe(
+            'Criar o produto "Pudim E7" por R$ 14,90 na categoria "Sobremesas E7", com a descrição "De leite condensado". Ele entra no cardápio sem foto, sem ficha técnica, sem código PDV e sem baixa no estoque: o resto do cadastro fica em Cadastros › Cardápio.',
+          );
+          expect(await autorizar(rp)).toMatchObject({
+            situacao: 'feita',
+            resultado: 'Criei o produto "Pudim E7" por R$ 14,90 na categoria "Sobremesas E7". A foto, a ficha técnica e o código PDV ficam em Cadastros › Cardápio.',
+          });
+          const [pudim] = await q(
+            `select p.id::text as id, p.preco_venda::float8 as preco, p.descricao, p.controla_estoque as "controla", c.nome as categoria
+               from produto p left join categoria_produto c on c.id = p.categoria_id where p.tenant_id = $1 and p.nome = 'Pudim E7' and p.deleted_at is null`,
+            [A],
+          );
+          expect(pudim).toMatchObject({ preco: 14.9, descricao: 'De leite condensado', controla: false, categoria: 'Sobremesas E7' });
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'criar_produto', nomeDoProduto: 'pudim e7', precoDoProduto: 10 })).dados.erro).toBe(TEXTOS_DAS_ACOES.produtoJaExiste('Pudim E7'));
+
+          // 3) A promoção: maior que o preço normal não; a certa pelo PIN; tirar pelo PIN; tirar de novo não.
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'promocao_do_produto', produto: 'Pudim E7', precoPromocional: 15 })).dados.erro).toBe(
+            'A promoção tem de ser menor que o preço normal de "Pudim E7" (R$ 14,90).',
+          );
+          const rpr = await ferramentas.executar(e, 'propor_acao', { acao: 'promocao_do_produto', produto: 'Pudim E7', precoPromocional: 11.9 });
+          expect(rpr.dados.oQueVouFazer).toBe(
+            'Pôr "Pudim E7" em promoção no cardápio digital: de R$ 14,90 por R$ 11,90. Fica ligada até alguém tirar (o Regem não tem promoção com data de fim). O preço do iFood e da 99 não muda.',
+          );
+          expect(rpr.proposta).toMatchObject({ procedimento: 'promocao_do_produto', nivel: 'pin' });
+          const p1 = await pin(rpr);
+          expect(p1.vista).toMatchObject({ titulo: 'Pôr em promoção', valor: 11.9, botao: 'Pôr em promoção' });
+          await propostasDasAcoes.autorizarPeloLink(p1.c, '2580');
+          expect(await esperarFim(rpr.proposta!.id)).toMatchObject({ situacao: 'feita', resultado: 'Pus "Pudim E7" em promoção por R$ 11,90 no cardápio digital. Fica até alguém tirar.' });
+          expect((await q(`select preco_promocional::float8 as p from produto where id = $1`, [pudim.id]))[0].p).toBe(11.9);
+          // A promoção mudou pela tela entre a pergunta e o PIN: nada é feito.
+          const rt = await ferramentas.executar(e, 'propor_acao', { acao: 'promocao_do_produto', produto: 'Pudim E7', tirarPromocao: true });
+          expect(rt.dados.oQueVouFazer).toBe('Tirar a promoção de "Pudim E7": o preço volta a R$ 14,90 no cardápio digital (estava por R$ 11,90).');
+          const p2 = await pin(rt);
+          await q(`update produto set preco_promocional = 10.9 where id = $1`, [pudim.id]);
+          await propostasDasAcoes.autorizarPeloLink(p2.c, '2580');
+          expect(await esperarFim(rt.proposta!.id)).toMatchObject({ situacao: 'nao_deu', resultado: 'A promoção desse produto mudou desde a pergunta. Nada foi feito: peça de novo.' });
+          expect((await q(`select preco_promocional::float8 as p from produto where id = $1`, [pudim.id]))[0].p).toBe(10.9);
+          const rt2 = await ferramentas.executar(e, 'propor_acao', { acao: 'promocao_do_produto', produto: 'Pudim E7', tirarPromocao: true });
+          const p3 = await pin(rt2);
+          await propostasDasAcoes.autorizarPeloLink(p3.c, '2580');
+          expect(await esperarFim(rt2.proposta!.id)).toMatchObject({ situacao: 'feita', resultado: 'Tirei a promoção de "Pudim E7": o preço voltou ao normal no cardápio digital.' });
+          expect((await q(`select preco_promocional from produto where id = $1`, [pudim.id]))[0].preco_promocional).toBeNull();
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'promocao_do_produto', produto: 'Pudim E7', tirarPromocao: true })).dados.erro).toBe('"Pudim E7" não está em promoção.');
+          // As permissões: sem a da loja, nada; a promoção pede também "Ver valores".
+          expect((await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true } } } as any, 'propor_acao', { acao: 'criar_categoria', nomeDaCategoria: 'Outra E7' })).ok).toBe(false);
+          expect((await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { loja: true, ver_financeiro: false } } as any, 'propor_acao', { acao: 'promocao_do_produto', produto: 'Pudim E7', precoPromocional: 9.9 })).ok).toBe(false);
+        } finally {
+          for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
+          await q(`delete from produto where tenant_id = $1 and nome = 'Pudim E7'`, [A]).catch(() => undefined);
+          await q(`delete from categoria_produto where tenant_id = $1 and nome = 'Sobremesas E7'`, [A]).catch(() => undefined);
         }
       });
 
