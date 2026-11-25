@@ -4170,6 +4170,8 @@ export function testesDoMisterComPostgres(): void {
         c103: { acao: 'pagar_entregador', entregadorDoAcerto: 'Jefferson' },
         c118: { acao: 'informar_validade', insumoDaValidade: 'Carne 56 g', validadeInformada: '2026-12-02' },
         c119: { acao: 'mudar_previsao', pedidoDeCompra: 'pedido da semana do Rucas', novaPrevisao: '2026-11-28' },
+        // C10a: o número da imagem é o da consulta feita ANTES (o resumo de hoje da avaliação: R$ 4.321,45).
+        c120: { acao: 'criar_imagem', proporcao: '1:1', pedidoDaImagem: 'Cartaz quadrado para o grupo da equipe. Fundo azul-marinho e dourado, um hambúrguer. Texto exato: "Hoje até agora: R$ 4.321,45".' },
         c110: { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' },
         c111: { acao: 'repetir_campanha', campanhaDaConversa: 'a última' },
         c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },
@@ -4289,7 +4291,16 @@ export function testesDoMisterComPostgres(): void {
             const c = CASOS_DA_AVALIACAO.find((x) => x.pergunta === pergunta && (x.perfil?.nivel === 'gerente') === gerente)!;
             const ultima = p.messages[p.messages.length - 1];
             const ferramentas = [...(c.consultas ?? []), ...(c.umaDasConsultas ? [c.umaDasConsultas[0]] : []), ...(c.anotar ? [FERRAMENTA_DO_QUE_FALTA] : []), ...(EXTRAS[c.id] ?? [])];
-            if (typeof ultima.content === 'string' && ferramentas.length) {
+            // C10a: a imagem com número da loja consulta ANTES e propõe depois (o número só tem origem na consulta já feita).
+            const EM_VOLTAS: Record<string, string[][]> = { c120: [[c.umaDasConsultas?.[0] ?? ''], ['propor_acao']] };
+            const voltas = EM_VOLTAS[c.id];
+            if (voltas) {
+              const feitas = p.messages.filter((m: any) => m.role === 'assistant' && Array.isArray(m.content) && m.content.some((b: any) => b?.type === 'tool_use')).length;
+              if (feitas < voltas.length) {
+                const conteudo = voltas[feitas].map((nome, i) => ({ type: 'tool_use', id: `tu${feitas}-${i}`, name: nome, input: entradaDe(c, nome) }));
+                return { texto: '', recusou: false, origem: 'distribuicao', uso: USO, conteudo, parou: 'tool_use' };
+              }
+            } else if (typeof ultima.content === 'string' && ferramentas.length) {
               const conteudo = ferramentas.map((nome, i) => ({ type: 'tool_use', id: `tu${i}`, name: nome, input: entradaDe(c, nome) }));
               return { texto: '', recusou: false, origem: 'distribuicao', uso: USO, conteudo, parou: 'tool_use' };
             }
@@ -11847,7 +11858,8 @@ export function testesDoMisterComPostgres(): void {
         await ligar('ana', tel);
         const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
         const pedido = "Cartaz vertical da terça do smash. Foto de um smash duplo com batata, fundo escuro, luz quente. Texto exato: \"TERÇA DO SMASH\" e \"Smash duplo + batata · R$ 29,90\".";
-        const en = { acao: 'criar_imagem', pedidoDaImagem: pedido, proporcao: '9:16' };
+        // C10a: o preço veio da fala da pessoa (a origem que o laço passa).
+        const en = { acao: 'criar_imagem', pedidoDaImagem: pedido, proporcao: '9:16', __origem: { resultados: [], falas: ['Faz um cartaz vertical da promoção de terça: smash duplo + batata por R$ 29,90.'] } };
         const antes = process.env.MISTER_CRIAR_IMAGEM;
         const chamadas: any[] = [];
         let resposta: any = { ok: true, bytes: Buffer.from('jpeg de mentira'), mimeType: 'image/jpeg', franquia: { mes: '2026-11', usados: 3, total: 20 } };
@@ -11880,7 +11892,8 @@ export function testesDoMisterComPostgres(): void {
           const fim = await esperarFim(id);
           expect(fim.situacao).toBe('feita');
           expect(fim.resultado).toContain('3 de 20');
-          expect(chamadas).toEqual([[A, { descricao: pedido, proporcao: '9:16', formato: 'jpeg', chave: `mister:${id}` }]]);
+          // C10a: a chave leva a hora da proposta (a tentativa seguinte gera outra imagem).
+          expect(chamadas).toEqual([[A, { descricao: pedido, proporcao: '9:16', formato: 'jpeg', chave: expect.stringMatching(new RegExp(`^mister:${id}:\\d+$`)) }]]);
           expect(numero.pedidos.find((p) => p.url.endsWith('/media'))?.corpo).toMatchObject({ formulario: true, type: 'image/jpeg', arquivo: 'imagem.jpg' });
           expect(numero.pedidos.filter((p) => p.url.endsWith('/messages') && p.corpo?.type === 'image').map((p) => p.corpo.to)).toEqual([tel]);
 
@@ -11903,6 +11916,86 @@ export function testesDoMisterComPostgres(): void {
         } finally {
           numero.responder = () => undefined;
           delete (acoes as any).imagens;
+          if (antes === undefined) delete process.env.MISTER_CRIAR_IMAGEM;
+          else process.env.MISTER_CRIAR_IMAGEM = antes;
+        }
+      });
+
+      it('C10a: número da loja na imagem — sem origem, recusa; o número errado na imagem não chega; a nova tentativa gera outra', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+        const pedido = 'Cartaz quadrado para a equipe. Fundo azul-marinho, um hambúrguer com coroa. Texto exato: "Novembro, o melhor mês do ano!" e "R$ 98.400 · 3.120 pedidos".';
+        const consulta = { mes: '2026-11', total: 98400, pedidos: 3120 };
+        const en = { acao: 'criar_imagem', pedidoDaImagem: pedido, proporcao: '1:1' };
+        const antes = process.env.MISTER_CRIAR_IMAGEM;
+        const chamadas: any[] = [];
+        (acoes as any).imagens = { criarImagem: async (t: string, p: any) => (chamadas.push(p.chave), { ok: true, bytes: Buffer.from('jpeg de mentira'), mimeType: 'image/jpeg', franquia: { mes: '2026-11', usados: 13, total: 30 } }) };
+        let lido = ['R$ 89.400', '3.120 pedidos'];
+        const lidas: any[] = [];
+        (acoes as any).ia = {
+          temAcesso: async () => true,
+          pedir: async (t: string, p: any) => (lidas.push([t, p.recurso, p.modelo, p.messages[0].content[0].type]), { texto: JSON.stringify({ numeros: lido, ilegivel: false }), recusou: false, parou: 'end_turn' }),
+        };
+        const conferidas = () => auditados.filter((a) => a.acao === 'mister_imagem_conferida' && a.tenantId === A);
+        const jaConferidas = conferidas().length;
+        try {
+          process.env.MISTER_CRIAR_IMAGEM = '1';
+          // Sem a origem (ou com outro número), recusa antes de qualquer pergunta.
+          const sem = await ferramentas.executar(e, 'propor_acao', en);
+          expect(sem).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.imagemNumeroSemOrigem('R$ 98.400, 3.120') } });
+          const outro = await ferramentas.executar(e, 'propor_acao', { ...en, __origem: { resultados: [{ ...consulta, total: 91250 }], falas: [] } });
+          expect(outro.ok).toBe(false);
+          expect(chamadas).toEqual([]);
+
+          // Com a consulta desta pergunta: o pedido sai, e os números a conferir ficam na proposta.
+          const r = await ferramentas.executar(e, 'propor_acao', { ...en, __origem: { resultados: [consulta], falas: ['faz uma imagem: novembro foi o melhor mês'] } });
+          expect(r.ok).toBe(true);
+          const id = idDaProposta(r);
+          const [guardada] = await q(`select parametros from mister_proposta where id = $1`, [id]);
+          expect(guardada.parametros.numeros).toEqual(['R$ 98.400', '3.120']);
+
+          // "Gerar": a imagem sai com R$ 89.400 — não chega, e o "Não deu" diz qual número veio errado.
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          const fim = await esperarFim(id);
+          expect(fim.situacao).toBe('nao_deu');
+          expect(fim.resultado).toMatch(/^a imagem saiu com R\$ 89\.400 no lugar de R\$ 98\.400\. Não te mandei/);
+          expect(numero.pedidos.filter((p) => p.url.endsWith('/media'))).toEqual([]);
+          expect(lidas).toEqual([[A, 'mister_imagem_conferida', 'claude-sonnet-5-5', 'image']]);
+          expect(conferidas().slice(jaConferidas).map((a) => [a.entidadeId, a.detalhe])).toEqual([
+            [id, { situacao: 'errou', numeros: ['R$ 98.400', '3.120'], faltaram: ['R$ 98.400'], sobraram: ['R$ 89.400'] }],
+          ]);
+
+          // "Gera de novo": o mesmo pedido volta a ser proposto — a chave muda, e o Graph gera OUTRA imagem; agora bate.
+          lido = ['R$ 98.400', '3.120 pedidos', '2026'];
+          await new Promise((res) => setTimeout(res, 5));
+          const r2 = await ferramentas.executar(e, 'propor_acao', { ...en, __origem: { resultados: [consulta], falas: [] } });
+          const id2 = idDaProposta(r2);
+          expect(id2).toBe(id); // o mesmo alvo é a mesma proposta
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${id2}:sim`, quem(tel, 'ana', 'presidente'));
+          const fim2 = await esperarFim(id2);
+          expect(fim2.situacao).toBe('feita');
+          expect(fim2.resultado).toContain('Conferi os números da imagem: R$ 98.400 e 3.120, como no Regem.');
+          expect(fim2.resultado).toContain('13 de 30');
+          expect(chamadas).toHaveLength(2);
+          expect(chamadas[1]).not.toBe(chamadas[0]);
+          expect(numero.pedidos.filter((p) => p.url.endsWith('/messages') && p.corpo?.type === 'image').map((p) => p.corpo.to)).toEqual([tel]);
+          expect(conferidas().slice(jaConferidas).map((a) => a.detalhe.situacao)).toEqual(['errou', 'bateu']);
+
+          // A conferência que não roda (a IA da empresa fora) não segura a imagem: ela vai com o aviso de conferir.
+          (acoes as any).ia = { temAcesso: async () => false, pedir: async () => { throw new Error('não deveria chamar'); } };
+          const r3 = await ferramentas.executar(e, 'propor_acao', { ...en, pedidoDaImagem: `${pedido} Com borda dourada.`, __origem: { resultados: [consulta], falas: [] } });
+          const id3 = idDaProposta(r3);
+          await propostasDasAcoes.responder(`prop:${id3}:sim`, quem(tel, 'ana', 'presidente'));
+          const fim3 = await esperarFim(id3);
+          expect(fim3.situacao).toBe('feita');
+          expect(fim3.resultado).toContain('Não consegui conferir os números desta imagem');
+          expect(conferidas().slice(jaConferidas).map((a) => a.detalhe.situacao)).toEqual(['errou', 'bateu', 'nao_conferida']);
+        } finally {
+          delete (acoes as any).imagens;
+          delete (acoes as any).ia;
           if (antes === undefined) delete process.env.MISTER_CRIAR_IMAGEM;
           else process.env.MISTER_CRIAR_IMAGEM = antes;
         }

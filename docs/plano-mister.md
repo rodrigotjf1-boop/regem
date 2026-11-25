@@ -2636,3 +2636,45 @@ PIN. Por isso a pessoa liga para si sabendo do risco, o Mister pede para apagar 
 - Se a transcrição entende bem os números falados (teste com 20 áudios antes de ligar a C5).
 - Se o nanobanana escreve os números certos na imagem (o teste C10a mede, com cada conferência gravada).
 - Quanto a resposta escrita pela IA atrasa a conversa (o prazo de 5 segundos limita; a avaliação mede o tempo).
+
+### C10a — o teste da imagem (25/11/2026; SEM migration; só na nuvem)
+
+- **Antes de propor** (`mister-imagem-numeros.ts`, `numerosSemOrigem`): o laço do agente passa ao `propor_acao` a origem dos
+  números, que são o que as consultas desta pergunta trouxeram e o que a pessoa escreveu (esta pergunta e as anteriores da memória). O
+  campo `__origem` é sempre o do laço, e o que o modelo puser ali é sobrescrito. Para cada número do pedido da imagem:
+  - o valor em reais segue a régua do filtro de saída (`valoresSemConta`: o redondo, a soma, a divisão);
+  - a porcentagem vale se é a conta de dois números da origem;
+  - a contagem acima de 31 tem de ter vindo da origem.
+  Data, hora, proporção, "os 5 mais" e o ano ficam de fora. Número sem origem: o `propor_acao` recusa e diz qual. Os números
+  que importam ficam na proposta (`parametros.numeros`). A avaliação usa a mesma trava no dublê.
+- **A trava de dado pessoal da imagem** (`pareceDadoPessoalNaImagem`) pega telefone, CPF, CNPJ e e-mail pelo jeito de cada um.
+  A antiga ("10 dígitos com qualquer separador") barrava uma lista de valores ("18.420 / 14.900 / 6.500").
+- **Depois de gerar** (`conferirImagem` no `MisterAcoesService`): a IA da empresa lê a imagem, com o mesmo modelo da leitura de
+  fotos (Sonnet 5.5), até 45 s, recurso `mister_imagem_conferida` em IA e uso. Ela transcreve os números, e o código compara
+  com o pedido:
+  - cada número do pedido tem de estar na imagem ("R$ 98.400" aceita "98.400" desenhado sem o "R$");
+  - valor em reais ou porcentagem a mais reprova;
+  - número borrado é "ilegível".
+  - **Errou:** a imagem não vai à conversa, e o "Não deu" diz qual número veio errado e que a tentativa já usou 1 da franquia.
+  - **Bateu:** o "feito" diz "Conferi os números da imagem: …".
+  - **A conferência não rodou** (sem a IA da empresa, prazo, recusa, fora do formato): a imagem vai, com "confira antes de
+    mandar adiante".
+  - Toda conferência vai para a auditoria: ação `mister_imagem_conferida`, com o detalhe `situacao` = bateu, errou, ilegivel
+    ou nao_conferida, mais os números, o que faltou e o que sobrou. Ela só roda quando o pedido tem número da loja.
+- **A chave do DMS Graph** passou a levar a hora da proposta (`mister:<id>:<criada_em>`). O "Gerar" tocado duas vezes continua
+  sendo a mesma chave e não paga de novo. O mesmo pedido proposto outra vez ("gera de novo") gera OUTRA imagem; com a chave só
+  da proposta, o Graph devolvia a mesma imagem errada.
+- **Instrução da IA:** número da loja pode ir à imagem quando a pessoa pede cartaz, representação ou infográfico, consultado
+  NESTA pergunta e escrito como deve aparecer. Para uma série de números, o `mostrar_grafico` continua preferido.
+- **Avaliação:** c120 ("faz uma imagem com quanto vendemos hoje"): consultar e depois propor. São 120 perguntas.
+- **Diferenças do protótipo:**
+  - "Gerar de novo" e "Fazer em gráfico" não viraram botões: o "Não deu" diz o que fazer, e a pessoa responde na conversa.
+    O "Fazer em gráfico" de qualquer consulta é a C10b.
+  - A resposta ainda é a frase fixa (a C9 a torna da IA).
+- **O teste (da parte do dono):**
+  1. Ligar `MISTER_CRIAR_IMAGEM=1` no `regem-api`.
+  2. Pedir ao Mister 10 imagens diferentes com números da loja (vendas de um dia, do mês, os mais vendidos, as contas, o melhor
+     mês…) e conferir no celular se cada uma está legível.
+  3. Passa com 9 de 10 certas na primeira tentativa (V10-12). A contagem sai da auditoria:
+     `select detalhe->>'situacao', count(*) from audit_log where acao = 'mister_imagem_conferida' group by 1`.
+  Custo: cerca de R$ 3,50 e 10 da franquia de imagem (30 por mês na Steakhouse, dividida com o Liame).

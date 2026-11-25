@@ -21,7 +21,8 @@ import { lerAlteracoesDaLista } from './mister-lista-ia';
 import { canalDito, conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
 import { AVISOS_QUE_NAO_SE_CALAM, Regra, conferirRegra, descreverRegra, fraseDoQueDeixaDeChegar } from './mister-regra';
 import { lerPedidos } from './mister-lista';
-import { ACOES, conferirAcao, resumoDoPedido, sigaDaAcao } from './mister-acoes';
+import { ACOES, TEXTOS_DAS_ACOES, conferirAcao, resumoDoPedido, sigaDaAcao } from './mister-acoes';
+import { numerosSemOrigem, origemDe } from './mister-imagem-numeros';
 import { botoesDoPlano, lerPassos, textoDoPlano } from './mister-plano';
 import { ehTipoDeAviso } from './mister-avisos.regras';
 import { montarNoticias, pedidoDasNoticias } from './mister-noticias';
@@ -408,6 +409,11 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       const c = conferirAcao(en.acao, en, AGORA_DA_AVALIACAO_INSTANTE);
       if ('erro' in c) return recusa(c.erro);
       const p = c.parametros;
+      // Versão 10, C10a: a mesma trava da de verdade — número da loja na imagem só com origem (o laço passa `__origem`).
+      if (p.acao === 'criar_imagem') {
+        const sem = numerosSemOrigem(p.pedido, origemDe(en.__origem));
+        if (sem.length) return recusa(TEXTOS_DAS_ACOES.imagemNumeroSemOrigem(sem.slice(0, 3).join(', ')));
+      }
       const resumo = p.acao === 'aceitar_pedido' || p.acao === 'pedido_pronto' || p.acao === 'despachar_pedido' ? resumoDoPedido(p.acao, `#${p.numero}`) : c.resumo;
       return ok({ oQueVouFazer: resumo, siga: sigaDaAcao(p.acao) });
     }
@@ -1445,6 +1451,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c118', pergunta: 'A carne 56 g que chegou ontem vence dia 02/12.', consultas: ['propor_acao'], contem: ['02/12', 'Autorizar'] },
   // P3 de "Pedidos e recebimento" (25/11): a resposta ao "Mudar a previsão" do aviso do pedido atrasado.
   { id: 'c119', pergunta: 'A previsão do pedido da semana do Rucas passa para 28/11.', consultas: ['propor_acao'], contem: ['28/11', 'Autorizar'] },
+  // Versão 10, C10a (25/11): a imagem com número da loja — consultar antes de propor (sem a consulta, o número não tem origem
+  // e o `propor_acao` recusa).
+  { id: 'c120', pergunta: 'Faz uma imagem pra eu mandar no grupo da equipe com quanto vendemos hoje até agora.', umaDasConsultas: ['resumo_do_dia', 'vendas_do_periodo'], consultas: ['propor_acao'], contem: ['Gerar'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────
