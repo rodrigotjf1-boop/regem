@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { and, eq, inArray, isNotNull, isNull, desc, sql } from 'drizzle-orm';
+import { exigirBooleano } from '../../common/exigir';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   itemEstoque,
@@ -107,6 +108,7 @@ export class EstoqueService {
           setoresExtras: setores?.setoresExtras ?? [],
           validade: dto.validade || undefined,
           validadeAbertoDias: dto.validadeAbertoDias ?? undefined,
+          validadeObrigatoria: dto.validadeObrigatoria === undefined ? false : exigirBooleano(dto.validadeObrigatoria, 'Validade obrigatória no recebimento'),
         })
         .returning();
       await this.gravarConversoes(tx, tenantId, novo.id, conversoes);
@@ -280,6 +282,8 @@ export class EstoqueService {
       patch.categoriaItemId = dto.categoriaItemId || null;
     if (dto.validade !== undefined) patch.validade = dto.validade || null;
     if (dto.validadeAbertoDias !== undefined) patch.validadeAbertoDias = dto.validadeAbertoDias ?? null;
+    // Validade obrigatória no recebimento (mig 504): ausente mantém (V16); liga/desliga conferido (V15).
+    if (dto.validadeObrigatoria !== undefined) patch.validadeObrigatoria = exigirBooleano(dto.validadeObrigatoria, 'Validade obrigatória no recebimento');
     const doItem = and(
       eq(itemEstoque.id, id),
       eq(itemEstoque.tenantId, tenantId),
@@ -692,6 +696,7 @@ export class EstoqueService {
              i.fornecedor_id as "fornecedorId",
              i.setor_id as "setorId", i.setores_extras as "setoresExtras",
              i.validade, i.validade_aberto_dias as "validadeAbertoDias",
+             i.validade_obrigatoria as "validadeObrigatoria",
              cat.nome as "categoriaNome", cat.cor as "categoriaCor",
              f.nome as "fornecedorNome",
              st.nome as "setorNome",

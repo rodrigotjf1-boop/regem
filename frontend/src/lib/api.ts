@@ -830,6 +830,9 @@ export const api = {
   receberCompra: (id: string, body: unknown) =>
     req(`/compras/listas/${id}/receber`, { method: 'POST', body: JSON.stringify(body) }),
   compraLista: (id: string) => req(`/compras/listas/${id}`),
+  // "Informar a validade" da linha recebida com "não sei" (P1 de "Pedidos e recebimento", mig 504).
+  informarValidadeCompra: (listaId: string, itemId: string, body: { validade?: string; validadeIndefinida?: boolean }) =>
+    req(`/compras/listas/${listaId}/itens/${itemId}/validade`, { method: 'POST', body: JSON.stringify(body) }),
   // O pedido em texto e os links que abrem o WhatsApp e o e-mail de quem está usando; e o registro
   // de que a pessoa enviou (é ela quem diz — o sistema só abre o aplicativo).
   pedidoParaEnviar: (id: string) => req(`/compras/listas/${id}/envio`),

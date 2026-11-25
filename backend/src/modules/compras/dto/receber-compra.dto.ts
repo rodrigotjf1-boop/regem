@@ -37,6 +37,12 @@ export class ConferenciaItemDto {
   @IsBoolean()
   validadeIndefinida?: boolean;
 
+  // "Não sei" (P1 de "Pedidos e recebimento", mig 504): só no produto com validade obrigatória. O item entra no estoque e a
+  // validade fica PENDENTE — Estoque › Pedidos › Validade pendente, até alguém informar.
+  @IsOptional()
+  @IsBoolean()
+  validadePendente?: boolean;
+
   // Código do lote do fabricante — é o que permite separar mercadoria numa troca
   // ou num recall sem abrir embalagem.
   @IsOptional()
@@ -82,4 +88,15 @@ export class ReceberCompraDto {
   @ValidateNested({ each: true })
   @Type(() => ConferenciaItemDto)
   itens!: ConferenciaItemDto[];
+}
+
+// "Informar a validade" (mig 504): a linha recebida com "não sei" ganha a data ou "sem validade" — um dos dois.
+export class InformarValidadeDto {
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'validade deve ser YYYY-MM-DD' })
+  validade?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  validadeIndefinida?: boolean;
 }

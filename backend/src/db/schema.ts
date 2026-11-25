@@ -588,6 +588,8 @@ export const itemEstoque = pgTable('item_estoque', {
   custoMedio: numeric('custo_medio').notNull().default('0'),
   validade: date('validade'), // data de validade opcional do insumo (mig 149)
   validadeAbertoDias: integer('validade_aberto_dias'), // dias de validade após aberto (mig 182)
+  // P1 de "Pedidos e recebimento" (mig 504): o recebimento exige a validade (a data, "sem validade" ou "não sei") só neste.
+  validadeObrigatoria: boolean('validade_obrigatoria').notNull().default(false),
   diasSeguranca: integer('dias_seguranca').notNull().default(2),
   classeAbc: text('classe_abc'),
   categoria: text('categoria'), // texto livre (compat); ver categoriaItemId
@@ -798,6 +800,8 @@ export const compraItem = pgTable('compra_item', {
   validade: date('validade'),
   // Escolha explícita de "não tem validade" — diferente de campo em branco.
   validadeIndefinida: boolean('validade_indefinida').notNull().default(false),
+  // "Não sei" no recebimento (mig 504): entrou no estoque e a validade espera alguém informar.
+  validadePendente: boolean('validade_pendente').notNull().default(false),
   loteCodigo: text('lote_codigo'), // código do lote do fabricante
   marca: text('marca'), // marca escolhida para este item da lista (mig 311); texto como estava na compra
   marcaAlternativa: text('marca_alternativa'), // 2ª opção de marca, se a 1ª faltar (mig 312)
@@ -1212,6 +1216,7 @@ export const lote = pgTable('lote', {
   fornecedorId: uuid('fornecedor_id'),
   unidadeId: uuid('unidade_id'),
   validadeIndefinida: boolean('validade_indefinida').notNull().default(false),
+  validadePendente: boolean('validade_pendente').notNull().default(false), // "não sei" no recebimento (mig 504)
   validade: date('validade'),
   quantidade: numeric('quantidade').notNull().default('0'),
   custoUnitario: numeric('custo_unitario'),

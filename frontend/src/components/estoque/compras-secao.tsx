@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { Check, List, ListPlus, Plus, Send, Sparkles, Trash2 } from 'lucide-react';
+import { CalendarClock, Check, List, ListPlus, Plus, Send, Sparkles, Trash2 } from 'lucide-react';
 import { api, getCategoria, podePerm, podeVerFinanceiro } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { SkeletonList } from '@/components/ui/skeleton';
 import { Dialogo, Gaveta } from '@/components/ui/sobreposto';
 import { faltaMarca, linhasDoPedido, marcaDaLinha, marcasDe, segundaMarcaDaLinha } from '@/lib/produto-compra';
 import { ConferirCompra } from './compra-conferir';
+import { InformarValidade } from './compra-validade';
 import { GerarListaDoQueFaltou, VerItensDaCompra } from './compra-itens';
 import { EscolhaProdutos, type Escolha } from './escolha-produtos';
 import { EnviarPedido, textoDoEnvio } from './pedido-enviar';
@@ -26,9 +27,12 @@ const recebida = (l: any) => l.status === 'recebida';
 const atrasada = (l: any) => !recebida(l) && !!l.dataRecebimento && diasAte(l.dataRecebimento) < 0;
 // Itens da lista RECEBIDA que vieram a menos do que o pedido (uma parte, ou nada).
 const comFalta = (l: any) => (recebida(l) ? Number(l.itensComFalta) || 0 : 0);
+// Itens recebidos com "não sei" na validade (mig 504): esperam alguém informar.
+const pendentes = (l: any) => Number(l.validadesPendentes) || 0;
 const SITUACOES: Situacao<any>[] = [
   { rotulo: 'Aguardando', filtro: (l) => !recebida(l), tom: 'aviso' },
   { rotulo: 'Atrasados', filtro: atrasada, tom: 'critico' },
+  { rotulo: 'Validade pendente', filtro: (l) => pendentes(l) > 0, tom: 'aviso' },
   { rotulo: 'Recebidos', filtro: recebida },
   { rotulo: 'Com falta', filtro: (l) => comFalta(l) > 0, tom: 'aviso' },
 ];
@@ -51,6 +55,8 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
   const [novo, setNovo] = useState(false);
   const [conferindo, setConferindo] = useState<any>(null);
   const [vendo, setVendo] = useState<any>(null);
+  // Pedido aberto no diálogo "informar a validade" (mig 504).
+  const [informando, setInformando] = useState<any>(null);
   // Pedido recebido com falta, aberto no diálogo "gerar pedido com o que faltou".
   const [faltou, setFaltou] = useState<any>(null);
   // Pedido aberto no diálogo "enviar ao fornecedor".
@@ -76,10 +82,11 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
   }, [periodo]);
   useEffect(() => { carregar(); }, [carregar]);
 
-  async function abrir(l: any, para: 'conferir' | 'ver' | 'faltou') {
+  async function abrir(l: any, para: 'conferir' | 'ver' | 'faltou' | 'validade') {
     try {
       const det: any = await api.compraLista(l.id);
       if (para === 'conferir') setConferindo(det);
+      else if (para === 'validade') setInformando(det);
       else if (para === 'faltou') setFaltou(det);
       else setVendo(det);
     } catch (e) {
@@ -187,12 +194,19 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
                       {comFalta(l)} {comFalta(l) === 1 ? 'item' : 'itens'} com falta{l.temListaDoQueFaltou ? ' · já pedido de novo' : ''}
                     </span>
                   )}
+                  {pendentes(l) > 0 && (
+                    <span className="mt-1 block">
+                      <Selo tom="aviso">validade pendente</Selo>
+                      <span className="mt-0.5 block text-xs font-semibold">{pendentes(l) === 1 ? '1 validade a confirmar' : `${pendentes(l)} validades a confirmar`}</span>
+                    </span>
+                  )}
                 </>
               ),
             },
           ]}
           acoes={(l) => [
             ...(!recebida(l) && podeReceber ? [{ rotulo: 'Conferir e receber', icone: Check, aoClicar: (x: any) => abrir(x, 'conferir'), tom: 'primaria' as const }] : []),
+            ...(pendentes(l) > 0 && podeReceber ? [{ rotulo: 'Informar a validade', icone: CalendarClock, aoClicar: (x: any) => abrir(x, 'validade'), tom: 'primaria' as const }] : []),
             ...(comFalta(l) > 0 && !l.temListaDoQueFaltou && podeCriar ? [{ rotulo: 'Gerar pedido com o que faltou', icone: ListPlus, aoClicar: (x: any) => abrir(x, 'faltou') }] : []),
             ...(!recebida(l) && podeCriar ? [{ rotulo: 'Enviar ao fornecedor', icone: Send, aoClicar: setEnviando }] : []),
             { rotulo: 'Ver itens', icone: List, aoClicar: (x: any) => abrir(x, 'ver') },
@@ -225,6 +239,10 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
             // Veio a menos: a falta fica na lista e a tela já oferece pedir de novo.
             if (itensComFalta > 0 && podeCriar) abrir(recebidaAgora, 'faltou');
           }} />
+      )}
+      {informando && (
+        <InformarValidade lista={informando} voltarPara={ID_TITULO} aoFechar={() => setInformando(null)}
+          aoSalvar={async () => { setInformando(null); await carregar(); document.getElementById(ID_TITULO)?.focus(); aoMudarEstoque?.(); }} />
       )}
       {vendo && (
         <VerItensDaCompra lista={vendo} verFin={verFin} podeGerar={podeCriar} aoFechar={() => setVendo(null)}

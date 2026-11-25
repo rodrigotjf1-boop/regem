@@ -10,6 +10,7 @@ import {
   MaxLength,
   MinLength,
   ValidateNested,
+  IsBoolean,
 } from 'class-validator';
 
 export class ConversaoDto {
@@ -105,6 +106,11 @@ export class CreateItemDto {
   @IsOptional()
   @IsNumber()
   validadeAbertoDias?: number;
+
+  // "Validade obrigatória no recebimento" (mig 504): ausente mantém. Conferido no serviço por `exigirBooleano` (V15).
+  @IsOptional()
+  @IsBoolean()
+  validadeObrigatoria?: boolean;
 
   // Conversões personalizadas: 1 unidadeDe = fator unidadePara.
   @IsOptional()
