@@ -27,7 +27,7 @@ const base: BaixaDeConta = {
 
 describe('Mister · ações (lote 10) — marcar a conta como paga', () => {
   it('é de PIN, pela permissão da rota e com "Ver valores em R$"', () => {
-    expect(ACOES_DE_PIN).toEqual(['mudar_preco', 'mudar_horario', 'pagar_conta', 'criar_cupom', 'lancar_conta', 'classificar_banco', 'fechar_caixa', 'sangria', 'pagar_entregador']);
+    expect(ACOES_DE_PIN).toEqual(['mudar_preco', 'mudar_horario', 'pagar_conta', 'criar_cupom', 'lancar_conta', 'classificar_banco', 'fechar_caixa', 'sangria', 'pagar_entregador', 'incluir_marcacao', 'desconsiderar_marcacao']);
     expect(ACOES.pagar_conta).toMatchObject({ nivel: 'pin', permissao: 'financeiro', prazoMin: 15, pedeVerValores: true });
     expect(sigaDaAcao('pagar_conta')).toContain('Abrir no Regem');
     expect(sigaDaAcao('pagar_conta')).toContain('nunca diga que pagou');

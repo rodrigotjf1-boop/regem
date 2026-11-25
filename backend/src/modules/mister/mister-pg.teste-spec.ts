@@ -4166,6 +4166,7 @@ export function testesDoMisterComPostgres(): void {
         c100: { acao: 'fechar_caixa', caixaDaLoja: 'balcão', semContagem: true },
         c101: { acao: 'sangria', caixaDaLoja: 'balcão', valorDaSangria: 200, motivoDoCaixa: 'pagar o gás' },
         c103: { acao: 'pagar_entregador', entregadorDoAcerto: 'Jefferson' },
+        c106: { acao: 'incluir_marcacao', pessoaDoPonto: 'Bruna', tipoDaMarcacao: 'saida', diaDaMarcacao: somarDias(hojeISO(), -1), horaDaMarcacao: '23:10', motivoDoPonto: 'esqueceu de bater a saída' },
         c51: { periodo: 'este_mes' },
         c52: { periodo: 'este_mes', pessoa: 'Bruna' },
         c55: { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'kg' },
@@ -12751,6 +12752,119 @@ export function testesDoMisterComPostgres(): void {
           expect((await ferramentas.executar(e, 'avaliacoes_dos_clientes', {})).dados.erro).toBe('Não consegui ler as avaliações agora (A nuvem não respondeu agora.).');
         } finally {
           delete (ferramentas as any).notasDeTeste;
+        }
+      });
+
+      it('etapa 5 de 24/11: o ajuste de ponto — incluir a marcação esquecida e desconsiderar a errada, com o PIN e o motivo, sem apagar nada', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const pinsAntes = await q(`select id, pin_hash from colaborador where id = $1`, [pessoa.ana]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+        const pin = async (r: any) => {
+          const c = codigo(await propostasDasAcoes.enviarLink(r.proposta!.id, pessoa.ana, tel, r.proposta!.pergunta));
+          return { c, vista: await propostasDasAcoes.verPeloLink(c) };
+        };
+        const ontem = somarDias(hojeISO(), -1);
+        const ontemDM = `${ontem.slice(8, 10)}/${ontem.slice(5, 7)}`;
+        let bruna: string | null = null;
+        let rep: string | null = null;
+        try {
+          [{ id: bruna }] = await q(`insert into colaborador (tenant_id, nome, unidade_id) values ($1, 'Bruna Ponto E5', $2) returning id::text as id`, [A, lojaDeA]);
+          [{ id: rep }] = await q(`insert into equipamento (tenant_id, unidade_id, tipo, nome, token) values ($1, $2, 'rep', 'REP E5', $3) returning id::text as id`, [A, lojaDeA, `rep-${MARCA}-e5`]);
+          // O serviço de verdade do ponto; o REP-Software padrão da loja é o deste teste.
+          (acoes as any).pontoDeTeste = new PontoService(db, auditoria, { resolverPadrao: async () => ({ id: rep }) } as any, { emit: () => true } as any, modulos, {} as any);
+          const marcar = async (tipo: string, hora: string, nsr: number) =>
+            q(
+              `insert into ponto_marcacao (tenant_id, unidade_id, equipamento_id, colaborador_id, nsr, tipo, marcado_em, origem, hash)
+               values ($1, $2, $3, $4, $5, $6, ($7 || ' ' || $8)::timestamp at time zone 'America/Sao_Paulo', 'terminal', $9) returning id::text as id`,
+              [A, lojaDeA, rep, bruna, nsr, tipo, ontem, hora, `h-e5-${nsr}`],
+            );
+          await marcar('entrada', '18:02', 1);
+          const [{ id: dupla }] = await marcar('saida', '23:41', 2);
+          await marcar('saida', '23:42', 3);
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+
+          // 1) Incluir: a pessoa que não existe, a repetida (5 min) e a certa.
+          const base = { acao: 'incluir_marcacao', pessoaDoPonto: 'bruna ponto e5', tipoDaMarcacao: 'saida', diaDaMarcacao: ontem, motivoDoPonto: 'esqueceu de bater a saída' };
+          expect((await ferramentas.executar(e, 'propor_acao', { ...base, pessoaDoPonto: 'Zé E5', horaDaMarcacao: '23:10' })).dados.erro).toBe(TEXTOS_DAS_ACOES.pessoaDoPontoNaoAchada('Zé E5'));
+          expect((await ferramentas.executar(e, 'propor_acao', { ...base, horaDaMarcacao: '23:44' })).dados.erro).toBe(
+            TEXTOS_DAS_ACOES.marcacaoRepetida('entrada 18:02, saída 23:41, saída 23:42'),
+          );
+          const r = await ferramentas.executar(e, 'propor_acao', { ...base, tipoDaMarcacao: 'volta do intervalo', horaDaMarcacao: '20:30' });
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toBe(
+            `Incluir a volta do intervalo de Bruna Ponto E5 em ${ontemDM} às 20:30 (motivo: esqueceu de bater a saída). No dia já tem: entrada 18:02, saída 23:41, saída 23:42. Entra como marcação de ajuste, com o seu NSR; as que já existem ficam como estão.`,
+          );
+          expect(r.proposta).toMatchObject({ procedimento: 'incluir_marcacao', nivel: 'pin' });
+          const p1 = await pin(r);
+          expect(p1.vista).toMatchObject({ titulo: 'Incluir a marcação de ponto', valor: null, botao: 'Incluir' });
+          expect(p1.vista.itens).toEqual(expect.arrayContaining(['Pessoa: Bruna Ponto E5', 'Marcação: volta do intervalo', `Dia e hora: ${ontemDM} às 20:30`]));
+          await propostasDasAcoes.autorizarPeloLink(p1.c, '2580');
+          expect(await esperarFim(r.proposta!.id)).toMatchObject({
+            situacao: 'feita',
+            resultado: `Incluí a volta do intervalo de Bruna Ponto E5 em ${ontemDM} às 20:30 (NSR 4), como marcação de ajuste. As outras marcações do dia ficaram como estavam.`,
+          });
+          expect(
+            await q(
+              `select tipo, to_char(marcado_em at time zone 'America/Sao_Paulo', 'HH24:MI') as hora, origem, nsr::int as nsr, obs, registrado_por_id::text as quem from ponto_marcacao where colaborador_id = $1 order by nsr`,
+              [bruna],
+            ),
+          ).toEqual([
+            { tipo: 'entrada', hora: '18:02', origem: 'terminal', nsr: 1, obs: null, quem: null },
+            { tipo: 'saida', hora: '23:41', origem: 'terminal', nsr: 2, obs: null, quem: null },
+            { tipo: 'saida', hora: '23:42', origem: 'terminal', nsr: 3, obs: null, quem: null },
+            { tipo: 'intervalo_fim', hora: '20:30', origem: 'ajuste', nsr: 4, obs: 'esqueceu de bater a saída (pelo Mister)', quem: pessoa.ana },
+          ]);
+          expect(auditados.find((a) => a.acao === 'incluiu_marcacao' && a.detalhe?.colaboradorId === bruna)).toMatchObject({ atorId: pessoa.ana });
+
+          // 2) Desconsiderar: duas na mesma hora pedem o tipo... aqui as duas são saída e a 2 min: a hora exata escolhe.
+          const desc = { acao: 'desconsiderar_marcacao', pessoaDoPonto: 'Bruna Ponto E5', diaDaMarcacao: ontem, motivoDoPonto: 'bateu duas vezes' };
+          expect((await ferramentas.executar(e, 'propor_acao', { ...desc, horaDaMarcacao: '22:00' })).dados.erro).toMatch(/^Não achei essa marcação no dia\./);
+          expect((await ferramentas.executar(e, 'propor_acao', { ...desc, horaDaMarcacao: '23:41' })).dados.erro).toMatch(/^Há mais de uma marcação nessa hora\./);
+          // A outra saída, a 23:42, foi desconsiderada pela tela no meio: a que sobra é a das 23:41.
+          const [{ id: tripla }] = await q(`select id::text as id from ponto_marcacao where colaborador_id = $1 and nsr = 3`, [bruna]);
+          await q(`insert into ponto_ajuste (tenant_id, colaborador_id, data, tipo, marcacao_id, justificativa) values ($1, $2, $3::date, 'desconsideracao', $4, 'pela tela')`, [A, bruna, ontem, tripla]);
+          const r2 = await ferramentas.executar(e, 'propor_acao', { ...desc, horaDaMarcacao: '23:41' });
+          expect(r2.dados.oQueVouFazer).toContain(`Desconsiderar a saída de Bruna Ponto E5 de ${ontemDM} às 23:41 (motivo: bateu duas vezes).`);
+          expect(r2.dados.oQueVouFazer).toContain('saída 23:42 (desconsiderada)');
+          expect(r2.dados.oQueVouFazer).toContain('A marcação continua no registro do ponto (AFD); só deixa de contar no espelho.');
+          const p2 = await pin(r2);
+          expect(p2.vista).toMatchObject({ titulo: 'Desconsiderar a marcação de ponto', botao: 'Desconsiderar' });
+          await propostasDasAcoes.autorizarPeloLink(p2.c, '2580');
+          expect(await esperarFim(r2.proposta!.id)).toMatchObject({
+            situacao: 'feita',
+            resultado: `Desconsiderei a saída de Bruna Ponto E5 de ${ontemDM} às 23:41. Ela continua no registro do ponto; só deixou de contar no espelho.`,
+          });
+          expect(await q(`select tipo, justificativa, autor_id::text as quem from ponto_ajuste where marcacao_id = $1`, [dupla])).toEqual([
+            { tipo: 'desconsideracao', justificativa: 'bateu duas vezes (pelo Mister)', quem: pessoa.ana },
+          ]);
+          // A marcação continua lá (nada se apaga).
+          expect((await q(`select count(*)::int as n from ponto_marcacao where colaborador_id = $1`, [bruna]))[0].n).toBe(4);
+
+          // 3) O dia mudou entre a pergunta e o PIN (outra marcação entrou): nada é incluído.
+          const r3 = await ferramentas.executar(e, 'propor_acao', { ...base, tipoDaMarcacao: 'saída para o intervalo', horaDaMarcacao: '20:00' });
+          const p3 = await pin(r3);
+          await marcar('intervalo_inicio', '20:01', 5);
+          await propostasDasAcoes.autorizarPeloLink(p3.c, '2580');
+          expect(await esperarFim(r3.proposta!.id)).toMatchObject({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.pontoMudou });
+          expect((await q(`select count(*)::int as n from ponto_marcacao where colaborador_id = $1 and origem = 'ajuste'`, [bruna]))[0].n).toBe(1);
+          // A permissão: incluir pede ponto.criar; desconsiderar, ponto.editar.
+          expect(
+            await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { ponto: { ver: true, criar: false, editar: true, excluir: false } } } as any, 'propor_acao', { ...base, horaDaMarcacao: '20:10' }),
+          ).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoPonto } });
+          expect(
+            await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { ponto: { ver: true, criar: true, editar: false, excluir: false } } } as any, 'propor_acao', { ...desc, horaDaMarcacao: '18:02' }),
+          ).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoPonto } });
+        } finally {
+          delete (acoes as any).pontoDeTeste;
+          for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
+          if (bruna) {
+            await q(`delete from ponto_ajuste where colaborador_id = $1`, [bruna]);
+            await q(`delete from ponto_marcacao where colaborador_id = $1`, [bruna]);
+            await q(`delete from colaborador where id = $1`, [bruna]);
+          }
+          if (rep) await q(`delete from equipamento where id = $1`, [rep]);
         }
       });
 

@@ -63,6 +63,7 @@ import { resumoDaClassificacao, type ParametrosDaClassificacao } from './mister-
 import { resumoDaContagem, type ParametrosDaContagem } from './mister-acoes-contagem';
 import { MOTIVO_MINIMO, nomeDoCaixa, resumoDaSangria, resumoDoFechamento, type ParametrosDoCaixa } from './mister-acoes-caixa';
 import { acharEntregador, recusaDoAcerto, resumoDoPagamento, type LinhaDoAcerto, type ParametrosDoEntregador } from './mister-acoes-entregador';
+import { marcacoesDoDia, resumoDoPonto, type ParametrosDoPonto } from './mister-acoes-ponto';
 import { agendadosParaDepois, pendenciasDoTurno } from '../delivery/pendencias-turno';
 import { ModuleRef } from '@nestjs/core';
 import type { ParametrosDeCadastro } from './mister-acoes-cadastro';
@@ -127,6 +128,8 @@ const semPermissaoDe = (p: DefinicaoDaAcao['permissao']) =>
     ? TEXTOS_DAS_ACOES.semPermissaoEscalas
     : p === 'pdv'
     ? TEXTOS_DAS_ACOES.semPermissaoCaixa
+    : p === 'ponto'
+    ? TEXTOS_DAS_ACOES.semPermissaoPonto
     : p === 'meu_dia'
     ? TEXTOS_DAS_ACOES.semPermissaoTarefas
     : p === 'loja'
@@ -136,7 +139,9 @@ const semPermissaoDe = (p: DefinicaoDaAcao['permissao']) =>
         : TEXTOS_DAS_ACOES.semPermissao;
 /** A MESMA conta do `PermissoesGuard`: o estoque e a escala são CRUD (as rotas pedem `criar`/`editar`), os outros são chaves simples. */
 const temAPermissao = (perm: Permissoes | undefined | null, p: DefinicaoDaAcao['permissao'], crud: DefinicaoDaAcao['crud'] = 'editar') =>
-  p === 'estoque' || p === 'escalas' ? pode(perm, p, crud ?? 'editar') : podeAcessar(perm, p);
+  // As chaves com ações (ver, criar, editar, excluir) conferem a ação da rota; as outras, o acesso. O ponto entrou na etapa 5
+  // (24/11): incluir pede ponto.criar e desconsiderar, ponto.editar — sem isso, quem só vê o ponto ajustava pela conversa.
+  p === 'estoque' || p === 'escalas' || p === 'ponto' ? pode(perm, p, crud ?? 'editar') : podeAcessar(perm, p);
 /** A permissão da ação: a da rota e, no preço, "Ver valores em R$" (o `exigirVerValores` da rota). O presidente pode tudo. */
 const podeFazer = (e: { nivel: string; permissoes?: Permissoes | null }, def: (typeof ACOES)[AcaoDoMister]) =>
   e.nivel === 'presidente' || (temAPermissao(e.permissoes, def.permissao, def.crud) && (!def.pedeVerValores || !!e.permissoes?.ver_financeiro));
@@ -426,6 +431,15 @@ export class MisterAcoesService implements OnModuleInit {
         Object.assign(parametros, { entregadorId: l.colaboradorId, nomeDoEntregador: l.nome, entregas: l.entregas, diaria: l.diaria, taxas: l.taxas, total: l.total, periodo: l.periodo });
         resumo = resumoDoPagamento(l);
         alvo = `entregador:${l.colaboradorId}`;
+      }
+      if (c.parametros.acao === 'incluir_marcacao' || c.parametros.acao === 'desconsiderar_marcacao') {
+        // Etapa 5 (24/11): a pessoa das lojas da conversa, as marcações do dia e a marcação certa (Portaria 671: nada se apaga).
+        const r = await this.prepararPonto(e, c.parametros as ParametrosDoPonto, e.lojaUnica && !loja.atual ? null : lojas);
+        if ('erro' in r) return recusa(r.erro);
+        Object.assign(parametros, r.parametros);
+        resumo = r.resumo;
+        alvo = r.alvo;
+        unidadeId = r.unidadeId ?? unidadeId;
       }
       if (c.parametros.acao === 'contar_estoque') {
         // Versão 9, O3: a lista de Estoque › Contagem (pelo nome, ou a única) e cada insumo dito achado NELA, na unidade dele.
@@ -858,6 +872,120 @@ export class MisterAcoesService implements OnModuleInit {
       const [fim] = linhas(await this.db.execute(sql`select status from caixa_sessao where id = ${x.sessaoId}::uuid`));
       if (fim?.status !== 'fechada') return { feita: false, texto: 'o caixa não ficou fechado. Confira no PDV.' };
       return { feita: true, texto: `Fechei ${x.nomeDoCaixa}${x.semContagem ? ', sem contagem' : ''}. A diferença, se houver, está no relatório de turnos.` };
+    } catch (err: any) {
+      return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(motivo(err)) };
+    }
+  }
+
+  /** As marcações de um dia (no relógio da loja), com a desconsiderada marcada. */
+  private async marcacoesDoDia(tenantId: string, colaboradorId: string, dia: string) {
+    return linhas(
+      await this.db.execute(sql`
+        select m.id::text as id, m.tipo, to_char(m.marcado_em at time zone 'America/Sao_Paulo', 'HH24:MI') as hora, m.origem,
+               exists (select 1 from ponto_ajuste a where a.marcacao_id = m.id and a.tipo = 'desconsideracao') as desconsiderada
+          from ponto_marcacao m
+         where m.tenant_id = ${tenantId}::uuid and m.colaborador_id = ${colaboradorId}::uuid
+           and (m.marcado_em at time zone 'America/Sao_Paulo')::date = ${dia}::date
+         order by m.marcado_em
+         limit 40`),
+    ) as Array<{ id: string; tipo: string; hora: string; origem: string | null; desconsiderada: boolean }>;
+  }
+
+  /** Etapa 5 (24/11): a pessoa, as marcações do dia e, para desconsiderar, a marcação na hora dita (2 min para cada lado). */
+  private async prepararPonto(
+    e: EscopoDoMister,
+    x: ParametrosDoPonto,
+    lojas: string[] | null,
+  ): Promise<{ parametros: Record<string, unknown>; resumo: string; alvo: string; unidadeId: string | null } | { erro: string }> {
+    const daLoja = lojas ? sql`and (c.unidade_id is null or c.unidade_id in (${sql.join(lojas.map((u) => sql`${u}::uuid`), sql`, `)}))` : sql``;
+    const gente = linhas(
+      await this.db.execute(sql`
+        select c.id::text as id, c.nome, c.unidade_id::text as "unidadeId" from colaborador c
+         where c.tenant_id = ${e.tenantId}::uuid and c.status = 'ativo' and c.deleted_at is null ${daLoja}
+         order by c.nome limit 500`),
+    );
+    const dito = semAcento(x.pessoa);
+    const iguais = gente.filter((g) => semAcento(String(g.nome)) === dito);
+    const achados = iguais.length ? iguais : gente.filter((g) => semAcento(String(g.nome)).includes(dito));
+    if (!achados.length) return { erro: TEXTOS_DAS_ACOES.pessoaDoPontoNaoAchada(x.pessoa) };
+    if (achados.length > 1) return { erro: TEXTOS_DAS_ACOES.pessoasDoPonto(achados.slice(0, 8).map((g) => String(g.nome)).join(', ')) };
+    const pessoa = achados[0];
+    const doDia = await this.marcacoesDoDia(e.tenantId, String(pessoa.id), x.dia);
+    const texto = marcacoesDoDia(doDia);
+    const minutos = (h: string) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5));
+    const perto = (h: string, folga: number) => Math.abs(minutos(h) - minutos(x.hora)) <= folga;
+    const base = { colaboradorAlvo: String(pessoa.id), nomeDaPessoa: String(pessoa.nome), doDia: texto };
+    if (x.acao === 'incluir_marcacao') {
+      if (doDia.some((m) => !m.desconsiderada && m.tipo === x.tipo && perto(m.hora, 5))) return { erro: TEXTOS_DAS_ACOES.marcacaoRepetida(texto) };
+      return {
+        parametros: { ...base, quantasNoDia: doDia.length },
+        resumo: resumoDoPonto(x, String(pessoa.nome), texto),
+        alvo: `ponto:${pessoa.id}:${x.dia}:${x.hora}:${x.tipo}`,
+        unidadeId: pessoa.unidadeId ?? null,
+      };
+    }
+    const candidatas = doDia.filter((m) => !m.desconsiderada && perto(m.hora, 2) && (!x.tipo || m.tipo === x.tipo));
+    if (!candidatas.length) return { erro: TEXTOS_DAS_ACOES.marcacaoNaoAchada(texto) };
+    if (candidatas.length > 1) return { erro: TEXTOS_DAS_ACOES.marcacoesDemais(texto) };
+    const m = candidatas[0];
+    const comTipo = { ...x, tipo: m.tipo as any, hora: m.hora };
+    return {
+      parametros: { ...base, tipo: m.tipo, hora: m.hora, marcacaoAlvo: m.id },
+      resumo: resumoDoPonto(comTipo, String(pessoa.nome), texto),
+      alvo: `ponto:desconsiderar:${m.id}`,
+      unidadeId: pessoa.unidadeId ?? null,
+    };
+  }
+
+  /** O serviço do ponto (Gerenciamento de ponto). Os testes usam `pontoDeTeste`. */
+  pontoDeTeste: { incluirMarcacao: (...a: any[]) => Promise<any>; criarAjuste: (...a: any[]) => Promise<any> } | null = null;
+  private async servicoDoPonto() {
+    if (this.pontoDeTeste) return this.pontoDeTeste;
+    if (!this.moduleRef) return null;
+    try {
+      const { PontoService } = await import('../ponto/ponto.service');
+      return this.moduleRef.get(PontoService, { strict: false }) as any;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Inclui ou desconsidera pelo MESMO serviço da tela; o dia tem de estar como na pergunta. */
+  private async aplicarPonto(
+    p: { id: string; tenantId: string; unidadeId: string | null },
+    x: ParametrosDoPonto & { colaboradorAlvo: string; nomeDaPessoa: string; quantasNoDia?: number; marcacaoAlvo?: string },
+    e: EscopoDoMister,
+    quem: string,
+  ): Promise<{ feita: boolean; texto: string }> {
+    const ponto = await this.servicoDoPonto();
+    if (!ponto) return { feita: false, texto: TEXTOS_DAS_ACOES.pontoIndisponivel };
+    const doDia = await this.marcacoesDoDia(p.tenantId, x.colaboradorAlvo, x.dia);
+    const motivo = (err: any) => String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240);
+    const nome = x.tipo ? ({ entrada: 'entrada', saida: 'saída', intervalo_inicio: 'saída para o intervalo', intervalo_fim: 'volta do intervalo' } as Record<string, string>)[x.tipo] : 'marcação';
+    const quando = `${x.dia.slice(8, 10)}/${x.dia.slice(5, 7)} às ${x.hora}`;
+    try {
+      if (x.acao === 'incluir_marcacao') {
+        if (doDia.length !== x.quantasNoDia) return { feita: false, texto: TEXTOS_DAS_ACOES.pontoMudou };
+        const [{ instante }] = linhas(await this.db.execute(sql`select ((${x.dia} || ' ' || ${x.hora})::timestamp at time zone 'America/Sao_Paulo') as instante`));
+        await ponto.incluirMarcacao(
+          p.tenantId,
+          quem,
+          e.nivel,
+          { colaboradorId: x.colaboradorAlvo, tipo: x.tipo, marcadoEm: new Date(instante).toISOString(), justificativa: `${x.motivo} (pelo Mister)`, unidadeId: p.unidadeId ?? undefined },
+          p.unidadeId,
+        );
+        const [m] = linhas(
+          await this.db.execute(sql`select nsr from ponto_marcacao where tenant_id = ${p.tenantId}::uuid and colaborador_id = ${x.colaboradorAlvo}::uuid and origem = 'ajuste' and tipo = ${x.tipo} and marcado_em = ${new Date(instante).toISOString()}::timestamptz order by created_at desc limit 1`),
+        );
+        if (!m) return { feita: false, texto: 'a marcação não apareceu no ponto. Confira em Pessoas › Gerenciamento de ponto.' };
+        return { feita: true, texto: `Incluí a ${nome} de ${x.nomeDaPessoa} em ${quando} (NSR ${m.nsr}), como marcação de ajuste. As outras marcações do dia ficaram como estavam.` };
+      }
+      const alvo = doDia.find((m) => m.id === x.marcacaoAlvo);
+      if (!alvo || alvo.desconsiderada) return { feita: false, texto: TEXTOS_DAS_ACOES.pontoMudou };
+      await ponto.criarAjuste(p.tenantId, quem, e.nivel, { colaboradorId: x.colaboradorAlvo, data: x.dia, tipo: 'desconsideracao', marcacaoId: x.marcacaoAlvo, justificativa: `${x.motivo} (pelo Mister)` });
+      const [a] = linhas(await this.db.execute(sql`select 1 as ok from ponto_ajuste where tenant_id = ${p.tenantId}::uuid and marcacao_id = ${x.marcacaoAlvo}::uuid and tipo = 'desconsideracao' limit 1`));
+      if (!a) return { feita: false, texto: 'o ajuste não apareceu no ponto. Confira em Pessoas › Gerenciamento de ponto.' };
+      return { feita: true, texto: `Desconsiderei a ${nome} de ${x.nomeDaPessoa} de ${quando}. Ela continua no registro do ponto; só deixou de contar no espelho.` };
     } catch (err: any) {
       return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(motivo(err)) };
     }
@@ -1641,6 +1769,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (parametros.acao === 'contar_estoque') return this.aplicarContagem(p, parametros as any, quem);
     if (parametros.acao === 'fechar_caixa' || parametros.acao === 'sangria') return this.aplicarCaixa(p, parametros as any, e, quem);
     if (parametros.acao === 'pagar_entregador') return this.aplicarEntregador(p, parametros as any, quem);
+    if (parametros.acao === 'incluir_marcacao' || parametros.acao === 'desconsiderar_marcacao') return this.aplicarPonto(p, parametros as any, e, quem);
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };
