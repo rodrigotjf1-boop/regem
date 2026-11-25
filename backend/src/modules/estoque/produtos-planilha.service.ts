@@ -29,9 +29,10 @@ export class ProdutosPlanilhaService {
   async previa(tenantId: string, buffer: Buffer, nomeArquivo: string, atual: string | null = null) {
     if (!buffer?.length) throw new BadRequestException('Escolha o arquivo da planilha.');
     // Com o que comparar: os produtos que a pessoa enxerga — os da loja e os compartilhados
-    // (em "todas", todos). É o mesmo alcance em que um produto novo esbarraria no nome.
+    // (em "todas", todos). É o mesmo alcance em que um produto novo esbarraria no nome. Com o NOME COMERCIAL: a
+    // planilha de estoque de outro sistema traz o nome de compra, não o da ficha (regra do dono, 25/11/2026).
     const existentes = await this.db
-      .select({ id: itemEstoque.id, nome: itemEstoque.nome })
+      .select({ id: itemEstoque.id, nome: itemEstoque.nome, nomeComercial: itemEstoque.nomeComercial })
       .from(itemEstoque)
       .where(
         and(
@@ -96,23 +97,27 @@ export class ProdutosPlanilhaService {
     const resultado = await this.db.transaction(async (tx) => {
       await this.estoque.travarNomes(tx, tenantId);
       const existentes = await tx
-        .select({ nome: itemEstoque.nome, unidadeId: itemEstoque.unidadeId })
+        .select({ nome: itemEstoque.nome, nomeComercial: itemEstoque.nomeComercial, unidadeId: itemEstoque.unidadeId })
         .from(itemEstoque)
         .where(and(eq(itemEstoque.tenantId, tenantId), isNull(itemEstoque.deletedAt)));
+      // O produto que já existe pelo nome OU pelo nome comercial não entra de novo: "Mostarda bombona 3,3k" é a
+      // "Mostarda" da ficha, comprada com esse nome — criar outro duplicaria o cadastro (a mesma régua da prévia).
       const ocupadas = new Set(
         existentes
           .filter((o) => o.unidadeId == null || unidadeId == null || o.unidadeId === unidadeId)
-          .map((o) => chaveNome(o.nome)),
+          .flatMap((o) => [chaveNome(o.nome), ...((o.nomeComercial ?? '').trim() ? [chaveNome(o.nomeComercial!)] : [])]),
       );
       const jaExistiam: string[] = [];
       const novos: typeof itens = [];
       for (const it of itens) {
         const chave = chaveNome(it.nome);
-        if (ocupadas.has(chave)) {
+        const chaveComercial = it.nomeComercial ? chaveNome(it.nomeComercial) : '';
+        if (ocupadas.has(chave) || (chaveComercial && ocupadas.has(chaveComercial))) {
           jaExistiam.push(it.nome);
           continue;
         }
         ocupadas.add(chave); // também barra o repetido dentro do próprio envio
+        if (chaveComercial) ocupadas.add(chaveComercial);
         novos.push(it);
       }
       if (!novos.length) return { criados: 0, jaExistiam, categoriasCriadas: [] as string[], comSaldo: 0 };

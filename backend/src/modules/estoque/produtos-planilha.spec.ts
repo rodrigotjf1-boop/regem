@@ -162,6 +162,52 @@ describe('planilha de produtos — leitura e classificação', () => {
     expect(formatarTexto('350')).toBe('350');
     expect(formatarTexto('')).toBe('');
   });
+
+  // Regra do dono (25/11/2026): a planilha de estoque de outro sistema traz o NOME COMERCIAL (o da compra); o `nome`
+  // do produto foi renomeado para a ficha técnica. Casando só pelo nome, o produto da ficha virava "novo" — e a
+  // importação criava o cadastro em dobro (na loja real, 14 produtos de 153 linhas).
+  describe('nome comercial (o da compra) também acha o produto', () => {
+    const COM_COMERCIAL = [
+      { id: 'c1', nome: 'Carne de teste 56gr', nomeComercial: 'Caixa hamburguer de teste 56gr' },
+      { id: 'c2', nome: 'Molho de teste', nomeComercial: 'Molho alfa de teste' },
+      { id: 'c3', nome: 'Molho alfa de teste', nomeComercial: null }, // o NOME de outro produto
+      { id: 'c4', nome: 'Pão de teste', nomeComercial: '   ' }, // comercial em branco não conta
+    ];
+    const situacoes = (p: ReturnType<typeof previaDe>) =>
+      Object.fromEntries(p.linhas.map((l) => [l.nome, [l.situacao, l.existente?.id ?? null, l.existente?.pelo ?? null]]));
+
+    it('a linha com o nome comercial é "igual" ao produto da ficha; parecido também vale pelo comercial', () => {
+      const p = previaDe([
+        CAB_ALO_CHEFIA,
+        [1, 'caixa hamburguer de teste 56gr', 47, 'cx', 100, 100, 0, 'CARNES', 'Não'],
+        [2, 'CARNE DE TESTE 56GR', 1, 'cx', 100, 100, 0, 'CARNES', 'Não'],
+        [3, 'caixa hamburguer de teste 56gr 12 uni', 2, 'cx', 100, 100, 0, 'CARNES', 'Não'],
+        [4, 'pão de teste', 6, 'pct', 10, 10, 0, 'PÃES', 'Não'],
+      ], COM_COMERCIAL);
+      expect(situacoes(p)).toEqual({
+        'caixa hamburguer de teste 56gr': ['igual', 'c1', 'comercial'],
+        'CARNE DE TESTE 56GR': ['igual', 'c1', 'nome'],
+        'caixa hamburguer de teste 56gr 12 uni': ['parecido', 'c1', 'comercial'],
+        'pão de teste': ['igual', 'c4', 'nome'],
+      });
+      // O que a tela mostra: o nome do produto (o da ficha) e o comercial pelo qual casou.
+      expect(p.linhas[0].existente).toEqual({ id: 'c1', nome: 'Carne de teste 56gr', pelo: 'comercial', nomeComercial: 'Caixa hamburguer de teste 56gr' });
+      expect(p.resumo).toMatchObject({ total: 4, iguais: 3, parecidos: 1, novos: 0 });
+    });
+
+    it('o NOME vence: o comercial de um produto igual ao nome de outro não rouba a linha', () => {
+      const p = previaDe([CAB_ALO_CHEFIA, [1, 'molho alfa de teste', 3, 'gl', 10, 10, 0, 'MOLHOS', 'Não']], COM_COMERCIAL);
+      expect(situacoes(p)).toEqual({ 'molho alfa de teste': ['igual', 'c3', 'nome'] });
+    });
+
+    it('planilha com a coluna "Nome comercial": o comercial da linha também acha o produto', () => {
+      const p = previaDe([
+        ['Produto', 'Nome comercial', 'Unidade'],
+        ['Hambúrguer pequeno de teste', 'Caixa hamburguer de teste 56gr', 'cx'],
+      ], COM_COMERCIAL);
+      expect(situacoes(p)).toEqual({ 'Hambúrguer pequeno de teste': ['igual', 'c1', 'comercial'] });
+    });
+  });
 });
 
 describe('planilha de produtos — exportação', () => {

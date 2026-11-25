@@ -404,6 +404,39 @@ descrever('produtos do estoque (Postgres real)', () => {
     expect(auditoria.registrar).not.toHaveBeenCalled();
   });
 
+  // Regra do dono (25/11/2026): o que vem de compra (a planilha de estoque de outro sistema) traz o NOME COMERCIAL; o
+  // `nome` do produto é o da ficha. Antes, a gravação só comparava o nome e criava o produto da ficha em dobro.
+  it('importar: o produto que já existe pelo NOME COMERCIAL não entra de novo (nem pelo comercial da linha)', async () => {
+    const t = await empresa();
+    const s = estoque();
+    const p = planilha();
+    await s.createItem(t, { nome: 'Carne de teste 56gr', nomeComercial: 'Caixa hamburguer de teste 56gr', unidadeMedida: 'caixa' } as any);
+    const r = await p.importar(
+      t,
+      {
+        itens: [
+          { nome: 'caixa HAMBURGUER de teste 56gr', unidadeMedida: 'cx', quantidade: 47 }, // = o comercial da Carne
+          { nome: 'Hambúrguer pequeno de teste', nomeComercial: 'Caixa hamburguer de teste 56gr', unidadeMedida: 'cx' }, // o comercial da linha
+          { nome: 'Molho novo de teste', nomeComercial: 'Bombona de molho de teste', unidadeMedida: 'gl' },
+          { nome: 'bombona de molho de teste', unidadeMedida: 'gl' }, // o comercial da linha de cima, no mesmo envio
+        ],
+      },
+      null,
+      ator,
+    );
+    expect(r).toMatchObject({
+      criados: 1,
+      jaExistiam: ['caixa HAMBURGUER de teste 56gr', 'Hambúrguer pequeno de teste', 'bombona de molho de teste'],
+      comSaldo: 0,
+    });
+    expect(await q(`select nome from item_estoque where tenant_id = $1 and deleted_at is null order by nome`, [t])).toEqual([
+      { nome: 'Carne de teste 56gr' },
+      { nome: 'Molho novo de teste' },
+    ]);
+    // a linha pulada não lança saldo no produto que já existia (acertar o saldo dele é outro caminho)
+    expect(await q(`select count(*)::int as n from movimento_estoque where tenant_id = $1`, [t])).toEqual([{ n: 0 }]);
+  });
+
   it('importar: um item ruim recusa o envio INTEIRO (nada gravado), com a frase que diz qual', async () => {
     const t = await empresa();
     const p = planilha();
