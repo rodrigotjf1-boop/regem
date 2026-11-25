@@ -19,6 +19,7 @@ import { conferirContagem, type ParametrosDaContagem } from './mister-acoes-cont
 import { conferirCaixa, type ParametrosDoCaixa } from './mister-acoes-caixa';
 import { conferirEntregador, type ParametrosDoEntregador } from './mister-acoes-entregador';
 import { conferirPonto, type ParametrosDoPonto } from './mister-acoes-ponto';
+import { conferirEnvio, type ParametrosDoEnvio } from './mister-acoes-compra';
 import { NOMES_DOS_DIAS, ehHoraDoDia, horasDaJanela, lerDiaDaSemana, textoDaJanela, type JanelaDoDia } from '../../common/horarios-da-loja';
 
 // AS AÇÕES DO MISTER — a porta `propor_acao` (versão 6, M6j; plano aprovado em 20/11/2026, `docs/plano-mister.md` § "Versão
@@ -80,6 +81,8 @@ export const ACOES_DO_MISTER = [
   // Etapa 5 de 24/11: o ajuste de ponto (Portaria 671: nada se apaga), com o motivo e o PIN.
   'incluir_marcacao',
   'desconsiderar_marcacao',
+  // Etapa 6 de 24/11: o pedido de compra marcado como enviado ao fornecedor.
+  'pedido_enviado',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -157,6 +160,8 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   sangria: { id: 'sangria', nivel: 'pin', permissao: 'pdv', prazoMin: 15, nome: 'lançar uma sangria', pedeVerValores: true },
   // A rota do pagamento (Delivery › Entregadores) pede o Delivery; é dinheiro saindo do caixa de entregas: PIN e "Ver valores".
   // As rotas de Gerenciamento de ponto: incluir pede ponto.criar e o ajuste, ponto.editar. Mexe na jornada (e no salário): PIN.
+  // A rota "Marcar como enviado" de Estoque › Pedidos pede estoque.criar. Só registra o que a pessoa diz: botão.
+  pedido_enviado: { id: 'pedido_enviado', nivel: 'botao', permissao: 'estoque', crud: 'criar', prazoMin: 10, nome: 'marcar um pedido de compra como enviado' },
   incluir_marcacao: { id: 'incluir_marcacao', nivel: 'pin', permissao: 'ponto', crud: 'criar', prazoMin: 15, nome: 'incluir uma marcação de ponto' },
   desconsiderar_marcacao: { id: 'desconsiderar_marcacao', nivel: 'pin', permissao: 'ponto', crud: 'editar', prazoMin: 15, nome: 'desconsiderar uma marcação de ponto' },
   pagar_entregador: { id: 'pagar_entregador', nivel: 'pin', permissao: 'delivery', prazoMin: 15, nome: 'pagar um entregador', pedeVerValores: true },
@@ -502,7 +507,8 @@ export type ParametrosDaAcao =
   | ParametrosDaContagem
   | ParametrosDoCaixa
   | ParametrosDoEntregador
-  | ParametrosDoPonto;
+  | ParametrosDoPonto
+  | ParametrosDoEnvio;
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -519,6 +525,7 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
   if (acao === 'fechar_caixa' || acao === 'sangria') return conferirCaixa(acao, en);
   if (acao === 'pagar_entregador') return conferirEntregador(en);
   if (acao === 'incluir_marcacao' || acao === 'desconsiderar_marcacao') return conferirPonto(acao, en);
+  if (acao === 'pedido_enviado') return conferirEnvio(en);
   if (acao === 'pausar_canal' || acao === 'reabrir_canal') {
     const brutos = Array.isArray(en.canais) ? en.canais : en.canal !== undefined ? [en.canal] : [];
     const canais = [...new Set(brutos.map(lerCanal))];

@@ -64,6 +64,7 @@ import { resumoDaContagem, type ParametrosDaContagem } from './mister-acoes-cont
 import { MOTIVO_MINIMO, nomeDoCaixa, resumoDaSangria, resumoDoFechamento, type ParametrosDoCaixa } from './mister-acoes-caixa';
 import { acharEntregador, recusaDoAcerto, resumoDoPagamento, type LinhaDoAcerto, type ParametrosDoEntregador } from './mister-acoes-entregador';
 import { marcacoesDoDia, resumoDoPonto, type ParametrosDoPonto } from './mister-acoes-ponto';
+import { NOME_DO_CANAL, resumoDoEnvio, type ParametrosDoEnvio } from './mister-acoes-compra';
 import { agendadosParaDepois, pendenciasDoTurno } from '../delivery/pendencias-turno';
 import { ModuleRef } from '@nestjs/core';
 import type { ParametrosDeCadastro } from './mister-acoes-cadastro';
@@ -432,6 +433,15 @@ export class MisterAcoesService implements OnModuleInit {
         resumo = resumoDoPagamento(l);
         alvo = `entregador:${l.colaboradorId}`;
       }
+      if (c.parametros.acao === 'pedido_enviado') {
+        // Etapa 6 (24/11): o pedido de compra pelo nome ou pelo fornecedor (a mesma busca da exclusão).
+        const r = await this.prepararEnvio(e, c.parametros as ParametrosDoEnvio, e.lojaUnica && !loja.atual ? null : lojas);
+        if ('erro' in r) return recusa(r.erro);
+        Object.assign(parametros, r.parametros);
+        resumo = r.resumo;
+        alvo = r.alvo;
+        unidadeId = r.unidadeId ?? unidadeId;
+      }
       if (c.parametros.acao === 'incluir_marcacao' || c.parametros.acao === 'desconsiderar_marcacao') {
         // Etapa 5 (24/11): a pessoa das lojas da conversa, as marcações do dia e a marcação certa (Portaria 671: nada se apaga).
         const r = await this.prepararPonto(e, c.parametros as ParametrosDoPonto, e.lojaUnica && !loja.atual ? null : lojas);
@@ -561,28 +571,10 @@ export class MisterAcoesService implements OnModuleInit {
         alvo: `fornecedor:${semAcento(x.nome)}`,
       };
     }
-    // O pedido de compra pelo nome ou pelo fornecedor; "06:12" no texto separa dois do mesmo nome pela hora em que foram criados.
-    const hora = /\b([01]\d|2[0-3]):[0-5]\d\b/.exec(x.pedido)?.[0] ?? null;
-    const dito = x.pedido.replace(/\b([01]\d|2[0-3]):[0-5]\d\b/, '').replace(/\s+/g, ' ').trim() || x.pedido;
-    let achados = linhas(
-      await this.db.execute(sql`
-        select c.id::text as id, c.nome, c.status, f.nome as fornecedor, c.unidade_id::text as "unidadeId",
-               to_char(c.created_at at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as criado,
-               (select count(*)::int from compra_item i where i.lista_id = c.id and i.tenant_id = c.tenant_id) as itens
-          from compra_lista c
-          left join fornecedor f on f.id = c.fornecedor_id and f.tenant_id = c.tenant_id
-         where c.tenant_id = ${e.tenantId}::uuid and c.deleted_at is null and c.created_at > clock_timestamp() - interval '90 days'
-           ${lojas ? sql`and (c.unidade_id is null or c.unidade_id in (${sql.join(lojas.map((l) => sql`${l}::uuid`), sql`, `)}))` : sql``}
-           and (c.nome ilike ${comoTexto(dito)} or f.nome ilike ${comoTexto(dito)})
-         order by c.created_at desc
-         limit 6`),
-    );
-    if (hora) achados = achados.filter((a) => String(a.criado).endsWith(hora));
-    const nomeDoPedido = (a: any) => `${a.nome}${a.fornecedor ? ` (${a.fornecedor})` : ''}, criado em ${a.criado}`;
-    if (achados.length > 1 && !achados.some((a) => semAcento(String(a.nome)) === semAcento(dito) && achados.filter((b) => b.nome === a.nome).length === 1))
-      return { erro: `Achei mais de um pedido: ${achados.map((a) => `"${nomeDoPedido(a)}"`).join('; ')}. Diga qual, com a hora em que foi criado.` };
-    const a = achados.length === 1 ? achados[0] : achados.find((b) => semAcento(String(b.nome)) === semAcento(dito));
-    if (!a) return { erro: 'Não achei esse pedido em Estoque › Pedidos (dos últimos 90 dias). Diga o nome ou o fornecedor como aparece lá.' };
+    const achado = await this.acharPedidoDeCompra(e, x.pedido, lojas);
+    if ('erro' in achado) return achado;
+    const a = achado.a;
+    const nomeDoPedido = (_: any) => achado.nomeDoPedido;
     if (a.status === 'recebida') return { erro: `O pedido "${a.nome}" já foi recebido: ele não se exclui pela conversa.` };
     return {
       parametros: { listaId: a.id, nomeDoPedido: a.nome },
@@ -988,6 +980,66 @@ export class MisterAcoesService implements OnModuleInit {
       return { feita: true, texto: `Desconsiderei a ${nome} de ${x.nomeDaPessoa} de ${quando}. Ela continua no registro do ponto; só deixou de contar no espelho.` };
     } catch (err: any) {
       return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(motivo(err)) };
+    }
+  }
+
+  /** O pedido de compra pelo nome ou pelo fornecedor, nas lojas da conversa e dos últimos 90 dias (O3; e o "enviado", etapa 6). */
+  private async acharPedidoDeCompra(e: EscopoDoMister, pedido: string, lojas: string[] | null): Promise<{ a: any; nomeDoPedido: string } | { erro: string }> {
+    // O pedido de compra pelo nome ou pelo fornecedor; "06:12" no texto separa dois do mesmo nome pela hora em que foram criados.
+    const hora = /\b([01]\d|2[0-3]):[0-5]\d\b/.exec(pedido)?.[0] ?? null;
+    const dito = pedido.replace(/\b([01]\d|2[0-3]):[0-5]\d\b/, '').replace(/\s+/g, ' ').trim() || pedido;
+    let achados = linhas(
+      await this.db.execute(sql`
+        select c.id::text as id, c.nome, c.status, f.nome as fornecedor, c.unidade_id::text as "unidadeId",
+               to_char(c.created_at at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as criado,
+               (select count(*)::int from compra_item i where i.lista_id = c.id and i.tenant_id = c.tenant_id) as itens,
+               to_char(c.enviado_em at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as "enviadoEm", c.enviado_canal as "enviadoCanal"
+          from compra_lista c
+          left join fornecedor f on f.id = c.fornecedor_id and f.tenant_id = c.tenant_id
+         where c.tenant_id = ${e.tenantId}::uuid and c.deleted_at is null and c.created_at > clock_timestamp() - interval '90 days'
+           ${lojas ? sql`and (c.unidade_id is null or c.unidade_id in (${sql.join(lojas.map((l) => sql`${l}::uuid`), sql`, `)}))` : sql``}
+           and (c.nome ilike ${comoTexto(dito)} or f.nome ilike ${comoTexto(dito)})
+         order by c.created_at desc
+         limit 6`),
+    );
+    if (hora) achados = achados.filter((a) => String(a.criado).endsWith(hora));
+    const nomeDoPedido = (a: any) => `${a.nome}${a.fornecedor ? ` (${a.fornecedor})` : ''}, criado em ${a.criado}`;
+    if (achados.length > 1 && !achados.some((a) => semAcento(String(a.nome)) === semAcento(dito) && achados.filter((b) => b.nome === a.nome).length === 1))
+      return { erro: `Achei mais de um pedido: ${achados.map((a) => `"${nomeDoPedido(a)}"`).join('; ')}. Diga qual, com a hora em que foi criado.` };
+    const a = achados.length === 1 ? achados[0] : achados.find((b) => semAcento(String(b.nome)) === semAcento(dito));
+    if (!a) return { erro: 'Não achei esse pedido em Estoque › Pedidos (dos últimos 90 dias). Diga o nome ou o fornecedor como aparece lá.' };
+    return { a, nomeDoPedido: nomeDoPedido(a) };
+  }
+
+  /** Etapa 6 (24/11): o pedido que a pessoa diz ter mandado ao fornecedor; o recebido não se marca. */
+  private async prepararEnvio(
+    e: EscopoDoMister,
+    x: ParametrosDoEnvio,
+    lojas: string[] | null,
+  ): Promise<{ parametros: Record<string, unknown>; resumo: string; alvo: string; unidadeId: string | null } | { erro: string }> {
+    const achado = await this.acharPedidoDeCompra(e, x.pedido, lojas);
+    if ('erro' in achado) return achado;
+    const a = achado.a;
+    if (a.status === 'recebida') return { erro: `O pedido "${a.nome}" já foi recebido: não há o que marcar como enviado.` };
+    if (a.enviadoEm && a.enviadoCanal === x.canal) return { erro: `O pedido "${a.nome}" já está marcado como enviado pelo ${NOME_DO_CANAL[x.canal]} em ${a.enviadoEm}.` };
+    return {
+      parametros: { listaId: a.id, nomeDoPedido: a.nome },
+      resumo: resumoDoEnvio(achado.nomeDoPedido, x.canal, { enviadoEm: a.enviadoEm ?? null, canal: a.enviadoCanal ?? null }),
+      alvo: `pedido:${a.id}:enviado:${x.canal}`,
+      unidadeId: a.unidadeId ?? null,
+    };
+  }
+
+  /** Marca pelo MESMO serviço de Estoque › Pedidos e confere a marca gravada. */
+  private async aplicarEnvio(p: { id: string; tenantId: string; unidadeId: string | null }, x: ParametrosDoEnvio & { listaId: string; nomeDoPedido: string }, quem: string): Promise<{ feita: boolean; texto: string }> {
+    if (!this.compras) return { feita: false, texto: 'isso não está disponível agora. Nada foi feito.' };
+    try {
+      await this.compras.marcarEnviado(p.tenantId, x.listaId, x.canal, p.unidadeId, quem);
+      const [ok] = linhas(await this.db.execute(sql`select enviado_canal as canal, enviado_em is not null as marcado from compra_lista where id = ${x.listaId}::uuid and tenant_id = ${p.tenantId}::uuid`));
+      if (!ok?.marcado || ok.canal !== x.canal) return { feita: false, texto: 'a marca de enviado não apareceu em Estoque › Pedidos. Confira lá.' };
+      return { feita: true, texto: `Marquei o pedido "${x.nomeDoPedido}" como enviado ao fornecedor pelo ${NOME_DO_CANAL[x.canal]}. Está em Estoque › Pedidos.` };
+    } catch (err: any) {
+      return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240)) };
     }
   }
 
@@ -1770,6 +1822,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (parametros.acao === 'fechar_caixa' || parametros.acao === 'sangria') return this.aplicarCaixa(p, parametros as any, e, quem);
     if (parametros.acao === 'pagar_entregador') return this.aplicarEntregador(p, parametros as any, quem);
     if (parametros.acao === 'incluir_marcacao' || parametros.acao === 'desconsiderar_marcacao') return this.aplicarPonto(p, parametros as any, e, quem);
+    if (parametros.acao === 'pedido_enviado') return this.aplicarEnvio(p, parametros as any, quem);
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };
