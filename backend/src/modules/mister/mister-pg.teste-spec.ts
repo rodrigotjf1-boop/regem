@@ -12697,6 +12697,63 @@ export function testesDoMisterComPostgres(): void {
         }
       });
 
+      it('etapa 4 de 24/11: as avaliações dos clientes — a lista de Delivery › Avaliações, sem o comentário nem o nome do cliente', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+        const chamadas: any[] = [];
+        const a = (nota: number, pesou: string[], extra: any = {}) => ({
+          id: randomUUID(), nota, pesou, comentario: null, origem: 'pagina', em: new Date().toISOString(),
+          pedido: { id: randomUUID(), numero: String(1000 + nota), cliente: 'Cliente Secreto E4', itens: '1× Smash', total: 40, minutos: 50 }, caso: null, ...extra,
+        });
+        (ferramentas as any).notasDeTeste = {
+          lista: async (t: string, u: string | null, p: unknown) => {
+            chamadas.push([t, u, p]);
+            return {
+              periodo: p,
+              kpis: { avaliacoes: 4, media: 3.3, entregues: 30, notas: { 1: 1, 2: 1, 3: 0, 4: 0, 5: 2 } },
+              lista: [
+                a(5, ['Sabor']),
+                a(1, ['Tempo de entrega', 'Temperatura'], { comentario: 'chegou frio, liguem no 21 99999-0000', origem: 'whatsapp', caso: { id: 'c1', status: 'resolvido' } }),
+                a(2, ['Tempo de entrega'], { caso: { id: 'c2', status: 'aberto' } }),
+                a(5, ['Sabor', 'Embalagem']),
+              ],
+              mais: false,
+            };
+          },
+        };
+        try {
+          const r = await ferramentas.executar(e, 'avaliacoes_dos_clientes', { periodo: '30_dias' });
+          expect(r.ok).toBe(true);
+          expect(chamadas).toEqual([[A, null, '30']]);
+          const d = r.dados as any;
+          expect(d).toMatchObject({ periodo: 'últimos 30 dias (contando hoje)', avaliacoes: 4, media: 3.3, pedidosEntreguesDoRegem: 30, comComentario: 1 });
+          expect(d.oQuePesou).toEqual([
+            { motivo: 'Sabor', vezes: 2, emNotaBaixa: 0 },
+            { motivo: 'Tempo de entrega', vezes: 2, emNotaBaixa: 2 },
+            { motivo: 'Temperatura', vezes: 1, emNotaBaixa: 1 },
+            { motivo: 'Embalagem', vezes: 1, emNotaBaixa: 0 },
+          ]);
+          expect(d.notasBaixas.map((x: any) => [x.pedido, x.nota, x.pesou, x.pelo, x.casoNoAtendimento])).toEqual([
+            ['pedido 1001', 1, 'Tempo de entrega, Temperatura', 'WhatsApp', 'resolvido'],
+            ['pedido 1002', 2, 'Tempo de entrega', 'página do pedido', 'aberto'],
+          ]);
+          // O texto e o nome do cliente ficam na tela.
+          const texto = JSON.stringify(d);
+          expect(texto).not.toContain('Cliente Secreto');
+          expect(texto).not.toContain('chegou frio');
+          expect(texto).not.toContain('99999');
+          // O padrão é 7 dias; sem o Delivery, nada; o serviço que falha vira um erro dito.
+          await ferramentas.executar(e, 'avaliacoes_dos_clientes', {});
+          expect(chamadas[1]).toEqual([A, null, '7']);
+          expect((await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true } } } as any, 'avaliacoes_dos_clientes', {})).ok).toBe(false);
+          (ferramentas as any).notasDeTeste = { lista: async () => { throw new Error('A nuvem não respondeu agora.'); } };
+          expect((await ferramentas.executar(e, 'avaliacoes_dos_clientes', {})).dados.erro).toBe('Não consegui ler as avaliações agora (A nuvem não respondeu agora.).');
+        } finally {
+          delete (ferramentas as any).notasDeTeste;
+        }
+      });
+
       it('pausar e reabrir o cardápio, aceitar, despachar e marcar pronto — só no "Autorizar" de quem pediu, pelo serviço da tela, com o efeito conferido', async () => {
         const tel = telefone();
         const telCarlos = telefone();

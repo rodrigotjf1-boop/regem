@@ -904,6 +904,26 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         sangriasESuprimentos: [{ tipo: 'sangria', valor: v(480.35), hora: '19:30', por: 'Bruna', motivo: 'dinheiro demais no caixa' }],
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
       });
+    case 'avaliacoes_dos_clientes':
+      return ok({
+        loja: LOJA,
+        periodo: 'últimos 7 dias (contando hoje)',
+        avaliacoes: 38,
+        media: 4.3,
+        pedidosEntreguesDoRegem: 212,
+        notas: { 1: 2, 2: 3, 3: 4, 4: 9, 5: 20 },
+        oQuePesou: [
+          { motivo: 'Sabor', vezes: 21, emNotaBaixa: 0 },
+          { motivo: 'Tempo de entrega', vezes: 9, emNotaBaixa: 4 },
+          { motivo: 'Temperatura', vezes: 5, emNotaBaixa: 3 },
+        ],
+        comComentario: 14,
+        notasBaixas: [
+          { pedido: 'pedido 1187', nota: 1, quando: 'sáb 21:40', pesou: 'Tempo de entrega, Temperatura', pelo: 'WhatsApp', entregueEmMin: 92, casoNoAtendimento: 'resolvido' },
+          { pedido: 'pedido 1203', nota: 2, quando: 'dom 20:15', pesou: 'Tempo de entrega', pelo: 'página do pedido', entregueEmMin: 71, casoNoAtendimento: 'aberto' },
+        ],
+        comoLer: 'Os comentários e o nome do cliente não vêm aqui (são do cliente): leia em Delivery › Avaliações. "emNotaBaixa" conta as notas 1 e 2.',
+      });
     case 'agenda_de_encomendas':
       return ok({
         loja: LOJA,
@@ -1336,6 +1356,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c103', pergunta: 'Paga o acerto do Jefferson.', consultas: ['propor_acao'], contem: ['PIN'] },
   // Etapa 3 de 24/11: a agenda das encomendas.
   { id: 'c104', pergunta: 'Quanto bolo de pote eu tenho que produzir para as encomendas de amanhã?', consultas: ['agenda_de_encomendas'], numeros: ['18'], contem: ['Bolo de pote'] },
+  // Etapa 4 de 24/11: as avaliações dos clientes.
+  { id: 'c105', pergunta: 'Como estão as avaliações dos clientes esta semana? Por que deram nota baixa?', consultas: ['avaliacoes_dos_clientes'], numeros: ['4,3'], contem: ['entrega'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

@@ -385,6 +385,7 @@ export type NomeDaFerramenta =
   | 'mesas_e_comandas'
   | 'acerto_dos_entregadores'
   | 'agenda_de_encomendas'
+  | 'avaliacoes_dos_clientes'
   | 'equipe_do_dia'
   | 'historia_do_pedido'
   | 'tempos_dos_pedidos'
@@ -861,6 +862,16 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
         ate: { type: 'string', description: 'Último dia, AAAA-MM-DD (padrão: 6 dias depois do primeiro; no máximo 31 dias).' },
         loja: LOJA,
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'avaliacoes_dos_clientes',
+    description:
+      'As avaliações que os clientes deram aos pedidos (Delivery › Avaliações): a média, quantos avaliaram e de quantos pedidos entregues, quantas de cada nota, o que mais pesou (no geral e nas notas 1 e 2) e as notas baixas com o caso do Atendimento. O texto do comentário não vem (é do cliente). Use para "como estão as avaliações?", "por que deram nota baixa esta semana?".',
+    input_schema: {
+      type: 'object',
+      properties: { periodo: { type: 'string', enum: ['hoje', '7_dias', '30_dias'], description: 'Padrão: 7 dias contando hoje.' }, loja: LOJA },
       additionalProperties: false,
     },
   },

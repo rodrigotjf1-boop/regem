@@ -623,6 +623,8 @@ export class MisterFerramentasService {
         return this.acertoDosEntregadores(e);
       case 'agenda_de_encomendas':
         return this.agendaDeEncomendas(e, en, loja);
+      case 'avaliacoes_dos_clientes':
+        return this.avaliacoesDosClientes(e, en, loja);
       case 'equipe_do_dia':
         return this.equipeDoDia(e, en, loja);
       case 'historia_do_pedido':
@@ -3701,6 +3703,73 @@ export class MisterFerramentasService {
         ...(pedidos.length > LIMITE ? { maisDe: LIMITE, observacao: `Há mais de ${LIMITE} encomendas no período: peça menos dias.` } : {}),
         dias,
         comoLer: 'Cada dia traz o que produzir (a soma dos itens das encomendas) e a lista na ordem da hora. "atacado" são as ordens de produção das vendas de atacado. O nome do cliente não vem.',
+      },
+    };
+  }
+
+  /** O serviço das notas dos pedidos (Delivery › Avaliações), achado na hora. Os testes usam `notasDeTeste`. */
+  notasDeTeste: { lista: (t: string, u: string | null, p: unknown) => Promise<any> } | null = null;
+  private async servicoDasNotas(): Promise<{ lista: (t: string, u: string | null, p: unknown) => Promise<any> } | null> {
+    if (this.notasDeTeste) return this.notasDeTeste;
+    if (!this.moduleRef) return null;
+    try {
+      const { NotaDoPedidoService } = await import('../avaliacao-pedido/nota-do-pedido.service');
+      return this.moduleRef.get(NotaDoPedidoService, { strict: false }) as any;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Etapa 4 de 24/11 (o dono): as avaliações dos clientes — a MESMA lista de Delivery › Avaliações (`NotaDoPedidoService.lista`):
+   * a média, quantos avaliaram e de quantos entregues, as notas, o que pesou (no geral e nas notas baixas) e as notas baixas com o
+   * caso do Atendimento. O comentário e o nome do cliente NÃO vão ao modelo (é texto do cliente): ficam na tela.
+   */
+  private async avaliacoesDosClientes(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'delivery')) return recusa(SEM_PERMISSAO);
+    const servico = await this.servicoDasNotas();
+    if (!servico) return { ok: false, dados: { erro: 'As avaliações não estão disponíveis agora.' } };
+    const periodo = en.periodo === 'hoje' ? 'hoje' : en.periodo === '30_dias' ? '30' : '7';
+    let r: any;
+    try {
+      r = await servico.lista(e.tenantId, loja.atual, periodo);
+    } catch (err: any) {
+      return { ok: false, dados: { erro: `Não consegui ler as avaliações agora (${String(err?.response?.message ?? err?.message ?? 'erro').slice(0, 120)}).` } };
+    }
+    const lista: any[] = Array.isArray(r?.lista) ? r.lista : [];
+    const k = r?.kpis ?? {};
+    const pesos = new Map<string, { vezes: number; emNotaBaixa: number }>();
+    for (const a of lista)
+      for (const p of a.pesou ?? []) {
+        const x = pesos.get(String(p)) ?? { vezes: 0, emNotaBaixa: 0 };
+        x.vezes += 1;
+        if (Number(a.nota) <= 2) x.emNotaBaixa += 1;
+        pesos.set(String(p), x);
+      }
+    const baixas = lista.filter((a) => Number(a.nota) <= 2);
+    const SITUACAO_DO_CASO: Record<string, string> = { aberto: 'aberto', em_atendimento: 'em atendimento', aguardando: 'aguardando', resolvido: 'resolvido' };
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        periodo: periodo === 'hoje' ? 'hoje' : `últimos ${periodo} dias (contando hoje)`,
+        avaliacoes: Number(k.avaliacoes ?? 0),
+        media: k.media ?? null,
+        pedidosEntreguesDoRegem: Number(k.entregues ?? 0),
+        notas: k.notas ?? {},
+        oQuePesou: [...pesos.entries()].sort((a, b) => b[1].vezes - a[1].vezes).map(([motivo, x]) => ({ motivo, ...x })),
+        comComentario: lista.filter((a) => a.comentario).length,
+        notasBaixas: baixas.slice(0, 15).map((a) => ({
+          pedido: a.pedido?.numero ? `pedido ${a.pedido.numero}` : 'pedido sem número',
+          nota: Number(a.nota),
+          quando: dataHoraCurta(a.em),
+          pesou: (a.pesou ?? []).join(', ') || null,
+          pelo: a.origem === 'whatsapp' ? 'WhatsApp' : 'página do pedido',
+          ...(a.pedido?.minutos != null ? { entregueEmMin: a.pedido.minutos } : {}),
+          casoNoAtendimento: a.caso ? SITUACAO_DO_CASO[String(a.caso.status)] ?? String(a.caso.status ?? 'aberto') : null,
+        })),
+        ...(r?.mais ? { observacao: 'O período tem mais de 1.000 avaliações: os números de cima contam todas; o que pesou conta as 1.000 mais novas.' } : {}),
+        comoLer: 'Os comentários e o nome do cliente não vêm aqui (são do cliente): leia em Delivery › Avaliações. "emNotaBaixa" conta as notas 1 e 2.',
       },
     };
   }
