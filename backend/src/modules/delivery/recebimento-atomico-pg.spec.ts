@@ -58,7 +58,7 @@ descrever('o recebimento do pedido entra inteiro ou não entra (Postgres)', () =
     });
   }
 
-  async function montar(o: { origem?: 'delivery' | 'pdv' | null; status?: string; tipo?: string } = {}) {
+  async function montar(o: { origem?: 'delivery' | 'pdv' | null; status?: string; tipo?: string; total?: number; pagamentos?: any[] } = {}) {
     const t = randomUUID();
     await q(`insert into empresa (id, nome) values ($1, 'teste recebimento')`, [t]);
     empresas.push(t);
@@ -67,11 +67,13 @@ descrever('o recebimento do pedido entra inteiro ou não entra (Postgres)', () =
     const comanda = (await q(`insert into comanda (tenant_id, status, total, forma) values ($1, 'fechada', 40, 'a_receber') returning id::text as id`, [t]))[0].id;
     await q(`insert into lancamento_caixa (tenant_id, tipo, valor, categoria, forma, comanda_id, data) values ($1, 'entrada', 40, 'venda', 'a_receber', $2, $3)`, [t, comanda, hojeISO()]);
     const pedido = (
-      await q(`insert into pedido_externo (tenant_id, canal, tipo, status, total, comanda_id, pago) values ($1, 'cardapio', $2, $3, 40, $4, false) returning id::text as id`, [
+      await q(`insert into pedido_externo (tenant_id, canal, tipo, status, total, comanda_id, pago, pagamentos) values ($1, 'cardapio', $2, $3, $5, $4, false, $6::jsonb) returning id::text as id`, [
         t,
         o.tipo ?? 'entrega',
         o.status ?? 'entregue',
         comanda,
+        o.total ?? 40,
+        o.pagamentos ? JSON.stringify(o.pagamentos) : null,
       ])
     )[0].id;
     return { t, sessao, comanda, pedido };
@@ -81,7 +83,11 @@ descrever('o recebimento do pedido entra inteiro ou não entra (Postgres)', () =
     pago: (await q(`select pago from pedido_externo where id = $1`, [x.pedido]))[0].pago,
     forma: (await q(`select forma_pagamento as f from pedido_externo where id = $1`, [x.pedido]))[0].f,
     divisao: (await q(`select count(*)::int as n from pedido_externo_pagamento where pedido_externo_id = $1`, [x.pedido]))[0].n,
-    lancamento: (await q(`select sessao_id::text as s, forma from lancamento_caixa where tenant_id = $1 and comanda_id = $2`, [x.t, x.comanda]))[0],
+    // Todas as entradas da venda (uma por forma desde o CAR-C-03), com o valor de cada uma.
+    lancamentos: await q(
+      `select sessao_id::text as s, forma, valor::float8 as v from lancamento_caixa where tenant_id = $1 and comanda_id = $2 order by forma`,
+      [x.t, x.comanda],
+    ),
   });
   const DIVIDIDO = [
     { forma: 'dinheiro', valor: 25 },
@@ -91,15 +97,15 @@ descrever('o recebimento do pedido entra inteiro ou não entra (Postgres)', () =
   it('finalizar: divisão, pedido pago e lançamento entram juntos', async () => {
     const x = await montar();
     await servico().finalizar(x.t, null, x.pedido, { pagamentos: DIVIDIDO });
-    expect(await estado(x)).toEqual({ pago: true, forma: 'dinheiro + pix', divisao: 2, lancamento: { s: x.sessao, forma: 'dinheiro + pix' } });
+    expect(await estado(x)).toEqual({ pago: true, forma: 'dinheiro + pix', divisao: 2, lancamentos: [{ s: x.sessao, forma: 'dinheiro', v: 25 }, { s: x.sessao, forma: 'pix', v: 15 }] });
   });
 
   it('a falha no meio não deixa pedido pago com o dinheiro fora do caixa, e a nova tentativa completa', async () => {
     const x = await montar();
     await expect(servico(bancoQueFalhaNoLancamento(db)).finalizar(x.t, null, x.pedido, { pagamentos: DIVIDIDO })).rejects.toThrow('a conexão caiu no meio');
-    expect(await estado(x)).toEqual({ pago: false, forma: null, divisao: 0, lancamento: { s: null, forma: 'a_receber' } });
+    expect(await estado(x)).toEqual({ pago: false, forma: null, divisao: 0, lancamentos: [{ s: null, forma: 'a_receber', v: 40 }] });
     await servico().finalizar(x.t, null, x.pedido, { pagamentos: DIVIDIDO });
-    expect(await estado(x)).toEqual({ pago: true, forma: 'dinheiro + pix', divisao: 2, lancamento: { s: x.sessao, forma: 'dinheiro + pix' } });
+    expect(await estado(x)).toEqual({ pago: true, forma: 'dinheiro + pix', divisao: 2, lancamentos: [{ s: x.sessao, forma: 'dinheiro', v: 25 }, { s: x.sessao, forma: 'pix', v: 15 }] });
   });
 
   it('sem caixa aberto, nada fica gravado: nem a divisão', async () => {
@@ -113,7 +119,7 @@ descrever('o recebimento do pedido entra inteiro ou não entra (Postgres)', () =
     const s = servico();
     const r = await Promise.allSettled(Array.from({ length: 5 }, () => s.finalizar(x.t, null, x.pedido, { pagamentos: DIVIDIDO })));
     expect(r.filter((y) => y.status === 'rejected')).toEqual([]);
-    expect(await estado(x)).toEqual({ pago: true, forma: 'dinheiro + pix', divisao: 2, lancamento: { s: x.sessao, forma: 'dinheiro + pix' } });
+    expect(await estado(x)).toEqual({ pago: true, forma: 'dinheiro + pix', divisao: 2, lancamentos: [{ s: x.sessao, forma: 'dinheiro', v: 25 }, { s: x.sessao, forma: 'pix', v: 15 }] });
   });
 
   it('"Receber pagamento": dois toques juntos, um recebe e o outro é avisado', async () => {
@@ -122,7 +128,7 @@ descrever('o recebimento do pedido entra inteiro ou não entra (Postgres)', () =
     const s = servico();
     const r = await Promise.allSettled([s.receberPagamentoTotem(x.t, null, x.pedido, null, null, DIVIDIDO), s.receberPagamentoTotem(x.t, null, x.pedido, null, null, DIVIDIDO)]);
     expect(r.filter((y) => y.status === 'fulfilled')).toHaveLength(1);
-    expect(await estado(x)).toEqual({ pago: true, forma: 'dinheiro + pix', divisao: 2, lancamento: { s: x.sessao, forma: 'dinheiro + pix' } });
+    expect(await estado(x)).toEqual({ pago: true, forma: 'dinheiro + pix', divisao: 2, lancamentos: [{ s: x.sessao, forma: 'dinheiro', v: 25 }, { s: x.sessao, forma: 'pix', v: 15 }] });
   });
 
   it('"Cobrar e entregar": a falha no meio não conclui o pedido, e dois toques cobram uma vez', async () => {
@@ -134,6 +140,44 @@ descrever('o recebimento do pedido entra inteiro ou não entra (Postgres)', () =
     const r = await Promise.allSettled([s.entregarBalcao(x.t, null, x.pedido, null, { pagamentos: DIVIDIDO }), s.entregarBalcao(x.t, null, x.pedido, null, { pagamentos: DIVIDIDO })]);
     expect(r.filter((y) => y.status === 'fulfilled')).toHaveLength(1);
     expect((await q(`select status from pedido_externo where id = $1`, [x.pedido]))[0].status).toBe('concluido');
-    expect(await estado(x)).toEqual({ pago: true, forma: 'dinheiro + pix', divisao: 2, lancamento: { s: x.sessao, forma: 'dinheiro + pix' } });
+    expect(await estado(x)).toEqual({ pago: true, forma: 'dinheiro + pix', divisao: 2, lancamentos: [{ s: x.sessao, forma: 'dinheiro', v: 25 }, { s: x.sessao, forma: 'pix', v: 15 }] });
+  });
+
+  // ── Revisão do cardápio e delivery de 25/11/2026 (lote C1) ───────────────────────────────────────────────────────────────
+
+  it('CAR-C-03: o pedido de R$ 40 + R$ 5 de entrega entra no turno com os R$ 45 que o cliente pagou (não os R$ 40 dos itens)', async () => {
+    const x = await montar({ total: 45 });
+    await servico().finalizar(x.t, null, x.pedido, { forma: 'dinheiro', valorRecebido: 50 });
+    expect(await estado(x)).toMatchObject({ pago: true, lancamentos: [{ s: x.sessao, forma: 'dinheiro', v: 45 }] });
+  });
+
+  it('CAR-C-04: dinheiro a menos não quita o pedido; o valor exato e o com troco quitam', async () => {
+    const x = await montar({ total: 40 });
+    await expect(servico().finalizar(x.t, null, x.pedido, { forma: 'dinheiro', valorRecebido: 39.99 })).rejects.toMatchObject({ status: 400 });
+    expect(await estado(x)).toMatchObject({ pago: false, lancamentos: [{ s: null, forma: 'a_receber', v: 40 }] });
+    await servico().finalizar(x.t, null, x.pedido, { forma: 'dinheiro', valorRecebido: 40 });
+    expect(await estado(x)).toMatchObject({ pago: true, lancamentos: [{ s: x.sessao, forma: 'dinheiro', v: 40 }] });
+    const y = await montar({ total: 40 });
+    await servico().finalizar(y.t, null, y.pedido, { forma: 'dinheiro', valorRecebido: 100 });
+    expect(await estado(y)).toMatchObject({ pago: true, lancamentos: [{ s: y.sessao, forma: 'dinheiro', v: 40 }] });
+  });
+
+  it('CAR-C-04: a divisão que não fecha o valor a receber é recusada e nada fica gravado', async () => {
+    const x = await montar({ total: 40 });
+    await expect(servico().finalizar(x.t, null, x.pedido, { pagamentos: [{ forma: 'dinheiro', valor: 25 }, { forma: 'pix', valor: 14.99 }] })).rejects.toMatchObject({ status: 400 });
+    expect(await estado(x)).toMatchObject({ pago: false, divisao: 0, lancamentos: [{ s: null, forma: 'a_receber', v: 40 }] });
+  });
+
+  it('CAR-D-04: com R$ 30 já pagos no canal, a porta recebe só os R$ 20; os R$ 30 ficam como receita fora da gaveta', async () => {
+    const x = await montar({ total: 50, pagamentos: [{ rotulo: 'Pix', valor: 30, prepago: true }, { rotulo: 'Dinheiro', valor: 20, prepago: false }] });
+    await expect(servico().finalizar(x.t, null, x.pedido, { forma: 'dinheiro', valorRecebido: 19 })).rejects.toMatchObject({ status: 400 });
+    await servico().finalizar(x.t, null, x.pedido, { forma: 'dinheiro', valorRecebido: 20 });
+    expect(await estado(x)).toMatchObject({
+      pago: true,
+      lancamentos: [
+        { s: x.sessao, forma: 'dinheiro', v: 20 },
+        { s: null, forma: 'online', v: 30 },
+      ],
+    });
   });
 });

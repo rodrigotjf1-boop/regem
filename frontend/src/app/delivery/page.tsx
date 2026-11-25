@@ -28,6 +28,8 @@ import { connectAsGestor } from '@/lib/rt';
 import { usePausas } from '@/components/delivery/pausa/use-pausas';
 import { DialogoPausa } from '@/components/delivery/pausa/dialogo-pausa';
 import { FaixasDaPausa } from '@/components/delivery/pausa/faixas-da-pausa';
+import { lerValorDigitado } from '@/lib/valor-digitado';
+import { centavosAReceber } from '@/lib/valor-na-porta';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -1602,18 +1604,29 @@ function ConferenciaModal({ pedido, onFechar, onConfirmar, restantes = 1 }: {
   onConfirmar: (forma: string, valorRecebido: number, pagamentos?: { forma: string; valor: number }[]) => void;
   restantes?: number;
 }) {
-  const total = Number(pedido.total) || 0;
+  // O que o cliente deve na porta: o total (com o frete, sem o desconto) menos a parte já paga no canal (CAR-C-03/D-04). É o mesmo
+  // número que o servidor confere — e o valor que entra no caixa de entregas.
+  const totalCent = centavosAReceber(pedido);
+  const total = totalCent / 100;
   const [forma, setForma] = useState('dinheiro');
   const [valor, setValor] = useState(total.toFixed(2));
-  const recebido = Number(String(valor).replace(',', '.')) || 0;
-  const troco = forma === 'dinheiro' ? Math.max(0, recebido - total) : 0;
-  const faltou = forma === 'dinheiro' && recebido < total;
+  // Valor em reais pelo leitor comum (`lerValorDigitado`): "1.200,00" é R$ 1.200 e o que não é valor não vira zero calado.
+  const lido = lerValorDigitado(valor);
+  const recebidoCent = lido !== null && Number.isFinite(lido) ? Math.round(lido * 100) : 0;
+  const recebido = recebidoCent / 100;
+  const troco = forma === 'dinheiro' ? Math.max(0, recebidoCent - totalCent) / 100 : 0;
+  // Dinheiro a menos NÃO quita o pedido (CAR-C-04): o botão trava e o servidor também recusa.
+  const faltou = forma === 'dinheiro' && recebidoCent < totalCent;
   const FORMAS: [string, string][] = [['dinheiro', 'Dinheiro'], ['cartao', 'Cartão'], ['pix', 'Pix']];
   // Split de pagamento (mais de uma forma).
   const [dividir, setDividir] = useState(false);
   const [pagamentos, setPagamentos] = useState<{ forma: string; valor: string }[]>([{ forma: 'dinheiro', valor: total.toFixed(2) }]);
-  const somaCent = pagamentos.reduce((s, p) => s + Math.round((Number(String(p.valor).replace(',', '.')) || 0) * 100), 0);
-  const restanteCent = Math.round(total * 100) - somaCent;
+  const centavosDaLinha = (v: string) => {
+    const n = lerValorDigitado(v);
+    return n !== null && Number.isFinite(n) ? Math.round(n * 100) : 0;
+  };
+  const somaCent = pagamentos.reduce((s, p) => s + centavosDaLinha(p.valor), 0);
+  const restanteCent = totalCent - somaCent;
   const setLinha = (i: number, patch: any) => setPagamentos((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   const addLinha = () => setPagamentos((ps) => [...ps, { forma: 'dinheiro', valor: restanteCent > 0 ? (restanteCent / 100).toFixed(2) : '' }]);
   const delLinha = (i: number) => setPagamentos((ps) => ps.filter((_, j) => j !== i));
@@ -1685,11 +1698,11 @@ function ConferenciaModal({ pedido, onFechar, onConfirmar, restantes = 1 }: {
           <Button
             type="button"
             className="flex-1"
-            disabled={dividir && restanteCent !== 0}
+            disabled={dividir ? restanteCent !== 0 : faltou}
             onClick={() => {
               if (dividir) {
                 const pags = pagamentos
-                  .map((p) => ({ forma: p.forma, valor: Number(String(p.valor).replace(',', '.')) || 0 }))
+                  .map((p) => ({ forma: p.forma, valor: centavosDaLinha(p.valor) / 100 }))
                   .filter((p) => p.forma && p.valor > 0);
                 onConfirmar('', total, pags);
               } else {

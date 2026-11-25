@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { todasPrePagas } from './valor-na-porta';
 // Adaptadores de canal → modelo interno. O cliente real do iFood (OAuth +
 // polling de eventos) roda no EDGE e faz POST /delivery/ingest com o pedido
 // bruto; aqui só mapeamos o formato. Adicionar novos canais = novo adaptador.
@@ -933,7 +934,10 @@ export function adaptarAnotaAi(raw: any): PedidoNormalizado {
     itens,
     total: pagoCliente,
     formaPagamento: formaPtBr(pgto.name ?? pgto.code ?? (online ? 'online' : 'money')),
-    pago: online,
+    // Quitado só quando TODAS as parcelas vieram pré-pagas (CAR-D-04 da revisão de 25/11/2026): antes valia a flag da PRIMEIRA — R$ 30
+    // de Pix antecipado e R$ 20 em dinheiro na entrega entravam como pago (o dinheiro nunca era conferido) ou não, conforme a ordem
+    // da lista. Com parcela a receber, o pedido fica a receber e a porta cobra só o resto (`valor-na-porta.ts`).
+    pago: pagamentos.length ? Boolean(o.paidOnline ?? o.isPaid ?? o.online) || todasPrePagas(pagamentos) : online,
     valorBruto: bruto >= 0 ? bruto : undefined,
     descontos: descontos.length ? descontos : undefined,
     pagamentos: pagamentos.length ? pagamentos : undefined,

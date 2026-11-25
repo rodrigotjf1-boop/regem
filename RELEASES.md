@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Caixa de entregas: o valor que o cliente pagou na porta (25/11; ERR-611; SEM migration).** Lote C1 da revisão do cardápio e
+  delivery: a venda entra no turno com o total do pedido (com o frete e já sem o desconto), menos o que foi pago antes no canal —
+  antes entrava a soma dos itens (na loja, 111 pedidos em 30 dias, R$ 171 a menos esperados); dinheiro a menos que o devido e
+  divisão que não fecha são recusados; a divisão vira uma entrada por forma (casa com a contagem do fechamento); a Anota Aí com parte
+  paga antes e parte na entrega fica a receber pelo resto, em qualquer ordem das parcelas. **Vai no `.zip`** (o recebimento roda no
+  servidor da loja).
+
 - **Estoque: o saldo e o custo não andam duas vezes (25/11; ERR-610; SEM migration).** Lote E1 da revisão do estoque: dois
   ajustes para o mesmo saldo contado, duas contagens da mesma lista e duas notas do mesmo insumo não se somam mais (o insumo é
   travado antes de ler o saldo ou o custo, sem segurar a venda); a saída à mão baixa também o lote; o lote da nota fica na loja da
