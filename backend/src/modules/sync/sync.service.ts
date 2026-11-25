@@ -694,7 +694,9 @@ export class SyncService {
     try {
     await this.verificarAssinatura(ctx, lotes, assin);
     const tenantId = ctx.tenantId;
-    const resultado: Record<string, { aplicadas: number; ignoradas: number }> = {};
+    // `pendentes` (CAR-F-03 da revisão de 25/11/2026): os ids recusados porque o PAI ainda não chegou (23503). O servidor da loja
+    // os guarda e reenvia depois — antes o cursor da tabela andava e a linha (o pagamento de um pedido dividido) nunca mais subia.
+    const resultado: Record<string, { aplicadas: number; ignoradas: number; pendentes?: string[] }> = {};
 
     // Cada lote em sublotes com as MESMAS colunas (ERR-126): as colunas do INSERT saem da 1ª linha e, numa linha sem uma
     // delas, o valor sumia do SQL (`values ($1, , $2)`) — o lote inteiro caía com erro de sintaxe e voltava a cada ciclo.
@@ -707,6 +709,7 @@ export class SyncService {
       const colunas = await this.colunasDe(lote.tabela);
       let aplicadas = 0;
       let ignoradas = 0;
+      const pendentes: string[] = [];
 
       // Linhas válidas (com id). O tenant_id é FORÇADO ao do token (ignora o da linha).
       let linhas = (lote.linhas ?? []).filter(
@@ -935,6 +938,7 @@ export class SyncService {
               } catch (e: any) {
                 if (e?.code === '23505' || e?.code === '23503') {
                   ignoradas++;
+                  if (e.code === '23503' && linha?.id) pendentes.push(String(linha.id)); // o pai ainda não chegou: volta depois
                   const c = (recusadas[e.code] ??= { n: 0, regra: String(e?.constraint ?? e?.cause?.constraint ?? '') });
                   c.n++;
                   continue;
@@ -953,7 +957,12 @@ export class SyncService {
       }
       // Soma: a mesma tabela pode vir em mais de um sublote (ou em dois lotes).
       const ja = resultado[lote.tabela];
-      resultado[lote.tabela] = { aplicadas: (ja?.aplicadas ?? 0) + aplicadas, ignoradas: (ja?.ignoradas ?? 0) + ignoradas };
+      const todasPendentes = [...(ja?.pendentes ?? []), ...pendentes];
+      resultado[lote.tabela] = {
+        aplicadas: (ja?.aplicadas ?? 0) + aplicadas,
+        ignoradas: (ja?.ignoradas ?? 0) + ignoradas,
+        ...(todasPendentes.length ? { pendentes: todasPendentes } : {}),
+      };
     }
 
     return { serverTime: new Date().toISOString(), resultado };

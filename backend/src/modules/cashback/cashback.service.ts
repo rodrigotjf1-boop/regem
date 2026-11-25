@@ -650,20 +650,41 @@ export class CashbackService {
   }
 
   // Consome saldo/vales após o pedido criado.
+  /**
+   * Consome o cashback do pedido e diz se conseguiu TUDO (CAR-B-05 da revisão de 25/11/2026). Antes o desconto entrava no pedido
+   * e o consumo vinha depois, sem conferir: dois carrinhos juntos usavam o mesmo saldo (ou o mesmo vale) e os dois saíam com o
+   * desconto. Agora, na transação de quem chama (`tx`): o saldo do telefone é TRAVADO e conferido antes do débito, o débito tem id
+   * fixo por pedido (não entra duas vezes) e os vales só contam se TODOS mudaram de 'disponivel' para 'usado'. `false` = faltou
+   * alguma coisa — quem chama desfaz a transação inteira.
+   */
   async consumir(
     tenantId: string,
     telefone: string,
     pedidoId: string,
     saldoUsado: number,
     valeIds: string[],
-  ) {
+    tx: any = this.db,
+  ): Promise<boolean> {
     const tel = soDigitos(telefone);
-    if (!tel) return;
-    if (saldoUsado > 0) {
-      await this.ajustarSaldo(tenantId, tel, undefined, 'valor', -saldoUsado, 'resgate', { pedidoId });
+    const pedeSaldo = saldoUsado > 0;
+    const pedeVales = !!valeIds?.length;
+    if (!pedeSaldo && !pedeVales) return true;
+    if (!tel) return false;
+    if (pedeSaldo) {
+      await tx.execute(sql`
+        select id from cashback_saldo where tenant_id = ${tenantId} and telefone = ${tel} and tipo = 'valor' for update`);
+      const r: any = await tx.execute(sql`
+        select coalesce(sum(saldo), 0) as s from cashback_saldo where tenant_id = ${tenantId} and telefone = ${tel} and tipo = 'valor'`);
+      const disponivel = Number((r.rows ?? r)[0]?.s ?? 0);
+      if (disponivel + 1e-9 < saldoUsado) return false;
+      const gravou = await this.ajustarSaldo(
+        tenantId, tel, undefined, 'valor', -saldoUsado, 'resgate',
+        { pedidoId, id: uuidDeChave('cashback-resgate', pedidoId) }, tx,
+      );
+      if (!gravou) return false;
     }
-    if (valeIds?.length) {
-      await this.db
+    if (pedeVales) {
+      const usados = await tx
         .update(cashbackVale)
         .set({ status: 'usado', pedidoId })
         .where(
@@ -673,7 +694,10 @@ export class CashbackService {
             inArray(cashbackVale.id, valeIds),
             eq(cashbackVale.status, 'disponivel'),
           ),
-        );
+        )
+        .returning({ id: cashbackVale.id });
+      if (usados.length !== new Set(valeIds).size) return false;
     }
+    return true;
   }
 }

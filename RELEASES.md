@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Pedido e sincronização inteiros: aceite, benefício e o pagamento que espera o pedido (25/11; ERR-614; SEM migration).** Lote
+  C3 da revisão do cardápio e delivery: a reserva do pedido, a venda e o vínculo da comanda entram numa transação só (uma queda não
+  deixa pedido "confirmado" sem comanda); o prêmio de fidelidade e o cashback são consumidos antes do aceite e conferidos (o mesmo
+  benefício não vale para dois pedidos); a nuvem diz quais linhas esperam o pai (`pendentes`) e o servidor da loja as reenvia (o
+  pagamento de um pedido dividido não se perde mais). **Mexe no `edge/sync-daemon.mjs` → precisa do `.exe`** (o `.zip` não troca o
+  programa de sincronização); o aceite também vai no `.zip`.
+
 - **Estoque: unidade, conversões, produção, exclusão e CMV (25/11; ERR-613; SEM migration).** Lote E2 da revisão do estoque: a
   unidade principal não muda em produto com estoque (só a grafia); conversões que se contradizem são recusadas (na loja, a Mostarda
   tem "1 galão = 30 ml" e "1 galão = 3,3 litro" — a corrigir no cadastro); a produção só dá entrada no produto contado na unidade em

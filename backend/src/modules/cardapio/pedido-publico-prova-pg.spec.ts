@@ -50,6 +50,8 @@ descrever('pedido público do cardápio: credencial só com prova e quantidade c
         )
       ).map((r: any) => ({ ...r, id: r.id, displayId: r.display_id, status: r.status, unidadeId: r.unidade_id }))[0],
     aceitar: async (_t: string, _u: any, id: string) => q(`update pedido_externo set status = 'confirmado' where id = $1`, [id]),
+    // O aceite que vem DEPOIS do consumo do benefício (CAR-B-05): aqui só devolve o pedido, como o `ingest` falso não aceita.
+    aceitarSeAutomatico: async (_t: string, _u: any, ped: any) => ped,
   } as any;
   const cardapio = new CardapioService(db, vendas, delivery, {} as any, new FidelidadeService(db), new CashbackService(db), eventos, {} as any);
   const edgeOriginal = process.env.EDGE_MODE;
