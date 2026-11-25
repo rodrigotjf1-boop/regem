@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { custoMedioPonderado } from './regras-negocio';
+import { travarInsumos } from './trava-do-insumo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -135,6 +136,11 @@ export async function ponderarCustoDaEntrada(
   qtd: number,
   custo: number,
 ): Promise<void> {
+  // O insumo TRAVADO antes de ler o saldo e o custo (EST-D-01 da revisão de 25/11/2026): duas entradas de documentos
+  // diferentes (duas notas, uma compra e uma nota) liam o mesmo "antes" e a última gravava por cima — 10 a R$ 10, mais
+  // 10 a R$ 20 e 10 a R$ 40 ficavam R$ 25,00 em vez de R$ 23,33. Com a trava, a segunda espera a primeira terminar e lê
+  // o saldo e o custo que ela deixou. Quem dá entrada em vários insumos trava todos ANTES, em ordem (`travarInsumos`).
+  await travarInsumos(tx, tenantId, [itemId]);
   const mv = rows(
     await tx.execute(sql`select unidade_id from movimento_estoque where id = ${movimentoId}`),
   )[0];

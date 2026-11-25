@@ -4,6 +4,7 @@ import {
   IsArray,
   IsBoolean,
   IsNumber,
+  IsPositive,
   IsOptional,
   IsString,
   IsUUID,
@@ -25,6 +26,7 @@ export class UpdateFichaDto {
 
   @IsOptional()
   @IsNumber()
+  @IsPositive({ message: 'O rendimento tem de ser maior que zero.' })
   rendimento?: number;
 
   @IsOptional()

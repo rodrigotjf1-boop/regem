@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsNumber,
+  IsPositive,
   IsOptional,
   IsString,
   IsUUID,
@@ -25,6 +26,7 @@ export class CreateFichaDto {
 
   @IsOptional()
   @IsNumber()
+  @IsPositive({ message: 'O rendimento tem de ser maior que zero.' })
   rendimento?: number;
 
   @IsOptional()

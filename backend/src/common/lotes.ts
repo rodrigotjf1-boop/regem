@@ -5,7 +5,7 @@ import { sql } from 'drizzle-orm';
 // Consumo de lote — PVPS/FEFO (mig 248).
 //
 // Um ÚNICO ponto para os cinco lugares que dão saída de estoque (venda ×3, produção,
-// desperdício) mais o ajuste negativo da contagem. Espalhar essa conta pelos seis seria
+// desperdício) mais o ajuste negativo da contagem e a saída/ajuste negativo à mão (EST-B-02). Espalhar essa conta seria
 // repetir o erro do `hojeISO`, que existia em quatro cópias e foi corrigido em uma só.
 //
 // Regras, decididas com o dono:
@@ -16,13 +16,18 @@ import { sql } from 'drizzle-orm';
 //  • O saldo do lote é DERIVADO (`lote.quantidade` − soma das linhas), nunca um campo
 //    mutável: `lote` sincroniza com LWW e um saldo mutável perderia baixa concorrente.
 
-/** Consome `qtd` do item em FEFO e devolve quanto NÃO coube em lote nenhum. */
+/**
+ * Consome `qtd` do item em FEFO e devolve quanto NÃO coube em lote nenhum. `loteDePreferencia`: o lote que a pessoa
+ * conhece (a perda da etiqueta daquele lote — EST-F-02) sai PRIMEIRO; o que ele não cobrir segue o FEFO. Lote de outro
+ * insumo, de outra empresa ou de outra loja não entra (os filtros abaixo valem para ele também).
+ */
 export async function consumirLotes(
   tx: any,
   tenantId: string,
   itemId: string,
   qtd: number,
   movimentoId: string,
+  loteDePreferencia: string | null = null,
 ): Promise<number> {
   let restante = Number(qtd);
   if (!(restante > 0)) return 0;
@@ -73,6 +78,9 @@ export async function consumirLotes(
     id: l.id,
     saldo: Number(l.quantidade) - (usado.get(l.id) ?? 0),
   }));
+  // O lote preferido vai para a frente SÓ na conta: a trava acima segue sempre a mesma ordem (FEFO) para todos — duas
+  // baixas do mesmo insumo que travassem os lotes em ordens diferentes poderiam ficar esperando uma pela outra.
+  if (loteDePreferencia) r.sort((a, b) => Number(b.id === loteDePreferencia) - Number(a.id === loteDePreferencia));
 
   for (const lt of r) {
     if (restante <= 0) break;

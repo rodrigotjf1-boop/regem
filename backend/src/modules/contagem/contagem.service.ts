@@ -4,6 +4,7 @@ import { Cron } from '@nestjs/schedule';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { consumirLotes } from '../../common/lotes';
+import { travarInsumos } from '../../common/trava-do-insumo';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
   contagemLista,
@@ -268,38 +269,59 @@ export class ContagemService {
 
   // Abre uma execução: snapshot do saldo de cada item da lista.
   async iniciarExecucao(tenantId: string, listaId: string, atorId: string, atual: string | null = null) {
-    const [lista] = await this.db
-      .select()
-      .from(contagemLista)
-      .where(
-        and(
-          eq(contagemLista.id, listaId),
-          eq(contagemLista.tenantId, tenantId),
-          condUnidade(contagemLista.unidadeId, atual),
-          isNull(contagemLista.deletedAt),
-        ),
-      );
-    if (!lista) throw new NotFoundException('Lista não encontrada');
-    const itens = await this.db
-      .select({ itemId: contagemListaItem.itemId })
-      .from(contagemListaItem)
-      .where(eq(contagemListaItem.listaId, listaId));
-    const itemIds = itens.map((i) => i.itemId);
-    const saldos = await this.saldos(tenantId, itemIds, lista.unidadeId ?? null);
-    const [exec] = await this.db
-      .insert(contagemExecucao)
-      .values({ tenantId, listaId, delegadoId: lista.delegadoId, criadaPorId: atorId, data: hojeISO() })
-      .returning();
-    if (itemIds.length)
-      await this.db.insert(contagemItem).values(
-        itemIds.map((itemId) => ({
-          tenantId,
-          execucaoId: exec.id,
-          itemId,
-          saldoSistema: String(saldos.get(itemId) ?? 0),
-        })),
-      );
-    return this.getExecucao(tenantId, exec.id);
+    // Com a LISTA travada (EST-E-01 da revisão de 25/11/2026): dois aparelhos que apertam "Contar" na mesma lista no
+    // mesmo dia ficam com a MESMA contagem aberta. Antes cada um ganhava a sua, as duas aplicavam a mesma diferença e o
+    // saldo andava duas vezes (10 → 8 com 9 contados nos dois). A contagem aberta de outro dia não é reaproveitada.
+    const execId = await this.db.transaction(async (tx) => {
+      const [lista] = await tx
+        .select()
+        .from(contagemLista)
+        .where(
+          and(
+            eq(contagemLista.id, listaId),
+            eq(contagemLista.tenantId, tenantId),
+            condUnidade(contagemLista.unidadeId, atual),
+            isNull(contagemLista.deletedAt),
+          ),
+        )
+        .for('update');
+      if (!lista) throw new NotFoundException('Lista não encontrada');
+      const [aberta] = await tx
+        .select({ id: contagemExecucao.id })
+        .from(contagemExecucao)
+        .where(
+          and(
+            eq(contagemExecucao.tenantId, tenantId),
+            eq(contagemExecucao.listaId, listaId),
+            eq(contagemExecucao.status, 'aberta'),
+            eq(contagemExecucao.data, hojeISO()),
+          ),
+        )
+        .orderBy(desc(contagemExecucao.createdAt))
+        .limit(1);
+      if (aberta) return aberta.id;
+      const itens = await tx
+        .select({ itemId: contagemListaItem.itemId })
+        .from(contagemListaItem)
+        .where(eq(contagemListaItem.listaId, listaId));
+      const itemIds = itens.map((i) => i.itemId);
+      const saldos = await this.saldos(tenantId, itemIds, lista.unidadeId ?? null);
+      const [exec] = await tx
+        .insert(contagemExecucao)
+        .values({ tenantId, listaId, delegadoId: lista.delegadoId, criadaPorId: atorId, data: hojeISO() })
+        .returning();
+      if (itemIds.length)
+        await tx.insert(contagemItem).values(
+          itemIds.map((itemId) => ({
+            tenantId,
+            execucaoId: exec.id,
+            itemId,
+            saldoSistema: String(saldos.get(itemId) ?? 0),
+          })),
+        );
+      return exec.id;
+    });
+    return this.getExecucao(tenantId, execId);
   }
 
   // Movimento líquido de cada item DESDE a abertura da contagem.
@@ -343,10 +365,17 @@ export class ContagemService {
   // consome. Com a hora de cada linha, cada item ganha a base do seu próprio momento.
   //
   // `instantes` é um mapa itemId → Date JÁ VALIDADA pelo chamador.
+  //
+  // Mais os AJUSTES lançados DEPOIS da hora da contagem (EST-E-01 da revisão de 25/11/2026): o ajuste é uma correção
+  // do mesmo estoque físico que foi contado (outra contagem da mesma lista, uma lista que se sobrepõe, o "saldo contado"
+  // à mão). Sem ele na base, a segunda contagem — contada às 10h e salva depois de a primeira ter ajustado às 10h05 —
+  // lançava de novo a mesma diferença. A venda e a produção depois da contagem continuam fora da base (são movimentos
+  // de verdade que vêm depois do que se contou).
   private async saldosNoInstante(
     tenantId: string,
     instantes: Map<string, Date>,
     unidadeId: string | null = null,
+    db: any = this.db,
   ): Promise<Map<string, number>> {
     const saldos = new Map<string, number>();
     if (!instantes.size) return saldos;
@@ -355,14 +384,15 @@ export class ContagemService {
     const pares = [...instantes.entries()].map(
       ([itemId, t]) => sql`(${itemId}::uuid, ${t.toISOString()}::timestamptz)`,
     );
-    const res: any = await this.db.execute(sql`
+    const res: any = await db.execute(sql`
       with alvo(item_id, ate) as (values ${sql.join(pares, sql`, `)})
       select a.item_id as "itemId",
              coalesce(sum(case m.tipo when 'entrada' then m.quantidade
-               when 'saida' then -m.quantidade else m.quantidade end), 0) as saldo
+               when 'saida' then -m.quantidade else m.quantidade end) filter (where m.created_at <= a.ate), 0)
+             + coalesce(sum(m.quantidade) filter (where m.created_at > a.ate and m.tipo = 'ajuste'), 0) as saldo
         from alvo a
         left join movimento_estoque m
-          on m.tenant_id = ${tenantId} and m.item_id = a.item_id and m.created_at <= a.ate
+          on m.tenant_id = ${tenantId} and m.item_id = a.item_id
              ${unidadeId ? sql`and m.unidade_id = ${unidadeId}` : sql``}
        group by a.item_id
     `);
@@ -486,7 +516,10 @@ export class ContagemService {
         const t = Number.isNaN(bruto.getTime()) ? agora : bruto;
         instantes.set(it.itemId, t < abertura ? abertura : t > agora ? agora : t);
       }
-      const saldoNo = await this.saldosNoInstante(tenantId, instantes, lojaExec);
+      // Os insumos TRAVADOS antes de ler a base (EST-E-01): a outra contagem (ou o ajuste à mão) do mesmo insumo que
+      // está gravando agora termina antes, e a leitura abaixo já vê o ajuste dela (`travarInsumos`).
+      if (dto.aplicarAjuste) await travarInsumos(tx, tenantId, [...instantes.keys()]);
+      const saldoNo = await this.saldosNoInstante(tenantId, instantes, lojaExec, tx);
 
       let ajustados = 0;
       let contados = 0;
