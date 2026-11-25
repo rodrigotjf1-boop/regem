@@ -75,6 +75,8 @@ export function VerItensDaCompra({ lista, verFin, podeGerar, aoFechar, aoGerar }
                       <span className="break-words font-semibold">{nomeDeCompra(it)}</span>
                       {pedido && <span className="block break-words text-xs font-semibold">{pedido}</span>}
                       {it.marcaRecebida && it.marcaRecebida !== it.marca && <span className="block break-words text-xs font-bold">Veio: {it.marcaRecebida}</span>}
+                      {/* De onde a linha veio, quando não foi do fornecedor do pedido (mig 505). */}
+                      {it.fornecedorId && it.fornecedorId !== lista.fornecedorId && <span className="block break-words text-xs font-semibold">De onde veio: {it.fornecedorNome ?? 'fornecedor fora do cadastro'}</span>}
                       {nomeDeApoio(it) && <span className={`block break-words text-xs ${texto2}`}>No estoque: {nomeDeApoio(it)}</span>}
                     </td>
                     <td className="block font-mono sm:table-cell sm:whitespace-nowrap sm:px-3 sm:py-2"><RotuloNaLinha>Pedido</RotuloNaLinha>{num(it.quantidade)} {it.unidadeMedida}</td>

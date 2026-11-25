@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { hojeISO } from '../../common/data';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
@@ -118,5 +119,58 @@ descrever('conferência do pedido com os valores da nota (Postgres real)', () =>
     // antes de receber, o valor da lista é a estimativa (pedido × valor informado)
     const outro = await cenario();
     expect(((await outro.c.listListas(outro.t, outro.u)) as any[]).find((l) => l.id === outro.id)).toMatchObject({ status: 'aberta', valorEstimado: 60, notaRef: null });
+  });
+
+  it('P2 (mig 505): "de onde veio" por item — a lista de compras do mercado gera uma conta a pagar por fornecedor, e o lote leva o de cada linha', async () => {
+    const x = await cenario();
+    const atacadao = (await q(`insert into fornecedor (tenant_id, nome, prazo_pagamento_dias) values ($1, 'Atacadão de teste', 7) returning id`, [x.t]))[0].id as string;
+    const horti = (await q(`insert into fornecedor (tenant_id, nome) values ($1, 'Hortifruti de teste') returning id`, [x.t]))[0].id as string;
+    // Uma lista de compras SEM fornecedor: cada item diz de onde veio no recebimento.
+    const lista: any = await x.c.createLista(x.t, {
+      nome: 'Compras do mercado',
+      itens: [{ itemId: x.queijo, quantidade: 2, custoUnitario: 10 }, { itemId: x.carne, quantidade: 3, custoUnitario: 20 }, { itemId: x.sal, quantidade: 4, custoUnitario: 1.5 }],
+    } as any, x.u);
+    const linhas = await q(`select ci.id, i.nome from compra_item ci join item_estoque i on i.id = ci.item_id where ci.lista_id = $1`, [lista.id]);
+    const id = (nome: string) => linhas.find((l: any) => l.nome === nome).id as string;
+    // O fornecedor de outra empresa é recusado, e nada entra.
+    const outra = randomUUID();
+    await q(`insert into empresa (id, nome) values ($1, 'Outra empresa de teste')`, [outra]);
+    empresas.push(outra);
+    const deOutra = (await q(`insert into fornecedor (tenant_id, nome) values ($1, 'Fornecedor de outra') returning id`, [outra]))[0].id as string;
+    const itens = (sal: string | undefined) => [
+      { compraItemId: id('Queijo de teste'), qtdRecebida: 2, validadeIndefinida: true, fornecedorId: atacadao },
+      { compraItemId: id('Carne de teste'), qtdRecebida: 3, validadeIndefinida: true, fornecedorId: atacadao, loteCodigo: 'L-9' },
+      { compraItemId: id('Sal de teste'), qtdRecebida: 4, validadeIndefinida: true, fornecedorId: sal },
+    ];
+    await expect(x.c.receber(x.t, lista.id, null, { itens: itens(deOutra) } as any, x.u)).rejects.toThrow('O fornecedor de um item não está no cadastro desta empresa.');
+    expect(await q(`select 1 from titulo_financeiro where tenant_id = $1 and origem_id = $2`, [x.t, lista.id])).toEqual([]);
+
+    const r: any = await x.c.receber(x.t, lista.id, null, { itens: itens(horti) } as any, x.u);
+    expect(r).toMatchObject({ ok: true, contasAPagar: 2 });
+    // Uma conta por fornecedor: o Atacadão (queijo e carne, 2 × 10 + 3 × 20 = 80, com o prazo de 7 dias) e o Hortifruti (sal, 6).
+    const contas = await q(
+      `select f.nome, t.valor::float8 as valor, t.descricao, t.vencimento::text as venc from titulo_financeiro t join fornecedor f on f.id = t.fornecedor_id where t.tenant_id = $1 and t.origem_id = $2 order by f.nome`,
+      [x.t, lista.id],
+    );
+    expect(contas.map((c: any) => [c.nome, c.valor, c.descricao])).toEqual([
+      ['Atacadão de teste', 80, 'Compra: Compras do mercado (2 itens)'],
+      ['Hortifruti de teste', 6, 'Compra: Compras do mercado (1 item)'],
+    ]);
+    // O vencimento é o prazo de CADA fornecedor (o Atacadão, 7 dias; o Hortifruti, o padrão de 28).
+    expect(contas.map((c: any) => Math.round((Date.parse(c.venc) - Date.parse(hojeISO())) / 86_400_000))).toEqual([7, 28]);
+    // A linha guarda de onde veio, e o lote também.
+    expect(await q(`select i.nome, ci.fornecedor_id::text as f from compra_item ci join item_estoque i on i.id = ci.item_id where ci.lista_id = $1 order by i.nome`, [lista.id])).toEqual([
+      { nome: 'Carne de teste', f: atacadao },
+      { nome: 'Queijo de teste', f: atacadao },
+      { nome: 'Sal de teste', f: horti },
+    ]);
+    expect(await q(`select fornecedor_id::text as f, codigo from lote where compra_item_id = $1`, [id('Carne de teste')])).toEqual([{ f: atacadao, codigo: 'L-9' }]);
+    const det: any = await x.c.getLista(x.t, lista.id, x.u);
+    expect(det.itens.find((i: any) => i.itemId === x.sal)).toMatchObject({ fornecedorId: horti, fornecedorNome: 'Hortifruti de teste' });
+
+    // O pedido COM fornecedor e sem "de onde veio": tudo dele, numa conta só, com a descrição de sempre.
+    const y = await cenario();
+    await y.c.receber(y.t, y.id, null, { itens: [y.linha.queijo, y.linha.carne, y.linha.sal].map((compraItemId) => ({ compraItemId, qtdRecebida: 10, validadeIndefinida: true })) } as any, y.u);
+    expect(await q(`select valor::float8 as valor, descricao from titulo_financeiro where tenant_id = $1`, [y.t])).toEqual([{ valor: 60, descricao: 'Compra: Compra de teste' }]);
   });
 });

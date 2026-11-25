@@ -135,7 +135,7 @@ descrever('compras: marcador de recebimento, falta, 2ª opção de marca e lista
         { compraItemId: l.sal, qtdRecebida: 10, validadeIndefinida: true }, // veio tudo
       ],
     } as any, x.u);
-    expect(r).toEqual({ ok: true, itensComFalta: 2 });
+    expect(r).toEqual({ ok: true, itensComFalta: 2, contasAPagar: 1 }); // P2 (mig 505): quantas contas a pagar saíram (uma por fornecedor)
     expect(await linhas(l.id)).toEqual([
       expect.objectContaining({ nome: 'Carne de teste', pedido: 10, recebido: 0, divergencia: 'nao_veio', validade: null, indefinida: false, veio: null }),
       expect.objectContaining({ nome: 'Fatia de queijo de teste', pedido: 10, recebido: 5, divergencia: 'parcial', validade: '2027-01-31', veio: 'Marca Alfa' }), // em branco: vale a pedida

@@ -43,6 +43,12 @@ export class ConferenciaItemDto {
   @IsBoolean()
   validadePendente?: boolean;
 
+  // "De onde veio" (P2 de "Pedidos e recebimento", mig 505): o fornecedor ou o mercado desta linha, do cadastro. Ausente = o
+  // fornecedor do pedido. Cada fornecedor recebe a sua conta a pagar.
+  @IsOptional()
+  @IsUUID()
+  fornecedorId?: string;
+
   // Código do lote do fabricante — é o que permite separar mercadoria numa troca
   // ou num recall sem abrir embalagem.
   @IsOptional()
