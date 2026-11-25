@@ -97,7 +97,7 @@ COMO VOCÊ TRABALHA
 - Cupom e conta a pagar também são só PROPOR (versão 9): criar um cupom (criar_cupom com codigoDoCupom, tipoDoDesconto percentual, valor ou fretegratis, valorDoDesconto, e se a pessoa disser pedidoMinimo, validoAte em AAAA-MM-DD, usosMaximos, soClientesNovos e nomeDoCupom) e lançar uma conta a pagar (lancar_conta com descricaoDaConta, valorDaConta, vencimentoDaConta em AAAA-MM-DD, e o fornecedor e a categoriaDaConta se disser) pedem o PIN: diga que o link "Abrir no Regem" chega logo abaixo. Tirar um cupom (remover_cupom com codigoDoCupom) é com o botão. Sem o código, o desconto ou o vencimento, pergunte; nunca invente data nem valor.
 - Também com o botão (versão 9): mudar o nome, a descrição ou a categoria de um produto do cardápio (mudar_produto com produto e nomeNovoDoProduto, descricaoDoProduto ou categoriaDoProduto — a categoria tem de existir), mudar um fornecedor (mudar_fornecedor com fornecedor e nomeNovoDoFornecedor, contato, foneDoFornecedor ou emailDoFornecedor), trocar a pessoa de um turno (trocar_turno com quemSai, quemEntra e diaDaEscala em AAAA-MM-DD; turnoDaEscala só quando a pessoa tem dois turnos no dia) e dar folga (folga_na_escala com quemSai e diaDaEscala: a vaga fica aberta). As regras da CLT são da Escala: se ela recusar, diga o motivo como veio.
 - O caixa à distância é PROPOR com o PIN (só gerente e presidente): fechar o caixa esquecido (fechar_caixa com caixaDaLoja "balcão" ou "delivery", e dinheiroContado ou semContagem — o fechamento é CEGO: nunca diga o valor esperado antes; operadorDoCaixa quando houver mais de um caixa do balcão aberto; no delivery com entrega pendente, o motivoDoCaixa) e lançar uma sangria (sangria com caixaDaLoja, valorDaSangria e motivoDoCaixa). Para saber quais caixas estão abertos, consulte caixas_e_sangrias antes.
-- As campanhas de Delivery › Marketing: pausar ou retomar a que está mandando (pausar_campanha com campanhaDaConversa — um pedaço da mensagem, o tipo ou "a última" — e retomarCampanha) com o botão, e repetir uma que já foi montada na tela, para o mesmo público, agora (repetir_campanha) com o PIN: a pergunta mostra quantos vão receber e o custo antes. Mensagem nova para os clientes se escreve na tela: nunca escreva texto de campanha pela conversa.
+- As campanhas de Delivery › Marketing: pausar ou retomar a que está mandando ("para a campanha…", "segura o envio" = pausar; pausar_campanha com campanhaDaConversa — um pedaço da mensagem, o tipo ou "a última" — e retomarCampanha) com o botão, e repetir uma que já foi montada na tela, para o mesmo público, agora (repetir_campanha) com o PIN: a pergunta mostra quantos vão receber e o custo antes. Mensagem nova para os clientes se escreve na tela: nunca escreva texto de campanha pela conversa.
 - O cardápio pela conversa é PROPOR: categoria nova (criar_categoria com nomeDaCategoria) e produto novo (criar_produto com nomeDoProduto, precoDoProduto e, se a pessoa disse, categoriaDoProduto e descricaoDoProduto) com o botão; o produto entra sem foto, sem ficha e sem código PDV (isso fica na tela). A promoção é o preço "por" do cardápio digital, com o PIN (promocao_do_produto com produto e precoPromocional, ou tirarPromocao: true). O Regem não tem promoção com data de fim: diga que ela fica até alguém tirar.
 - Informar a validade de um item recebido com "não sei" (o aviso "Falta a validade…") é PROPOR com o botão (informar_validade com insumoDaValidade e validadeInformada AAAA-MM-DD, ou semValidadeInformada; pedidoDaValidade só quando houver dois do mesmo item). "Vence 02/12" sem o ano é o próximo 02/12.
 - Marcar um pedido de compra como enviado ao fornecedor é PROPOR com o botão (pedido_enviado com pedidoDeCompra e canalDoEnvio, "whatsapp" ou "email"): quem diz que mandou é a pessoa; o Regem só registra quando e por onde. Nunca diga que mandou o pedido ao fornecedor: o Mister não manda.
@@ -1724,13 +1724,13 @@ export function diferencaEmReais(atual: unknown, anterior: unknown): { valor: nu
   return { valor: Math.abs(a - b) / 100, sentido: a > b ? 'a mais' : a < b ? 'a menos' : 'igual' };
 }
 
-function lerValores(texto: string): { centavos: number; emMil: boolean }[] {
-  const achados: { centavos: number; emMil: boolean }[] = [];
+function lerValores(texto: string): { centavos: number; emMil: boolean; semCentavos: boolean }[] {
+  const achados: { centavos: number; emMil: boolean; semCentavos: boolean }[] = [];
   for (const m of String(texto ?? '').matchAll(VALOR)) {
     const inteiro = Number(m[1].replace(/\./g, ''));
     const centavos = m[2] ? Number(m[2].padEnd(2, '0')) : 0;
     const valor = inteiro * 100 + centavos;
-    achados.push({ centavos: m[3] ? valor * 1000 : valor, emMil: !!m[3] });
+    achados.push({ centavos: m[3] ? valor * 1000 : valor, emMil: !!m[3], semCentavos: !m[2] && !m[3] });
   }
   return achados;
 }
@@ -1759,15 +1759,19 @@ export function numerosDosResultados(resultados: unknown[]): Set<number> {
   return achados;
 }
 
-/** O valor é outro dividido por 2 a 31 (com o arredondamento do centavo)? "R$ 4.975,29 por dia" = R$ 24.876,45 ÷ 5. */
+/**
+ * O valor é outro dividido por 2 a 31 (com o arredondamento do centavo)? "R$ 4.975,29 por dia" = R$ 24.876,45 ÷ 5. Escrito em
+ * reais redondos ("cerca de R$ 4.975 por dia"), vale a divisão arredondada ao real (a c05 da avaliação, 25/11).
+ */
 const MAIOR_DIVISOR = 31;
-function divisaoDeAlgum(x: number, de: Iterable<number>): boolean {
+function divisaoDeAlgum(x: number, de: Iterable<number>, redondo = false): boolean {
   if (x <= 0) return false;
   for (const v of de) {
     const a = Math.abs(v);
     if (a <= x) continue;
     const n = Math.round(a / x);
     if (n >= 2 && n <= MAIOR_DIVISOR && Math.abs(Math.round(a / n) - x) <= 1) return true;
+    if (redondo) for (let k = Math.max(2, n - 1); k <= Math.min(MAIOR_DIVISOR, n + 1); k++) if (Math.round(a / k / 100) * 100 === x) return true;
   }
   return false;
 }
@@ -1786,21 +1790,26 @@ export function valoresSemConta(texto: string, resultados: unknown[] = []): numb
   const lidos = lerValores(texto);
   const todos = lidos.map((v) => v.centavos);
   const emMil = new Set(lidos.filter((v) => v.emMil).map((v) => v.centavos));
+  const semCentavos = new Set(lidos.filter((v) => v.semCentavos).map((v) => v.centavos));
   const arredondados = new Set<number>();
+  // "Em torno de R$ 47" = o ticket médio de R$ 47,38 da consulta, arredondado ao real (a c70 da avaliação, 25/11). Vale só para
+  // o valor escrito redondo (sem centavos).
+  const aoReal = new Set<number>();
   for (const v of origem) {
     const a = Math.abs(v);
     arredondados.add(Math.floor(a / MIL_REAIS_EM_CENTAVOS) * MIL_REAIS_EM_CENTAVOS);
     arredondados.add(Math.round(a / MIL_REAIS_EM_CENTAVOS) * MIL_REAIS_EM_CENTAVOS);
+    aoReal.add(Math.round(a / 100) * 100);
   }
   // O extrato traz o mês que faltou como negativo; a resposta escreve "-R$ 6.500,00" (o sinal fica fora do número lido).
   for (const v of [...origem]) origem.add(Math.abs(v));
   const base = todos.filter((v) => origem.has(v));
-  const soltos = [...new Set(todos.filter((v) => !origem.has(v) && !(emMil.has(v) && arredondados.has(v))))];
-  if (!soltos.length || base.length > TETO_DE_VALORES_NA_CONTA) return soltos.filter((x) => !divisaoDeAlgum(x, origem));
+  const soltos = [...new Set(todos.filter((v) => !origem.has(v) && !(emMil.has(v) && arredondados.has(v)) && !(semCentavos.has(v) && aoReal.has(v))))];
+  if (!soltos.length || base.length > TETO_DE_VALORES_NA_CONTA) return soltos.filter((x) => !divisaoDeAlgum(x, origem, semCentavos.has(x)));
   const somas = new Set<number>([0]);
   for (const v of base) for (const s of [...somas]) somas.add(s + v);
   // Por dia, por semana, por mês ou a média de alguns: um valor da consulta (ou a soma dos da resposta) dividido por 2 a 31.
-  return soltos.filter((x) => !somas.has(x) && !base.some((a) => base.includes(a + x)) && !divisaoDeAlgum(x, origem) && !divisaoDeAlgum(x, somas));
+  return soltos.filter((x) => !somas.has(x) && !base.some((a) => base.includes(a + x)) && !divisaoDeAlgum(x, origem, semCentavos.has(x)) && !divisaoDeAlgum(x, somas, semCentavos.has(x)));
 }
 
 /**
