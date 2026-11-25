@@ -31,7 +31,7 @@ import { motivoVendaDesfeita } from '../fiscal/nfce-totem';
 import { gravarAvisoCancelamentoTotem, resultadoDoAviso } from '../gogem/aviso-gogem';
 import { GogemAvisoService } from '../gogem/gogem-aviso.service';
 import { ehServidorLocal } from '../../common/modo';
-import { horaNoFuso } from '../../common/data';
+import { dataNoFuso, horaNoFuso } from '../../common/data';
 import { linhasDaViaPagaNoCaixa, nomeDaForma } from '../../common/via-paga-no-caixa';
 import { exigirBooleano } from '../../common/exigir';
 import { autorizarPorSenhaDeGestor } from '../../common/autorizacao-gestor';
@@ -1272,7 +1272,7 @@ export class DeliveryService {
   async listar(
     tenantId: string,
     atual: string | null = null,
-    opts?: { excluirRetirada?: boolean },
+    opts?: { excluirRetirada?: boolean; soEncomendas?: boolean },
   ) {
     // Janela de retenção dos finalizados (concluído/cancelado) no quadro — horas
     // configuráveis (padrão 5h). Só afeta a coluna "Finalizado"; os ativos sempre aparecem.
@@ -1289,6 +1289,8 @@ export class DeliveryService {
           // null = "rede"). condUnidadeOuRede inclui os null → não somem do quadro
           // quando há uma unidade selecionada no topo (bug: apareciam no KDS, não aqui).
           condUnidadeOuRede(pedidoExterno.unidadeId, atual),
+          // A agenda das encomendas filtra AQUI, antes do limite de 200: filtrada depois, a encomenda sumia num dia cheio.
+          opts?.soEncomendas ? isNotNull(pedidoExterno.agendamento) : undefined,
           or(
             inArray(pedidoExterno.status, [
               'novo',
@@ -2386,13 +2388,14 @@ export class DeliveryService {
   // — visão operacional de marmitaria (mig 186). `data` (YYYY-MM-DD) filtra uma
   // data; sem ela, retorna todas as datas futuras/pendentes, ascendente.
   async listarEncomendas(tenantId: string, atual: string | null = null, data?: string) {
-    const rows = await this.listar(tenantId, atual);
+    const rows = await this.listar(tenantId, atual, { soEncomendas: true });
     const enc = rows
       .filter((r) => r.agendamento != null && r.status !== 'cancelado')
       .map((r) => ({
         ...r,
         grupoCanal: DeliveryService.grupoCanal(r.canal),
-        dataEntrega: new Date(r.agendamento as any).toISOString().slice(0, 10),
+        // O dia da LOJA: pelo relógio de UTC, a encomenda das 21h ia para o dia seguinte (ERR-605).
+        dataEntrega: dataNoFuso(new Date(r.agendamento as any)),
       }))
       .filter((r) => !data || r.dataEntrega === data);
     const porData = new Map<string, any[]>();

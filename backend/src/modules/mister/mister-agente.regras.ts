@@ -384,6 +384,7 @@ export type NomeDaFerramenta =
   | 'caixas_e_sangrias'
   | 'mesas_e_comandas'
   | 'acerto_dos_entregadores'
+  | 'agenda_de_encomendas'
   | 'equipe_do_dia'
   | 'historia_do_pedido'
   | 'tempos_dos_pedidos'
@@ -848,6 +849,20 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
     description:
       'O acerto de cada entregador agora, pelo mesmo cálculo de Delivery › Entregadores › Pagamento: o modelo (diária, taxas), o período dele, as entregas concluídas sem acerto, quanto pagar (só com "Ver valores em R$"), se já foi pago neste turno e se o caixa de entregas está aberto. Use para "quanto devo aos entregadores?", "o Jefferson já recebeu?".',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'agenda_de_encomendas',
+    description:
+      'A agenda das encomendas (os pedidos com dia e hora marcados: cardápio agendado, encomenda do balcão; e as encomendas de atacado), por dia da loja, com o que produzir em cada dia, a hora, a situação, se está pago e o valor (só com "Ver valores em R$"). Sem período: de hoje a 6 dias depois. Use para "o que tem de encomenda amanhã?", "quanto bolo produzir no sábado?".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        de: { type: 'string', description: 'Primeiro dia, AAAA-MM-DD (padrão: hoje).' },
+        ate: { type: 'string', description: 'Último dia, AAAA-MM-DD (padrão: 6 dias depois do primeiro; no máximo 31 dias).' },
+        loja: LOJA,
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'equipe_do_dia',
