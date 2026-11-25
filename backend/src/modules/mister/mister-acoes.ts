@@ -18,6 +18,7 @@ import { conferirClassificacao, type ParametrosDaClassificacao } from './mister-
 import { conferirContagem, type ParametrosDaContagem } from './mister-acoes-contagem';
 import { conferirCaixa, type ParametrosDoCaixa } from './mister-acoes-caixa';
 import { conferirEntregador, type ParametrosDoEntregador } from './mister-acoes-entregador';
+import { conferirPonto, type ParametrosDoPonto } from './mister-acoes-ponto';
 import { NOMES_DOS_DIAS, ehHoraDoDia, horasDaJanela, lerDiaDaSemana, textoDaJanela, type JanelaDoDia } from '../../common/horarios-da-loja';
 
 // AS AÇÕES DO MISTER — a porta `propor_acao` (versão 6, M6j; plano aprovado em 20/11/2026, `docs/plano-mister.md` § "Versão
@@ -76,6 +77,9 @@ export const ACOES_DO_MISTER = [
   'sangria',
   // Etapa 2 de 24/11: o acerto dos entregadores, com o PIN.
   'pagar_entregador',
+  // Etapa 5 de 24/11: o ajuste de ponto (Portaria 671: nada se apaga), com o motivo e o PIN.
+  'incluir_marcacao',
+  'desconsiderar_marcacao',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -91,7 +95,7 @@ export interface DefinicaoDaAcao {
   /** O tamanho do risco (decisão do plano): o botão de quem pediu, ou o PIN pelo link para preço, horário e dinheiro. */
   nivel: 'botao' | 'pin';
   /** A permissão do perfil — a MESMA da rota da tela. O presidente pode tudo. */
-  permissao: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque' | 'financeiro' | 'cupons' | 'cadastros' | 'escalas' | 'pdv';
+  permissao: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque' | 'financeiro' | 'cupons' | 'cadastros' | 'escalas' | 'pdv' | 'ponto';
   /** Por quanto tempo a pergunta vale. */
   prazoMin: number;
   /** O nome curto, para a auditoria e o histórico das propostas. */
@@ -152,6 +156,9 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   fechar_caixa: { id: 'fechar_caixa', nivel: 'pin', permissao: 'pdv', prazoMin: 15, nome: 'fechar um caixa' },
   sangria: { id: 'sangria', nivel: 'pin', permissao: 'pdv', prazoMin: 15, nome: 'lançar uma sangria', pedeVerValores: true },
   // A rota do pagamento (Delivery › Entregadores) pede o Delivery; é dinheiro saindo do caixa de entregas: PIN e "Ver valores".
+  // As rotas de Gerenciamento de ponto: incluir pede ponto.criar e o ajuste, ponto.editar. Mexe na jornada (e no salário): PIN.
+  incluir_marcacao: { id: 'incluir_marcacao', nivel: 'pin', permissao: 'ponto', crud: 'criar', prazoMin: 15, nome: 'incluir uma marcação de ponto' },
+  desconsiderar_marcacao: { id: 'desconsiderar_marcacao', nivel: 'pin', permissao: 'ponto', crud: 'editar', prazoMin: 15, nome: 'desconsiderar uma marcação de ponto' },
   pagar_entregador: { id: 'pagar_entregador', nivel: 'pin', permissao: 'delivery', prazoMin: 15, nome: 'pagar um entregador', pedeVerValores: true },
   contar_estoque: { id: 'contar_estoque', nivel: 'botao', permissao: 'estoque', crud: 'editar', prazoMin: 10, nome: 'lançar uma contagem do estoque' },
   classificar_banco: { id: 'classificar_banco', nivel: 'pin', permissao: 'financeiro', prazoMin: 15, nome: 'classificar um lançamento do banco', pedeVerValores: true },
@@ -494,7 +501,8 @@ export type ParametrosDaAcao =
   | ParametrosDaClassificacao
   | ParametrosDaContagem
   | ParametrosDoCaixa
-  | ParametrosDoEntregador;
+  | ParametrosDoEntregador
+  | ParametrosDoPonto;
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -510,6 +518,7 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
   if (acao === 'contar_estoque') return conferirContagem(en);
   if (acao === 'fechar_caixa' || acao === 'sangria') return conferirCaixa(acao, en);
   if (acao === 'pagar_entregador') return conferirEntregador(en);
+  if (acao === 'incluir_marcacao' || acao === 'desconsiderar_marcacao') return conferirPonto(acao, en);
   if (acao === 'pausar_canal' || acao === 'reabrir_canal') {
     const brutos = Array.isArray(en.canais) ? en.canais : en.canal !== undefined ? [en.canal] : [];
     const canais = [...new Set(brutos.map(lerCanal))];
@@ -744,6 +753,14 @@ export const TEXTOS_DAS_ACOES = {
   caixasDemais: (lista: string) => `Há mais de um caixa do balcão aberto: ${lista}. Diga de quem é (o nome de quem abriu) ou o nome do terminal.`,
   caixaMudou: 'O caixa mudou desde a pergunta (foi fechado pela tela ou por outra conversa). Nada foi feito.',
   entregadorIndisponivel: 'O acerto dos entregadores não está disponível agora. Nada foi feito.',
+  semPermissaoPonto: 'O seu perfil no Regem não permite ajustar o ponto: essa ação não sai por aqui. Quem muda o perfil é o presidente.',
+  pontoIndisponivel: 'O ajuste de ponto não está disponível agora. Nada foi feito.',
+  pessoaDoPontoNaoAchada: (nome: string) => `Não achei "${nome}" entre as pessoas ativas das lojas desta conversa. Diga o nome como está no cadastro.`,
+  pessoasDoPonto: (lista: string) => `Há mais de uma pessoa com esse nome: ${lista}. Diga o nome inteiro.`,
+  marcacaoRepetida: (doDia: string) => `Essa marcação já existe (até 5 minutos de diferença). No dia: ${doDia}.`,
+  marcacaoNaoAchada: (doDia: string) => `Não achei essa marcação no dia. No dia: ${doDia}. Diga a hora como está lá.`,
+  marcacoesDemais: (doDia: string) => `Há mais de uma marcação nessa hora. No dia: ${doDia}. Diga qual (entrada, saída, intervalo).`,
+  pontoMudou: 'O ponto desse dia mudou desde a pergunta (outra marcação ou outro ajuste). Nada foi feito: peça de novo.',
   entregadorMudou: 'O acerto do entregador mudou desde a pergunta (entrega nova, pagamento pela tela ou o caixa de entregas). Nada foi feito: peça de novo para ver o valor certo.',
   caixaSoNaTela: 'Há mais de um caixa aberto sem terminal e o Regem não tem como escolher este pela conversa. Nada foi feito: feche pelo PDV.',
   pendenciasSemMotivo: (n: number) =>

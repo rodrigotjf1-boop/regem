@@ -1358,6 +1358,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c104', pergunta: 'Quanto bolo de pote eu tenho que produzir para as encomendas de amanhã?', consultas: ['agenda_de_encomendas'], numeros: ['18'], contem: ['Bolo de pote'] },
   // Etapa 4 de 24/11: as avaliações dos clientes.
   { id: 'c105', pergunta: 'Como estão as avaliações dos clientes esta semana? Por que deram nota baixa?', consultas: ['avaliacoes_dos_clientes'], numeros: ['4,3'], contem: ['entrega'] },
+  // Etapa 5 de 24/11: o ajuste de ponto.
+  { id: 'c106', pergunta: 'A Bruna esqueceu de bater a saída ontem, saiu às 23:10. Inclui pra mim, foi esquecimento.', consultas: ['propor_acao'], contem: ['23:10', 'PIN'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────
