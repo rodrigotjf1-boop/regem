@@ -4166,6 +4166,7 @@ export function testesDoMisterComPostgres(): void {
         c100: { acao: 'fechar_caixa', caixaDaLoja: 'balcão', semContagem: true },
         c101: { acao: 'sangria', caixaDaLoja: 'balcão', valorDaSangria: 200, motivoDoCaixa: 'pagar o gás' },
         c103: { acao: 'pagar_entregador', entregadorDoAcerto: 'Jefferson' },
+        c107: { acao: 'pedido_enviado', pedidoDeCompra: 'Felipão', canalDoEnvio: 'whatsapp' },
         c106: { acao: 'incluir_marcacao', pessoaDoPonto: 'Bruna', tipoDaMarcacao: 'saida', diaDaMarcacao: somarDias(hojeISO(), -1), horaDaMarcacao: '23:10', motivoDoPonto: 'esqueceu de bater a saída' },
         c51: { periodo: 'este_mes' },
         c52: { periodo: 'este_mes', pessoa: 'Bruna' },
@@ -12865,6 +12866,56 @@ export function testesDoMisterComPostgres(): void {
             await q(`delete from colaborador where id = $1`, [bruna]);
           }
           if (rep) await q(`delete from equipamento where id = $1`, [rep]);
+        }
+      });
+
+      it('etapa 6 de 24/11: o pedido de compra marcado como enviado — pelo serviço de Estoque › Pedidos, só no botão, o recebido não', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+        const autorizar = async (r: any) => {
+          const id = idDaProposta(r);
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          return esperarFim(id);
+        };
+        const comprasAntes = (acoes as any).compras;
+        (acoes as any).compras = new ComprasService(db, { emit: () => true } as any, auditoria);
+        const ids: string[] = [];
+        let forn: string | null = null;
+        try {
+          [{ id: forn }] = await q(`insert into fornecedor (tenant_id, nome) values ($1, 'Felipão E6') returning id::text as id`, [A]);
+          const [{ id: aberto }] = await q(`insert into compra_lista (tenant_id, unidade_id, nome, fornecedor_id, status) values ($1, $2, 'Semanal E6', $3, 'aberta') returning id::text as id`, [A, lojaDeA, forn]);
+          const [{ id: recebido }] = await q(`insert into compra_lista (tenant_id, unidade_id, nome, status) values ($1, $2, 'Recebido E6', 'recebida') returning id::text as id`, [A, lojaDeA]);
+          ids.push(aberto, recebido);
+          // O canal fora dos dois da tela e o recebido param na pergunta.
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'pedido_enviado', pedidoDeCompra: 'Felipão E6', canalDoEnvio: 'telefone' })).dados.erro).toBe(
+            'Diga por onde o pedido foi mandado ao fornecedor: WhatsApp ou e-mail (os dois da tela).',
+          );
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'pedido_enviado', pedidoDeCompra: 'Recebido E6', canalDoEnvio: 'whatsapp' })).dados.erro).toBe(
+            'O pedido "Recebido E6" já foi recebido: não há o que marcar como enviado.',
+          );
+          // O certo: achado pelo fornecedor; nada muda antes do "Autorizar".
+          const r = await ferramentas.executar(e, 'propor_acao', { acao: 'pedido_enviado', pedidoDeCompra: 'felipão e6', canalDoEnvio: 'zap' });
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toMatch(/^Marcar o pedido "Semanal E6 \(Felipão E6\), criado em \d{2}\/\d{2} \d{2}:\d{2}" como enviado ao fornecedor pelo WhatsApp\. Quem diz que enviou é você/);
+          expect((await q(`select enviado_em from compra_lista where id = $1`, [aberto]))[0].enviado_em).toBeNull();
+          expect(await autorizar(r)).toMatchObject({ situacao: 'feita', resultado: 'Marquei o pedido "Semanal E6" como enviado ao fornecedor pelo WhatsApp. Está em Estoque › Pedidos.' });
+          expect((await q(`select enviado_canal, enviado_em is not null as marcado from compra_lista where id = $1`, [aberto]))[0]).toEqual({ enviado_canal: 'whatsapp', marcado: true });
+          expect(auditados.find((a) => a.acao === 'marcou_pedido_enviado' && a.entidadeId === aberto)).toMatchObject({ atorId: pessoa.ana, detalhe: { canal: 'whatsapp' } });
+          // De novo pelo mesmo canal: já está marcado. Pelo e-mail: a marca nova, dizendo a de antes.
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'pedido_enviado', pedidoDeCompra: 'Semanal E6', canalDoEnvio: 'whatsapp' })).dados.erro).toMatch(/^O pedido "Semanal E6" já está marcado como enviado pelo WhatsApp em \d{2}\/\d{2} \d{2}:\d{2}\.$/);
+          const r2 = await ferramentas.executar(e, 'propor_acao', { acao: 'pedido_enviado', pedidoDeCompra: 'Semanal E6', canalDoEnvio: 'email' });
+          expect(r2.dados.oQueVouFazer).toMatch(/Ele já estava marcado como enviado pelo WhatsApp em \d{2}\/\d{2} \d{2}:\d{2}: fica a marca nova\./);
+          // A permissão: sem "criar" no Estoque, não sai.
+          expect(
+            await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true, criar: false, editar: true, excluir: false } } } as any, 'propor_acao', { acao: 'pedido_enviado', pedidoDeCompra: 'Semanal E6', canalDoEnvio: 'email' }),
+          ).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
+          // A exclusão continua achando o pedido pela mesma busca.
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'excluir_pedido_compra', pedidoDeCompra: 'Semanal E6' })).dados.oQueVouFazer).toMatch(/^Excluir o pedido "Semanal E6 \(Felipão E6\), criado em/);
+        } finally {
+          (acoes as any).compras = comprasAntes;
+          await q(`delete from compra_lista where id = any($1::uuid[])`, [ids]);
+          if (forn) await q(`delete from fornecedor where id = $1`, [forn]);
         }
       });
 

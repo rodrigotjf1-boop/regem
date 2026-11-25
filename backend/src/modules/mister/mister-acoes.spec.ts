@@ -47,6 +47,8 @@ describe('Mister · ações — o catálogo e os canais', () => {
       // Etapa 5 de 24/11: o ajuste de ponto.
       'incluir_marcacao',
       'desconsiderar_marcacao',
+      // Etapa 6 de 24/11: o pedido de compra enviado.
+      'pedido_enviado',
     ]);
     expect(ACOES.criar_tarefa).toMatchObject({ nivel: 'botao', permissao: 'checklist' });
     for (const a of ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] as const)
