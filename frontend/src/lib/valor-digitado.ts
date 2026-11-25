@@ -14,8 +14,14 @@ export function lerValorDigitado(texto: string | number | null | undefined): num
     .replace(/\s+/g, '');
   if (!s) return null;
   let normal: string;
-  if (s.includes(',')) normal = s.replace(/\./g, '').replace(',', '.'); // vírgula = decimal; ponto = milhar
-  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) normal = s.replace(/\./g, ''); // "1.200": ponto de milhar
+  if (s.includes(',')) {
+    // vírgula = decimal; ponto = milhar — e o milhar só em grupos de 3 (PDV-C-04 da revisão de 25/11/2026: "12.34,56" e
+    // "1.2.3,45" eram aceitos como R$ 1.234,56 e R$ 123,45, um erro de digitação virando outro valor sem aviso).
+    const [inteira, ...resto] = s.split(',');
+    if (resto.length !== 1) return NaN;
+    if (inteira.includes('.') && !/^-?\d{1,3}(\.\d{3})+$/.test(inteira)) return NaN;
+    normal = `${inteira.replace(/\./g, '')}.${resto[0]}`;
+  } else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) normal = s.replace(/\./g, ''); // "1.200": ponto de milhar
   else normal = s; // "12.50" (a tela que preenche com toFixed) ou "1200"
   if (!/^-?\d+(\.\d+)?$/.test(normal)) return NaN;
   return Math.round(Number(normal) * 100) / 100;

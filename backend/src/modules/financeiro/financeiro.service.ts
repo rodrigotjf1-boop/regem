@@ -40,7 +40,7 @@ import { PagarTituloDto } from './dto/pagar-titulo.dto';
 import { hojeISO } from '../../common/data';
 import { idadeDoTurno, TURNO_LIMITE_HORAS } from '../../common/turno';
 import { gravarEntitlement } from '../../common/gravar-entitlement';
-import { agendadosParaDepois, baixarPendenciasAntigas, escopoDoTurno, EVENTO_CANCELADOS_NA_BAIXA, pendenciasDoTurno } from '../delivery/pendencias-turno';
+import { agendadosParaDepois, baixarPendenciasAntigas, escopoDoTurno, EVENTO_CANCELADOS_NA_BAIXA, pendenciasDoTurno, TODOS_OS_AGENDADOS } from '../delivery/pendencias-turno';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -459,9 +459,12 @@ export class FinanceiroService {
     const rec: any = await this.db.execute(sql`select coalesce(sum(valor),0) as v ${entradas}`);
     // A gorjeta (taxa de serviço) entra no caixa junto com a venda, mas é repasse ao funcionário, não receita
     // (`common/faturamento.ts`): sai das receitas e aparece à parte — a de cada comanda uma vez, mesmo dividida em formas.
+    // Só a gorjeta que ENTROU (PDV-F-02 da revisão de 25/11/2026): proporcional ao recebido da comanda no período, até o total
+    // dela. O acerto do salão baixado com R$ 0 (quebra do garçom) deduzia a gorjeta inteira e a receita ficava negativa.
     const gorj: any = await this.db.execute(sql`
-      select coalesce(sum(${gorjetaComanda('c')}), 0) as v from comanda c
-       where c.tenant_id = ${tenantId} and c.id in (select comanda_id ${entradas} and comanda_id is not null)`);
+      select coalesce(sum(case when c.total > 0 then ${gorjetaComanda('c')} * least(1, e.recebido / c.total) else 0 end), 0) as v
+        from (select comanda_id, sum(valor) as recebido ${entradas} and comanda_id is not null group by comanda_id) e
+        join comanda c on c.id = e.comanda_id and c.tenant_id = ${tenantId}`);
     const desp: any = await this.db.execute(sql`
       select coalesce(categoria,'outros') as categoria, coalesce(sum(valor),0) as v
       from lancamento_caixa
@@ -986,7 +989,8 @@ export class FinanceiroService {
       // G8 (mig 455): os pedidos AGENDADOS para depois — o turno não fecha sem a resposta de cada um. "Manter" vem na lista
       // `agendadosMantidos`; mudar o horário ou cancelar tira o pedido da lista antes. Vale para todos (é uma pergunta,
       // não uma pendência a justificar).
-      const agendados = await agendadosParaDepois(this.db, tenantId, this.lojaDasPendencias('delivery', dto.unidadeAtual ?? null));
+      // TODOS: com mais de 100 agendados, o corte da tela deixava o 101º passar sem resposta (C-03, 2ª volta).
+      const agendados = await agendadosParaDepois(this.db, tenantId, this.lojaDasPendencias('delivery', dto.unidadeAtual ?? null), new Date(), TODOS_OS_AGENDADOS);
       const mantidos = new Set(Array.isArray(dto.agendadosMantidos) ? dto.agendadosMantidos.map(String) : []);
       const faltam = agendados.filter((a) => !mantidos.has(a.id));
       if (faltam.length)

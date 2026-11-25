@@ -118,8 +118,14 @@ export class RelatoriosService {
       ), f as (
         select coalesce(v.forma, '—') as forma, v.id, v.fat as total from v where v.partes = 0
         union all
-        select coalesce(p.forma, '—'), v.id, v.fat * p.valor / v.partes
-          from v join comanda_pagamento p on p.comanda_id = v.id where v.partes > 0
+        -- Cada parte em CENTAVOS, e o centavo que sobra do arredondamento fica com a maior parte (PDV-G-01): sem isso, três
+        -- formas de R$ 3,34 + R$ 3,34 + R$ 3,33 somavam R$ 10,01 numa venda de R$ 10,00.
+        select forma, id, arred + case when ordem = 1 then fat - sum(arred) over (partition by id) else 0 end
+          from (
+            select coalesce(p.forma, '—') as forma, v.id, v.fat, round(v.fat * p.valor / v.partes, 2) as arred,
+                   row_number() over (partition by v.id order by p.valor desc, p.id) as ordem
+              from v join comanda_pagamento p on p.comanda_id = v.id where v.partes > 0
+          ) partes
       )
       select forma, count(distinct id)::int as qtd, coalesce(sum(total), 0) as total from f group by 1 order by 3 desc`);
     const porCanal = await this.rows(sql`
@@ -263,7 +269,9 @@ export class RelatoriosService {
          where c.tenant_id = ${tenantId} ${sqlUnidade('c.unidade_id', atual)} and c.status = 'fechada'
            and ${noPeriodo('c.fechada_em', ini, f)}
       )
-      select descricao,
+      -- Uma linha por PRODUTO (PDV-G-02 da revisão de 25/11/2026): agrupar pela descrição juntava produtos diferentes com o
+      -- mesmo nome histórico e aplicava a todos o custo de um só (max do id). A linha sem produto fica pela descrição.
+      select max(descricao) as descricao,
              max(produto_id::text) as produto_id,
              coalesce(sum(quantidade),0) as qtd,
              coalesce(sum(bruto),0) as bruto,
@@ -273,7 +281,7 @@ export class RelatoriosService {
                - coalesce(sum(case when bruto_comanda > 0
                                    then desc_comanda * bruto / bruto_comanda else 0 end),0) as faturamento
       from linhas
-      group by descricao
+      group by coalesce(produto_id::text, 'sem-produto:' || descricao)
       order by faturamento desc`);
     const total = rows.reduce((s, r) => s + Number(r.faturamento), 0) || 1;
     // Custo efetivo por produto (override → ficha → item de estoque) — só p/ quem vê

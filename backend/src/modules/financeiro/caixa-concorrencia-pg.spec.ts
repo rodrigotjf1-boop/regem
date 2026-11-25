@@ -295,4 +295,37 @@ descrever('o caixa não muda enquanto fecha (Postgres)', () => {
       c.release();
     }
   });
+
+  it('C-03 (2ª volta): com 101 agendados, manter só os 100 que a tela mostra não fecha o turno — o 101º também pede resposta', async () => {
+    await financeiro.abrirSessao(T, operador, { origem: 'delivery' });
+    const ids = (
+      await q(
+        `insert into pedido_externo (tenant_id, unidade_id, canal, tipo, status, total, retirada_tipo, agendamento, cliente_nome)
+         select $1, $2, 'cardapio', 'entrega', 'confirmado', 25, 'agendado', now() + interval '1 day' + (g || ' minutes')::interval, 'Agendado ' || g
+           from generate_series(1, 101) g
+         returning id::text as id`,
+        [T, lojaA],
+      )
+    ).map((r: any) => r.id as string);
+    try {
+      const tela: any = await financeiro.pendenciasDoTurno(T, lojaA, 'delivery', 'gerente');
+      expect(tela.agendados).toHaveLength(100);
+      const fechar = (agendadosMantidos: string[]) =>
+        financeiro.fecharSessao(T, gerente, 'gerente', {
+          valoresInformados: {},
+          origem: 'delivery',
+          unidadeAtual: lojaA,
+          justificativaPendencias: 'Entrega da outra loja presa no canal, conferida por telefone',
+          agendadosMantidos,
+        } as any);
+      await expect(fechar(tela.agendados.map((a: any) => a.id))).rejects.toMatchObject({
+        response: expect.objectContaining({ codigo: 'AGENDADOS_DO_TURNO', agendados: [expect.objectContaining({ id: ids[100] })] }),
+      });
+      // Respondidos todos, fecha.
+      await fechar(ids);
+      expect((await q(`select count(*)::int as n from caixa_sessao where tenant_id = $1 and origem = 'delivery' and status = 'aberta'`, [T]))[0].n).toBe(0);
+    } finally {
+      await q(`delete from pedido_externo where id = any($1::uuid[])`, [ids]);
+    }
+  });
 });

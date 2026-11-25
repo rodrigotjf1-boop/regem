@@ -125,7 +125,7 @@ export class TaxasService {
       d.setUTCDate(d.getUTCDate() - dias);
       return `${d.toISOString().slice(0, 10)} 00:00:00`;
     };
-    const fim = `${hoje} 23:59:59`;
+    const fim = `${hoje} 23:59:59.999999`; // até o último microssegundo do dia (G-02)
     const ini90 = desde(DIAS_DAS_VENDAS);
     const [pedidos, apps] = await Promise.all([
       this.rows(sql`
