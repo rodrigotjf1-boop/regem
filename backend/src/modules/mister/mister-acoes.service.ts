@@ -887,12 +887,11 @@ export class MisterAcoesService implements OnModuleInit {
     const agora = ((await servico.fechamentoEntregadores(p.tenantId)) as LinhaDoAcerto[]).find((l) => l.colaboradorId === x.entregadorId);
     if (!agora || recusaDoAcerto(agora) || agora.total !== x.total || agora.entregas !== x.entregas) return { feita: false, texto: TEXTOS_DAS_ACOES.entregadorMudou };
     try {
+      // O pagamento é UMA transação no serviço (o fechamento, a sangria e as entregas marcadas): a resposta dele com o fechamento
+      // é o efeito conferido — qualquer falha no meio desfaz tudo e chega aqui como erro.
       const r: any = await servico.pagarEntregador(p.tenantId, quem, x.entregadorId);
-      const [f] = linhas(
-        await this.db.execute(sql`select total_centavos::int as total, lancamento_caixa_id::text as lanc from entregador_fechamento where id = ${r?.fechamentoId ?? null}::uuid and tenant_id = ${p.tenantId}::uuid`),
-      );
-      if (!f?.lanc) return { feita: false, texto: 'o pagamento não apareceu no caixa de entregas. Confira em Delivery › Entregadores.' };
-      const valor = `R$ ${(Number(f.total) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      if (r?.ok !== true || !r?.fechamentoId) return { feita: false, texto: 'o pagamento não se confirmou. Confira em Delivery › Entregadores.' };
+      const valor = `R$ ${(Number(r.total ?? x.total) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       return { feita: true, texto: `Paguei ${valor} a ${x.nomeDoEntregador} (${x.entregas === 1 ? '1 entrega' : `${x.entregas} entregas`}). A sangria está no caixa de entregas e essas entregas ficaram acertadas.` };
     } catch (err: any) {
       return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240)) };

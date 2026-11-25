@@ -13,7 +13,6 @@ import { perfilPadrao } from '../../auth/permissoes';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { dataNoFuso, hojeISO, horaNoFuso, somarDias } from '../../common/data';
 import { agendadosParaDepois, pendenciasDoTurno } from '../delivery/pendencias-turno';
-import { EntregadorService } from '../entregador/entregador.service';
 import { idEntitlement, uuidDeChave } from '../../common/id-deterministico';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
@@ -12520,12 +12519,36 @@ export function testesDoMisterComPostgres(): void {
         await ligar('ana', tel);
         const pinsAntes = await q(`select id, pin_hash from colaborador where id = $1`, [pessoa.ana]);
         await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
-        // O serviço de verdade dos entregadores; a lista deles é a mesma consulta do `DeliveryService.listarEntregadores`.
-        const deliveryDosEntregadores = {
-          listarEntregadores: async (t: string) =>
-            q(`select c.id::text as id, c.nome from colaborador c join funcao f on f.id = c.funcao_id where c.tenant_id = $1 and c.status = 'ativo' and f.nome ilike '%entregador%' order by c.nome`, [t]),
+        // As tabelas do acerto são só da nuvem e a cadeia delas é aplicada pela `pagar-entregador-pg.spec` (V6, ERR-451): aqui, um
+        // dublê que reproduz o serviço — o cálculo por entregador, o caixa de entregas, "pago neste turno" e o pagamento que zera
+        // o acerto. O contrato com o serviço de verdade é provado lá ("o Mister lê o acerto…").
+        const hojeISOAqui = hojeISO();
+        const acerto: Record<string, { nome: string; modelo: string; entregas: number; diaria: number; taxa: number; pago: number }> = {
+          jeff: { nome: 'Jefferson E2', modelo: 'diaria_taxas', entregas: 2, diaria: 6000, taxa: 1250, pago: 0 },
+          rafa: { nome: 'Rafa E2', modelo: 'so_taxas', entregas: 1, diaria: 0, taxa: 600, pago: 0 },
         };
-        const entregadores = new EntregadorService(db, deliveryDosEntregadores as any, {} as any);
+        let turnoAberto = false;
+        const pagos: any[][] = [];
+        const linhaDe = (id: string) => {
+          const a = acerto[id];
+          const total = a.entregas > 0 ? a.diaria + a.taxa : 0;
+          return {
+            colaboradorId: id, nome: a.nome, modelo: a.modelo, periodicidade: 'dia', periodo: { inicio: hojeISOAqui, fim: hojeISOAqui },
+            entregas: a.entregas, diaria: a.entregas > 0 ? a.diaria : 0, taxas: a.entregas > 0 ? a.taxa : 0, total,
+            turnoAberto, pagoNoTurno: a.pago > 0, pagoCentavos: a.pago,
+          };
+        };
+        const entregadores = {
+          fechamentoEntregadores: async (t: string) => (t === A ? Object.keys(acerto).map(linhaDe) : []),
+          pagarEntregador: async (t: string, ator: string | null, id: string) => {
+            pagos.push([t, ator, id]);
+            const l = linhaDe(id);
+            if (!turnoAberto) throw new Error('Abra o caixa de entregas para registrar o pagamento (sangria).');
+            if (l.total <= 0) throw new Error('Nada a pagar para este entregador no período.');
+            acerto[id] = { ...acerto[id], pago: acerto[id].pago + l.total, entregas: 0 };
+            return { ok: true, fechamentoId: randomUUID(), entregas: l.entregas, diaria: l.diaria, taxas: l.taxas, total: l.total };
+          },
+        };
         (acoes as any).entregadorDeTeste = entregadores;
         (ferramentas as any).entregadorDeTeste = entregadores;
         const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
@@ -12533,45 +12556,33 @@ export function testesDoMisterComPostgres(): void {
           const c = codigo(await propostasDasAcoes.enviarLink(r.proposta!.id, pessoa.ana, tel, r.proposta!.pergunta));
           return { c, vista: await propostasDasAcoes.verPeloLink(c) };
         };
-        const caixasDeAntes = (await q(`update caixa_sessao set status = 'fechada' where tenant_id = $1 and status = 'aberta' and origem = 'delivery' returning id::text as id`, [A])).map((x: any) => x.id);
-        const ids: Record<string, string> = {};
-        const pedidos: string[] = [];
-        const hojeDM = `${hojeISO().slice(8, 10)}/${hojeISO().slice(5, 7)}`;
+        const hojeDM = `${hojeISOAqui.slice(8, 10)}/${hojeISOAqui.slice(5, 7)}`;
         try {
-          [{ id: ids.funcao }] = await q(`insert into funcao (tenant_id, nome, categoria) values ($1, 'Entregador E2', 'execucao') returning id::text as id`, [A]);
-          [{ id: ids.jeff }] = await q(`insert into colaborador (tenant_id, nome, funcao_id) values ($1, 'Jefferson E2', $2) returning id::text as id`, [A, ids.funcao]);
-          [{ id: ids.rafa }] = await q(`insert into colaborador (tenant_id, nome, funcao_id) values ($1, 'Rafa E2', $2) returning id::text as id`, [A, ids.funcao]);
-          await q(
-            `insert into entregador_perfil_pagamento (tenant_id, colaborador_id, modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos, base_taxa, periodicidade) values ($1, $2, 'diaria_taxas', 6000, 0, 0, 'real', 'dia'), ($1, $3, 'so_taxas', 0, 0, 0, 'real', 'dia')`,
-            [A, ids.jeff, ids.rafa],
-          );
-          const entrega = async (quem: string, taxa: number) => {
-            const [{ id }] = await q(`insert into pedido_externo (tenant_id, canal, tipo, status, taxa_entrega, entregador_id, concluido_em, display_id) values ($1, 'proprio', 'entrega', 'concluido', $2, $3, now(), 'E2') returning id::text as id`, [A, taxa, quem]);
-            pedidos.push(id);
-          };
-          await entrega(ids.jeff, 7.5);
-          await entrega(ids.jeff, 5);
-          await entrega(ids.rafa, 6);
           const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
 
           // 1) A consulta, com o caixa de entregas fechado.
           const ver = await ferramentas.executar(e, 'acerto_dos_entregadores', {});
           expect(ver.ok).toBe(true);
           expect(ver.dados.caixaDeEntregas).toBe('fechado');
+          expect(ver.dados.totalAPagar).toBe(78.5);
           expect((ver.dados.entregadores as any[]).find((x) => x.entregador === 'Jefferson E2')).toEqual({
             entregador: 'Jefferson E2', modelo: 'diária + taxas', periodo: `de ${hojeDM}`, entregasSemAcerto: 2, situacao: 'a pagar', aPagar: 72.5, diaria: 60, taxas: 12.5,
           });
           const semValores = await ferramentas.executar({ ...e, nivel: 'gerente', verValores: false, permissoes: { delivery: true } } as any, 'acerto_dos_entregadores', {});
           expect((semValores.dados.entregadores as any[]).find((x) => x.entregador === 'Jefferson E2')).not.toHaveProperty('aPagar');
+          expect(semValores.dados).not.toHaveProperty('totalAPagar');
           expect((await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true } } } as any, 'acerto_dos_entregadores', {})).ok).toBe(false);
-          // Pagar com o caixa de entregas fechado: a trava da tela.
+          // Pagar com o caixa de entregas fechado: a trava da tela, sem chamar o pagamento.
           expect(await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'jefferson e2' })).toEqual({
             ok: false,
             dados: { erro: 'O caixa de entregas está fechado: abra o turno para pagar (o pagamento sai como sangria dele).' },
           });
+          // Nome que não existe e nome que serve a dois: a pergunta com os nomes.
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'Zé' })).dados.erro).toBe('Não achei o entregador "Zé". Os cadastrados: Jefferson E2, Rafa E2.');
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'E2' })).dados.erro).toBe('Há mais de um entregador com "E2": Jefferson E2, Rafa E2. Diga o nome inteiro.');
 
-          // 2) Com o caixa aberto: o valor do cálculo, a página do PIN, o pagamento pelo serviço (fechamento, sangria, entregas acertadas).
-          [{ id: ids.caixa }] = await q(`insert into caixa_sessao (tenant_id, origem, status, valor_abertura, aberta_por_id) values ($1, 'delivery', 'aberta', 0, $2) returning id::text as id`, [A, pessoa.ana]);
+          // 2) Com o caixa aberto: o valor do cálculo, a página do PIN, o pagamento pelo serviço, só no PIN.
+          turnoAberto = true;
           const r = await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'jefferson e2' });
           expect(r.ok).toBe(true);
           expect(r.dados.oQueVouFazer).toBe(
@@ -12581,16 +12592,13 @@ export function testesDoMisterComPostgres(): void {
           const { c, vista } = await pin(r);
           expect(vista).toMatchObject({ titulo: 'Pagar o entregador', valor: 72.5, botao: 'Pagar' });
           expect(vista.itens).toEqual(['Entregador: Jefferson E2', `2 entregas de ${hojeDM}`, 'Diária: R$ 60,00', 'Taxas: R$ 12,50']);
-          expect(await q(`select 1 from entregador_fechamento where colaborador_id = $1`, [ids.jeff])).toEqual([]);
+          expect(pagos).toEqual([]);
           await propostasDasAcoes.autorizarPeloLink(c, '2580');
           expect(await esperarFim(r.proposta!.id)).toMatchObject({
             situacao: 'feita',
             resultado: 'Paguei R$ 72,50 a Jefferson E2 (2 entregas). A sangria está no caixa de entregas e essas entregas ficaram acertadas.',
           });
-          const [f] = await q(`select id::text as id, total_centavos::int as total, entregas, criado_por::text as quem, lancamento_caixa_id::text as lanc from entregador_fechamento where colaborador_id = $1`, [ids.jeff]);
-          expect(f).toMatchObject({ total: 7250, entregas: 2, quem: pessoa.ana });
-          expect(await q(`select categoria, valor::float8 as valor, sessao_id::text as sessao from lancamento_caixa where id = $1`, [f.lanc])).toEqual([{ categoria: 'pagamento_entregador', valor: 72.5, sessao: ids.caixa }]);
-          expect((await q(`select count(*)::int as n from pedido_externo where entregador_id = $1 and entregador_fechamento_id = $2`, [ids.jeff, f.id]))[0].n).toBe(2);
+          expect(pagos).toEqual([[A, pessoa.ana, 'jeff']]);
           // Já pago neste turno: a trava da tela.
           expect((await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'Jefferson E2' })).dados.erro).toBe(
             'Jefferson E2 já foi pago neste turno do caixa de entregas (R$ 72,50). Um novo pagamento só no próximo turno.',
@@ -12600,30 +12608,26 @@ export function testesDoMisterComPostgres(): void {
           const r2 = await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'Rafa E2' });
           expect(r2.dados.oQueVouFazer).toContain('Pagar R$ 6,00 a Rafa E2 (só taxas: 1 entrega');
           const p2 = await pin(r2);
-          await entrega(ids.rafa, 4);
+          acerto.rafa = { ...acerto.rafa, entregas: 2, taxa: 1000 };
           await propostasDasAcoes.autorizarPeloLink(p2.c, '2580');
           expect(await esperarFim(r2.proposta!.id)).toMatchObject({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.entregadorMudou });
-          expect(await q(`select 1 from entregador_fechamento where colaborador_id = $1`, [ids.rafa])).toEqual([]);
+          expect(pagos).toHaveLength(1);
+          // O serviço que recusa no meio: a recusa dita, nada dado como pago.
+          const r3 = await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'Rafa E2' });
+          const p3 = await pin(r3);
+          entregadores.pagarEntregador = async () => {
+            throw new Error('Os pedidos deste entregador mudaram durante o pagamento. Tente de novo.');
+          };
+          await propostasDasAcoes.autorizarPeloLink(p3.c, '2580');
+          expect(await esperarFim(r3.proposta!.id)).toMatchObject({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.recusado('Os pedidos deste entregador mudaram durante o pagamento. Tente de novo.') });
           // Sem "Ver valores", o gerente não paga.
           expect((await ferramentas.executar({ ...e, nivel: 'gerente', verValores: false, permissoes: { delivery: true, ver_financeiro: false } } as any, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'Rafa E2' })).ok).toBe(false);
         } finally {
           delete (acoes as any).entregadorDeTeste;
           delete (ferramentas as any).entregadorDeTeste;
           for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
-          const gente = [ids.jeff, ids.rafa].filter(Boolean);
-          await q(`delete from pedido_externo where id = any($1::uuid[])`, [pedidos]);
-          await q(`delete from entregador_fechamento where colaborador_id = any($1::uuid[])`, [gente]).catch(() => undefined);
-          if (ids.caixa) {
-            await q(`delete from lancamento_caixa where sessao_id = $1`, [ids.caixa]).catch(() => undefined);
-            await q(`delete from caixa_sessao where id = $1`, [ids.caixa]).catch(() => undefined);
-          }
-          await q(`delete from entregador_perfil_pagamento where colaborador_id = any($1::uuid[])`, [gente]).catch(() => undefined);
-          await q(`delete from colaborador where id = any($1::uuid[])`, [gente]).catch(() => undefined);
-          if (ids.funcao) await q(`delete from funcao where id = $1`, [ids.funcao]).catch(() => undefined);
-          await q(`update caixa_sessao set status = 'aberta' where id = any($1::uuid[])`, [caixasDeAntes]);
         }
       });
-
       it('pausar e reabrir o cardápio, aceitar, despachar e marcar pronto — só no "Autorizar" de quem pediu, pelo serviço da tela, com o efeito conferido', async () => {
         const tel = telefone();
         const telCarlos = telefone();

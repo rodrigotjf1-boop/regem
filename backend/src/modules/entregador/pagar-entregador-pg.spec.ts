@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { acharEntregador, recusaDoAcerto, resumoDoPagamento, type LinhaDoAcerto } from '../mister/mister-acoes-entregador';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
@@ -72,6 +73,24 @@ descrever('pagar o entregador (Postgres)', () => {
     fechamentos: (await q(`select count(*)::int as n from entregador_fechamento where tenant_id = $1`, [t]))[0].n,
     sangrias: (await q(`select count(*)::int as n, coalesce(sum(valor), 0)::float8 as v from lancamento_caixa where tenant_id = $1 and categoria = 'pagamento_entregador'`, [t]))[0],
     semAcerto: (await q(`select count(*)::int as n from pedido_externo where tenant_id = $1 and entregador_fechamento_id is null`, [t]))[0].n,
+  });
+
+  it('o Mister lê o acerto e paga por este serviço (etapa 2 de 24/11): as linhas têm o que as conferências dele leem', async () => {
+    const { t, p } = await montar();
+    // `listarEntregadores` é do DeliveryService: aqui, o entregador da empresa montada.
+    const comLista = new EntregadorService(db, { listarEntregadores: async () => [{ id: p, nome: 'Moto Um' }] } as any, {} as any);
+    const [l] = (await comLista.fechamentoEntregadores(t)) as LinhaDoAcerto[];
+    expect(l).toMatchObject({ colaboradorId: p, nome: 'Moto Um', modelo: 'so_taxas', entregas: 3, diaria: 0, taxas: 2400, total: 2400, turnoAberto: true, pagoNoTurno: false, pagoCentavos: 0 });
+    expect(acharEntregador([l], 'moto um')).toEqual({ linha: l });
+    expect(recusaDoAcerto(l)).toBeNull();
+    const hoje = hojeISO();
+    expect(resumoDoPagamento(l)).toBe(
+      `Pagar R$ 24,00 a Moto Um (só taxas: 3 entregas de ${hoje.slice(8, 10)}/${hoje.slice(5, 7)}; taxas R$ 24,00). Sai como sangria do caixa de entregas, e essas entregas ficam acertadas.`,
+    );
+    expect(await comLista.pagarEntregador(t, null, p)).toMatchObject({ ok: true, entregas: 3, total: 2400, fechamentoId: expect.any(String) });
+    const [depois] = (await comLista.fechamentoEntregadores(t)) as LinhaDoAcerto[];
+    expect(depois).toMatchObject({ entregas: 0, total: 0, pagoNoTurno: true, pagoCentavos: 2400 });
+    expect(recusaDoAcerto(depois)).toBe('Moto Um já foi pago neste turno do caixa de entregas (R$ 24,00). Um novo pagamento só no próximo turno.');
   });
 
   it('paga uma vez: fechamento, sangria e os pedidos marcados; pagar de novo diz que não há nada', async () => {
