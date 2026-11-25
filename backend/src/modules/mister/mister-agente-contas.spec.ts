@@ -34,6 +34,18 @@ describe('o valor que não veio da consulta', () => {
 
   it('escrito por extenso, o valor arredondado não passa', () => {
     expect(valoresSemConta('Saiu R$ 15.000,00.', [{ saiu: 15700 }])).toEqual([1500000]);
+    expect(valoresSemConta('O ticket médio fica em R$ 47,00.', [{ ticketMedio: 47.38 }])).toEqual([4700]);
+  });
+
+  it('em reais redondos, vale o valor da consulta arredondado ao real e a média arredondada (a c05 e a c70 de 25/11)', () => {
+    // c70: "em torno de R$ 47" = o ticket médio de R$ 47,38 da consulta.
+    expect(valoresSemConta('O ticket médio é quase igual em todos os dias (em torno de R$ 47).', [{ ticketMedio: 47.38 }])).toEqual([]);
+    // c05: a média por dia de cada semana, "cerca de" — R$ 24.876,45 ÷ 5 e R$ 38.420,35 ÷ 7, arredondadas ao real.
+    const semanas = [{ atual: { faturamento: 24876.45 }, anterior: { faturamento: 38420.35 } }];
+    expect(valoresSemConta('Esta semana *R$ 24.876,45*, a passada *R$ 38.420,35*. Por dia, cerca de R$ 4.975 nesta e R$ 5.489 na passada.', semanas)).toEqual([]);
+    // O redondo que não é nenhum desses continua solto.
+    expect(valoresSemConta('Por dia, cerca de R$ 4.000 nesta semana.', semanas)).toEqual([400000]);
+    expect(valoresSemConta('O ticket médio fica em R$ 52.', [{ ticketMedio: 47.38 }])).toEqual([5200]);
   });
 
   it('resposta sem valor, ou só com valor da consulta, não tem o que apontar', () => {

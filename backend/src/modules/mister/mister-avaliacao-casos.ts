@@ -964,8 +964,9 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         lidoAs: '19:10',
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
         campanhas: [
-          { campanha: 'a campanha frete grátis de 23/11 18:00 ("Hoje o frete é grátis acima de R$ 40…")', situacao: 'concluída', publico: 412, enviadas: 405, falhas: 7, cliques: 61, pedidosEm7Dias: 38, ...(perfil.verValores ? { vendasEm7Dias: v(2134.6) } : {}) },
-          { campanha: 'a campanha avulsa de 20/11 11:00 ("Chegou o smash de costela…")', situacao: 'concluída', publico: 380, enviadas: 377, falhas: 3, cliques: 44, pedidosEm7Dias: 21, ...(perfil.verValores ? { vendasEm7Dias: v(1180.15) } : {}) },
+          { campanha: 'a campanha frete grátis de 13/11 19:00 ("Só hoje à noite: frete grátis em todo o cardápio…")', situacao: 'enviando', publico: 520, enviadas: 214, falhas: 2, cliques: 9, pedidosEm7Dias: 3 },
+          { campanha: 'a campanha frete grátis de 12/11 18:00 ("Hoje o frete é grátis acima de R$ 40…")', situacao: 'concluída', publico: 412, enviadas: 405, falhas: 7, cliques: 61, pedidosEm7Dias: 38, ...(perfil.verValores ? { vendasEm7Dias: v(2134.6) } : {}) },
+          { campanha: 'a campanha avulsa de 10/11 11:00 ("Chegou o smash de costela…")', situacao: 'concluída', publico: 380, enviadas: 377, falhas: 3, cliques: 44, pedidosEm7Dias: 21, ...(perfil.verValores ? { vendasEm7Dias: v(1180.15) } : {}) },
         ],
         comoLer: 'As 5 mais novas trazem os números de Delivery › Marketing ("pedidosEm7Dias": quem recebeu e pediu até 7 dias depois). Pausar, retomar e repetir saem pela conversa; mensagem nova, só na tela.',
       });
@@ -1009,7 +1010,7 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
             ],
           },
           {
-            dia: 'sábado',
+            dia: 'domingo',
             pedidos: 2,
             produzir: [{ item: 'Bolo de pote', quantidade: 24 }],
             lista: [{ hora: '09:00', pedido: 'pedido 431 do Cardápio Regem', como: 'retirada', situacao: 'aceito', pago: true, ...(perfil.verValores ? { total: v(146.95) } : {}), itens: '24× Bolo de pote' }],
@@ -1420,7 +1421,7 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c102', pergunta: 'Quanto tenho que pagar aos entregadores hoje? O Rafa já recebeu?', consultas: ['acerto_dos_entregadores'], numeros: ['268,75'], contem: ['Rafa'] },
   { id: 'c103', pergunta: 'Paga o acerto do Jefferson.', consultas: ['propor_acao'], contem: ['PIN'] },
   // Etapa 3 de 24/11: a agenda das encomendas.
-  { id: 'c104', pergunta: 'Quanto bolo de pote eu tenho que produzir para as encomendas de amanhã?', consultas: ['agenda_de_encomendas'], numeros: ['18'], contem: ['Bolo de pote'] },
+  { id: 'c104', pergunta: 'Quanto bolo de pote eu tenho que produzir para as encomendas de amanhã?', consultas: ['agenda_de_encomendas'], numeros: ['18'], contem: ['Bolo de pote|bolos de pote'] },
   // Etapa 4 de 24/11: as avaliações dos clientes.
   { id: 'c105', pergunta: 'Como estão as avaliações dos clientes esta semana? Por que deram nota baixa?', consultas: ['avaliacoes_dos_clientes'], numeros: ['4,3'], contem: ['entrega'] },
   // Etapa 5 de 24/11: o ajuste de ponto.
