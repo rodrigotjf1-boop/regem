@@ -141,8 +141,9 @@ export class DesperdicioService {
         })
         .returning({ id: movimentoEstoque.id });
       // PVPS/FEFO (mig 248): tira do lote que vence primeiro. Sobra sem lote não
-      // trava a perda — o registro do desperdício é o que importa.
-      await consumirLotes(tx, tenantId, dto.itemId!, Number(dto.quantidade), mov.id);
+      // trava a perda — o registro do desperdício é o que importa. Lote conhecido (a perda da etiqueta de um lote,
+      // EST-F-02): sai DELE primeiro — antes a perda do pote do lote B baixava o lote A, que vencia antes.
+      await consumirLotes(tx, tenantId, dto.itemId!, Number(dto.quantidade), mov.id, dto.loteId ?? null);
       return row;
     };
     return txExterna ? corpo(txExterna) : this.db.transaction(corpo);

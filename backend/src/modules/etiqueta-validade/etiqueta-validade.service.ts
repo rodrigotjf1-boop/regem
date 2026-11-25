@@ -56,6 +56,18 @@ const addDias = (iso: string, d: number) => {
   return dt.toISOString().slice(0, 10);
 };
 
+/**
+ * Validade da etiqueta que já nasce ABERTA ("Usado") de um lote ou insumo (EST-F-03 da revisão de 25/11/2026): a MENOR
+ * entre a validade do lote/insumo e hoje + os dias depois de aberto do insumo — a mesma regra de `abrir()`. Antes copiava
+ * a validade de fechado: o lote que vence 01/12, aberto em 24/11 com 2 dias de aberto, saía com 01/12 em vez de 26/11.
+ * Sem os dias de aberto cadastrados, fica a validade original.
+ */
+export function validadeJaAberta(validadeOriginal: string, diasAberto: number | null | undefined): string {
+  if (diasAberto == null || !Number.isFinite(Number(diasAberto))) return validadeOriginal;
+  const aberta = addDias(hojeISO(), Number(diasAberto));
+  return aberta < validadeOriginal ? aberta : validadeOriginal;
+}
+
 @Injectable()
 export class EtiquetaValidadeService {
   private readonly log = new Logger(EtiquetaValidadeService.name);
@@ -260,7 +272,7 @@ export class EtiquetaValidadeService {
       const [lt] = await this.db
         .select({
           id: lote.id, itemId: lote.itemId, validade: lote.validade,
-          nome: itemEstoque.nome, unidadeMedida: itemEstoque.unidadeMedida,
+          nome: itemEstoque.nome, unidadeMedida: itemEstoque.unidadeMedida, diasAberto: itemEstoque.validadeAbertoDias,
         })
         .from(lote)
         .innerJoin(itemEstoque, eq(itemEstoque.id, lote.itemId))
@@ -272,7 +284,7 @@ export class EtiquetaValidadeService {
         );
       descricao = lt.nome;
       unidadeMedida = lt.unidadeMedida;
-      validade = String(lt.validade).slice(0, 10);
+      validade = validadeJaAberta(String(lt.validade).slice(0, 10), usado ? lt.diasAberto : null);
       // O insumo vai junto: é por ele que `abrir()` recalcula a validade após aberto.
       itemIdOk = lt.itemId;
       loteIdOk = lt.id;
@@ -283,7 +295,7 @@ export class EtiquetaValidadeService {
         throw new BadRequestException('Cadastre a validade do insumo antes de gerar a etiqueta.');
       descricao = it.nome;
       unidadeMedida = it.unidadeMedida;
-      validade = String(it.validade).slice(0, 10);
+      validade = validadeJaAberta(String(it.validade).slice(0, 10), usado ? it.validadeAbertoDias : null);
     } else {
       let diasFechado: number | null = null;
       let diasAberto: number | null = null;
@@ -490,28 +502,23 @@ export class EtiquetaValidadeService {
     });
   }
 
-  private async carregar(tenantId: string, id: string) {
-    const [e] = await this.db
-      .select()
-      .from(etiquetaValidade)
-      .where(and(eq(etiquetaValidade.id, id), eq(etiquetaValidade.tenantId, tenantId), isNull(etiquetaValidade.deletedAt)));
-    if (!e) throw new NotFoundException('Etiqueta não encontrada.');
-    return e;
-  }
-
   // Núcleo de ABRIR (fechado → em uso). Recalcula a validade após aberto pela fonte
   // (produto/ficha/INSUMO). SÓ reimprime uma nova via se a validade ENCURTAR — se não
   // muda, a etiqueta física continua válida e não precisa gerar outra (E2).
-  private async abrirEtiquetaRow(e: any, atorId: string | null) {
+  //
+  // Roda DENTRO da transação de quem travou a etiqueta (`abrirComTrava`, EST-F-04 da revisão de 25/11/2026): antes, dois
+  // aparelhos que abriam o mesmo pote leram "fechado" os dois e criaram DUAS substitutas em uso — dois códigos válidos
+  // para o mesmo pote e duas perdas possíveis. A reimpressão sai DEPOIS do commit (quem chama), nunca de dentro.
+  private async abrirEtiquetaRow(tx: any, e: any, atorId: string | null) {
     let diasAberto: number | null = null;
     if (e.produtoId) {
-      const [p] = await this.db.select({ ab: produto.validadeAbertoDias }).from(produto).where(eq(produto.id, e.produtoId));
+      const [p] = await tx.select({ ab: produto.validadeAbertoDias }).from(produto).where(eq(produto.id, e.produtoId));
       diasAberto = p?.ab ?? null;
     } else if (e.fichaId) {
-      const [f] = await this.db.select({ ab: fichaTecnica.validadeAbertoDias }).from(fichaTecnica).where(eq(fichaTecnica.id, e.fichaId));
+      const [f] = await tx.select({ ab: fichaTecnica.validadeAbertoDias }).from(fichaTecnica).where(eq(fichaTecnica.id, e.fichaId));
       diasAberto = f?.ab ?? null;
     } else if (e.itemId) {
-      const [it] = await this.db.select({ ab: itemEstoque.validadeAbertoDias }).from(itemEstoque).where(eq(itemEstoque.id, e.itemId));
+      const [it] = await tx.select({ ab: itemEstoque.validadeAbertoDias }).from(itemEstoque).where(eq(itemEstoque.id, e.itemId));
       diasAberto = it?.ab ?? null;
     }
     const cand = diasAberto != null ? addDias(hojeISO(), diasAberto) : null;
@@ -519,7 +526,7 @@ export class EtiquetaValidadeService {
     // NOVA etiqueta (novo QR) que a sobrepõe. Assim o QR antigo passa a ser inválido.
     if (cand && cand < String(e.validade).slice(0, 10)) {
       const codigo = this.gerarCodigo();
-      const [nova] = await this.db
+      const [nova] = await tx
         .insert(etiquetaValidade)
         .values({
           tenantId: e.tenantId,
@@ -527,6 +534,8 @@ export class EtiquetaValidadeService {
           produtoId: e.produtoId ?? null,
           fichaId: e.fichaId ?? null,
           itemId: e.itemId ?? null,
+          // O lote vai junto (EST-F-02): a substituta é o MESMO pote — a perda dela baixa o lote dele.
+          loteId: e.loteId ?? null,
           templateId: e.templateId ?? null,
           descricao: e.descricao,
           unidadeMedida: e.unidadeMedida,
@@ -541,20 +550,36 @@ export class EtiquetaValidadeService {
           criadoPorId: atorId,
         })
         .returning();
-      await this.db
+      await tx
         .update(etiquetaValidade)
         .set({ status: 'substituida', substituidaPorId: nova.id, baixadoEm: new Date(), baixadoPorId: atorId, updatedAt: new Date() })
         .where(eq(etiquetaValidade.id, e.id));
-      await this.reimprimirEtiqueta(nova).catch(() => {});
       return { acao: 'aberto', reimpresso: true, substituida: true, etiqueta: nova, anteriorId: e.id };
     }
     // Não encurta → só abre a MESMA etiqueta (a via física continua válida).
-    const [row] = await this.db
+    const [row] = await tx
       .update(etiquetaValidade)
       .set({ status: 'em_uso', tipo: 'usado', abertura: new Date(), baixadoPorId: atorId, updatedAt: new Date() })
       .where(eq(etiquetaValidade.id, e.id))
       .returning();
     return { acao: 'aberto', reimpresso: false, substituida: false, etiqueta: row };
+  }
+
+  /**
+   * Abre a etiqueta `id` com ela TRAVADA, relendo a situação depois da trava (EST-F-04): quem chega segundo vê "já
+   * aberta" (ou a substituta que o primeiro criou) e NÃO imprime outra. A impressão da substituta sai depois do commit.
+   */
+  private async abrirComTrava(tenantId: string, atorId: string | null, id: string) {
+    const r: any = await this.comTrava(tenantId, id, async (tx, e) => {
+      if (e.status === 'fechado') return this.abrirEtiquetaRow(tx, e, atorId);
+      if (e.status === 'substituida' && e.substituidaPorId) {
+        const [nova] = await tx.select().from(etiquetaValidade).where(eq(etiquetaValidade.id, e.substituidaPorId));
+        return { acao: 'ja_aberto', reimpresso: false, etiqueta: nova ?? e };
+      }
+      return { acao: 'ja_aberto', reimpresso: false, etiqueta: e };
+    });
+    if (r.reimpresso) await this.reimprimirEtiqueta(r.etiqueta).catch(() => {});
+    return r;
   }
 
   // A etiqueta do código que o LEITOR entregou. O texto lido nem sempre é o gravado
@@ -628,27 +653,36 @@ export class EtiquetaValidadeService {
 
   // Abrir por ID (botão "Abrir" na aba Ativas). Baixa direta = finalizar(id).
   async abrir(tenantId: string, atorId: string | null, id: string) {
-    const e = await this.carregar(tenantId, id);
-    if (e.status !== 'fechado') return { acao: 'ja_aberto', reimpresso: false, etiqueta: e };
-    return this.abrirEtiquetaRow(e, atorId);
+    return this.abrirComTrava(tenantId, atorId, id);
   }
 
   // Leitura do código: fechado → em uso (recalcula/reimprime) → baixado.
+  // A situação é RELIDA com a etiqueta travada (EST-F-04): duas leituras juntas do mesmo código não abrem duas vezes nem
+  // baixam o pote que a outra acabou de abrir.
   async lerCodigo(tenantId: string, atorId: string | null, codigo: string) {
-    const e = await this.acharPorCodigoLido(tenantId, codigo);
-    if (!e) throw new NotFoundException('Código não encontrado.');
-    if (e.status === 'fechado') return this.abrirEtiquetaRow(e, atorId);
-    if (e.status === 'em_uso') {
-      // Já aberta → baixa (consumido).
-      const [row] = await this.db
-        .update(etiquetaValidade)
-        .set({ status: 'baixado', baixadoEm: new Date(), baixadoPorId: atorId, updatedAt: new Date() })
-        .where(eq(etiquetaValidade.id, e.id))
-        .returning();
-      return { acao: 'baixado', etiqueta: row };
-    }
-    // substituida / baixado / vencido → não muta; informa (o QR já não vale).
-    return { acao: 'informativo', status: e.status, etiqueta: e };
+    const achada = await this.acharPorCodigoLido(tenantId, codigo);
+    if (!achada) throw new NotFoundException('Código não encontrado.');
+    let reimprimir: any = null;
+    const r: any = await this.comTrava(tenantId, achada.id, async (tx, e) => {
+      if (e.status === 'fechado') {
+        const aberto = await this.abrirEtiquetaRow(tx, e, atorId);
+        if (aberto.reimpresso) reimprimir = aberto.etiqueta;
+        return aberto;
+      }
+      if (e.status === 'em_uso') {
+        // Já aberta → baixa (consumido).
+        const [row] = await tx
+          .update(etiquetaValidade)
+          .set({ status: 'baixado', baixadoEm: new Date(), baixadoPorId: atorId, updatedAt: new Date() })
+          .where(eq(etiquetaValidade.id, e.id))
+          .returning();
+        return { acao: 'baixado', etiqueta: row };
+      }
+      // substituida / baixado / vencido → não muta; informa (o QR já não vale).
+      return { acao: 'informativo', status: e.status, etiqueta: e };
+    });
+    if (reimprimir) await this.reimprimirEtiqueta(reimprimir).catch(() => {});
+    return r;
   }
 
   // Vencida usada até o fim → finaliza (sem perda).
@@ -698,6 +732,8 @@ export class EtiquetaValidadeService {
         tenantId,
         {
           itemId: baixa ? e.itemId : undefined,
+          // O lote da etiqueta (EST-F-02): a perda do pote do lote B baixa o lote B, não o que vence primeiro.
+          loteId: baixa ? e.loteId ?? undefined : undefined,
           quantidade: baixa ? qtd : undefined,
           unidadeMedida: e.unidadeMedida ?? undefined,
           descricao: `Etiqueta vencida: ${e.descricao}`,

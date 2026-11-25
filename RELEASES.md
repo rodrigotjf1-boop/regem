@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Estoque: o saldo e o custo não andam duas vezes (25/11; ERR-610; SEM migration).** Lote E1 da revisão do estoque: dois
+  ajustes para o mesmo saldo contado, duas contagens da mesma lista e duas notas do mesmo insumo não se somam mais (o insumo é
+  travado antes de ler o saldo ou o custo, sem segurar a venda); a saída à mão baixa também o lote; o lote da nota fica na loja da
+  nota; a ficha técnica é gravada inteira ou nada (não fica sem ingrediente) e recusa rendimento zero ou negativo; a etiqueta já
+  aberta vence pelos dias de aberto, duas aberturas juntas não criam dois códigos e a perda baixa o lote da etiqueta. **Vai no
+  `.zip`** (estoque, contagem, fichas e etiquetas rodam no servidor da loja).
+
 - **Validade obrigatória só no produto marcado, com "não sei" pendente (25/11; P1 de "Pedidos e recebimento"; mig 504 — já
   aplicada na nuvem).** O recebimento do pedido só exige a validade no produto marcado; "não sei" deixa pendente; Pedidos ganha
   "Validade pendente" e "Informar a validade". **Vai no `.zip`**: as colunas novas estão em `item_estoque`, `compra_item` e

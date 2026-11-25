@@ -19,6 +19,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { ponderarCustoDaEntrada } from '../../common/custo-loja';
+import { travarInsumos } from '../../common/trava-do-insumo';
 import { hojeISO } from '../../common/data';
 import { sqlUnidade, condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import type { Periodo } from '../../common/periodo';
@@ -206,6 +207,9 @@ export class RecebimentoService {
         .select()
         .from(recebimentoItem)
         .where(eq(recebimentoItem.recebimentoId, id));
+      // Os insumos da nota TRAVADOS de uma vez, em ordem (EST-D-01): o custo médio de cada um é lido e gravado com
+      // ninguém mais dando entrada nele; duas notas com os mesmos insumos em outra ordem não ficam esperando uma a outra.
+      await travarInsumos(tx, tenantId, itens.filter((it) => Number(it.qtdRecebida) > 0).map((it) => it.itemId));
 
       let entradas = 0;
       let valorTotal = 0;
@@ -234,8 +238,16 @@ export class RecebimentoService {
           entradas++;
 
           if (it.validade) {
+            // O lote é da MESMA loja do movimento (EST-D-02 da revisão de 25/11/2026): o gatilho da mig 253 gravou a loja
+            // da nota no movimento, mas o lote saía sem loja — e lote sem loja serve a todas, então a venda da filial B
+            // consumia o lote que estava na loja A.
+            const [mvLoja] = await tx
+              .select({ unidadeId: movimentoEstoque.unidadeId })
+              .from(movimentoEstoque)
+              .where(eq(movimentoEstoque.id, mov.id));
             await tx.insert(lote).values({
               tenantId,
+              unidadeId: mvLoja?.unidadeId ?? undefined,
               itemId: it.itemId,
               recebimentoId: id,
               validade: it.validade,

@@ -31,6 +31,8 @@ import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { furoCmv } from '../../common/regras-negocio';
 import { hojeISO, somarDias } from '../../common/data';
 import { exigirLojaParaLancar } from '../../common/loja-lancamento';
+import { consumirLotes } from '../../common/lotes';
+import { travarInsumos } from '../../common/trava-do-insumo';
 import {
   contarLojas,
   gravarEstoqueMinimoDaLoja,
@@ -839,43 +841,61 @@ export class EstoqueService {
     // loja é o saldo.
     const unidadeId = await exigirLojaParaLancar(this.db, tenantId, atual ?? it.unidadeId);
 
-    // Quantidade do lançamento. No ajuste com `saldoContado`, é a diferença para o saldo da
-    // loja NESTE instante (conta feita no banco, em numeric — não com o saldo que a tela tinha).
-    let quantidade: string;
-    if (dto.tipo === 'ajuste' && dto.saldoContado !== undefined) {
-      const res: any = await this.db.execute(sql`
-        select (${String(dto.saldoContado)}::numeric
-                - coalesce(sum(case m.tipo when 'entrada' then m.quantidade
-                                           when 'saida'   then -m.quantidade
-                                           else m.quantidade end), 0))::text as diferenca
-          from movimento_estoque m
-         where m.tenant_id = ${tenantId} and m.item_id = ${dto.itemId}
-           ${unidadeId ? sql`and m.unidade_id = ${unidadeId}` : sql``}`);
-      quantidade = String((res.rows ?? res)[0]?.diferenca ?? '0');
-      // Contou e bateu: não há o que lançar (um movimento de zero só sujaria o histórico).
-      if (Number(quantidade) === 0) return { id: null, semMudanca: true };
-    } else {
+    if (!(dto.tipo === 'ajuste' && dto.saldoContado !== undefined)) {
       const q = Number(dto.quantidade);
       if (!Number.isFinite(q)) throw new BadRequestException('Informe a quantidade.');
       if (dto.tipo !== 'ajuste' && q <= 0)
         throw new BadRequestException('A quantidade da entrada ou da saída tem de ser maior que zero.');
       if (dto.tipo === 'ajuste' && q === 0)
         throw new BadRequestException('O ajuste precisa de uma diferença (ou do saldo contado).');
-      quantidade = String(q);
     }
 
-    const [row] = await this.db
-      .insert(movimentoEstoque)
-      .values({
-        tenantId,
-        unidadeId: unidadeId ?? undefined,
-        itemId: dto.itemId,
-        tipo: dto.tipo,
-        quantidade,
-        motivo: dto.motivo,
-        data: dto.data ?? hojeISO(),
-      })
-      .returning();
+    // TUDO numa transação com o insumo TRAVADO (EST-B-01 da revisão de 25/11/2026): antes, o saldo era lido numa
+    // consulta e o ajuste gravado noutra — dois terminais que contaram 8 com o sistema em 10 liam 10 os dois e lançavam
+    // −2 cada um (saldo 6). `for no key update` põe em fila os lançamentos manuais e a contagem do mesmo insumo e não
+    // segura a venda (a chave estrangeira do movimento pega `for key share`, que não conflita). A segunda leitura, feita
+    // depois da trava, já vê o ajuste da primeira e não lança nada.
+    const lancado = await this.db.transaction(async (tx) => {
+      await travarInsumos(tx, tenantId, [dto.itemId]);
+      // Quantidade do lançamento. No ajuste com `saldoContado`, é a diferença para o saldo da
+      // loja NESTE instante (conta feita no banco, em numeric — não com o saldo que a tela tinha).
+      let quantidade: string;
+      if (dto.tipo === 'ajuste' && dto.saldoContado !== undefined) {
+        const res: any = await tx.execute(sql`
+          select (${String(dto.saldoContado)}::numeric
+                  - coalesce(sum(case m.tipo when 'entrada' then m.quantidade
+                                             when 'saida'   then -m.quantidade
+                                             else m.quantidade end), 0))::text as diferenca
+            from movimento_estoque m
+           where m.tenant_id = ${tenantId} and m.item_id = ${dto.itemId}
+             ${unidadeId ? sql`and m.unidade_id = ${unidadeId}` : sql``}`);
+        quantidade = String((res.rows ?? res)[0]?.diferenca ?? '0');
+        // Contou e bateu: não há o que lançar (um movimento de zero só sujaria o histórico).
+        if (Number(quantidade) === 0) return null;
+      } else {
+        quantidade = String(Number(dto.quantidade));
+      }
+      const [row] = await tx
+        .insert(movimentoEstoque)
+        .values({
+          tenantId,
+          unidadeId: unidadeId ?? undefined,
+          itemId: dto.itemId,
+          tipo: dto.tipo,
+          quantidade,
+          motivo: dto.motivo,
+          data: dto.data ?? hojeISO(),
+        })
+        .returning();
+      // O que SAI à mão (saída, ou ajuste para menos) sai também do lote, em FEFO (EST-B-02): antes só a contagem, a
+      // venda, a produção e o desperdício consumiam lote — a saída manual de 4 kg deixava 6 no estoque e 10 no lote, e a
+      // validade alertava mercadoria que já tinha saído. A sobra sem lote não trava (a regra de `consumirLotes`).
+      const sai = dto.tipo === 'saida' ? Number(quantidade) : dto.tipo === 'ajuste' && Number(quantidade) < 0 ? -Number(quantidade) : 0;
+      if (sai > 0) await consumirLotes(tx, tenantId, dto.itemId, sai, row.id);
+      return { row, quantidade };
+    });
+    if (!lancado) return { id: null, semMudanca: true };
+    const { row, quantidade } = lancado;
     // Auditoria: movimento manual de estoque (entrada/saída/ajuste).
     await this.auditoria.registrar({
       tenantId,

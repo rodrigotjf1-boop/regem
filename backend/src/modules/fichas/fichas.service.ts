@@ -27,6 +27,15 @@ function margemOuNada(v: number | null | undefined): string | null {
   if (!Number.isFinite(n) || n < 0 || n > 100) throw new BadRequestException('Margem de perda: informe de 0 a 100%.');
   return n === 0 ? null : String(Math.round(n * 100) / 100);
 }
+// Rendimento como vai para o banco (EST-C-03 da revisão de 25/11/2026): número, maior que zero e que não vire zero nas 3
+// casas da coluna (numeric(12,3)). Antes a API aceitava −1 ou 0: com −1 a venda descartava a baixa do ingrediente e o
+// custo por porção ficava negativo; com 0 a conta trocava por 1 em silêncio. O DTO também recusa; aqui é a régua final.
+function conferirRendimento(v: unknown): string {
+  const n = Number(v);
+  if (v == null || !Number.isFinite(n) || n <= 0) throw new BadRequestException('O rendimento tem de ser maior que zero.');
+  if (Math.round(n * 1000) / 1000 <= 0) throw new BadRequestException('O rendimento é pequeno demais: use ao menos 0,001.');
+  return String(n);
+}
 // custoTotal já resolvido (recursivo, com sub-fichas) → deriva porção, CMV, preço.
 function computar(f: any, custoTotal: number) {
   const rendimento = Number(f.rendimento) || 1;
@@ -135,27 +144,11 @@ export class FichasService {
   async create(tenantId: string, dto: CreateFichaDto, unidadeAtual: string | null = null) {
     this.conferirUnidadesLivres(dto.ingredientes);
     this.conferirCanais(dto.ingredientes);
-    const [f] = await this.db
-      .insert(fichaTecnica)
-      .values({
-        tenantId,
-        nome: dto.nome,
-        categoria: dto.categoria ?? 'base',
-        rendimento: dto.rendimento != null ? String(dto.rendimento) : '1',
-        rendimentoUnidade: dto.rendimentoUnidade === undefined ? undefined : unidadeOuPadrao(dto.rendimentoUnidade, 'Unidade do rendimento', 'porção'),
-        porcaoTamanho: dto.porcaoTamanho != null ? String(dto.porcaoTamanho) : undefined,
-        porcaoUnidade: dto.porcaoUnidade,
-        validade: dto.validade,
-        precoVenda: dto.precoVenda != null ? String(dto.precoVenda) : undefined,
-        metaCmv: dto.metaCmv != null ? String(dto.metaCmv) : undefined,
-        margemPerda: margemOuNada(dto.margemPerda),
-        conversoes: conferirConversoes(dto.conversoes) ?? [],
-        setorId: dto.setorId,
-        unidadeId: dto.unidadeId,
-        popId: dto.popId,
-      })
-      .returning();
-
+    // Tudo conferido e convertido ANTES de gravar (EST-C-01 da revisão de 25/11/2026): antes o cabeçalho entrava primeiro
+    // e uma recusa das linhas (sub-ficha de outra empresa, unidade sem conversão) deixava uma ficha vazia gravada.
+    const rendimentoUnidade = dto.rendimentoUnidade === undefined ? undefined : unidadeOuPadrao(dto.rendimentoUnidade, 'Unidade do rendimento', 'porção');
+    const conversoes = conferirConversoes(dto.conversoes) ?? [];
+    let linhas: CreateIngredienteDto[] = [];
     if (dto.ingredientes?.length) {
       // Sub-fichas devem existir no tenant (ficha nova não pode fechar ciclo).
       const subs = dto.ingredientes
@@ -170,26 +163,33 @@ export class FichasService {
           }
         }
       }
-      const linhas = await this.linhasParaGravar(tenantId, dto.ingredientes);
-      await this.db.insert(fichaIngrediente).values(
-        linhas.map((i, idx) => ({
-          tenantId,
-          fichaId: f.id,
-          itemId: i.subFichaId ? undefined : i.itemId,
-          subFichaId: i.subFichaId,
-          insumoNome: i.insumoNome,
-          quantidade: i.quantidade != null ? String(i.quantidade) : '0',
-          unidade: i.unidade,
-          fatorCorrecao:
-            i.fatorCorrecao != null ? String(i.fatorCorrecao) : '1',
-          custoUnitario:
-            i.custoUnitario != null ? String(i.custoUnitario) : '0',
-          somenteDelivery: i.somenteDelivery ?? false,
-          somenteBalcao: i.somenteBalcao ?? false,
-          ordem: i.ordem ?? idx,
-        })),
-      );
+      linhas = await this.linhasParaGravar(tenantId, dto.ingredientes);
     }
+    // Cabeçalho e ingredientes na MESMA transação: ou a ficha entra inteira, ou não entra.
+    const f = await this.db.transaction(async (tx) => {
+      const [nova] = await tx
+        .insert(fichaTecnica)
+        .values({
+          tenantId,
+          nome: dto.nome,
+          categoria: dto.categoria ?? 'base',
+          rendimento: dto.rendimento != null ? conferirRendimento(dto.rendimento) : '1',
+          rendimentoUnidade,
+          porcaoTamanho: dto.porcaoTamanho != null ? String(dto.porcaoTamanho) : undefined,
+          porcaoUnidade: dto.porcaoUnidade,
+          validade: dto.validade,
+          precoVenda: dto.precoVenda != null ? String(dto.precoVenda) : undefined,
+          metaCmv: dto.metaCmv != null ? String(dto.metaCmv) : undefined,
+          margemPerda: margemOuNada(dto.margemPerda),
+          conversoes,
+          setorId: dto.setorId,
+          unidadeId: dto.unidadeId,
+          popId: dto.popId,
+        })
+        .returning();
+      if (linhas.length) await tx.insert(fichaIngrediente).values(this.valoresDasLinhas(tenantId, nova.id, linhas));
+      return nova;
+    });
     return this.getOne(tenantId, f.id, unidadeAtual);
   }
 
@@ -395,7 +395,7 @@ export class FichasService {
     const patch: any = {};
     if (dto.nome !== undefined) patch.nome = dto.nome;
     if (dto.categoria !== undefined) patch.categoria = dto.categoria;
-    if (dto.rendimento !== undefined) patch.rendimento = String(dto.rendimento);
+    if (dto.rendimento !== undefined) patch.rendimento = conferirRendimento(dto.rendimento);
     if (dto.rendimentoUnidade !== undefined)
       patch.rendimentoUnidade = unidadeOuPadrao(dto.rendimentoUnidade, 'Unidade do rendimento', 'porção');
     // Tamanho da porção (mig 130): converte porções (un) ↔ rendimento na ordem de produção.
@@ -413,21 +413,9 @@ export class FichasService {
     if (dto.ativo !== undefined) patch.ativo = dto.ativo;
     // Conversões do rendimento (mig 319): ausente mantém; [] tira.
     if (conversoes !== undefined) patch.conversoes = conversoes;
-    let subReceitasAjustadas = 0;
-    if (Object.keys(patch).length) {
-      const doRegistro = and(eq(fichaTecnica.id, id), eq(fichaTecnica.tenantId, tenantId));
-      const colunas = { rendimentoUnidade: fichaTecnica.rendimentoUnidade, conversoes: fichaTecnica.conversoes, rendimento: fichaTecnica.rendimento };
-      const mexeNaUnidade = patch.rendimentoUnidade !== undefined || patch.conversoes !== undefined;
-      // A unidade do rendimento ou as conversões mudaram: as linhas das fichas que usam esta como
-      // sub-receita são refeitas na MESMA transação (`reconverterSubReceitas`). A trava na linha da
-      // ficha impede que duas edições ao mesmo tempo partam do mesmo "antes".
-      subReceitasAjustadas = await this.db.transaction(async (tx) => {
-        const [antes] = mexeNaUnidade ? await tx.select(colunas).from(fichaTecnica).where(doRegistro).for('update') : [];
-        const [depois] = await tx.update(fichaTecnica).set(patch).where(doRegistro).returning(colunas);
-        return antes && depois ? this.reconverterSubReceitas(tx, tenantId, id, rendeEm(antes), rendeEm(depois)) : 0;
-      });
-    }
-    // Ingredientes (replace-all) quando enviados — valida ciclo das sub-fichas.
+    // Ingredientes (replace-all) quando enviados: TUDO conferido e convertido ANTES de gravar qualquer coisa (ciclo das
+    // sub-fichas, produto feito na loja, conversão de cada linha) — a recusa não deixa a ficha pela metade.
+    let linhas: CreateIngredienteDto[] | null = null;
     if (dto.ingredientes) {
       for (const s of dto.ingredientes
         .map((i) => i.subFichaId)
@@ -439,39 +427,63 @@ export class FichasService {
         id,
         dto.ingredientes.filter((i) => !i.subFichaId && i.itemId).map((i) => i.itemId as string),
       );
-      // SOFT-delete (mig 242), não delete físico: a tabela sincroniza para o servidor
-      // local por delta de linha. Apagar de verdade some da nuvem mas NÃO some do edge
-      // — ele ficaria com o ingrediente antigo somado ao novo e baixaria insumo a mais.
-      await this.db
-        .update(fichaIngrediente)
-        .set({ deletedAt: new Date() })
-        .where(
-          and(
-            eq(fichaIngrediente.fichaId, id),
-            eq(fichaIngrediente.tenantId, tenantId),
-            isNull(fichaIngrediente.deletedAt),
-          ),
-        );
-      const linhas = await this.linhasParaGravar(tenantId, dto.ingredientes);
-      if (linhas.length)
-        await this.db.insert(fichaIngrediente).values(
-          linhas.map((i, idx) => ({
-            tenantId,
-            fichaId: id,
-            itemId: i.subFichaId ? undefined : i.itemId,
-            subFichaId: i.subFichaId,
-            insumoNome: i.insumoNome,
-            quantidade: i.quantidade != null ? String(i.quantidade) : '0',
-            unidade: i.unidade,
-            fatorCorrecao: i.fatorCorrecao != null ? String(i.fatorCorrecao) : '1',
-            custoUnitario: i.custoUnitario != null ? String(i.custoUnitario) : '0',
-            somenteDelivery: i.somenteDelivery ?? false,
-            somenteBalcao: i.somenteBalcao ?? false,
-            ordem: i.ordem ?? idx,
-          })),
-        );
+      linhas = await this.linhasParaGravar(tenantId, dto.ingredientes);
     }
+    const doRegistro = and(eq(fichaTecnica.id, id), eq(fichaTecnica.tenantId, tenantId));
+    const colunas = { rendimentoUnidade: fichaTecnica.rendimentoUnidade, conversoes: fichaTecnica.conversoes, rendimento: fichaTecnica.rendimento };
+    const mexeNaUnidade = patch.rendimentoUnidade !== undefined || patch.conversoes !== undefined;
+    // UMA transação com a ficha TRAVADA (EST-C-01 da revisão de 25/11/2026): cabeçalho, sub-receitas refeitas e a troca
+    // dos ingredientes entram juntos ou nada entra. Antes os ingredientes eram apagados e regravados FORA da transação:
+    // uma falha ao gravar as linhas novas deixava a ficha SEM ingrediente nenhum (a venda seguinte não baixava nada), e
+    // duas edições ao mesmo tempo podiam misturar as linhas das duas. A trava também faz duas edições partirem uma do
+    // resultado da outra.
+    const subReceitasAjustadas = await this.db.transaction(async (tx) => {
+      const [antes] = await tx.select(colunas).from(fichaTecnica).where(doRegistro).for('update');
+      if (!antes) throw new NotFoundException('Ficha não encontrada');
+      let ajustadas = 0;
+      if (Object.keys(patch).length) {
+        // A unidade do rendimento ou as conversões mudaram: as linhas das fichas que usam esta como
+        // sub-receita são refeitas na MESMA transação (`reconverterSubReceitas`).
+        const [depois] = await tx.update(fichaTecnica).set(patch).where(doRegistro).returning(colunas);
+        if (mexeNaUnidade && depois) ajustadas = await this.reconverterSubReceitas(tx, tenantId, id, rendeEm(antes), rendeEm(depois));
+      }
+      if (linhas) {
+        // SOFT-delete (mig 242), não delete físico: a tabela sincroniza para o servidor
+        // local por delta de linha. Apagar de verdade some da nuvem mas NÃO some do edge
+        // — ele ficaria com o ingrediente antigo somado ao novo e baixaria insumo a mais.
+        await tx
+          .update(fichaIngrediente)
+          .set({ deletedAt: new Date() })
+          .where(
+            and(
+              eq(fichaIngrediente.fichaId, id),
+              eq(fichaIngrediente.tenantId, tenantId),
+              isNull(fichaIngrediente.deletedAt),
+            ),
+          );
+        if (linhas.length) await tx.insert(fichaIngrediente).values(this.valoresDasLinhas(tenantId, id, linhas));
+      }
+      return ajustadas;
+    });
     return { ...(await this.getOne(tenantId, id, unidadeAtual)), subReceitasAjustadas };
+  }
+
+  /** As linhas convertidas como vão para `ficha_ingrediente` (a mesma forma na criação e na edição). */
+  private valoresDasLinhas(tenantId: string, fichaId: string, linhas: CreateIngredienteDto[]) {
+    return linhas.map((i, idx) => ({
+      tenantId,
+      fichaId,
+      itemId: i.subFichaId ? undefined : i.itemId,
+      subFichaId: i.subFichaId,
+      insumoNome: i.insumoNome,
+      quantidade: i.quantidade != null ? String(i.quantidade) : '0',
+      unidade: i.unidade,
+      fatorCorrecao: i.fatorCorrecao != null ? String(i.fatorCorrecao) : '1',
+      custoUnitario: i.custoUnitario != null ? String(i.custoUnitario) : '0',
+      somenteDelivery: i.somenteDelivery ?? false,
+      somenteBalcao: i.somenteBalcao ?? false,
+      ordem: i.ordem ?? idx,
+    }));
   }
 
   // A linha de outra ficha que usa ESTA como sub-receita guarda a quantidade na unidade em que esta

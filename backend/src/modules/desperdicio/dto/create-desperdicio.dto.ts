@@ -21,6 +21,11 @@ export class CreateDesperdicioDto {
   @IsUUID()
   itemId?: string;
 
+  /** Lote de onde a perda saiu, quando se sabe (a etiqueta do lote — EST-F-02). Sai dele primeiro; o resto em FEFO. */
+  @IsOptional()
+  @IsUUID()
+  loteId?: string;
+
   @IsOptional()
   @IsNumber()
   quantidade?: number;
