@@ -26,6 +26,11 @@
   aberta vence pelos dias de aberto, duas aberturas juntas não criam dois códigos e a perda baixa o lote da etiqueta. **Vai no
   `.zip`** (estoque, contagem, fichas e etiquetas rodam no servidor da loja).
 
+- **Recebimento do pedido sem impasse (25/11; EST-D-01 na compra, sugestão da revisão do estoque; SEM migration).** O "Conferir e
+  receber" trava os insumos que vieram uma vez, em ordem, antes de dar entrada. Antes, dois pedidos com os mesmos insumos em ordem
+  invertida, recebidos juntos, podiam fazer o Postgres derrubar um com impasse (a pessoa repetia). **Vai no `.zip`**: o recebimento
+  roda no servidor da loja.
+
 - **Validade obrigatória só no produto marcado, com "não sei" pendente (25/11; P1 de "Pedidos e recebimento"; mig 504 — já
   aplicada na nuvem).** O recebimento do pedido só exige a validade no produto marcado; "não sei" deixa pendente; Pedidos ganha
   "Validade pendente" e "Informar a validade". **Vai no `.zip`**: as colunas novas estão em `item_estoque`, `compra_item` e

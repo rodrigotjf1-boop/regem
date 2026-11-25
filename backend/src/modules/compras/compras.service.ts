@@ -25,6 +25,7 @@ import {
   sqlLojasDoItem,
   sqlMinimoDaLoja,
 } from '../../common/custo-loja';
+import { travarInsumos } from '../../common/trava-do-insumo';
 import { condUnidadeOuRede, sqlUnidade, sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { hojeISO } from '../../common/data';
 import type { Periodo } from '../../common/periodo';
@@ -473,6 +474,10 @@ export class ComprasService {
       // O valor conferido de cada fornecedor: é uma conta a pagar por fornecedor (PR-5).
       const valorPorFornecedor = new Map<string, number>();
       const itensPorFornecedor = new Map<string, number>();
+      // Os insumos que vieram TRAVADOS de uma vez, em ordem (EST-D-01, como o recebimento da nota): o custo médio de cada um é
+      // lido e gravado com ninguém mais dando entrada nele, e duas compras com os mesmos insumos em outra ordem não ficam
+      // esperando uma a outra (antes, cada entrada travava o seu insumo no meio do laço — o Postgres derrubava uma com impasse).
+      await travarInsumos(tx, tenantId, itens.filter((it) => Number(conf.get(it.id)!.qtdRecebida) > 0).map((it) => it.itemId));
 
       for (const it of itens) {
         const c = conf.get(it.id)!;
