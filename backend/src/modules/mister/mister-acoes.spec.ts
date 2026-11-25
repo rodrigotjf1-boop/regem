@@ -39,6 +39,9 @@ describe('Mister · ações — o catálogo e os canais', () => {
       'classificar_banco',
       // Versão 9, O3: a contagem do estoque.
       'contar_estoque',
+      // Etapa 1 de 24/11: o caixa à distância.
+      'fechar_caixa',
+      'sangria',
     ]);
     expect(ACOES.criar_tarefa).toMatchObject({ nivel: 'botao', permissao: 'checklist' });
     for (const a of ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido'] as const)

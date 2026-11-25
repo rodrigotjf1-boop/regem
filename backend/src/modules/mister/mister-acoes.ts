@@ -16,6 +16,7 @@ import { conferirCadastro, type ParametrosDeCadastro } from './mister-acoes-cada
 import { conferirAcaoDaLoja, type ParametrosDaLoja } from './mister-acoes-loja';
 import { conferirClassificacao, type ParametrosDaClassificacao } from './mister-acoes-banco';
 import { conferirContagem, type ParametrosDaContagem } from './mister-acoes-contagem';
+import { conferirCaixa, type ParametrosDoCaixa } from './mister-acoes-caixa';
 import { NOMES_DOS_DIAS, ehHoraDoDia, horasDaJanela, lerDiaDaSemana, textoDaJanela, type JanelaDoDia } from '../../common/horarios-da-loja';
 
 // AS AÇÕES DO MISTER — a porta `propor_acao` (versão 6, M6j; plano aprovado em 20/11/2026, `docs/plano-mister.md` § "Versão
@@ -69,6 +70,9 @@ export const ACOES_DO_MISTER = [
   'classificar_banco',
   // Versão 9, O3: a contagem do estoque (Estoque › Contagem), com o botão.
   'contar_estoque',
+  // Etapa 1 de 24/11 (o dono): o caixa à distância, com o PIN.
+  'fechar_caixa',
+  'sangria',
 ] as const;
 export type AcaoDoMister = (typeof ACOES_DO_MISTER)[number];
 export const ehAcaoDoMister = (p: unknown): p is AcaoDoMister => (ACOES_DO_MISTER as readonly string[]).includes(String(p));
@@ -84,7 +88,7 @@ export interface DefinicaoDaAcao {
   /** O tamanho do risco (decisão do plano): o botão de quem pediu, ou o PIN pelo link para preço, horário e dinheiro. */
   nivel: 'botao' | 'pin';
   /** A permissão do perfil — a MESMA da rota da tela. O presidente pode tudo. */
-  permissao: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque' | 'financeiro' | 'cupons' | 'cadastros' | 'escalas';
+  permissao: 'delivery' | 'meu_dia' | 'loja' | 'checklist' | 'estoque' | 'financeiro' | 'cupons' | 'cadastros' | 'escalas' | 'pdv';
   /** Por quanto tempo a pergunta vale. */
   prazoMin: number;
   /** O nome curto, para a auditoria e o histórico das propostas. */
@@ -141,6 +145,9 @@ export const ACOES: Record<AcaoDoMister, DefinicaoDaAcao> = {
   folga_na_escala: { id: 'folga_na_escala', nivel: 'botao', permissao: 'escalas', crud: 'editar', prazoMin: 10, nome: 'dar folga na escala' },
   // A rota de Banco e repasses é só do presidente (V8-2); a classificação mexe na conta do caixa: PIN, com "Ver valores em R$".
   // As rotas da contagem (iniciar e salvar) pedem "editar" do Estoque.
+  // As rotas do caixa (`OperadorDeCaixa`) pedem o PDV; mexer no turno de outra pessoa é do gerente ou do presidente. Dinheiro: PIN.
+  fechar_caixa: { id: 'fechar_caixa', nivel: 'pin', permissao: 'pdv', prazoMin: 15, nome: 'fechar um caixa' },
+  sangria: { id: 'sangria', nivel: 'pin', permissao: 'pdv', prazoMin: 15, nome: 'lançar uma sangria', pedeVerValores: true },
   contar_estoque: { id: 'contar_estoque', nivel: 'botao', permissao: 'estoque', crud: 'editar', prazoMin: 10, nome: 'lançar uma contagem do estoque' },
   classificar_banco: { id: 'classificar_banco', nivel: 'pin', permissao: 'financeiro', prazoMin: 15, nome: 'classificar um lançamento do banco', pedeVerValores: true },
   excluir_pedido_compra: { id: 'excluir_pedido_compra', nivel: 'botao', permissao: 'estoque', crud: 'excluir', prazoMin: 10, nome: 'excluir um pedido de compra' },
@@ -480,7 +487,8 @@ export type ParametrosDaAcao =
   | ParametrosDeCadastro
   | ParametrosDaLoja
   | ParametrosDaClassificacao
-  | ParametrosDaContagem;
+  | ParametrosDaContagem
+  | ParametrosDoCaixa;
 
 const TEMPOS_TEXTO = `cardápio digital e iFood: ${TEMPOS_DO_CARDAPIO.join(', ')} min ou "até HH:MM"; 99: ${TEMPOS_DA_99.join(', ')} min ou até o fim do dia`;
 
@@ -494,6 +502,7 @@ export function conferirAcao(acao: unknown, en: Record<string, unknown>, agora: 
   if (ehDaLoja(acao)) return conferirAcaoDaLoja(acao, en, dataNoFuso(agora));
   if (acao === 'classificar_banco') return conferirClassificacao(en, dataNoFuso(agora));
   if (acao === 'contar_estoque') return conferirContagem(en);
+  if (acao === 'fechar_caixa' || acao === 'sangria') return conferirCaixa(acao, en);
   if (acao === 'pausar_canal' || acao === 'reabrir_canal') {
     const brutos = Array.isArray(en.canais) ? en.canais : en.canal !== undefined ? [en.canal] : [];
     const canais = [...new Set(brutos.map(lerCanal))];
@@ -723,6 +732,15 @@ export const TEXTOS_DAS_ACOES = {
   foraDaListaDeContagem: (insumo: string, lista: string) => `"${insumo}" não está na lista "${lista}" de Estoque › Contagem. Confira o nome, ou ponha o insumo na lista pela tela.`,
   itensDaListaDemais: (insumo: string, nomes: string) => `"${insumo}" pode ser ${nomes}. Qual deles?`,
   contagemNaoConcluida: 'a contagem não ficou concluída. Confira em Estoque › Contagem.',
+  semPermissaoCaixa: 'O seu perfil no Regem não dá acesso ao caixa (PDV): essa ação não sai por aqui. Quem muda o perfil é o presidente.',
+  semCaixaAberto: (qual: string) => `Não há caixa ${qual} aberto agora nas lojas desta conversa.`,
+  caixasDemais: (lista: string) => `Há mais de um caixa do balcão aberto: ${lista}. Diga de quem é (o nome de quem abriu) ou o nome do terminal.`,
+  caixaMudou: 'O caixa mudou desde a pergunta (foi fechado pela tela ou por outra conversa). Nada foi feito.',
+  caixaSoNaTela: 'Há mais de um caixa aberto sem terminal e o Regem não tem como escolher este pela conversa. Nada foi feito: feche pelo PDV.',
+  pendenciasSemMotivo: (n: number) =>
+    `${n === 1 ? 'Há 1 entrega pendente' : `Há ${n} entregas pendentes`} no turno do delivery. Para fechar mesmo assim, diga o motivo (pelo menos 10 letras): ele vai para a auditoria.`,
+  agendadosNoTurno: (n: number) =>
+    `${n === 1 ? 'Há 1 pedido agendado' : `Há ${n} pedidos agendados`} para depois no turno do delivery: diga na tela se cada um fica, muda de horário ou é cancelado antes de fechar.`,
   semPermissaoLancarConta: 'O seu perfil no Regem não permite lançar conta a pagar: falta o acesso ao Financeiro ou "Ver valores em R$". Quem muda o perfil é o presidente.',
   tarefaNaoAchada: 'Não achei essa tarefa na lista de hoje das suas lojas. Diga o título como aparece na lista de tarefas.',
   tarefasDemais: (titulos: string) => `Achei mais de uma tarefa de hoje com esse nome: ${titulos}. Diga qual.`,

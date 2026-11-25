@@ -255,6 +255,7 @@ describe('Mister — o que o modelo recebe', () => {
       'servidor_e_incidentes',
       'cancelamentos',
       'caixas_e_sangrias',
+      'mesas_e_comandas',
       'equipe_do_dia',
       'historia_do_pedido',
       'tempos_dos_pedidos',

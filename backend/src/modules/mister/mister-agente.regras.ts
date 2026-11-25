@@ -96,6 +96,7 @@ COMO VOCÊ TRABALHA
 - Cadastrar e mudar o estoque também é só PROPOR (versão 9): insumo novo (cadastrar_insumo com nome e medidaDoEstoque, e o mínimo, o fornecedor e o nome comercial se a pessoa disser); mudar um insumo (alterar_insumo com item e só o que muda: novoNome, nomeComercial — o nome como vem na nota —, minimo, a conversão em conversaoDe e conversaoQuantas = quanto da medida do estoque vem em 1 dela, ou fornecedor); fornecedor novo (cadastrar_fornecedor com nome, e o CNPJ, o foneDoFornecedor e o contato se a pessoa disser); excluir um pedido de compra ainda não recebido (excluir_pedido_compra com pedidoDeCompra = o nome ou o fornecedor, e a hora em que foi criado quando há dois iguais). Sem a medida do insumo novo, pergunte. Mostre o "oQueVouFazer" como veio e diga que os botões chegam logo abaixo: nada muda sem o "Autorizar".
 - Cupom e conta a pagar também são só PROPOR (versão 9): criar um cupom (criar_cupom com codigoDoCupom, tipoDoDesconto percentual, valor ou fretegratis, valorDoDesconto, e se a pessoa disser pedidoMinimo, validoAte em AAAA-MM-DD, usosMaximos, soClientesNovos e nomeDoCupom) e lançar uma conta a pagar (lancar_conta com descricaoDaConta, valorDaConta, vencimentoDaConta em AAAA-MM-DD, e o fornecedor e a categoriaDaConta se disser) pedem o PIN: diga que o link "Abrir no Regem" chega logo abaixo. Tirar um cupom (remover_cupom com codigoDoCupom) é com o botão. Sem o código, o desconto ou o vencimento, pergunte; nunca invente data nem valor.
 - Também com o botão (versão 9): mudar o nome, a descrição ou a categoria de um produto do cardápio (mudar_produto com produto e nomeNovoDoProduto, descricaoDoProduto ou categoriaDoProduto — a categoria tem de existir), mudar um fornecedor (mudar_fornecedor com fornecedor e nomeNovoDoFornecedor, contato, foneDoFornecedor ou emailDoFornecedor), trocar a pessoa de um turno (trocar_turno com quemSai, quemEntra e diaDaEscala em AAAA-MM-DD; turnoDaEscala só quando a pessoa tem dois turnos no dia) e dar folga (folga_na_escala com quemSai e diaDaEscala: a vaga fica aberta). As regras da CLT são da Escala: se ela recusar, diga o motivo como veio.
+- O caixa à distância é PROPOR com o PIN (só gerente e presidente): fechar o caixa esquecido (fechar_caixa com caixaDaLoja "balcão" ou "delivery", e dinheiroContado ou semContagem — o fechamento é CEGO: nunca diga o valor esperado antes; operadorDoCaixa quando houver mais de um caixa do balcão aberto; no delivery com entrega pendente, o motivoDoCaixa) e lançar uma sangria (sangria com caixaDaLoja, valorDaSangria e motivoDoCaixa). Para saber quais caixas estão abertos, consulte caixas_e_sangrias antes.
 - Lançar uma contagem do estoque é PROPOR com o botão: contar_estoque com contados (cada um com insumo, quantidade e, se a pessoa disser, medida) e listaDeContagem quando houver mais de uma lista em Estoque › Contagem. Só os insumos ditos são contados e ajustados; diga isso. Insumo fora da lista não entra: a lista se muda pela tela.
 - Classificar um lançamento do extrato (Financeiro › Banco e repasses, só o presidente) também é PROPOR com o PIN: classificar_banco com diaDoLancamento (AAAA-MM-DD), valorDoLancamento (em reais, como no extrato), tipoDoLancamento (um da lista) e, se a pessoa pedir, lembrarNosProximos; com dois lançamentos iguais no dia, peça um pedaço da descrição (trechoDoLancamento). Nenhum dinheiro se move.
 - Mudar o preço de um produto também é só PROPOR, e pede o PIN: chame propor_acao com mudar_preco, produto, canais (regem = balcão e cardápio digital, ifood, 99) e precoNovo (o preço FINAL em reais). Sem o canal ou o preço final, pergunte; se a pessoa disser "aumenta 10%" ou "2 reais a mais", pergunte o preço final, sem fazer a conta. Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN. Nunca peça o PIN na conversa.
@@ -380,6 +381,7 @@ export type NomeDaFerramenta =
   | 'servidor_e_incidentes'
   | 'cancelamentos'
   | 'caixas_e_sangrias'
+  | 'mesas_e_comandas'
   | 'equipe_do_dia'
   | 'historia_do_pedido'
   | 'tempos_dos_pedidos'
@@ -553,7 +555,7 @@ export function temaDoQueFalta(v: unknown): TemaDoQueFalta {
 
 /** Os campos de uma ação: os de `propor_acao` e, sem a loja (que é uma só para o plano), os de cada passo de `propor_plano`. */
 const CAMPOS_DA_ACAO = {
-      acao: { type: 'string', enum: ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa', 'criar_imagem', 'movimentar_estoque', 'mudar_preco', 'mudar_horario', 'pagar_conta', 'informar_saldo', 'informar_folha', 'informar_custo_campanha', 'cadastrar_insumo', 'alterar_insumo', 'cadastrar_fornecedor', 'excluir_pedido_compra', 'criar_cupom', 'remover_cupom', 'lancar_conta', 'mudar_produto', 'mudar_fornecedor', 'trocar_turno', 'folga_na_escala', 'classificar_banco', 'contar_estoque'] },
+      acao: { type: 'string', enum: ['pausar_canal', 'reabrir_canal', 'aceitar_pedido', 'pedido_pronto', 'despachar_pedido', 'concluir_tarefa', 'pausar_produto', 'reativar_produto', 'criar_tarefa', 'criar_imagem', 'movimentar_estoque', 'mudar_preco', 'mudar_horario', 'pagar_conta', 'informar_saldo', 'informar_folha', 'informar_custo_campanha', 'cadastrar_insumo', 'alterar_insumo', 'cadastrar_fornecedor', 'excluir_pedido_compra', 'criar_cupom', 'remover_cupom', 'lancar_conta', 'mudar_produto', 'mudar_fornecedor', 'trocar_turno', 'folga_na_escala', 'classificar_banco', 'contar_estoque', 'fechar_caixa', 'sangria'] },
       item: { type: 'string', description: 'Para movimentar_estoque: o produto, como a pessoa disse.' },
       tipo: { type: 'string', enum: ['entrada', 'saida', 'ajuste'], description: 'Para movimentar_estoque: entrada, saida ou ajuste (o saldo que foi contado).' },
       quantidade: { type: 'number', description: 'Para movimentar_estoque com entrada ou saida: quanto, na unidade do produto.' },
@@ -626,6 +628,12 @@ const CAMPOS_DA_ACAO = {
       diaDaEscala: { type: 'string', description: 'Para trocar_turno ou folga_na_escala: o dia, AAAA-MM-DD.' },
       turnoDaEscala: { type: 'string', description: 'Para trocar_turno ou folga_na_escala: o turno (nome ou hora de início), só quando a pessoa tem mais de um no dia.' },
       listaDeContagem: { type: 'string', description: 'Para contar_estoque: o nome da lista de Estoque › Contagem, quando houver mais de uma.' },
+      caixaDaLoja: { type: 'string', description: 'Para fechar_caixa ou sangria: "balcão" ou "delivery".' },
+      operadorDoCaixa: { type: 'string', description: 'Para fechar_caixa ou sangria: quem abriu o caixa (ou o nome do terminal), quando há mais de um caixa do balcão aberto.' },
+      dinheiroContado: { type: 'number', description: 'Para fechar_caixa: o dinheiro contado na gaveta, em reais, como a pessoa disse.' },
+      semContagem: { type: 'boolean', description: 'Para fechar_caixa: true quando a pessoa fecha sem contar.' },
+      valorDaSangria: { type: 'number', description: 'Para sangria: o valor em reais.' },
+      motivoDoCaixa: { type: 'string', description: 'Para sangria: o motivo. Para fechar_caixa: o motivo de fechar o delivery com entrega pendente.' },
       contados: {
         type: 'array',
         description: 'Para contar_estoque: o que foi contado (até 30).',
@@ -825,6 +833,12 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
     description:
       'Os caixas: quais estão abertos agora (quem abriu e desde quando), os turnos de caixa de um período (vendas, sangrias, suprimentos e a diferença no fechamento) e as sangrias e os suprimentos por operador. Sem período, hoje.',
     input_schema: { type: 'object', properties: { ...PERIODO, loja: LOJA }, additionalProperties: false },
+  },
+  {
+    name: 'mesas_e_comandas',
+    description:
+      'As mesas e as comandas abertas AGORA: quantas, desde quando, quantos itens, o valor em aberto (só com "Ver valores em R$") e há quantos minutos nada é lançado em cada uma (a mesa parada). Use para "quantas mesas estão abertas?", "quanto tem em aberto no salão?", "tem mesa parada?".',
+    input_schema: { type: 'object', properties: { loja: LOJA }, additionalProperties: false },
   },
   {
     name: 'equipe_do_dia',

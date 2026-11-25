@@ -904,6 +904,20 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         sangriasESuprimentos: [{ tipo: 'sangria', valor: v(480.35), hora: '19:30', por: 'Bruna', motivo: 'dinheiro demais no caixa' }],
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
       });
+    case 'mesas_e_comandas':
+      return ok({
+        loja: LOJA,
+        lidoAs: '20:15',
+        mesasAbertas: 3,
+        ...(perfil.verValores ? { emAbertoNasMesas: v(418.35), emAbertoNasComandas: v(38.9) } : { aviso: SEM_VALORES }),
+        mesas: [
+          { mesa: 'Mesa 4', abertaHaMin: 95, semLancarHaMin: 62, comandas: 1, itens: 7, ...(perfil.verValores ? { total: v(186.4) } : {}), abertaPor: 'Diego' },
+          { mesa: 'Mesa 7', abertaHaMin: 40, semLancarHaMin: 5, comandas: 2, itens: 9, ...(perfil.verValores ? { total: v(171.2) } : {}), abertaPor: 'Diego' },
+          { mesa: 'Mesa 12', abertaHaMin: 18, semLancarHaMin: 12, comandas: 1, itens: 3, ...(perfil.verValores ? { total: v(60.75) } : {}), abertaPor: 'Bruna' },
+        ],
+        comandasAvulsas: [{ comanda: 'balcão 2', abertaHaMin: 25, semLancarHaMin: 20, itens: 2, ...(perfil.verValores ? { total: v(38.9) } : {}) }],
+        comoLer: '"semLancarHaMin" é há quantos minutos nada é lançado na mesa (a mesa parada). O nome do cliente da comanda não vem.',
+      });
     case 'equipe_do_dia':
       return ok({
         loja: LOJA,
@@ -1272,6 +1286,10 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 9, O5 segunda parte: o produto e o fornecedor pela conversa, com o botão.
   { id: 'c97', pergunta: 'Muda a descrição do X-Bacon para "Pão brioche, bacon crocante e cheddar".', consultas: ['propor_acao'], contem: ['X-Bacon', 'Autorizar'] },
   { id: 'c98', pergunta: 'O contato do Felipão agora é o Marcos. Atualiza lá.', consultas: ['propor_acao'], contem: ['Marcos', 'Autorizar'] },
+  // Etapa 1 de 24/11: as mesas e o caixa à distância.
+  { id: 'c99', pergunta: 'Quantas mesas estão abertas agora e quanto tem em aberto no salão? Tem alguma parada?', consultas: ['mesas_e_comandas'], numeros: ['418,35'], contem: ['Mesa 4'] },
+  { id: 'c100', pergunta: 'Fecha o caixa do balcão que ficou aberto desde ontem, sem contagem.', consultas: ['propor_acao'], contem: ['PIN'] },
+  { id: 'c101', pergunta: 'Lança uma sangria de R$ 200 no caixa do balcão, para pagar o gás.', consultas: ['propor_acao'], contem: ['200', 'PIN'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────
