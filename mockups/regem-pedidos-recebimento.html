@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pedidos e recebimento</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PROTÓTIPO DE PEDIDOS E RECEBIMENTO (24/11/2026), para aprovação do dono. Os estilos são os do protótipo
+   do Mister v9 (aprovado); os novos vêm no fim. Dados inventados, menos os de "O que muda". */
+:root{
+  --bg:#EDF0F4; --card:#FFFFFF; --ink:#0F2230; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E2A340; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0E7C66; --ok-bg:#E8F6F1; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A; --d-azul:#7CC0F5;
+  /* o gráfico (claro) */
+  --g-fundo:#FFFFFF; --g-ink:#0F2230; --g-ink2:#55697B; --g-grade:#E6ECF1; --g-eixo:#C8D2DC; --g-barra:#2F4A60; --g-ant:#D3DCE4;
+  --g-dest:#C08118; --g-area:rgba(212,149,47,.16); --g-bom:#0E7C66; --g-ruim:#B93232;
+  --g-c1:#2F4A60; --g-c2:#D4952F; --g-c3:#5B8DB8; --g-c4:#3E8E7E; --g-c5:#A9B7C4;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px} h3{font-size:16px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pular{position:absolute;left:8px;top:-60px;background:var(--gold);color:var(--on-gold);padding:8px 12px;border-radius:8px;font-weight:700;z-index:99}
+.pular:focus{top:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+.pagina{padding:20px;max-width:1240px;margin-inline:auto;container-type:inline-size;container-name:principal}
+.cab{margin-bottom:16px} .cab .sub{max-width:76ch;margin-top:4px}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.faixa{border-radius:10px;padding:10px 14px;margin-bottom:14px;border:1px solid}
+.faixa.warn{background:var(--warn-bg);border-color:#EBC7B0;color:#6F3410} .faixa.info{background:var(--info-bg);border-color:#BFD6EA;color:#1D4C77}
+.faixa.ok{background:var(--ok-bg);border-color:#B5DCC8;color:#0B4A33}
+a{color:var(--info);text-underline-offset:2px}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.v5{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:2px;white-space:nowrap}
+.fase{font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--gold-ink)}
+
+/* celular */
+.celulares{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:24px 18px;align-items:start}
+.caso h3{margin-bottom:2px} .caso > .sub{font-size:13.5px;margin-bottom:8px}
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:370px}
+.cel-topo{background:var(--c-wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:150px;align-content:start}
+.bolha{max-width:90%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.42;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere;min-width:0}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha.larga{max-width:96%;width:96%}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#5E6E7A;margin-top:2px}
+.bolha ul{margin:4px 0;padding-left:18px} .bolha li{margin-bottom:2px}
+.entendi{display:block;font-size:13px;color:#43586C;background:#F3F6F8;border-left:3px solid var(--c-wa);border-radius:4px;padding:4px 8px;margin:-1px -3px 6px}
+.botoes-wa{display:grid;gap:4px;margin-top:6px}
+.botoes-wa span{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.botoes-wa.dois{grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr))}
+.toque{justify-self:end;font-size:12px;color:#5E6E7A;background:rgba(255,255,255,.7);border-radius:999px;padding:2px 10px}
+.audio{display:flex;gap:8px;align-items:center;min-width:0;padding:2px 0}
+.audio .play{width:30px;height:30px;border-radius:50%;background:var(--c-wa);color:#fff;display:grid;place-items:center;font-size:11px;flex:none}
+.audio .onda{flex:1;min-width:40px;height:20px;background:repeating-linear-gradient(90deg,#7C8B96 0 2px,transparent 2px 5px);border-radius:2px;opacity:.8}
+.audio small{font:600 11px var(--mono);color:#5E6E7A;flex:none}
+.midia{display:block;border-radius:8px;overflow:hidden;margin:-3px -6px 6px;background:#fff;border:1px solid #D5DDE3}
+.doc-msg{display:flex;gap:10px;align-items:center;background:#F3F6F8;border-radius:8px;padding:8px 10px;margin:-2px -4px 6px;min-width:0}
+.doc-msg .ico{width:32px;height:38px;border-radius:4px;background:var(--crit);color:#fff;display:grid;place-items:center;font:800 10px var(--display);flex:none}
+.doc-msg > span:not(.ico){min-width:0}
+.doc-msg b{display:block;font-size:13px;line-height:1.25;overflow-wrap:anywhere} .doc-msg small{font-size:11.5px;color:#5E6E7A}
+
+/* gráfico */
+.grafico{background:var(--g-fundo);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.g-svg{display:block;width:100%;height:auto}
+.g-svg text{font-family:var(--body)}
+.g-fundo{fill:var(--g-fundo)} .g-faixa{fill:var(--g-dest)}
+.g-tit{font-family:var(--display)!important;font-weight:700;font-size:15.5px;fill:var(--g-ink)}
+.g-sub{font-size:11.5px;fill:var(--g-ink2)}
+.g-kpi{font-family:var(--mono)!important;font-weight:700;font-size:22px;fill:var(--g-ink)}
+.g-delta{font-size:11.5px;font-weight:700} .g-delta.bom{fill:var(--g-bom)} .g-delta.ruim{fill:var(--g-ruim)}
+.g-grade{stroke:var(--g-grade);stroke-width:1} .g-eixo{stroke:var(--g-eixo);stroke-width:1}
+.g-barra{fill:var(--g-barra)} .g-ant{fill:var(--g-ant)} .g-dest{fill:var(--g-dest)}
+.g-val{font-family:var(--mono)!important;font-size:10.5px;font-weight:700;fill:var(--g-ink)}
+.g-rot{font-size:11px;font-weight:600;fill:var(--g-ink)} .g-rot2{font-size:10px;fill:var(--g-ink2)}
+.g-leg{font-size:10.5px;fill:var(--g-ink2)} .g-rod{font-size:10px;fill:var(--g-ink2)}
+.g-area{fill:var(--g-area)} .g-linha{fill:none;stroke:var(--g-dest);stroke-width:2.5;stroke-linejoin:round}
+.g-ponto{fill:var(--g-fundo);stroke:var(--g-dest);stroke-width:2} .g-pico{fill:var(--g-dest)}
+.g-media{stroke:var(--g-ink);stroke-width:1.5;stroke-dasharray:6 4} .g-media-t{font-size:10.5px;font-weight:700;fill:var(--g-ink)}
+.g-c1{fill:var(--g-c1)} .g-c2{fill:var(--g-c2)} .g-c3{fill:var(--g-c3)} .g-c4{fill:var(--g-c4)} .g-c5{fill:var(--g-c5)}
+.g-nome{font-size:11.5px;font-weight:600;fill:var(--g-ink)} .g-num{font-family:var(--mono)!important;font-size:11px;font-weight:700;fill:var(--g-ink)}
+.g-num2{font-family:var(--mono)!important;font-size:10.5px;fill:var(--g-ink2)} .g-trilho{fill:var(--g-grade)}
+
+/* vista dos gráficos */
+.graficos{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr));gap:18px;align-items:start}
+.g-caso h3{margin-bottom:2px} .g-caso > .sub{font-size:13.5px;margin-bottom:8px}
+.onde{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.comparar{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px;align-items:start}
+.lista-melhor{margin:6px 0 0;padding-left:20px} .lista-melhor li{margin-bottom:4px}
+
+/* app da loja */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:70vh;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#EDF0F4}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px;letter-spacing:.02em}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px}
+.lado li.atual{background:rgba(226,163,64,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:loja}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.onde-app{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.corpo-app{padding:18px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.grupo-aj{font:700 12.5px var(--display);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin:4px 0 2px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline}
+.grupo-aj span{font:500 12.5px var(--body);text-transform:none;letter-spacing:0}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line)}
+.aj.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;min-width:0}
+.aj .ctrl select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:40px;background:#fff;max-width:100%;min-width:0}
+.liga{position:relative;width:52px;height:30px;border-radius:999px;border:1px solid var(--line-2);background:var(--neutro-bg);cursor:pointer;flex:none;padding:0}
+.liga::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.liga[aria-checked="true"]{background:var(--ok);border-color:var(--ok)} .liga[aria-checked="true"]::after{left:25px}
+.liga[disabled]{opacity:.5;cursor:not-allowed}
+.estado-liga{font-size:13px;color:var(--ink-2);min-width:64px}
+@container loja (max-width: 620px){ .aj{grid-template-columns:minmax(0,1fr)} .aj .ctrl{justify-content:flex-start} }
+.barra-salvar{position:sticky;bottom:0;background:var(--navy);color:#fff;border-radius:12px 12px 0 0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;z-index:5;margin-top:12px}
+.barra-salvar .btn{border-color:#3C5568;background:transparent;color:#fff} .barra-salvar .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.barra-salvar :focus-visible{outline-color:var(--d-azul)}
+.medidor{height:12px;border-radius:999px;background:var(--neutro-bg);overflow:hidden;margin:8px 0}
+.medidor span{display:block;height:100%;background:var(--navy);border-radius:999px}
+.usos{list-style:none;margin:8px 0 0;padding:0}
+.usos li{display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)}
+.usos li:first-child{border-top:0}
+
+/* notas */
+.notas{max-width:1000px}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:6px}
+.decisao{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0 0}
+.decisao h3{font-size:15px;margin-bottom:6px}
+.decisao ol{margin:0;padding-left:20px} .decisao li{margin-bottom:4px}
+.rec{font:700 11px var(--display);background:var(--ok-bg);color:var(--ok);padding:1px 7px;border-radius:999px;letter-spacing:.03em;white-space:nowrap}
+.fases{width:100%;border-collapse:collapse;font-size:14px}
+.fases th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px;border-bottom:2px solid var(--line-2)}
+.fases td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+@container principal (max-width: 700px){
+  .fases thead{display:none} .fases,.fases tbody,.fases tr,.fases td{display:block;width:100%}
+  .fases tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff}
+  .fases td{border:0;padding:3px 0}
+  .fases td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+}
+
+@media (max-width: 900px){
+  .app{grid-template-columns:minmax(0,1fr)} .lado{display:none}
+  .pagina{padding:14px} .topo{padding:10px 14px} .corpo-app{padding:14px}
+  .btn,.parte{min-height:44px}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important} }
+
+
+/* ── peças novas da v6 ── */
+.v6{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:2px;white-space:nowrap}
+.trava{display:block;font-size:13px;color:#6F3410;background:var(--warn-bg);border-left:3px solid var(--warn);border-radius:4px;padding:4px 8px;margin:-1px -3px 6px}
+.regra-pt{display:block;background:#F3F6F8;border-radius:8px;padding:8px 10px;margin:6px -4px 4px;font-size:13.5px}
+.regra-pt b{font-family:var(--display);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#43586C;display:block;margin-bottom:2px}
+.link-wa{display:block;margin-top:6px;background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.lista-num{margin:4px 0;padding-left:20px} .lista-num li{margin-bottom:2px}
+.bolha.com-foto{width:min(270px,84%)}
+.g-mini{display:block;width:100%;height:auto;background:#fff;border-radius:8px;margin:-3px -6px 6px;border:1px solid #D5DDE3}
+
+/* lista no modelo do Estoque */
+.lista-cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:baseline;justify-content:space-between;margin-bottom:10px}
+.lista-cab h2{font-size:18px} .lista-cab h2 .mono{font-size:15px;color:var(--ink-2)}
+.situacoes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.sit{background:#fff;border:1px solid var(--line-2);border-radius:999px;padding:5px 12px;min-height:36px;cursor:pointer;font-weight:600;color:var(--ink-2)}
+.sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.sit .mono{margin-left:4px}
+.busca{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.busca input,.busca select{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff;min-width:0;flex:1 1 200px}
+.busca select{flex:0 1 200px}
+.linhas{display:grid;gap:8px}
+.linha{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;align-items:start}
+.linha .t{font-weight:600} .linha .d{font-size:13.5px;color:var(--ink-2)}
+.linha .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.linha .ac{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.btn.peq{min-height:36px;padding:5px 10px;font-size:13.5px}
+.btn.perigo{color:var(--crit);border-color:#E9B8B8}
+@container loja (max-width: 560px){ .linha{grid-template-columns:minmax(0,1fr)} .linha .ac{justify-content:flex-start} }
+.vazio{border:1px dashed var(--line-2);border-radius:10px;padding:18px;text-align:center;color:var(--ink-2)}
+
+/* gaveta e diálogo */
+.fundo{position:fixed;inset:0;background:rgba(11,24,34,.45);z-index:40}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(460px,100%);background:#fff;z-index:41;display:flex;flex-direction:column;box-shadow:-8px 0 30px rgba(0,0,0,.18)}
+.gaveta-cab{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line)}
+.gaveta-corpo{padding:16px 18px;overflow-y:auto;display:grid;gap:12px;align-content:start;min-height:0;flex:1}
+.gaveta-rod{padding:12px 18px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.campo{display:grid;gap:4px} .campo label,.campo .rot{font-weight:600;font-size:14px}
+.campo input,.campo select,.campo textarea{border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff;width:100%;min-width:0}
+.campo .ajuda{font-size:12.5px;color:var(--ink-2)}
+.fechar{background:transparent;border:1px solid var(--line-2);border-radius:10px;min-width:40px;min-height:40px;cursor:pointer;font-size:18px;line-height:1}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(460px,calc(100% - 32px));max-height:calc(100% - 32px);overflow-y:auto;background:#fff;border-radius:14px;z-index:43;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,.25)}
+.fundo.alto{z-index:42}
+.dialogo h2{margin-bottom:8px}
+.dialogo .acoes{justify-content:flex-end;margin-top:14px}
+.lista-ok{margin:6px 0 0;padding-left:20px} .lista-ok li{margin-bottom:4px}
+
+/* console */
+.console .app{background:#0F1B25} .console .lado{background:#07111A}
+.console .principal{background:#EDF0F4}
+.tab-c{width:100%;border-collapse:collapse;font-size:14px;background:#fff;border-radius:10px;overflow:hidden}
+.tab-c th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line-2)}
+.tab-c td{padding:9px 10px;border-bottom:1px solid var(--line);overflow-wrap:anywhere;vertical-align:top}
+@container loja (max-width: 640px){
+  .tab-c thead{display:none} .tab-c,.tab-c tbody,.tab-c tr,.tab-c td{display:block;width:100%}
+  .tab-c tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:8px;background:#fff}
+  .tab-c td{border:0;padding:3px 0}
+  .tab-c td[data-rot]::before{content:attr(data-rot) " · ";font-weight:600;color:var(--ink-2)}
+}
+
+
+/* ── peças novas da v7 ── */
+.v7{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:3px;white-space:nowrap}
+.secao{font-size:18px;margin:22px 0 4px}
+.secao:first-of-type{margin-top:6px}
+.secao-sub{color:var(--ink-2);font-size:14px;margin-bottom:12px;max-width:76ch}
+.bolha .hora{color:#52616C}
+.toque{color:#47555F;background:rgba(255,255,255,.85)}
+.entendi{color:#3C4F60}
+
+/* antes e depois */
+.par{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:22px 18px;align-items:start;margin-bottom:8px}
+.etq{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin-bottom:8px;font-size:13.5px;color:var(--ink-2)}
+.cel.antes .cel-topo{background:#55646F}
+.cel.antes .cel-topo .foto{color:#55646F}
+.robo{display:block;font:500 12.5px/1.45 var(--mono);color:#33434F}
+.mudou-lista{margin:6px 0 0;padding-left:20px}
+.mudou-lista li{margin-bottom:6px}
+.nunca{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:10px}
+.nunca li{border-top:1px solid var(--line);padding-top:10px}
+.nunca li:first-child{border-top:0;padding-top:0}
+.nunca s{display:block;color:var(--crit);text-decoration-thickness:1.5px;font-weight:600}
+.nunca span{font-size:13.5px;color:var(--ink-2)}
+
+/* o Mister conferindo e os passos */
+.pensa{justify-self:start;display:inline-flex;gap:7px;align-items:center;font-size:12.5px;color:#3C4F60;background:rgba(255,255,255,.88);border-radius:999px;padding:3px 11px}
+.pensa::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--gold);flex:none}
+.passos{list-style:none;margin:5px 0;padding:0;display:grid;gap:5px}
+.passos li{display:grid;grid-template-columns:20px minmax(0,1fr);gap:4px;align-items:start}
+.passos .m{font-weight:700;text-align:center;line-height:1.42}
+.passos .m.ok{color:var(--ok)} .passos .m.nao{color:var(--warn)} .passos .m.n{color:#47555F;font-family:var(--mono);font-size:12.5px}
+
+/* números × sugestão */
+.bloco{display:block;border-radius:6px;padding:6px 9px;margin:6px -2px 2px;font-size:13.5px;line-height:1.42}
+.bloco > b:first-child{display:block;font:700 12px var(--display);margin-bottom:2px}
+.mostra{background:#EEF2F6;border-left:3px solid var(--navy)}
+.mostra > b:first-child{color:var(--navy)}
+.sugere{background:var(--gold-bg);border-left:3px solid var(--gold)}
+.sugere > b:first-child{color:var(--gold-ink)}
+.legenda{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px;margin-bottom:16px}
+.legenda .bloco{margin:0;background-clip:padding-box}
+.legenda .mostra{background:#fff;border:1px solid var(--line);border-left:3px solid var(--navy)}
+.legenda .sugere{background:#fff;border:1px solid var(--line);border-left:3px solid var(--gold)}
+
+/* gráfico no balão: desenhado em HTML para a letra não encolher no celular */
+.gb{display:block;background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:9px 10px;margin:6px -3px}
+.gb-t{display:block;font:700 13.5px/1.25 var(--display);color:var(--ink)}
+.gb-s{display:block;font-size:11.5px;color:#52616C;margin:1px 0 7px}
+.gb-lin{display:grid;grid-template-columns:minmax(0,5.6em) minmax(0,1fr) auto;gap:6px;align-items:center;font-size:12px;line-height:1.25;padding:2px 0}
+.gb-lin .r{color:var(--ink);overflow-wrap:break-word}
+.gb-lin .tr{height:11px;display:block;background:#EEF2F6;border-radius:0 4px 4px 0;overflow:hidden}
+.gb-lin .tr i{display:block;height:100%;background:var(--g-barra);border-radius:0 4px 4px 0}
+.gb-lin.dest .r{font-weight:700}
+.gb-lin.dest .tr i{background:var(--g-dest)}
+.gb-lin .v{font:700 11.5px var(--mono);font-variant-numeric:tabular-nums;color:var(--ink);text-align:right;white-space:nowrap}
+
+/* financeiro */
+.k-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin-bottom:8px}
+.k-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;min-width:0;display:flex;flex-direction:column;gap:5px}
+.k-card .nome{font:700 14px var(--display)}
+.k-card .num{font:700 27px/1.1 var(--mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+.k-card .como{font-size:13px;color:var(--ink-2)}
+.k-card .selo{align-self:flex-start;white-space:normal}
+.f-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,215px),1fr));gap:12px;margin-bottom:8px}
+.f-card{background:var(--card);border:1px dashed var(--line-2);border-radius:var(--radius);padding:14px 16px;min-width:0;display:flex;flex-direction:column;gap:6px}
+.f-card .topo-f{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;justify-content:space-between}
+.f-card .nome{font:700 14.5px var(--display)}
+.f-card p{font-size:13.5px;margin:0}
+.f-card .rot{font-weight:700;color:var(--ink)}
+.f-card .ausente{font:700 22px var(--mono);color:var(--ink-2)}
+
+
+/* ajustes */
+.parte[disabled]{cursor:default}
+.busca-aj{display:flex;margin-bottom:12px}
+.busca-aj input{flex:1 1 auto;min-width:0;max-width:420px;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;min-height:40px;background:#fff}
+.aj.largo{grid-template-columns:minmax(0,1fr)}
+.aj.largo .ctrl{justify-content:stretch}
+.aj textarea{font:inherit;color:inherit;width:100%;min-width:0;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px;background:#fff;resize:vertical}
+.aj .preco{display:block;font-size:13px;font-weight:600;color:var(--gold-ink);margin-top:3px}
+.ja{font:600 11px var(--display);color:var(--ink-2);background:var(--neutro-bg);border-radius:4px;padding:1px 6px;white-space:nowrap;vertical-align:2px}
+.link-aj{background:transparent;border:0;padding:4px 0;min-height:32px;color:var(--info);font-weight:600;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.bloco-aj{margin-bottom:16px}
+.salvo{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ok);color:#fff;font-weight:600;padding:9px 16px;border-radius:10px;z-index:50;max-width:calc(100% - 32px);box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.conta-g{background:var(--neutro-bg);border-radius:10px;padding:10px 12px;font-size:14px}
+.conta-g b{font-family:var(--mono)}
+.gaveta-sec{display:grid;gap:12px;min-width:0}
+.gaveta h3{font-size:14.5px;margin-bottom:3px}
+.gaveta .lista-ok{font-size:14px}
+.barra-salvar{flex-wrap:wrap}
+
+/* notas */
+.notas{max-width:1040px}
+.dois-lados{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px}
+.dois-lados .cartao{margin-bottom:0}
+.dois-lados{margin-bottom:14px}
+/* a tabela de fases tem 4 colunas: vira cartões antes de espremer */
+@container principal (max-width: 940px){
+  .fases thead{display:none} .fases,.fases tbody,.fases tr,.fases td{display:block;width:100%}
+  .fases tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff}
+  .fases td{border:0;padding:3px 0}
+  .fases td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+}
+.fases td:first-child{font-weight:700}
+@media (max-width:900px){ .link-aj{min-height:44px} .busca-aj input{min-height:44px} }
+
+/* ── peças novas da v8 ── */
+.v8{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:3px;white-space:nowrap}
+.dia-wa{justify-self:center;font-size:12px;font-weight:600;color:#3C4F60;background:rgba(255,255,255,.9);border-radius:6px;padding:2px 10px;text-align:center}
+div.bloco{display:block}
+.bloco ul,.bloco ol{margin:3px 0 0;padding-left:18px}
+.prev{display:block;background:#F3F6F8;border-radius:6px;padding:5px 8px;margin:5px 0 0;font-size:13.5px}
+.prev b{display:block;font:700 11.5px var(--display);color:#3C4F60}
+.prev .mono{font-size:12.5px;white-space:nowrap}
+.conta-wa{display:grid;gap:3px;margin:6px 0;font-size:13.5px}
+.conta-wa .l{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:baseline}
+.conta-wa .v{font:700 12.5px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
+.conta-wa .l.tot{border-top:1px solid #C8D2DC;padding-top:4px;font-weight:700}
+.conta-wa .l.sub-l{color:#3C4F60;font-size:12.5px}
+.nota-wa{display:block;font-size:12.5px;line-height:1.4;color:#3C4F60;margin-top:5px}
+.evento{display:block;padding:5px 0;border-top:1px solid #E6EBEF}
+.evento:first-of-type{border-top:0}
+.evento b{display:block}
+.pill-wa{display:inline-block;font:700 11px var(--display);border-radius:999px;padding:1px 7px;white-space:nowrap}
+.pill-wa.vale{background:var(--ok-bg);color:var(--ok)}
+.pill-wa.disc{background:var(--warn-bg);color:var(--warn)}
+.gb-lin.neg .tr i{background:var(--g-ruim)}
+.gb-lin.pos .tr i{background:var(--g-bom)}
+.gb-lin{grid-template-columns:minmax(0,5.2em) minmax(24px,1fr) auto}
+.ctl-caso{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+
+/* a lista de Banco e repasses */
+.tela-troca{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.lado .grupo-menu{padding:8px 10px 2px;color:#fff;font-weight:700}
+.lado li.filho{padding-left:22px;font-size:14px}
+.fontes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,178px),1fr));gap:8px;margin-bottom:12px}
+.fonte{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.fonte.falta{border-color:#E7BFA6;background:#FFFBF8}
+.fonte .nome{font:700 14px var(--display)}
+.fonte .como{font-size:12.5px;color:var(--ink-2)}
+.fonte .selo{align-self:flex-start;white-space:normal}
+.fonte .quando{font-size:12.5px;color:var(--ink-2)}
+.fonte .btn{margin-top:4px;align-self:flex-start}
+.totais{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:8px;margin-bottom:12px}
+.total{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:0}
+.total span{display:block;font-size:12.5px;color:var(--ink-2)}
+.total b{display:block;font:700 16.5px var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.busca select{flex:1 1 170px}
+.tab-l{width:100%;border-collapse:separate;border-spacing:0;font-size:14px;background:#fff;border:1px solid var(--line);border-radius:10px}
+.tab-l th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:9px 10px;border-bottom:2px solid var(--line-2);white-space:nowrap}
+.tab-l td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:break-word}
+.tab-l .c-fonte{white-space:nowrap}
+.tab-l .c-desc{min-width:190px}
+.nq,[data-n]{white-space:nowrap}
+.tab-l tbody tr:last-child td{border-bottom:0}
+.tab-l th.num,.tab-l td.c-valor{text-align:right}
+.tab-l .c-data{white-space:nowrap;font-family:var(--mono);font-size:13px}
+.tab-l .c-valor{font:700 13.5px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tab-l .c-valor.ent{color:var(--ok)}
+.lanc-t{display:block;font-weight:600;font-size:13.5px}
+.lanc-p{display:block;font-size:12.5px;color:var(--ink-2)}
+.tab-l .c-ac{white-space:nowrap}
+.linha-ac{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.sem-tipo{color:var(--warn);font-weight:600}
+.mais{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px 14px;margin-top:12px;color:var(--ink-2);font-size:13.5px}
+.esqueleto{display:grid;gap:8px}
+.esqueleto i{display:block;height:46px;border-radius:10px;background:linear-gradient(90deg,#E4E9EF,#F2F5F8,#E4E9EF);background-size:200% 100%;animation:brilho 1.3s linear infinite}
+@keyframes brilho{to{background-position:-200% 0}}
+@media (prefers-reduced-motion: reduce){ .esqueleto i{animation:none} }
+.vazio .btn{margin-top:10px}
+.vazio b{display:block;color:var(--ink);font-family:var(--display);font-size:16px;margin-bottom:3px}
+.vazio.erro{border-color:#E9B8B8;background:#FFF8F8}
+details.ajuda-sit{margin-bottom:12px;font-size:13.5px}
+details.ajuda-sit summary{cursor:pointer;font-weight:600;color:var(--info);min-height:32px;padding:4px 0}
+details.ajuda-sit dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:8px;margin:6px 0 0}
+details.ajuda-sit dl div{background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+details.ajuda-sit dt{font-weight:700} details.ajuda-sit dd{margin:0;color:var(--ink-2)}
+/* a tabela vira cartões pelo espaço da lista, nunca pela janela */
+@container loja (max-width: 900px){
+  .tab-l{border:0;background:transparent;display:block}
+  .tab-l thead{display:none}
+  .tab-l tbody{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:8px}
+  .tab-l tr{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"data valor" "desc desc" "tipo tipo" "fonte fonte" "sit ac";gap:3px 10px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;align-items:center;min-width:0}
+  .tab-l td,.tab-l .c-desc{display:block;border:0!important;padding:0;min-width:0}
+  .tab-l .c-fonte{white-space:normal}
+  .tab-l .c-desc{overflow-wrap:anywhere}
+  .tab-l .c-data{grid-area:data;color:var(--ink-2)} .tab-l .c-valor{grid-area:valor;font-size:15px} .tab-l .c-desc{grid-area:desc}
+  .tab-l .c-tipo{grid-area:tipo;font-size:13.5px} .tab-l .c-fonte{grid-area:fonte;font-size:13.5px}
+  .tab-l .c-sit{grid-area:sit;margin-top:4px} .tab-l .c-ac{grid-area:ac;margin-top:4px}
+  .tab-l td[data-rot]::before{content:attr(data-rot) " · ";font-weight:600;color:var(--ink-2)}
+  .tab-l .c-data[data-rot]::before{content:""}
+}
+@container loja (max-width: 340px){
+  .tab-l tr{grid-template-columns:minmax(0,1fr);grid-template-areas:"data" "valor" "desc" "tipo" "fonte" "sit" "ac"}
+  .tab-l .c-valor{text-align:left}
+  .linha-ac{justify-content:flex-start}
+}
+
+/* importar extrato e o lançamento */
+.etapas{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.etapas li{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:2px 10px;border-radius:9px;border:1px solid var(--line-2);background:#fff;color:var(--ink-2);font-size:13px;font-weight:600}
+.etapas li b{font-family:var(--mono);font-size:12px;background:#EEF2F6;border-radius:999px;padding:0 7px;color:var(--ink)}
+.etapas li[aria-current]{background:var(--navy);border-color:var(--navy);color:#fff}
+.etapas li[aria-current] b{background:rgba(255,255,255,.2);color:#fff}
+.etapas li.feito b{background:var(--ok-bg);color:var(--ok)}
+.solta{border:1.5px dashed var(--line-2);border-radius:10px;padding:14px;text-align:center;background:#FAFBFC}
+.solta b{display:block;font-family:var(--display)}
+.solta span{font-size:13px;color:var(--ink-2)}
+.opcoes{border:0;margin:0;padding:0;display:grid;gap:6px;min-width:0}
+.opcoes legend{font-weight:600;font-size:14px;padding:0;margin-bottom:4px}
+.opcao{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start;border:1px solid var(--line-2);border-radius:10px;padding:8px 10px;cursor:pointer;background:#fff}
+.opcao:has(input:checked){border-color:var(--navy);box-shadow:inset 0 0 0 1px var(--navy)}
+.opcao input{width:18px;height:18px;margin:2px 0 0}
+.opcao b{display:block;font-size:13.5px;overflow-wrap:anywhere} .opcao small{display:block;font-size:12.5px;color:var(--ink-2)}
+.kv{display:grid;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.kv div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:7px 11px;border-top:1px solid var(--line);font-size:14px;align-items:baseline}
+.kv div:first-child{border-top:0}
+.kv span{color:var(--ink-2)}
+.kv b{font-family:var(--mono);font-size:13px;text-align:right;overflow-wrap:anywhere}
+.g-valor{font:700 26px/1.1 var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.g-valor.ent{color:var(--ok)}
+.extrato-txt{background:#F3F6F8;border-radius:8px;padding:8px 10px;font:500 12.5px/1.45 var(--mono);overflow-wrap:anywhere;color:#2B3B48}
+.check{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start;cursor:pointer}
+.check input{width:18px;height:18px;margin:2px 0 0}
+.check b{display:block;font-size:14px} .check small{font-size:12.5px;color:var(--ink-2)}
+.faixa.crit{background:var(--crit-bg);border-color:#EBB9B9;color:#7E2020}
+.gaveta .faixa{margin:0}
+.exemplos{display:grid;gap:6px}
+.exemplo{border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:13.5px;display:grid;gap:2px}
+.exemplo .selo{justify-self:start;white-space:normal}
+
+/* de onde vem cada dado */
+.dados{width:100%;border-collapse:collapse;font-size:14px;background:#fff;border-radius:10px}
+.dados th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:9px 10px;border-bottom:2px solid var(--line-2)}
+.dados td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.dados td:first-child{font-weight:700;font-family:var(--display)}
+.dados tr:last-child td{border-bottom:0}
+@container principal (max-width: 860px){
+  .dados,.dados tbody,.dados tr,.dados td{display:block;width:100%}
+  .dados{background:transparent}
+  .dados thead{display:none}
+  .dados tr{background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:8px}
+  .dados td{border:0;padding:3px 0}
+  .dados td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  .dados td:first-child{font-size:16px}
+  .dados td:first-child::before{display:none!important}
+}
+.ind-grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr));gap:12px}
+.alerta-13{border-left:3px solid var(--warn);background:var(--warn-bg);border-radius:6px;padding:8px 12px;margin-top:10px;font-size:14px;color:#5F2C0D}
+@media (max-width:900px){ .fonte .btn,.tab-l .btn{min-height:44px} .ctl{min-height:40px} details.ajuda-sit summary{min-height:44px;padding:10px 0} }
+
+/* Leitura de fotos */
+.estreita{max-width:820px}
+.caminho{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:10px;counter-reset:passo}
+.caminho li{counter-increment:passo;display:grid;grid-template-columns:28px minmax(0,1fr);gap:4px 10px;align-items:start;padding-top:10px;border-top:1px solid var(--line)}
+.caminho li:first-child{border-top:0;padding-top:0}
+.caminho li::before{content:counter(passo);grid-row:span 2;width:26px;height:26px;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;font:700 13px var(--mono)}
+.caminho .selo{justify-self:start;white-space:normal}
+.foto-falsa{display:grid;gap:5px;padding:12px 16px;margin-bottom:5px;background:#F4F1E8;border-radius:6px;min-height:86px;align-content:start}
+.foto-falsa i{display:block;height:5px;border-radius:2px;background:#4A4A44;width:88%}
+.foto-falsa i:nth-child(2n){width:64%} .foto-falsa i:nth-child(3n){width:76%}
+.foto-falsa.tremida i{filter:blur(1.1px)} .foto-falsa.muito-tremida i{filter:blur(3px);transform:translateX(3px) skewX(-8deg)}
+.foto-falsa.escura{background:#2A2722} .foto-falsa.escura i{background:#46423A}
+.foto-falsa.mao{background:#FBF7DC} .foto-falsa.mao i{background:#22407A;height:3px;transform:rotate(-1.2deg)}
+.botoes-wa button{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;min-height:40px;text-align:center;color:#0B5CAD;font:600 13.5px var(--body);cursor:pointer}
+.botoes-wa button[aria-pressed="true"]{background:#E6F0F8;border-color:#0B5CAD}
+.botoes-wa button:focus-visible,.liga:focus-visible{outline:2px solid var(--foco);outline-offset:2px}
+.kv-simples{display:grid;gap:0;margin:6px 0 10px}
+.kv-simples div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 14px;padding:9px 0;border-top:1px solid var(--line)}
+.kv-simples div:first-child{border-top:0} .kv-simples b{font-family:var(--mono);font-size:13.5px}
+
+/* ── peças novas da v9 ── */
+.v9{font:700 10.5px var(--display);background:var(--gold-bg);color:var(--gold-ink);border:1px solid #F0D8A8;padding:1px 6px;border-radius:4px;letter-spacing:.05em;vertical-align:3px;white-space:nowrap}
+.ligacoes{list-style:none;margin:6px 0;padding:0;display:grid;gap:4px;font-size:13.5px}
+.ligacoes li{display:grid;grid-template-columns:18px minmax(0,1fr);gap:4px;align-items:start}
+.ligacoes .m{font-weight:700;text-align:center;line-height:1.42}
+.ligacoes .m.ok{color:var(--ok)} .ligacoes .m.d{color:var(--warn)} .ligacoes .m.n{color:var(--info)}
+.ligacoes small{display:block;color:#52616C;font-size:12.5px}
+.pela{font:700 10.5px var(--display);color:#3C4F60;background:#EEF2F6;border-radius:4px;padding:0 5px;white-space:nowrap}
+.prop{display:block;background:#F3F6F8;border-left:3px solid var(--gold);border-radius:6px;padding:7px 9px;margin:6px -2px 2px;font-size:13.5px}
+.prop b:first-child{display:block;font:700 12px var(--display);color:var(--gold-ink);margin-bottom:2px}
+.prop ul{margin:3px 0 0;padding-left:18px}
+.nivel{display:inline-block;font:700 11.5px var(--display);border-radius:999px;padding:1px 8px;white-space:nowrap}
+.nivel.le{background:var(--neutro-bg);color:var(--neutro)} .nivel.bt{background:var(--info-bg);color:var(--info)}
+.nivel.pin{background:var(--warn-bg);color:var(--warn)} .nivel.nao{background:var(--crit-bg);color:var(--crit)}
+.nivel.ja{background:var(--ok-bg);color:var(--ok)}
+.cat{width:100%;border-collapse:collapse;font-size:14px;background:#fff;border-radius:10px}
+.cat th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:9px 10px;border-bottom:2px solid var(--line-2)}
+.cat td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.cat td:first-child{font-weight:700;font-family:var(--display)}
+.cat tr:last-child td{border-bottom:0}
+@container principal (max-width: 820px){
+  .cat,.cat tbody,.cat tr,.cat td{display:block;width:100%}
+  .cat{background:transparent} .cat thead{display:none}
+  .cat tr{background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:8px}
+  .cat td{border:0;padding:3px 0}
+  .cat td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  .cat td:first-child::before{display:none!important}
+}
+.principio{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:10px;margin-top:8px}
+.principio div{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.principio b{display:block;font-family:var(--display);margin-bottom:2px}
+.principio span{font-size:13.5px;color:var(--ink-2)}
+.ml{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:9px 0;border-top:1px solid var(--line);font-size:14px;align-items:start}
+.ml:first-child{border-top:0}
+.ml .de{font:500 12.5px/1.4 var(--mono);color:#2B3B48;overflow-wrap:anywhere}
+.ml .para{font-weight:600}
+.ml .info{font-size:12.5px;color:var(--ink-2)}
+.ml .btn{align-self:center}
+@container loja (max-width: 520px){ .ml{grid-template-columns:minmax(0,1fr)} }
+
+/* pedidos e recebimento */
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:10px 14px;margin:10px 0 12px}
+.campo{display:grid;gap:4px;min-width:0}
+.campo label{font-size:13px;font-weight:600;color:var(--ink-2)}
+.campo input,.campo select{width:100%;min-height:40px;border:1px solid var(--line-2);border-radius:8px;padding:6px 10px;background:#fff}
+.campo input:disabled{background:#F1F4F7;color:#8A99A6}
+.itens-pedido{border:1px solid var(--line);border-radius:10px;margin-bottom:12px}
+.ip{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 12px;padding:8px 12px;border-bottom:1px solid var(--line)}
+.ip:last-child{border-bottom:0}
+.rcb-lista{display:grid;gap:10px;margin:10px 0 12px}
+.rcb{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff;min-width:0}
+.rcb.pend{border-color:#EBC7B0;background:#FFFBF6}
+.rcb-t{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-bottom:8px}
+.rcb-c{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:8px 12px;align-items:end}
+.chk{display:flex;gap:8px;align-items:center;min-height:40px;font-weight:600;font-size:14px}
+.chk input{width:18px;height:18px;accent-color:var(--gold)}
+.aviso-pend{margin:8px 0 0;font-size:13.5px;color:var(--warn)}
+.resumo-rcb{display:grid;gap:6px;border-top:1px solid var(--line);padding-top:10px;margin-bottom:12px}
+.resumo-rcb div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px}
+.resumo-rcb span{color:var(--ink-2)}
+</style>
+</head>
+<body>
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+<header class="proto">
+  <span class="titulo">Regem · Pedidos e recebimento</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button class="aba" data-aba="muda" aria-pressed="true">O que muda</button>
+    <button class="aba" data-aba="loja" aria-pressed="false">Na loja</button>
+    <button class="aba" data-aba="celular" aria-pressed="false">No celular</button>
+    <button class="aba" data-aba="notas" aria-pressed="false">Notas e decisões</button>
+  </nav>
+  <span class="nota">Protótipo para aprovação · versão 2 (24/11/2026, com o fluxo do pedido pela conversa e a nota casada com o pedido) · dados inventados, menos os de "O que muda"</span>
+</header>
+<main id="conteudo">
+
+<!-- ═════════════════════ O QUE MUDA ═════════════════════ -->
+<section class="vista ativa" id="v-muda" aria-labelledby="h-muda">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-muda">O pedido não trava; a validade é conferida só onde importa</h1>
+      <p class="sub">O que você pediu em 24/11, como fica no Regem e no Mister. Nada muda antes da sua aprovação.</p>
+    </div>
+    <div class="cartao">
+      <h2>O que aconteceu hoje</h2>
+      <p>Você mandou a nota da Rucas três vezes (23/11 06:33, 23/11 23:10 e 24/11 04:21). As três ficaram em aberto, esperando duas perguntas de conversão. Quando você pediu para voltar a ela, a IA chamou a ferramenta do documento sem dizer "ver", recebeu uma recusa e respondeu, errado, que a leitura "não está disponível neste servidor". Também não havia como esquecer as notas repetidas.</p>
+      <p><span class="selo ok">já corrigido</span> A chamada vazia vale como "ver"; o Mister mostra as outras notas em aberto e esquece as antigas quando você pedir. Isso não depende deste protótipo.</p>
+    </div>
+    <div class="cartao">
+      <h2>O que você pediu</h2>
+      <table class="fases"><caption class="sr">O pedido do dono e como fica</caption>
+        <thead><tr><th>Pedido</th><th>Hoje</th><th>Como fica</th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Pedido">O pedido pela conversa</td><td data-rot="Hoje">O Mister monta OU pelo abaixo do mínimo OU pelos itens ditos, e não acrescenta item numa lista aberta</td><td data-rot="Como fica"><span class="selo ok">já pronto</span> "Monta um pedido com o que está abaixo do estoque e adiciona 50 hambúrgueres 56 g e 30 caixas de batata": uma mensagem só. "Adiciona 10 kg de cebola" entra na lista aberta</td></tr>
+          <tr><td data-rot="Pedido">Lançar o pedido não trava</td><td data-rot="Hoje">O pedido já não pede validade, mas a nota pelo Mister só entra como "nota avulsa" e para nas perguntas de conversão</td><td data-rot="Como fica">A nota vira um pedido em Estoque › Pedidos. A conversão e a validade ficam para o recebimento, não para o pedido</td></tr>
+          <tr><td data-rot="Pedido">Lista de compras também é pedido</td><td data-rot="Hoje">O pedido pode ficar sem fornecedor, mas o recebimento põe tudo num fornecedor só e numa conta só</td><td data-rot="Como fica">No recebimento, cada item diz de onde veio (o mercado ou o fornecedor). Uma conta a pagar por fornecedor</td></tr>
+          <tr><td data-rot="Pedido">Validade obrigatória só no que for marcado</td><td data-rot="Hoje">"Confirmar recebimento" exige a validade de toda linha recebida (a data ou "sem validade")</td><td data-rot="Como fica">Só o produto marcado "Validade obrigatória no recebimento" pede a data. Os outros podem ficar sem</td></tr>
+          <tr><td data-rot="Pedido">Quem recebe e não sabe a validade</td><td data-rot="Hoje">Não consegue receber</td><td data-rot="Como fica">Marca "Não sei". O item entra no estoque com a validade pendente de confirmação, e o pedido mostra a pendência até alguém informar</td></tr>
+          <tr><td data-rot="Pedido">Cupom que bate com um pedido</td><td data-rot="Hoje">O Mister não sabe do pedido e lança a nota à parte; o pedido fica "aguardando" para sempre</td><td data-rot="Como fica">O Mister acha o pedido aberto que bate com o cupom (pelos itens, com ou sem fornecedor) e pergunta "registrar o recebimento?". Liga cada item do pedido ao item do cupom e, de uma vez, pergunta o que não está no cupom ("não veio?") e a quantidade que não bate ("veio faltando?")</td></tr>
+          <tr><td data-rot="Pedido">Previsão e aviso de atraso</td><td data-rot="Hoje">O pedido tem a data de recebimento e a lista mostra "atrasado", mas ninguém é avisado</td><td data-rot="Como fica">Aviso do Mister no dia seguinte à previsão, até receber ou cancelar: "tem pedido de fornecedor em aberto para receber"</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NA LOJA ═════════════════════ -->
+<section class="vista" id="v-loja" aria-labelledby="h-loja">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-loja">Na loja</h1>
+      <p class="sub">Estoque › Pedidos (a lista, o pedido novo e o recebimento) e Estoque › Produtos (a marca de validade obrigatória). Mesmo modelo de lista e gaveta das telas de hoje.</p>
+    </div>
+    <div class="ctls" role="group" aria-label="Qual tela ver">
+      Ver: <button class="ctl" data-tela="lista" aria-pressed="true">Pedidos</button><button class="ctl" data-tela="novo" aria-pressed="false">Novo pedido</button><button class="ctl" data-tela="receber" aria-pressed="false">Conferir e receber</button><button class="ctl" data-tela="pendencia" aria-pressed="false">Validade pendente</button><button class="ctl" data-tela="produto" aria-pressed="false">Produto</button>
+    </div>
+    <div class="app">
+      <aside class="lado" aria-label="Menu do app"><div class="marca">Regem</div><ul><li>Painel</li><li class="atual">Estoque</li><li>Delivery</li><li>Financeiro</li><li>Mister</li><li>Configurações</li></ul></aside>
+      <div class="principal">
+        <div class="topo"><span class="onde-app">Estoque</span><span class="sub peq">Mister Burger · Loja Centro</span></div>
+        <div class="corpo-app">
+
+          <!-- a lista -->
+          <div data-t="lista">
+            <div class="lista-cab"><h2>Pedidos <span class="mono">5</span></h2><span class="sub peq">Para mandar ao fornecedor, ou a lista de compras do mercado. A validade e o "de onde veio" são do recebimento.</span></div>
+            <div class="situacoes" role="group" aria-label="Situação">
+              <button class="sit" aria-pressed="true">Todos <span class="mono">5</span></button><button class="sit" aria-pressed="false">Aguardando <span class="mono">2</span></button><button class="sit" aria-pressed="false">Atrasados <span class="mono">1</span></button><button class="sit" aria-pressed="false">Validade pendente <span class="mono">1</span></button><button class="sit" aria-pressed="false">Recebidos <span class="mono">1</span></button>
+            </div>
+            <div class="linhas">
+              <div class="linha"><div><div class="t">Lista do Mister · 24/11 · Felipão da Penha</div><div class="d">19 itens · previsão 25/11, quarta</div><div class="meta"><span class="selo info">aguardando</span></div></div><div class="ac"><button class="btn peq" data-ir="receber">Conferir e receber</button></div></div>
+              <div class="linha"><div><div class="t">Compras do mercado · sem fornecedor</div><div class="d">8 itens · previsão 24/11, terça</div><div class="meta"><span class="selo info">aguardando</span> <span class="selo neutro">lista de compras</span></div></div><div class="ac"><button class="btn peq" data-ir="receber">Conferir e receber</button></div></div>
+              <div class="linha"><div><div class="t">Pedido da semana · Rucas</div><div class="d">16 itens · previsão 22/11, domingo · 2 dias de atraso</div><div class="meta"><span class="selo crit">atrasado</span></div></div><div class="ac"><button class="btn peq" data-ir="receber">Conferir e receber</button></div></div>
+              <div class="linha"><div><div class="t">Nota 48.213 · Frigorífico Boa Carne</div><div class="d">3 itens · recebido 23/11 pelo Mister · 1 validade a confirmar</div><div class="meta"><span class="selo warn">validade pendente</span></div></div><div class="ac"><button class="btn peq" data-ir="pendencia">Informar a validade</button></div></div>
+              <div class="linha"><div><div class="t">Hortifruti da semana · Hortifruti Bom</div><div class="d">7 itens · recebido 20/11</div><div class="meta"><span class="selo ok">recebido</span></div></div><div class="ac"><button class="btn peq">Ver</button></div></div>
+            </div>
+          </div>
+
+          <!-- o pedido novo -->
+          <div data-t="novo" hidden>
+            <div class="cartao">
+              <h2>Novo pedido</h2>
+              <p class="sub peq">Nada de validade aqui: é o que você vai pedir. Sem fornecedor, vira uma lista de compras, e cada item diz de onde veio no recebimento.</p>
+              <div class="form">
+                <div class="campo"><label for="np-nome">Nome</label><input id="np-nome" value="Compras do mercado"></div>
+                <div class="campo"><label for="np-forn">Fornecedor</label><select id="np-forn"><option>Sem fornecedor (lista de compras)</option><option>Felipão da Penha</option><option>Rucas</option><option>＋ cadastrar novo</option></select></div>
+                <div class="campo"><label for="np-prev">Previsão de recebimento</label><input id="np-prev" type="date" value="2026-11-25"><small class="sub peq">Passou da data sem receber: o Mister avisa no dia seguinte.</small></div>
+              </div>
+              <div class="itens-pedido">
+                <div class="ip"><span>Bacon em tiras</span><span class="mono">10 kg</span></div>
+                <div class="ip"><span>Tomate</span><span class="mono">5 kg</span></div>
+                <div class="ip"><span>Coca-cola lata 350 ml</span><span class="mono">4 fardos</span></div>
+              </div>
+              <div class="acoes"><button class="btn pri">Criar pedido</button><button class="btn">Cancelar</button></div>
+            </div>
+          </div>
+
+          <!-- o recebimento -->
+          <div data-t="receber" hidden>
+            <div class="cartao">
+              <h2>Conferir e receber · Compras do mercado</h2>
+              <p class="sub peq">Lista de compras: cada item diz de onde veio. A validade só é exigida no produto marcado <span class="selo warn">validade obrigatória</span>. Quem não sabe marca "Não sei": o item entra no estoque e a validade fica pendente.</p>
+              <div class="rcb-lista">
+                <div class="rcb">
+                  <div class="rcb-t"><b>Bacon em tiras</b> <span class="selo warn">validade obrigatória</span><span class="sub peq">pedido 10 kg</span></div>
+                  <div class="rcb-c">
+                    <div class="campo"><label for="r1-q">Veio</label><input id="r1-q" class="mono" value="10"></div>
+                    <div class="campo"><label for="r1-de">De onde veio</label><select id="r1-de"><option>Atacadão</option><option>Assaí</option><option>＋ cadastrar novo</option></select></div>
+                    <div class="campo"><label for="r1-v">Validade</label><input id="r1-v" type="date" value="2026-12-02"></div>
+                    <label class="chk"><input type="checkbox"> Não sei</label>
+                  </div>
+                </div>
+                <div class="rcb pend">
+                  <div class="rcb-t"><b>Tomate</b> <span class="selo warn">validade obrigatória</span><span class="sub peq">pedido 5 kg</span></div>
+                  <div class="rcb-c">
+                    <div class="campo"><label for="r2-q">Veio</label><input id="r2-q" class="mono" value="5"></div>
+                    <div class="campo"><label for="r2-de">De onde veio</label><select id="r2-de"><option>Hortifruti Bom</option><option>Atacadão</option></select></div>
+                    <div class="campo"><label for="r2-v">Validade</label><input id="r2-v" type="date" disabled></div>
+                    <label class="chk"><input type="checkbox" checked> Não sei</label>
+                  </div>
+                  <p class="aviso-pend">A validade fica pendente de confirmação. O tomate entra no estoque, e o pedido mostra "validade pendente" até alguém informar.</p>
+                </div>
+                <div class="rcb">
+                  <div class="rcb-t"><b>Coca-cola lata 350 ml</b><span class="sub peq">pedido 4 fardos</span></div>
+                  <div class="rcb-c">
+                    <div class="campo"><label for="r3-q">Veio</label><input id="r3-q" class="mono" value="3"></div>
+                    <div class="campo"><label for="r3-de">De onde veio</label><select id="r3-de"><option>Atacadão</option><option>Assaí</option></select></div>
+                    <div class="campo"><label for="r3-v">Validade (opcional)</label><input id="r3-v" type="date"></div>
+                  </div>
+                  <p class="sub peq">Veio menos: 1 fardo fica como falta, como hoje.</p>
+                </div>
+              </div>
+              <div class="resumo-rcb">
+                <div><span>Contas a pagar</span><b>2: Atacadão (bacon e coca) e Hortifruti Bom (tomate)</b></div>
+                <div><span>Validade pendente</span><b>1 item (tomate)</b></div>
+              </div>
+              <div class="acoes"><button class="btn pri">Confirmar recebimento</button><button class="btn">Cancelar</button></div>
+            </div>
+          </div>
+
+          <!-- a pendência de validade -->
+          <div data-t="pendencia" hidden>
+            <div class="cartao">
+              <h2>Validade pendente · Nota 48.213</h2>
+              <p class="sub peq">O item já está no estoque; falta a validade. Quem tiver a embalagem na mão informa aqui (ou responde ao Mister).</p>
+              <div class="rcb pend">
+                <div class="rcb-t"><b>Carne 56 g</b> <span class="selo warn">validade obrigatória</span><span class="sub peq">recebido 23/11 por Ana · 40 kg</span></div>
+                <div class="rcb-c">
+                  <div class="campo"><label for="p1-v">Validade</label><input id="p1-v" type="date"></div>
+                </div>
+              </div>
+              <div class="acoes"><button class="btn pri">Confirmar a validade</button><button class="btn">Depois</button></div>
+            </div>
+          </div>
+
+          <!-- o produto -->
+          <div data-t="produto" hidden>
+            <div class="cartao">
+              <h2>Editar produto · Tomate</h2>
+              <p class="sub peq">Na gaveta de Estoque › Produtos, no grupo Validade.</p>
+              <div class="aj"><div><div class="t" id="aj-vob">Validade obrigatória no recebimento</div><div class="d">Quem recebe tem de informar a data, ou marcar "Não sei" (a validade fica pendente). Use nos produtos de pouca validade. Desligado, a validade é opcional.</div></div><div class="ctrl"><button class="liga" role="switch" aria-checked="true" aria-labelledby="aj-vob"></button></div></div>
+              <p class="sub peq">Nasce desligado em todos os produtos: você marca os de pouca validade. Na lista de Produtos, o filtro "Validade obrigatória" mostra quais estão marcados.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NO CELULAR ═════════════════════ -->
+<section class="vista" id="v-celular" aria-labelledby="h-celular">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-celular">No celular</h1>
+      <p class="sub">O Mister com os pedidos: a nota que chega quando já há pedido, a nota sem pedido, o atraso e a validade pendente.</p>
+    </div>
+    <div class="celulares">
+      <article class="caso"><h3>O pedido pela conversa</h3><p class="sub">O abaixo do mínimo e os itens ditos, numa mensagem. <span class="selo ok">já pronto</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">Mister, quero montar um pedido: levanta os itens que estão abaixo do estoque e adiciona 50 hambúrguer 56 g e 30 caixas de batata 7 mm<span class="hora">09:10</span></div>
+            <div class="bolha dele larga">Montei o pedido com 8 itens: 6 abaixo do mínimo e os 2 que você disse. O hambúrguer 56 g já estava abaixo do mínimo e ficou com os 50 que você pediu. Uma dúvida vem a seguir.<span class="hora">09:10</span></div>
+            <div class="bolha dele larga">O "Bacon em tiras" tem 2 marcas. Qual vai no pedido?<div class="botoes-wa dois"><span>Sadia</span><span>Seara</span></div><span class="hora">09:10</span></div>
+            <div class="bolha meu">sadia, e adiciona 10 kg de cebola<span class="hora">09:11</span></div>
+            <div class="bolha dele larga">Pronto: 9 itens. Para qual fornecedor é o pedido?<div class="botoes-wa"><span>Felipão da Penha</span><span>Rucas</span><span>Sem fornecedor (lista de compras)</span></div><span class="hora">09:11</span></div>
+          </div>
+        </div>
+      </article>
+      <article class="caso"><h3>O cupom que bate com um pedido</h3><p class="sub">Acha o pedido pelos itens, liga um a um e pergunta o que não bate, de uma vez. <span class="fase">P4</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">📷 foto do cupom<span class="hora">16:40</span></div>
+            <div class="bolha dele larga">🧾 Cupom do <b>Atacadão</b>, 9 itens, <b>R$ 1.240,00</b>.<br><br>Temos a lista de pedido <b>Compras do mercado</b> (criada 24/11, 9 itens) que bate com este cupom: 7 dos 9 itens estão nele.<br><br>Registrar o recebimento?<div class="botoes-wa"><span>Registrar o recebimento</span><span>É de outro pedido</span><span>Registrar num pedido novo</span></div><span class="hora">16:40</span></div>
+            <div class="toque">tocou em Registrar o recebimento</div>
+            <div class="bolha dele larga">Liguei os itens do pedido aos do cupom:<ul><li>6 iguais, na quantidade pedida</li><li>Detergente: está no cupom e não no pedido (entra como item a mais)</li></ul>Preciso de você em 3:<ol><li><b>Batata 7 mm</b>: pediu 30 caixas, o cupom tem 25. Veio faltando 5?</li><li><b>Cebola</b> (10 kg) não está no cupom. Não veio?</li><li><b>Tomate</b> (5 kg) não está no cupom. Não veio?</li></ol>Responda numa frase (ex.: "1 sim, 2 não veio, 3 veio de outro lugar").<span class="hora">16:41</span></div>
+            <div class="bolha meu">1 sim, 2 não veio, 3 veio sim, comprei no hortifruti<span class="hora">16:42</span></div>
+            <div class="bolha dele larga">Certo:<ul><li>Batata: 25 de 30 (faltaram 5)</li><li>Cebola: não veio (fica no pedido como falta)</li><li>Tomate: veio do Hortifruti Bom, 5 kg. Qual o valor?</li></ul><span class="hora">16:42</span></div>
+            <div class="bolha meu">32 reais<span class="hora">16:42</span></div>
+            <div class="bolha dele larga">O hambúrguer 56 g tem validade obrigatória: qual é? Se não souber agora, responda "não sei" e ela fica pendente.<span class="hora">16:42</span></div>
+            <div class="bolha meu">não sei<span class="hora">16:43</span></div>
+            <div class="bolha dele larga">Recebido em Estoque › Pedidos: entrou no estoque, com 2 contas a pagar (Atacadão R$ 1.240,00, já pago no cupom; Hortifruti Bom R$ 32,00). A cebola ficou como falta. A validade do hambúrguer ficou pendente até alguém informar.<span class="hora">16:43</span></div>
+          </div>
+        </div>
+      </article>
+      <article class="caso"><h3>A nota sem pedido</h3><p class="sub">Vira um pedido já recebido, em Estoque › Pedidos. <span class="fase">P4</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">📷 foto do cupom<span class="hora">15:20</span></div>
+            <div class="bolha dele larga">🧾 Cupom do <b>Atacadão</b>, 6 itens, <b>R$ 412,80</b>, pago no Pix. Não há pedido aberto do Atacadão.<br><br>Registro como pedido recebido em Estoque › Pedidos, com a despesa já paga?<div class="botoes-wa dois"><span>Registrar</span><span>Só a despesa</span></div><span class="hora">15:20</span></div>
+          </div>
+        </div>
+      </article>
+      <article class="caso"><h3>O pedido atrasado</h3><p class="sub">No dia seguinte à previsão, às 10h, até receber ou cancelar. <span class="fase">P3</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha dele larga">📦 Tem pedido de fornecedor em aberto para receber:<ul><li><b>Pedido da semana · Rucas</b>: previsão 22/11, 2 dias de atraso</li></ul>Quando chegar, mande a foto da nota ou receba em Estoque › Pedidos › Conferir e receber.<div class="botoes-wa dois"><span>Já chegou</span><span>Mudar a previsão</span></div><span class="hora">10:00</span></div>
+          </div>
+        </div>
+      </article>
+      <article class="caso"><h3>A validade pendente</h3><p class="sub">Uma vez por dia, a quem recebeu e ao gerente, até alguém informar. <span class="fase">P1</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha dele larga">⏳ Falta a validade de 1 item recebido:<ul><li><b>Carne 56 g</b>, recebida 23/11 (Nota 48.213)</li></ul>Responda a data (ex.: "vence 02/12") ou informe em Estoque › Pedidos › Validade pendente.<span class="hora">09:00</span></div>
+            <div class="bolha meu">vence 02/12<span class="hora">09:14</span></div>
+            <div class="bolha dele larga">Validade da Carne 56 g: 02/12/2026. Confirmo?<div class="botoes-wa dois"><span>Confirmar</span><span>Mudar</span></div><span class="hora">09:14</span></div>
+          </div>
+        </div>
+      </article>
+      <article class="caso"><h3>A mesma nota mandada de novo</h3><p class="sub">Já corrigido (sem esperar este protótipo).</p>
+        <div class="cel"><div class="cel-topo"><span class="foto">M</span><div><b>Mister</b><span>administrador virtual</span></div></div>
+          <div class="conv">
+            <div class="bolha meu">esquece as duas primeiras<span class="hora">12:35</span></div>
+            <div class="bolha dele larga">Pronto: esqueci as notas de 23/11 06:33 e 23:10. Ficam em Mister › Documentos como "não lançado"; nada tinha sido lançado nelas. Seguimos com a de 24/11 04:21.<span class="hora">12:35</span></div>
+          </div>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NOTAS E DECISÕES ═════════════════════ -->
+<section class="vista" id="v-notas" aria-labelledby="h-notas">
+  <div class="pagina notas">
+    <div class="cab">
+      <h1 id="h-notas">Notas e decisões</h1>
+      <p class="sub">As fases e o que precisa da sua decisão. Em cada decisão, a recomendada vem primeiro.</p>
+    </div>
+    <div class="cartao">
+      <h2>As fases</h2>
+      <table class="fases"><caption class="sr">Fases de pedidos e recebimento</caption>
+        <thead><tr><th>Fase</th><th>O que entra</th><th>Migration</th><th>Servidor da loja</th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Fase">P1 · Validade obrigatória e pendente</td><td data-rot="O que entra">A marca no produto (Estoque › Produtos); o recebimento exige a data só nos marcados; "Não sei" deixa a validade pendente (o item entra no estoque); a situação "Validade pendente" em Pedidos, "Informar a validade" e o aviso do Mister uma vez por dia</td><td data-rot="Migration">sim, 1 (colunas no produto do estoque, no item do pedido e no lote)</td><td data-rot="Servidor da loja">vai no próximo .zip (as tabelas sincronizam)</td></tr>
+          <tr><td data-rot="Fase">P2 · Lista de compras com "de onde veio"</td><td data-rot="O que entra">No recebimento, cada item diz o fornecedor ou o mercado (com "＋ cadastrar novo"); uma conta a pagar por fornecedor</td><td data-rot="Migration">sim, 1 (o fornecedor no item do pedido)</td><td data-rot="Servidor da loja">vai no próximo .zip</td></tr>
+          <tr><td data-rot="Fase">P3 · Previsão e atraso</td><td data-rot="O que entra">A previsão de recebimento (o campo que já existe, com o nome novo) e o aviso "pedido de fornecedor em aberto" do Mister, com "Já chegou" e "Mudar a previsão"</td><td data-rot="Migration">não</td><td data-rot="Servidor da loja">não muda</td></tr>
+          <tr><td data-rot="Fase">P4 · A nota do Mister em Pedidos</td><td data-rot="O que entra">A foto da nota ou do cupom: o Mister acha o pedido aberto que bate (pelos itens, com ou sem fornecedor) e pergunta "registrar o recebimento?"; liga cada item do pedido ao do cupom; pergunta de uma vez o que não está no cupom ("não veio?") e a quantidade que não bate ("veio faltando?"); o item que veio de outro lugar vai com o fornecedor e o valor; recebe pelo "Receber" do pedido (as parcelas da nota, a falta, o item a mais). Sem pedido que bata, pedido novo já recebido</td><td data-rot="Migration">não</td><td data-rot="Servidor da loja">não muda (o Mister é da nuvem)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cartao">
+      <h2>As decisões</h2>
+      <div class="decisao"><h3>PR-1 · O item sem a validade</h3><ol><li>Entra no estoque com a validade pendente, e o pedido mostra a pendência até alguém informar <span class="rcb">recomendada</span></li><li>Só entra no estoque depois da validade informada</li></ol></div>
+      <div class="decisao"><h3>PR-2 · Quem é avisado da validade pendente</h3><ol><li>Quem recebeu e o gerente da loja, uma vez por dia, pelo Mister e na tela <span class="rcb">recomendada</span></li><li>Só na tela</li></ol></div>
+      <div class="decisao"><h3>PR-3 · Validade obrigatória, de partida</h3><ol><li>Desligada em todos os produtos; você marca os de pouca validade <span class="rcb">recomendada</span></li><li>Ligada nos que já têm validade cadastrada</li></ol></div>
+      <div class="decisao"><h3>PR-4 · "De onde veio" na lista de compras</h3><ol><li>Um fornecedor do cadastro, com "＋ cadastrar novo" na hora (o mercado vira fornecedor) <span class="rcb">recomendada</span></li><li>Texto livre</li></ol></div>
+      <div class="decisao"><h3>PR-5 · A conta a pagar de uma lista com vários lugares</h3><ol><li>Uma conta por fornecedor <span class="rcb">recomendada</span></li><li>Uma conta só, do pedido</li></ol></div>
+      <div class="decisao"><h3>PR-6 · Quando avisar do atraso</h3><ol><li>No dia seguinte à previsão, às 10h, uma vez por dia até receber ou cancelar <span class="rcb">recomendada</span></li><li>No próprio dia da previsão, no fim do dia</li></ol></div>
+      <div class="decisao"><h3>PR-7 · A nota que bate com um pedido aberto</h3><ol><li>O pedido que bate pelos itens (metade ou mais dos itens do pedido estão no cupom), com ou sem fornecedor; a pergunta "registrar o recebimento?" e o casamento item a item <span class="rcb">recomendada</span></li><li>Só pelo fornecedor do pedido</li></ol></div>
+      <div class="decisao"><h3>PR-9 · O que não bate no casamento</h3><ol><li>Tudo numa mensagem, numerado: o item do pedido que não está no cupom ("não veio?") e a quantidade diferente ("veio faltando?"); a resposta em frase <span class="rcb">recomendada</span></li><li>Uma pergunta por item, com botões</li></ol></div>
+      <div class="decisao"><h3>PR-8 · A nota sem pedido</h3><ol><li>Vira um pedido já recebido em Estoque › Pedidos (tudo num lugar só) <span class="rcb">recomendada</span></li><li>Continua no Recebimento como nota avulsa, como hoje</li></ol></div>
+    </div>
+    <div class="dois-lados">
+      <div class="cartao">
+        <h2>O que não muda</h2>
+        <ul class="lista-ok">
+          <li>O pedido continua sem validade: é o que se pede.</li>
+          <li>A falta (veio menos) e o item a mais continuam registrados como hoje.</li>
+          <li>O custo médio, o lote e a conta a pagar saem do mesmo serviço de hoje.</li>
+          <li>A nota já lançada não muda.</li>
+        </ul>
+      </div>
+      <div class="cartao">
+        <h2>O que ainda não sei</h2>
+        <ul class="lista-ok">
+          <li>Se a validade pendente deve bloquear a venda do item (hoje nada bloqueia a venda por validade).</li>
+          <li>Se o mercado (Atacadão, Assaí) deve aparecer separado dos fornecedores na tela de Fornecedores.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+
+<script>
+(function () {
+  const abas = [...document.querySelectorAll('.aba')];
+  abas.forEach((b) => b.addEventListener('click', () => {
+    abas.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll('.vista').forEach((v) => v.classList.toggle('ativa', v.id === 'v-' + b.dataset.aba));
+    window.scrollTo(0, 0);
+  }));
+  const telas = [...document.querySelectorAll('.ctl[data-tela]')];
+  const mostrar = (t) => {
+    telas.forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.tela === t)));
+    document.querySelectorAll('[data-t]').forEach((d) => { d.hidden = d.dataset.t !== t; });
+  };
+  telas.forEach((b) => b.addEventListener('click', () => mostrar(b.dataset.tela)));
+  document.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => mostrar(b.dataset.ir)));
+  document.querySelectorAll('.liga').forEach((b) => b.addEventListener('click', () => b.setAttribute('aria-checked', String(b.getAttribute('aria-checked') !== 'true'))));
+  document.querySelectorAll('.sit').forEach((b) => b.addEventListener('click', () => document.querySelectorAll('.sit').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))));
+  document.querySelectorAll('.rcb').forEach((r) => {
+    const nao = r.querySelector('.chk input');
+    const data = r.querySelector('input[type="date"]');
+    if (!nao || !data) return;
+    nao.addEventListener('change', () => { data.disabled = nao.checked; if (nao.checked) data.value = ''; r.classList.toggle('pend', nao.checked); });
+  });
+})();
+</script>
+</body>
+</html>

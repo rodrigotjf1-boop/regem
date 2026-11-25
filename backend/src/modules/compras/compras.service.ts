@@ -197,6 +197,8 @@ export class ComprasService {
             semCusto: sql<number>`count(*) filter (where ${compraItem.custoUnitario} is null)`,
             // Veio menos do que o pedido (uma parte, ou nada): é a falta que a tela mostra na lista recebida.
             comFalta: sql<number>`count(*) filter (where ${compraItem.qtdRecebida} is not null and ${compraItem.qtdRecebida} < ${compraItem.quantidade})`,
+            // "Não sei" no recebimento (mig 504): a situação "Validade pendente" da lista.
+            validadesPendentes: sql<number>`count(*) filter (where ${compraItem.validadePendente})`,
           })
           .from(compraItem)
           .where(inArray(compraItem.listaId, ids))
@@ -220,6 +222,7 @@ export class ComprasService {
       valorEstimado: verFinanceiro ? Number(por.get(l.id)?.valor ?? 0) : null,
       itensSemCusto: Number(por.get(l.id)?.semCusto ?? 0),
       itensComFalta: l.status === 'recebida' ? Number(por.get(l.id)?.comFalta ?? 0) : 0,
+      validadesPendentes: Number(por.get(l.id)?.validadesPendentes ?? 0),
       temListaDoQueFaltou: comListaDoQueFaltou.has(l.id),
     }));
   }
@@ -254,6 +257,8 @@ export class ComprasService {
         qtdRecebida: compraItem.qtdRecebida,
         validade: compraItem.validade,
         validadeIndefinida: compraItem.validadeIndefinida,
+        validadePendente: compraItem.validadePendente, // "não sei" no recebimento (mig 504)
+        validadeObrigatoria: itemEstoque.validadeObrigatoria, // o produto pede a validade no recebimento (mig 504)
         loteCodigo: compraItem.loteCodigo,
         divergencia: compraItem.divergencia,
         custoPedido: compraItem.custoPedido, // o valor do pedido, quando a nota veio com outro (mig 313)
@@ -443,7 +448,7 @@ export class ComprasService {
       // Marcas de cada produto: a conferência diz QUAL veio (a pedida, a 2ª opção ou outra do
       // cadastro). O estoque continua um só — a marca fica só no registro da compra.
       const produtos = await tx
-        .select({ id: itemEstoque.id, nome: itemEstoque.nome, nomeComercial: itemEstoque.nomeComercial, marcas: itemEstoque.marcas })
+        .select({ id: itemEstoque.id, nome: itemEstoque.nome, nomeComercial: itemEstoque.nomeComercial, marcas: itemEstoque.marcas, validadeObrigatoria: itemEstoque.validadeObrigatoria })
         .from(itemEstoque)
         .where(and(eq(itemEstoque.tenantId, tenantId), inArray(itemEstoque.id, itens.map((i) => i.itemId))));
       const produtoDe = new Map(produtos.map((p) => [p.id, p]));
@@ -464,6 +469,7 @@ export class ComprasService {
               qtdRecebida: '0',
               validade: null,
               validadeIndefinida: false,
+              validadePendente: false,
               loteCodigo: null,
               marcaRecebida: null,
               divergencia: 'nao_veio',
@@ -472,19 +478,23 @@ export class ComprasService {
             .where(and(eq(compraItem.id, it.id), eq(compraItem.tenantId, tenantId)));
           continue;
         }
-        // Os três estados da validade. "Nenhum dos dois" é recusado de propósito:
-        // campo em branco é o estado de hoje, em que ninguém preenche.
-        if (!c.validade && !c.validadeIndefinida)
+        // A VALIDADE (P1 de "Pedidos e recebimento", mig 504 — o dono, 24/11: "lançar o pedido não deve ser o bloqueio").
+        // Só o produto marcado "Validade obrigatória no recebimento" exige uma das três: a data, "sem validade" ou "não sei"
+        // (o item entra e a validade fica pendente). Nos outros, a data é opcional e o "não sei" não cria pendência.
+        // Antes, TODA linha exigia a data ou "indefinida" — e quem não sabia não conseguia receber.
+        const produto = produtoDe.get(it.itemId);
+        const obrigatoria = produto?.validadeObrigatoria === true;
+        const pendente = obrigatoria && !!c.validadePendente && !c.validade && !c.validadeIndefinida;
+        if ([!!c.validade, !!c.validadeIndefinida, !!c.validadePendente].filter(Boolean).length > 1)
           throw new BadRequestException(
-            'Informe a validade de cada linha, ou marque como indefinida.',
+            'A validade é uma das três: a data, "sem validade" ou "não sei" — só uma por linha.',
           );
-        if (c.validade && c.validadeIndefinida)
+        if (obrigatoria && !c.validade && !c.validadeIndefinida && !pendente)
           throw new BadRequestException(
-            'Ou a validade tem data, ou é indefinida — não os dois.',
+            `"${produto?.nomeComercial || produto?.nome}" tem validade obrigatória: informe a data, marque "sem validade" ou "não sei".`,
           );
 
         // A marca que veio: a informada tem de ser do cadastro do produto; em branco, vale a pedida.
-        const produto = produtoDe.get(it.itemId);
         const marcas: string[] = Array.isArray(produto?.marcas) ? (produto!.marcas as string[]) : [];
         const informada = limparNome(c.marcaRecebida);
         let marcaRecebida: string | null = null;
@@ -515,6 +525,7 @@ export class ComprasService {
             qtdRecebida: String(qtd),
             validade: c.validade ?? null,
             validadeIndefinida: !!c.validadeIndefinida,
+            validadePendente: pendente,
             loteCodigo: c.loteCodigo?.trim() || null,
             marcaRecebida,
             ...(custoDaNota != null ? { custoUnitario: String(custoDaNota), custoPedido: mudou ? String(custoDoPedido) : null } : {}),
@@ -535,11 +546,11 @@ export class ComprasService {
           data,
         }).returning({ id: movimentoEstoque.id });
 
-        // LOTE — só quando há o que rastrear: uma validade, ou um código de lote do
-        // fabricante. Sem nenhum dos dois (o guardanapo sem código), a linha já diz
+        // LOTE — só quando há o que rastrear: uma validade, um código de lote do fabricante ou a validade PENDENTE (o
+        // lote recebe a data quando alguém informar). Sem nenhum dos três (o guardanapo sem código), a linha já diz
         // tudo pelo próprio `compra_item` e um lote vazio seria só ruído na tela.
         const codigo = c.loteCodigo?.trim() || null;
-        if (c.validade || codigo) {
+        if (c.validade || codigo || pendente) {
           await tx.insert(lote).values({
             tenantId,
             itemId: it.itemId,
@@ -549,6 +560,7 @@ export class ComprasService {
             codigo,
             validade: c.validade ?? null,
             validadeIndefinida: !!c.validadeIndefinida,
+            validadePendente: pendente,
             quantidade: String(qtd),
             custoUnitario: custo != null ? String(custo) : undefined,
             entrada: data,
@@ -632,6 +644,60 @@ export class ComprasService {
       });
     // `itensComFalta`: a tela oferece na hora "gerar lista com o que faltou".
     return { ok: true, itensComFalta: lista.comFalta };
+  }
+
+  /**
+   * "Informar a validade" (P1 de "Pedidos e recebimento", mig 504): a linha recebida com "não sei" ganha a data ou "sem
+   * validade", e o lote dela também. Trava a linha (`for update`) e só mexe se ainda estiver pendente: duas pessoas juntas
+   * informam uma vez. As duas tabelas sincronizam pelo `updated_at` (V91), por isso ele anda nas duas.
+   */
+  async informarValidade(
+    tenantId: string,
+    listaId: string,
+    compraItemId: string,
+    dto: { validade?: string; validadeIndefinida?: boolean },
+    atual: string | null = null,
+    atorId?: string | null,
+  ) {
+    const validade = dto?.validade || null;
+    const indefinida = dto?.validadeIndefinida === true;
+    if (!validade && !indefinida) throw new BadRequestException('Informe a data da validade, ou marque "sem validade".');
+    if (validade && indefinida) throw new BadRequestException('Ou a validade tem data, ou é "sem validade" — não os dois.');
+    const r = await this.db.transaction(async (tx) => {
+      const [lista] = await tx
+        .select({ id: compraLista.id, nome: compraLista.nome })
+        .from(compraLista)
+        .where(and(eq(compraLista.id, listaId), eq(compraLista.tenantId, tenantId), isNull(compraLista.deletedAt), condUnidadeOuRede(compraLista.unidadeId, atual)));
+      if (!lista) throw new NotFoundException('Pedido não encontrado');
+      const [linha] = await tx
+        .select({ id: compraItem.id, itemId: compraItem.itemId, pendente: compraItem.validadePendente })
+        .from(compraItem)
+        .where(and(eq(compraItem.id, compraItemId), eq(compraItem.listaId, listaId), eq(compraItem.tenantId, tenantId)))
+        .for('update');
+      if (!linha) throw new NotFoundException('Item do pedido não encontrado');
+      if (!linha.pendente) throw new BadRequestException('A validade deste item já foi informada.');
+      const agora = new Date();
+      await tx
+        .update(compraItem)
+        .set({ validade, validadeIndefinida: indefinida, validadePendente: false, updatedAt: agora })
+        .where(and(eq(compraItem.id, compraItemId), eq(compraItem.tenantId, tenantId)));
+      await tx
+        .update(lote)
+        .set({ validade, validadeIndefinida: indefinida, validadePendente: false, updatedAt: agora })
+        .where(and(eq(lote.compraItemId, compraItemId), eq(lote.tenantId, tenantId)));
+      return { lista, itemId: linha.itemId };
+    });
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: atorId ?? null,
+      atorPerfil: '',
+      tipo: 'estoque',
+      acao: 'informou_validade',
+      entidadeTipo: 'compra_item',
+      entidadeId: compraItemId,
+      detalhe: { pedido: r.lista.nome, validade, semValidade: indefinida },
+    });
+    return { ok: true, validade, validadeIndefinida: indefinida };
   }
 
   // "Gerar lista com o que faltou" (decisão do dono, 09/10/2026). A lista recebida fecha como

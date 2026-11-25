@@ -159,12 +159,14 @@ descrever('compras: marcador de recebimento, falta, 2ª opção de marca e lista
     expect(((await x.c.listListas(x.t, x.u)) as any[]).find((i) => i.id === outra.id)).toMatchObject({ status: 'aberta', itensComFalta: 0 });
   });
 
-  it('item marcado continua pedindo a validade; e a marca que veio tem de ser do cadastro do produto', async () => {
+  it('item marcado do produto com validade obrigatória continua pedindo a validade; e a marca que veio tem de ser do cadastro do produto', async () => {
     const x = await cenario();
+    // P1 (mig 504): a validade só é pedida no produto marcado "Validade obrigatória no recebimento".
+    await estoque().updateItem(x.t, x.queijo.id, { validadeObrigatoria: true } as any, null, ator);
     const l = await listaDeDez(x);
     const base = [{ compraItemId: l.carne, qtdRecebida: 10, validadeIndefinida: true }, { compraItemId: l.sal, qtdRecebida: 0 }];
     await expect(x.c.receber(x.t, l.id, null, { itens: [{ compraItemId: l.queijo, qtdRecebida: 3 }, ...base] } as any, x.u))
-      .rejects.toThrow(/Informe a validade de cada linha/);
+      .rejects.toThrow('"Barra de queijo de teste" tem validade obrigatória: informe a data, marque "sem validade" ou "não sei".');
     await expect(x.c.receber(x.t, l.id, null, { itens: [{ compraItemId: l.queijo, qtdRecebida: 3, validadeIndefinida: true, marcaRecebida: 'Marca Delta' }, ...base] } as any, x.u))
       .rejects.toThrow(/"Marca Delta" não é marca cadastrada de "Barra de queijo de teste"/);
     // as recusas desfizeram tudo: nada entrou, a lista continua aberta
@@ -179,6 +181,60 @@ descrever('compras: marcador de recebimento, falta, 2ª opção de marca e lista
     expect(await q(`select count(*)::int as n from item_estoque where tenant_id = $1 and deleted_at is null`, [x.t])).toEqual([{ n: 3 }]);
     const aberta: any = await x.c.getLista(x.t, l.id, x.u);
     expect(aberta.itens.find((i: any) => i.itemId === x.queijo.id)).toMatchObject({ marcaRecebida: 'Marca Beta' });
+  });
+
+  it('P1 (mig 504): a validade só é obrigatória no produto marcado; "não sei" entra no estoque com a validade pendente e "informar a validade" completa a linha e o lote', async () => {
+    const x = await cenario();
+    await estoque().updateItem(x.t, x.carne.id, { validadeObrigatoria: true } as any, null, ator);
+    expect((await q(`select validade_obrigatoria as v from item_estoque where id = $1`, [x.carne.id]))[0].v).toBe(true);
+    // Ausente mantém (V16): mudar outro campo não desliga a marca.
+    await estoque().updateItem(x.t, x.carne.id, { nomeComercial: 'Carne de teste (caixa)' } as any, null, ator);
+    expect((await q(`select validade_obrigatoria as v from item_estoque where id = $1`, [x.carne.id]))[0].v).toBe(true);
+    const l = await listaDeDez(x);
+    const sem = (extra: Record<string, any> = {}) => [
+      { compraItemId: l.queijo, qtdRecebida: 10 }, // não obrigatório: sem validade nenhuma, entra
+      { compraItemId: l.carne, qtdRecebida: 10, ...extra },
+      { compraItemId: l.sal, qtdRecebida: 10, validadePendente: true }, // não obrigatório: o "não sei" não cria pendência
+    ];
+    await expect(x.c.receber(x.t, l.id, null, { itens: sem() } as any, x.u)).rejects.toThrow(
+      '"Carne de teste (caixa)" tem validade obrigatória: informe a data, marque "sem validade" ou "não sei".',
+    );
+    await expect(x.c.receber(x.t, l.id, null, { itens: sem({ validade: '2027-01-01', validadePendente: true }) } as any, x.u)).rejects.toThrow(
+      'A validade é uma das três: a data, "sem validade" ou "não sei" — só uma por linha.',
+    );
+    expect(await saldo(x.carne.id)).toBe(0);
+
+    // "Não sei" na carne: ela entra no estoque, a linha e o lote ficam com a validade pendente.
+    await x.c.receber(x.t, l.id, null, { itens: sem({ validadePendente: true }) } as any, x.u);
+    expect([await saldo(x.queijo.id), await saldo(x.carne.id), await saldo(x.sal.id)]).toEqual([10, 10, 10]);
+    const pend = await q(`select i.nome, ci.validade_pendente as p from compra_item ci join item_estoque i on i.id = ci.item_id where ci.lista_id = $1 order by i.nome`, [l.id]);
+    expect(pend).toEqual([
+      { nome: 'Carne de teste', p: true },
+      { nome: 'Fatia de queijo de teste', p: false },
+      { nome: 'Sal de teste', p: false },
+    ]);
+    expect(await q(`select validade, validade_pendente as p, quantidade::float8 as q from lote where compra_item_id = $1`, [l.carne])).toEqual([{ validade: null, p: true, q: 10 }]);
+    expect(await q(`select 1 from lote where compra_item_id = any($1::uuid[])`, [[l.queijo, l.sal]])).toEqual([]);
+    expect(((await x.c.listListas(x.t, x.u)) as any[]).find((p) => p.id === l.id)).toMatchObject({ status: 'recebida', validadesPendentes: 1 });
+    const aberta: any = await x.c.getLista(x.t, l.id, x.u);
+    expect(aberta.itens.find((i: any) => i.itemId === x.carne.id)).toMatchObject({ validadeObrigatoria: true, validadePendente: true, validade: null });
+    expect(aberta.itens.find((i: any) => i.itemId === x.sal.id)).toMatchObject({ validadeObrigatoria: false, validadePendente: false });
+
+    // Informar a validade: sem nada ou com as duas, recusa; com a data, completa a linha e o lote.
+    await expect(x.c.informarValidade(x.t, l.id, l.carne, {}, x.u)).rejects.toThrow('Informe a data da validade, ou marque "sem validade".');
+    await expect(x.c.informarValidade(x.t, l.id, l.carne, { validade: '2026-12-02', validadeIndefinida: true }, x.u)).rejects.toThrow(
+      'Ou a validade tem data, ou é "sem validade" — não os dois.',
+    );
+    const antes = (await q(`select updated_at from compra_item where id = $1`, [l.carne]))[0].updated_at;
+    expect(await x.c.informarValidade(x.t, l.id, l.carne, { validade: '2026-12-02' }, x.u, null)).toEqual({ ok: true, validade: '2026-12-02', validadeIndefinida: false });
+    expect(await q(`select validade::text as v, validade_pendente as p, updated_at > $2 as andou from compra_item where id = $1`, [l.carne, antes])).toEqual([{ v: '2026-12-02', p: false, andou: true }]);
+    expect(await q(`select validade::text as v, validade_pendente as p from lote where compra_item_id = $1`, [l.carne])).toEqual([{ v: '2026-12-02', p: false }]);
+    expect(((await x.c.listListas(x.t, x.u)) as any[]).find((p) => p.id === l.id)).toMatchObject({ validadesPendentes: 0 });
+    expect(auditoria.registrar).toHaveBeenCalledWith(expect.objectContaining({ acao: 'informou_validade', entidadeId: l.carne, detalhe: expect.objectContaining({ validade: '2026-12-02' }) }));
+    // De novo, ou numa linha que nunca ficou pendente: já informada. De outra empresa: não acha.
+    await expect(x.c.informarValidade(x.t, l.id, l.carne, { validadeIndefinida: true }, x.u)).rejects.toThrow('A validade deste item já foi informada.');
+    await expect(x.c.informarValidade(x.t, l.id, l.queijo, { validadeIndefinida: true }, x.u)).rejects.toThrow('A validade deste item já foi informada.');
+    await expect(x.c.informarValidade(randomUUID(), l.id, l.carne, { validade: '2026-12-02' }, null)).rejects.toThrow('Pedido não encontrado');
   });
 
   it('lista do que faltou: só as quantidades que não vieram, com o mesmo fornecedor e as mesmas marcas; uma só por lista', async () => {

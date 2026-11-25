@@ -8,13 +8,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Dialogo } from '@/components/ui/sobreposto';
-import { brl, num, texto2 } from '@/components/ui/lista';
+import { Selo, brl, num, texto2 } from '@/components/ui/lista';
 import { marcasDe, nomeDeApoio, nomeDeCompra, quantoFaltou, textoDaMarcaPedida } from '@/lib/produto-compra';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Conferência: o que de fato chegou, por linha da compra. `recebido` é o MARCADOR — sem ele o
 // item fica registrado como "não veio" e nada entra no estoque.
-type Conf = { recebido: boolean; qtdRecebida: string; custoUnitario: string; validade: string; indefinida: boolean; loteCodigo: string; marcaRecebida: string };
+type Conf = { recebido: boolean; qtdRecebida: string; custoUnitario: string; validade: string; indefinida: boolean; naoSei: boolean; loteCodigo: string; marcaRecebida: string };
 
 // Título da coluna escrito em cima do campo: só aparece quando a tabela está empilhada (abaixo
 // de 1024 px), em que o cabeçalho some.
@@ -44,6 +44,7 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
           // Memória por insumo: como ele foi conferido da última vez. A decisão continua na
           // tela para ser confirmada — só não se redigita.
           indefinida: !!it.sugestao?.validadeIndefinida,
+          naoSei: false, // "não sei" (mig 504): só no produto com validade obrigatória
           loteCodigo: '',
           marcaRecebida: it.marca ?? '', // vem a pedida; troca quem recebe, se veio a 2ª opção
         },
@@ -76,9 +77,10 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
       setErro(`Confira "${nomeDeCompra(valorRuim)}": o valor unitário não pode ser negativo.`);
       return;
     }
-    const semValidade = marcados.find((it) => !conf[it.id].validade && !conf[it.id].indefinida);
+    // P1 (mig 504): a validade só é exigida no produto com validade obrigatória — a data, "sem validade" ou "não sei".
+    const semValidade = marcados.find((it) => it.validadeObrigatoria && !conf[it.id].validade && !conf[it.id].indefinida && !conf[it.id].naoSei);
     if (semValidade) {
-      setErro(`Confira "${nomeDeCompra(semValidade)}": informe a validade (ou marque "sem validade").`);
+      setErro(`"${nomeDeCompra(semValidade)}" tem validade obrigatória: informe a validade, marque "sem validade" ou "não sei".`);
       return;
     }
     setErro('');
@@ -94,8 +96,9 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
             compraItemId: it.id,
             qtdRecebida: Number(c.qtdRecebida),
             custoUnitario: c.custoUnitario !== '' ? Number(c.custoUnitario) : undefined, // em branco, vale o do pedido
-            validade: c.indefinida ? undefined : c.validade,
+            validade: c.indefinida || c.naoSei ? undefined : c.validade || undefined,
             validadeIndefinida: c.indefinida || undefined,
+            validadePendente: (it.validadeObrigatoria && c.naoSei) || undefined,
             loteCodigo: c.loteCodigo.trim() || undefined,
             marcaRecebida: marcasDe(it).length >= 2 ? c.marcaRecebida || undefined : undefined,
           };
@@ -127,7 +130,8 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className={`min-w-0 flex-1 basis-64 ${texto2}`}>
             Marque cada item que chegou. O que ficar sem marcar é registrado como <b className="text-foreground">não veio</b> e não entra no estoque.
-            Acerte o valor unitário pelo que está na nota.
+            Acerte o valor unitário pelo que está na nota. A validade só é exigida no produto com <b className="text-foreground">validade obrigatória</b>;
+            quem não souber marca “não sei” e ela fica pendente.
           </p>
           <Button type="button" variant="outline" size="sm" onClick={() => marcarTodos(!todos)}>{todos ? 'Desmarcar todos' : 'Marcar todos'}</Button>
         </div>
@@ -142,7 +146,7 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
                 <th scope="col" className="px-3 py-2">Pedido</th>
                 <th scope="col" className="px-3 py-2">Chegou *</th>
                 <th scope="col" className="px-3 py-2">Valor un.</th>
-                <th scope="col" className="px-3 py-2">Validade *</th>
+                <th scope="col" className="px-3 py-2">Validade</th>
                 <th scope="col" className="px-3 py-2">Lote</th>
               </tr>
             </thead>
@@ -173,6 +177,7 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
                         <span className="min-w-0">
                           <span className="block break-words font-semibold">{titulo}</span>
                           {pedido && <span className="block break-words text-xs font-semibold">{pedido}</span>}
+                          {it.validadeObrigatoria && <span className="mt-0.5 block"><Selo tom="aviso">validade obrigatória</Selo></span>}
                           <span className={`block break-words text-xs ${texto2}`}>{nomeDeApoio(it) ? `No estoque: ${nomeDeApoio(it)} · ` : ''}{it.unidadeMedida}</span>
                           <span className="block text-xs font-bold">{c.recebido ? '✓ Recebido' : 'Não marcado'}</span>
                         </span>
@@ -214,12 +219,19 @@ export function ConferirCompra({ lista, aoFechar, aoReceber }: { lista: any; aoF
                     <td className={meia}>
                       {c.recebido ? (
                         <>
-                          <RotuloDaColuna>Validade *</RotuloDaColuna>
-                          <Input type="date" className="w-full lg:w-44" value={c.validade} disabled={c.indefinida} aria-label={`Validade de ${titulo}`} onChange={(e) => mudar(it.id, { validade: e.target.value })} />
+                          <RotuloDaColuna>{it.validadeObrigatoria ? 'Validade *' : 'Validade (opcional)'}</RotuloDaColuna>
+                          <Input type="date" className="w-full lg:w-44" value={c.validade} disabled={c.indefinida || c.naoSei} aria-label={`Validade de ${titulo}`} onChange={(e) => mudar(it.id, { validade: e.target.value })} />
                           <label className={`mt-1 flex min-h-8 items-center gap-1.5 text-xs ${texto2}`}>
-                            <input type="checkbox" className="h-4 w-4 accent-primary" checked={c.indefinida} aria-label={`Sem validade: ${titulo}`} onChange={(e) => mudar(it.id, { indefinida: e.target.checked, validade: '' })} />
+                            <input type="checkbox" className="h-4 w-4 accent-primary" checked={c.indefinida} aria-label={`Sem validade: ${titulo}`} onChange={(e) => mudar(it.id, { indefinida: e.target.checked, naoSei: false, validade: '' })} />
                             sem validade
                           </label>
+                          {it.validadeObrigatoria && (
+                            <label className={`flex min-h-8 items-center gap-1.5 text-xs ${texto2}`}>
+                              <input type="checkbox" className="h-4 w-4 accent-primary" checked={c.naoSei} aria-label={`Não sei a validade: ${titulo}`} onChange={(e) => mudar(it.id, { naoSei: e.target.checked, indefinida: false, validade: '' })} />
+                              não sei
+                            </label>
+                          )}
+                          {c.naoSei && <span className="mt-0.5 block text-xs font-bold">a validade fica pendente: o item entra no estoque e o pedido mostra “validade pendente”</span>}
                         </>
                       ) : <span className={texto2}>—</span>}
                     </td>

@@ -19,7 +19,7 @@ import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { ComprasService } from './compras.service';
 import { CreateCompraListaDto } from './dto/create-compra-lista.dto';
-import { ReceberCompraDto } from './dto/receber-compra.dto';
+import { InformarValidadeDto, ReceberCompraDto } from './dto/receber-compra.dto';
 import { GerarFaltanteDto } from './dto/gerar-faltante.dto';
 import { MarcarEnviadoDto } from './dto/marcar-enviado.dto';
 
@@ -90,6 +90,19 @@ export class ComprasController {
     @Body() dto: ReceberCompraDto,
   ) {
     return this.service.receber(user.tenantId, id, user.colaboradorId, dto, atual);
+  }
+
+  // "Informar a validade" da linha recebida com "não sei" (mig 504): a mesma porta de quem recebe.
+  @Post('listas/:id/itens/:itemId/validade')
+  @RequirePerm('estoque', 'editar')
+  informarValidade(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: InformarValidadeDto,
+  ) {
+    return this.service.informarValidade(user.tenantId, id, itemId, dto, atual, user.colaboradorId);
   }
 
   // Lista nova só com o que faltou de uma compra já recebida. É criar lista: mesma porta de `POST listas`.

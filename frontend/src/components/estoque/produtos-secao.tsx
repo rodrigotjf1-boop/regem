@@ -57,6 +57,8 @@ export function ProdutosSecao({
   const [categoria, setCategoria] = useState('');
   const [fornecedor, setFornecedor] = useState('');
   const [soAbaixo, setSoAbaixo] = useState(false);
+  // Os produtos com "Validade obrigatória no recebimento" (mig 504).
+  const [soObrigatoria, setSoObrigatoria] = useState(false);
   const [setores, setSetores] = useState<Opt[]>([]);
   const [unidades, setUnidades] = useState<string[]>([]);
   const [listaDeUnidades, setListaDeUnidades] = useState<ListaDeUnidades | null>(null);
@@ -110,14 +112,16 @@ export function ProdutosSecao({
         (!b || semAcento(textoDeBusca(i)).includes(b)) && // nome do produto, nome comercial e marcas
         (!categoria || i.categoriaItemId === categoria) &&
         (!fornecedor || (i.fornecedorIds ?? []).includes(fornecedor)) &&
-        (!soAbaixo || (i.abaixoMinimo ?? Number(i.saldo) < Number(i.estoqueMinimo))),
+        (!soAbaixo || (i.abaixoMinimo ?? Number(i.saldo) < Number(i.estoqueMinimo))) &&
+        (!soObrigatoria || i.validadeObrigatoria === true),
     );
-  }, [itens, busca, categoria, fornecedor, soAbaixo]);
-  const filtrando = !!(busca.trim() || categoria || fornecedor || soAbaixo);
+  }, [itens, busca, categoria, fornecedor, soAbaixo, soObrigatoria]);
+  const filtrando = !!(busca.trim() || categoria || fornecedor || soAbaixo || soObrigatoria);
+  const nObrigatoria = itens.filter((i) => i.validadeObrigatoria === true).length;
   const sugestoesDeMarca = useMemo(() => marcasConhecidas(itens), [itens]);
   const nAbaixo = itens.filter(abaixo).length;
   const valor = lista.reduce((s, i) => s + Number(i.valorEstoque ?? 0), 0);
-  const limpar = () => { setBusca(''); setCategoria(''); setFornecedor(''); setSoAbaixo(false); };
+  const limpar = () => { setBusca(''); setCategoria(''); setFornecedor(''); setSoAbaixo(false); setSoObrigatoria(false); };
 
   async function exportar(formato: 'xlsx' | 'csv') {
     setMenuExportar(false);
@@ -188,6 +192,7 @@ export function ProdutosSecao({
       {marcasDe(i).length > 0 && (
         <span className={`block break-words text-xs ${texto2}`}>{marcasDe(i).length === 1 ? 'Marca' : 'Marcas'}: {marcasDe(i).join(', ')}</span>
       )}
+      {i.validadeObrigatoria && <span className="block text-xs font-semibold">Validade obrigatória no recebimento</span>}
     </>
   );
   // `rotulo`: no cartão o botão mostra o texto; na tabela, só a partir da tela bem larga.
@@ -280,6 +285,12 @@ export function ProdutosSecao({
               soAbaixo ? 'border-destructive bg-destructive/10 text-destructive' : 'border-input bg-card text-foreground hover:bg-secondary'
             }`}>
             Abaixo do mínimo <span className="font-mono">{nAbaixo}</span>
+          </button>
+          <button type="button" aria-pressed={soObrigatoria} onClick={() => setSoObrigatoria((v) => !v)}
+            className={`inline-flex min-h-11 items-center justify-center gap-2 self-end whitespace-nowrap rounded-md border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              soObrigatoria ? 'border-primary bg-primary/10 text-foreground' : 'border-input bg-card text-foreground hover:bg-secondary'
+            }`}>
+            Validade obrigatória <span className="font-mono">{nObrigatoria}</span>
           </button>
         </Card>
       )}

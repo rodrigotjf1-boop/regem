@@ -136,6 +136,8 @@ export function ProdutoForm({
   );
   // Validade opcional (seletor nativo). A data vem como yyyy-mm-dd do backend.
   const [validade, setValidade] = useState(item?.validade ? String(item.validade).slice(0, 10) : '');
+  // "Validade obrigatória no recebimento" (mig 504): nasce desligada; marca-se nos produtos de pouca validade.
+  const [validadeObrigatoria, setValidadeObrigatoria] = useState(item?.validadeObrigatoria === true);
   // Validade após aberto (dias) — ao abrir a etiqueta, se encurtar, reimprime (E2).
   const [validadeAbertoDias, setValidadeAbertoDias] = useState(
     item?.validadeAbertoDias != null ? String(item.validadeAbertoDias) : '',
@@ -208,6 +210,7 @@ export function ProdutoForm({
       estoqueMinimo: estoqueMinimo ? Number(estoqueMinimo) : undefined,
       validade: validade || undefined,
       validadeAbertoDias: validadeAbertoDias ? Number(validadeAbertoDias) : undefined,
+      validadeObrigatoria,
       categoriaItemId: categoriaItemId || undefined,
       setorIds, // o 1º é o principal; lista vazia tira o produto de todos os setores
       fornecedorIds, // lista N:N (o backend deriva o principal do 1º)
@@ -456,6 +459,19 @@ export function ProdutoForm({
             <Label htmlFor="val">Data de validade (opcional)</Label>
             <Input id="val" type="date" value={validade} onChange={(e) => setValidade(e.target.value)} />
           </div>
+        </div>
+
+        {/* P1 de "Pedidos e recebimento" (mig 504): o recebimento do pedido só exige a validade nos produtos marcados. */}
+        <div className="space-y-1">
+          <label className="flex min-h-11 items-center gap-2 text-sm font-medium">
+            <input type="checkbox" className="h-4 w-4 accent-primary" checked={validadeObrigatoria}
+              aria-describedby="item-validade-obrigatoria-ajuda" onChange={(e) => setValidadeObrigatoria(e.target.checked)} />
+            Validade obrigatória no recebimento
+          </label>
+          <p id="item-validade-obrigatoria-ajuda" className={ajuda}>
+            Quem recebe tem de informar a data, ou marcar “não sei” (a validade fica pendente). Use nos produtos de pouca validade.
+            Desligado, a validade é opcional.
+          </p>
         </div>
 
         {/* Impressão de etiquetas de validade (RDC 216) — só com validade cadastrada. */}

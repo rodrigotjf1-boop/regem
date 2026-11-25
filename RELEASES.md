@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Validade obrigatória só no produto marcado, com "não sei" pendente (25/11; P1 de "Pedidos e recebimento"; mig 504 — já
+  aplicada na nuvem).** O recebimento do pedido só exige a validade no produto marcado; "não sei" deixa pendente; Pedidos ganha
+  "Validade pendente" e "Informar a validade". **Vai no `.zip`**: as colunas novas estão em `item_estoque`, `compra_item` e
+  `lote`, que sincronizam com a loja (a 504 roda no servidor da loja com a atualização), e a tela de Pedidos roda lá.
+
 - **PDV e números: valor digitado, relatórios, DRE, agendados do turno e o extrato sem duplicar (25/11; ERR-608; SEM migration).**
   Lote 5 da segunda volta da revisão do PDV: "12.34,56" é recusado no caixa e no balcão (um leitor só); o relatório de produtos
   separa produtos de mesmo nome histórico, cada um com o seu custo; as formas de uma venda dividida somam o faturamento sem o
