@@ -405,7 +405,7 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       return recusa('Não tenho um gráfico desta conversa nos últimos 30 minutos: peça o gráfico de novo (mostrar_grafico).');
     case 'propor_acao': {
       // Versão 6, M6j: a mesma conferência da de verdade (os motivos e os tempos da tela); na avaliação nada é proposto nem feito.
-      const c = conferirAcao(en.acao, en);
+      const c = conferirAcao(en.acao, en, AGORA_DA_AVALIACAO_INSTANTE);
       if ('erro' in c) return recusa(c.erro);
       const p = c.parametros;
       const resumo = p.acao === 'aceitar_pedido' || p.acao === 'pedido_pronto' || p.acao === 'despachar_pedido' ? resumoDoPedido(p.acao, `#${p.numero}`) : c.resumo;
@@ -417,7 +417,7 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       if ('erro' in l) return recusa(l.erro);
       const passos: { nivel: 'botao' | 'pin'; resumo: string }[] = [];
       for (const [i, passo] of l.passos.entries()) {
-        const c = conferirAcao(passo.acao, passo);
+        const c = conferirAcao(passo.acao, passo, AGORA_DA_AVALIACAO_INSTANTE);
         if ('erro' in c) return recusa(`Passo ${i + 1}: ${c.erro}`);
         const p = c.parametros;
         passos.push({ nivel: ACOES[p.acao].nivel, resumo: p.acao === 'aceitar_pedido' || p.acao === 'pedido_pronto' || p.acao === 'despachar_pedido' ? resumoDoPedido(p.acao, `#${p.numero}`) : c.resumo });
@@ -1443,6 +1443,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c117', pergunta: 'Quanto de cashback os clientes têm para resgatar e quanto vence esta semana?', consultas: ['fidelidade_e_cashback'], numeros: ['2.486,35', '287,15'] },
   // P1 de "Pedidos e recebimento" (25/11): a resposta ao aviso da validade pendente.
   { id: 'c118', pergunta: 'A carne 56 g que chegou ontem vence dia 02/12.', consultas: ['propor_acao'], contem: ['02/12', 'Autorizar'] },
+  // P3 de "Pedidos e recebimento" (25/11): a resposta ao "Mudar a previsão" do aviso do pedido atrasado.
+  { id: 'c119', pergunta: 'A previsão do pedido da semana do Rucas passa para 28/11.', consultas: ['propor_acao'], contem: ['28/11', 'Autorizar'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

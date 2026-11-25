@@ -37,6 +37,11 @@
   cada linha. **Vai no `.zip`**: a coluna nova `compra_item.fornecedor_id` sincroniza com a loja (a 505 roda no servidor da loja com
   a atualização), e o recebimento roda lá. Enquanto a loja não recebe o `.zip`, o recebimento NELA segue como hoje (um fornecedor só).
 
+- **Previsão de recebimento e o aviso do pedido atrasado (25/11; P3 de "Pedidos e recebimento", PR-6; SEM migration).** O aviso
+  do Mister (às 10h do dia seguinte à previsão, uma vez por dia, com "Já chegou" e "Mudar a previsão") e a nova previsão pela
+  conversa rodam só na nuvem. **Vai no `.zip` só a tela**: em Estoque › Pedidos, "Data de recebimento" virou "Previsão de
+  recebimento", com a ajuda "o Mister avisa no dia seguinte", e a lista mostra "N dias de atraso".
+
 - **PDV e números: valor digitado, relatórios, DRE, agendados do turno e o extrato sem duplicar (25/11; ERR-608; SEM migration).**
   Lote 5 da segunda volta da revisão do PDV: "12.34,56" é recusado no caixa e no balcão (um leitor só); o relatório de produtos
   separa produtos de mesmo nome histórico, cada um com o seu custo; as formas de uma venda dividida somam o faturamento sem o

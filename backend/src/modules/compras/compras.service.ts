@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
@@ -878,6 +878,38 @@ export class ComprasService {
 
   // "Marcar como enviado": é a PESSOA quem diz que enviou (o sistema só abriu o aplicativo dela —
   // não tem como saber se a mensagem saiu). Fica no pedido quando e por onde, e na auditoria quem.
+  /**
+   * P3 de "Pedidos e recebimento" (25/11): a nova previsão de recebimento de um pedido ainda não recebido — o "Mudar a previsão"
+   * do aviso do pedido atrasado do Mister. A gravação confere de novo que não foi recebido (o recebimento no meio não muda a data).
+   */
+  async mudarPrevisao(tenantId: string, id: string, previsao: string, atual: string | null = null, atorId?: string | null) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(previsao) || Number.isNaN(Date.parse(`${previsao}T12:00:00Z`))) throw new BadRequestException('Previsão de recebimento inválida.');
+    const [antes] = await this.db
+      .select({ id: compraLista.id, status: compraLista.status, nome: compraLista.nome, previsao: compraLista.dataRecebimento })
+      .from(compraLista)
+      .where(and(eq(compraLista.id, id), eq(compraLista.tenantId, tenantId), isNull(compraLista.deletedAt), condUnidadeOuRede(compraLista.unidadeId, atual)));
+    if (!antes) throw new NotFoundException('Pedido não encontrado');
+    const recebido = 'Este pedido já foi recebido: a previsão não muda mais.';
+    if (antes.status === 'recebida') throw new BadRequestException(recebido);
+    const [feito] = await this.db
+      .update(compraLista)
+      .set({ dataRecebimento: previsao, updatedAt: new Date() })
+      .where(and(eq(compraLista.id, id), eq(compraLista.tenantId, tenantId), isNull(compraLista.deletedAt), ne(compraLista.status, 'recebida')))
+      .returning({ id: compraLista.id });
+    if (!feito) throw new BadRequestException(recebido);
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: atorId ?? null,
+      atorPerfil: '',
+      tipo: 'estoque',
+      acao: 'mudou_previsao_pedido',
+      entidadeTipo: 'compra_lista',
+      entidadeId: id,
+      detalhe: { nome: antes.nome, de: antes.previsao ?? null, para: previsao },
+    });
+    return { ok: true, dataRecebimento: previsao };
+  }
+
   async marcarEnviado(tenantId: string, id: string, canal: string, atual: string | null = null, atorId?: string | null) {
     if (canal !== 'whatsapp' && canal !== 'email') throw new BadRequestException('Canal de envio desconhecido.');
     const [antes] = await this.db

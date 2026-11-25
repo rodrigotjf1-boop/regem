@@ -130,7 +130,7 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
   const prazo = (l: any) => {
     if (!l.dataRecebimento) return 'sem data marcada';
     const d = diasAte(l.dataRecebimento);
-    return d === 0 ? 'hoje' : d > 0 ? `em ${d} dia(s)` : `atrasado ${-d} dia(s)`;
+    return d === 0 ? 'hoje' : d > 0 ? `em ${d} dia(s)` : `${-d === 1 ? '1 dia' : `${-d} dias`} de atraso`;
   };
 
   return (
@@ -162,7 +162,7 @@ export function ComprasSecao({ itens, fornecedores, aoMudarEstoque }: { itens: a
             { titulo: 'Pedido', celula: (l) => <NomeComApoio nome={l.nome} apoio={[nomeForn(l), textoDoEnvio(l)].filter(Boolean).join(' · ')} /> },
             { titulo: 'Itens', celula: (l) => <span className="font-mono">{l.itens}</span> },
             {
-              titulo: 'Receber em',
+              titulo: 'Previsão',
               celula: (l) => (
                 <>
                   <span className="font-mono">{l.dataRecebimento ? dataBr(l.dataRecebimento) : '—'}</span>
@@ -382,8 +382,10 @@ function NovaListaForm({ itens, fornecedores, colabs, verFin, aoFechar, aoSalvar
             <p id="compra-resp-ajuda" className={`text-xs ${texto2}`}>Quem confere o pedido quando ele chegar na loja.</p>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="compra-data">Data de recebimento</Label>
-            <Input id="compra-data" type="date" value={dataRecebimento} onChange={(e) => setDataRecebimento(e.target.value)} />
+            <Label htmlFor="compra-data">Previsão de recebimento</Label>
+            <Input id="compra-data" type="date" value={dataRecebimento} onChange={(e) => setDataRecebimento(e.target.value)} aria-describedby="compra-data-ajuda" />
+            {/* P3 de "Pedidos e recebimento" (PR-6): o aviso do Mister no dia seguinte à previsão, às 10h, até receber. */}
+            <p id="compra-data-ajuda" className={`text-xs ${texto2}`}>Passou da data sem receber: o Mister avisa no dia seguinte.</p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="compra-venc">Data de pagamento</Label>

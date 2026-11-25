@@ -57,7 +57,9 @@ export type TipoDeAviso =
   | 'gasto_whatsapp'
   | 'franquia_atendimento'
   // P1 de "Pedidos e recebimento" (protótipo aprovado em 25/11/2026, PR-2): o item recebido com "não sei" na validade.
-  | 'validade_pendente';
+  | 'validade_pendente'
+  // P3 de "Pedidos e recebimento" (PR-6): o pedido de compra que passou da previsão de recebimento sem ser recebido.
+  | 'pedido_atrasado';
 
 export interface RegraDoAviso {
   ligado: boolean;
@@ -220,6 +222,17 @@ export const TIPOS_DE_AVISO: TipoDoAviso[] = [
     grupo: 'Na loja',
     titulo: 'Validade pendente',
     descricao: 'Itens recebidos com "não sei" na validade. Às 9h da loja, uma vez por dia, até alguém informar a data pela conversa ou em Estoque › Pedidos › Validade pendente.',
+    padrao: regra(['gerente']),
+    jaFunciona: true,
+  },
+  // P3 de "Pedidos e recebimento" (PR-6): o pedido de fornecedor em aberto depois da previsão — às 10h do dia seguinte, uma vez
+  // por dia até receber ou excluir. Ao gerente, como a validade pendente; "Já chegou" e "Mudar a previsão" vão junto.
+  {
+    tipo: 'pedido_atrasado',
+    grupo: 'Na loja',
+    titulo: 'Pedido de fornecedor atrasado',
+    descricao:
+      'Pedido de compra que passou da previsão de recebimento sem ser recebido. No dia seguinte à previsão, às 10h da loja, uma vez por dia, até receber ou excluir o pedido em Estoque › Pedidos. Vai com "Já chegou" e "Mudar a previsão".',
     padrao: regra(['gerente']),
     jaFunciona: true,
   },
@@ -896,6 +909,71 @@ export function situacaoDaValidadePendente(v: ValidadePendente): Situacao {
   };
 }
 
+// ───────────────────────────── o pedido atrasado (P3 de "Pedidos e recebimento", PR-6) ─────────────────────────────
+
+/** A hora da loja em que o dia do aviso do pedido atrasado vira: o aviso sai às 10h do dia seguinte à previsão (PR-6). */
+export const HORA_DO_AVISO_DE_ATRASO = 10;
+
+/** O "hoje" do aviso do pedido atrasado: o dia da loja, ou o anterior antes das 10h. A previsão anterior a ele está atrasada. */
+export function diaDoAvisoDeAtraso(agora: Date): string {
+  const hoje = dataNoFuso(agora);
+  return Number(horaNoFuso(agora).slice(0, 2)) < HORA_DO_AVISO_DE_ATRASO ? somarDias(hoje, -1) : hoje;
+}
+
+/** Um pedido de compra ainda aberto com a previsão de recebimento para trás — o que a volta lê. */
+export interface PedidoAtrasado {
+  tenantId: string;
+  unidadeId: string | null;
+  listaId: string;
+  pedido: string;
+  fornecedor: string | null;
+  /** A previsão de recebimento (AAAA-MM-DD). */
+  previsao: string;
+  /** O dia do aviso (`diaDoAvisoDeAtraso`): o marco que faz o aviso aberto lembrar uma vez por dia. */
+  dia: string;
+}
+
+/**
+ * O pedido atrasado (PR-6). A chave é do pedido: recebido ou excluído, ele sai da lista e o aviso fecha. O título conta os dias
+ * de atraso (a renovação regrava o título) e o marco é o dia, então o aviso aberto lembra pelo WhatsApp uma vez por dia.
+ */
+export function situacaoDoPedidoAtrasado(p: PedidoAtrasado): Situacao {
+  const dias = Math.max(1, Math.round((Date.parse(`${p.dia}T12:00:00Z`) - Date.parse(`${p.previsao}T12:00:00Z`)) / 86_400_000));
+  const nome = p.fornecedor ? `${p.pedido} · ${p.fornecedor}` : p.pedido;
+  return {
+    tenantId: p.tenantId,
+    unidadeId: p.unidadeId,
+    tipo: 'pedido_atrasado',
+    chave: `atraso:${p.listaId}`,
+    titulo: `Tem pedido de fornecedor em aberto para receber: ${nome} (previsão ${p.previsao.slice(8, 10)}/${p.previsao.slice(5, 7)}, ${dias === 1 ? '1 dia' : `${dias} dias`} de atraso)`,
+    detalhe: 'Quando chegar, receba em Estoque › Pedidos › Conferir e receber. Se a data mudou, toque em "Mudar a previsão".',
+    dados: { marco: p.dia, listaId: p.listaId, previsao: p.previsao, diasDeAtraso: dias },
+  };
+}
+
+/** Os botões do aviso do pedido atrasado: "Já chegou" e "Mudar a previsão" (o protótipo, "No celular"). */
+export const PREFIXO_DO_PEDIDO_ATRASADO = 'ped:';
+export const botoesDoPedidoAtrasado = (listaId: unknown) =>
+  typeof listaId === 'string' && /^[0-9a-f-]{36}$/i.test(listaId)
+    ? [
+        { id: `${PREFIXO_DO_PEDIDO_ATRASADO}chegou:${listaId}`, titulo: 'Já chegou' },
+        { id: `${PREFIXO_DO_PEDIDO_ATRASADO}prev:${listaId}`, titulo: 'Mudar a previsão' },
+      ]
+    : [];
+
+export function lerBotaoDoPedidoAtrasado(botaoId: unknown): { acao: 'chegou' | 'prev'; listaId: string } | null {
+  const m = /^ped:(chegou|prev):([0-9a-f-]{36})$/i.exec(String(botaoId ?? ''));
+  return m ? { acao: m[1].toLowerCase() as 'chegou' | 'prev', listaId: m[2].toLowerCase() } : null;
+}
+
+export const TEXTOS_DO_PEDIDO_ATRASADO = {
+  chegou: (pedido: string) =>
+    `Receba o pedido "${pedido}" em Estoque › Pedidos › Conferir e receber: lá você marca o que chegou, de onde veio e a validade. O aviso para quando ele for recebido.`,
+  mudar: (pedido: string) => `Para quando fica a nova previsão do pedido "${pedido}"? Responda com o pedido e a data, por exemplo: "a previsão do ${pedido} passa para sexta".`,
+  fechado: 'Esse pedido já foi recebido ou excluído: o aviso fechou.',
+  naoDisponivel: 'Esse aviso não é para você: o pedido é de outra loja, ou o seu acesso mudou.',
+};
+
 /** O boleto entra no aviso desta empresa? Pela antecedência escolhida (o vencido e não pago sempre, até 30 dias). */
 export const boletoNoPrazoDoAviso = (dias: number, antecedencia: number | null): boolean => dias >= -BOLETO_VENCIDO_ATE_DIAS && dias <= (antecedencia ?? 3);
 
@@ -1005,7 +1083,7 @@ export const botoesDoAvisoDoBoleto = (documentoId: unknown) =>
 
 /** A mensagem do aviso que abriu (WhatsApp e tela). O arquivo do ponto do mês não é alerta: vai com a pasta (protótipo). */
 export const textoDoAviso = (s: { titulo: string; detalhe?: string | null; tipo?: string }): string =>
-  `${s.tipo === 'ponto_do_mes' ? '📁' : '⚠️'} ${s.titulo}.${s.detalhe ? `\n\n${s.detalhe}` : ''}`;
+  `${s.tipo === 'ponto_do_mes' ? '📁' : s.tipo === 'pedido_atrasado' ? '📦' : '⚠️'} ${s.titulo}.${s.detalhe ? `\n\n${s.detalhe}` : ''}`;
 
 /** A mensagem do lembrete (o aviso continua aberto e chegou a outro marco, como o certificado a 7 dias). */
 export const textoDoLembrete = (s: { titulo: string; detalhe?: string | null }): string => `🔔 Lembrete: ${s.titulo}.${s.detalhe ? `\n\n${s.detalhe}` : ''}`;

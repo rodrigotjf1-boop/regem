@@ -10,6 +10,10 @@ import {
   MARCOS_DO_CERTIFICADO,
   TIPOS_DE_AVISO,
   situacaoDaValidadePendente,
+  situacaoDoPedidoAtrasado,
+  diaDoAvisoDeAtraso,
+  botoesDoPedidoAtrasado,
+  lerBotaoDoPedidoAtrasado,
   PONTE_ATALHO,
   PONTE_ICONE,
   PONTE_MENU_ABRIR_IFOOD,
@@ -79,6 +83,8 @@ describe('Mister — os avisos: o padrão aprovado em 14/11', () => {
       'franquia_atendimento',
       // P1 de "Pedidos e recebimento" (25/11): a validade pendente, ao gerente; a tela o põe em "Na loja".
       'validade_pendente',
+      // P3 de "Pedidos e recebimento" (25/11): o pedido atrasado, ao gerente, também em "Na loja".
+      'pedido_atrasado',
     ]);
     // M3e parte 2: o arquivo do ponto do mês, ao presidente (o protótipo: "Vai para: WhatsApp do presidente"), sem parâmetro.
     expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'ponto_do_mes')).toMatchObject({
@@ -675,5 +681,54 @@ describe('o aviso da validade pendente (P1 de "Pedidos e recebimento", PR-2)', (
     expect(situacaoDaValidadePendente({ tenantId: 't', unidadeId: null, listaId: 'l2', pedido: 'Semanal', recebidaEm: null, itens: 1, nomes: ['Carne 56 g'], dia: '2026-11-25' }).titulo).toBe(
       'Falta a validade de 1 item recebido: Carne 56 g (Semanal)',
     );
+  });
+});
+
+describe('o aviso do pedido atrasado (P3 de "Pedidos e recebimento", PR-6)', () => {
+  it('ao gerente, em "Na loja", ligado de partida', () => {
+    expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'pedido_atrasado')).toMatchObject({
+      grupo: 'Na loja',
+      titulo: 'Pedido de fornecedor atrasado',
+      padrao: { ligado: true, destinos: ['gerente'], escalaMin: null, escalaPara: [], parametro: null },
+      jaFunciona: true,
+    });
+  });
+
+  it('o dia do aviso vira às 10h da loja: a previsão de ontem só atrasa às 10h de hoje', () => {
+    expect(diaDoAvisoDeAtraso(new Date('2026-11-25T12:59:00Z'))).toBe('2026-11-24'); // 09:59 em Brasília
+    expect(diaDoAvisoDeAtraso(new Date('2026-11-25T13:00:00Z'))).toBe('2026-11-25'); // 10:00
+    expect(diaDoAvisoDeAtraso(new Date('2026-11-26T02:30:00Z'))).toBe('2026-11-25'); // 23:30 do dia 25
+  });
+
+  it('a situação por pedido, com os dias de atraso no título e o dia como marco (lembra uma vez por dia)', () => {
+    const s = situacaoDoPedidoAtrasado({ tenantId: 't', unidadeId: 'u', listaId: 'l1', pedido: 'Pedido da semana', fornecedor: 'Rucas', previsao: '2026-11-22', dia: '2026-11-24' });
+    expect(s).toEqual({
+      tenantId: 't',
+      unidadeId: 'u',
+      tipo: 'pedido_atrasado',
+      chave: 'atraso:l1',
+      titulo: 'Tem pedido de fornecedor em aberto para receber: Pedido da semana · Rucas (previsão 22/11, 2 dias de atraso)',
+      detalhe: 'Quando chegar, receba em Estoque › Pedidos › Conferir e receber. Se a data mudou, toque em "Mudar a previsão".',
+      dados: { marco: '2026-11-24', listaId: 'l1', previsao: '2026-11-22', diasDeAtraso: 2 },
+    });
+    expect(situacaoDoPedidoAtrasado({ tenantId: 't', unidadeId: null, listaId: 'l2', pedido: 'Compras do mercado', fornecedor: null, previsao: '2026-11-24', dia: '2026-11-25' }).titulo).toBe(
+      'Tem pedido de fornecedor em aberto para receber: Compras do mercado (previsão 24/11, 1 dia de atraso)',
+    );
+    // Com o 📦 do protótipo, e não o ⚠️ dos outros avisos.
+    expect(textoDoAviso(s).startsWith('📦 Tem pedido de fornecedor em aberto para receber: Pedido da semana · Rucas')).toBe(true);
+  });
+
+  it('"Já chegou" e "Mudar a previsão", com o pedido no id; outro id não é deste aviso', () => {
+    const id = '0b0e8f3e-6d5c-4a9f-9a51-3c1f0e2d7a10';
+    expect(botoesDoPedidoAtrasado(id)).toEqual([
+      { id: `ped:chegou:${id}`, titulo: 'Já chegou' },
+      { id: `ped:prev:${id}`, titulo: 'Mudar a previsão' },
+    ]);
+    expect(botoesDoPedidoAtrasado(undefined)).toEqual([]);
+    expect(botoesDoPedidoAtrasado('nao-e-id')).toEqual([]);
+    expect(lerBotaoDoPedidoAtrasado(`ped:chegou:${id}`)).toEqual({ acao: 'chegou', listaId: id });
+    expect(lerBotaoDoPedidoAtrasado(`ped:prev:${id.toUpperCase()}`)).toEqual({ acao: 'prev', listaId: id });
+    expect(lerBotaoDoPedidoAtrasado(`ped:apagar:${id}`)).toBeNull();
+    expect(lerBotaoDoPedidoAtrasado(`doc:pago:${id}`)).toBeNull();
   });
 });
