@@ -2534,3 +2534,72 @@ MESMO serviço da tela, com a permissão da rota e o efeito conferido. Dinheiro,
 **Ficou fora, de propósito.** Promoção com data de fim (o Regem não tem; seria fluxo novo — pede protótipo). Mensagem nova de campanha
 pela conversa (texto a muitos clientes; na API oficial, modelo aprovado pela Meta): só na tela. Repetir campanha do Clube, da hora
 habitual, agendada, com cupom ou pelo perfil: só na tela. Abono e atestado de ponto: só na tela.
+
+## Versão 10 — a IA conduz e alcança o Regem inteiro (proposta de 25/11/2026, A APROVAR)
+
+Pedido do dono em 25/11, depois da P4a e da P4b de "Pedidos e recebimento": "não podemos ter código para entender tudo que é
+perguntado… parece que temos que cadastrar possíveis perguntas para já ter o código das possíveis ações e respostas; dessa forma
+ainda vai parecer um robô". A ideia dele: o cliente não navega no Regem, trata tudo pelo WhatsApp com o Mister; a IA (pela API)
+interpreta, conversa da forma mais humanizada possível, lê foto de cupom, boleto e anotação, pergunta o que a pessoa quer e aplica
+no sistema; acesso praticamente completo de presidente e C&O aos dados da empresa e da loja; evolui e aprende com os pedidos
+parecidos de cada usuário; mostra relatórios, situação e avisos e sugere ideias. Na mesma conversa: o PIN fica para tarefas
+específicas e dinheiro, com a opção de FALAR o PIN; e, quando o pedido não puder ser feito, dizer o motivo e as possibilidades
+de conseguir. Protótipo: `mockups/regem-mister-v10.html`.
+
+**O que o levantamento mostrou (25/11, no código e no banco).**
+- O que já é assim: todo texto livre vai à IA (Haiku no dia a dia, Sonnet nas tarefas e análises), com 55 ferramentas e 43 ações,
+  e na Mister Burguer todos os ajustes de IA estão ligados. As 119 perguntas da avaliação são uma prova, não uma lista de respostas.
+- O que é roteiro de código:
+  - **O documento e a lista seguem perguntas fixas** (`FRASES_*`, botões em ordem). Enquanto um documento espera, o texto passa
+    antes por leitores de código em `mister-entrada.service.ts`: `completarPeloTexto` (`responderLeitura`, `responderFator`,
+    `lerRespostaDoQueFaltou`) e o texto da lista (`simOuNao`, `lerRespostaDoFator`). Só vai à IA o que eles não entendem.
+  - **O alcance é o catálogo de 43 ações** (`mister-acoes.ts`). A API tem 1.275 funções (505 de leitura e 770 de escrita),
+    29 delas com descrição no contrato.
+  - **Avisos e padrões são fixos:** 18 tipos de aviso e 4 padrões (`mister-padroes.ts`, sem IA). As ideias só saem quando a
+    pessoa pergunta ("Minha sugestão" das análises).
+  - **Quando não dá:** a instrução manda dizer "ainda não tenho acesso", listar o que faz e chamar `anotar_o_que_falta`. Não diz o
+    motivo nem o caminho.
+  - **Aprender** é a memória anotada, o modelo por fornecedor e os apelidos (O2). A tarefa feita não é guardada.
+  - **O PIN** é só digitado, na página do link (F4.2).
+
+**O princípio.** A IA conversa e decide o caminho; o mapa do Regem diz o que cada função faz e como se confirma; o Regem confere e
+executa pela mesma função da tela; a pessoa confirma. O bloco "Vou fazer" que a pessoa confirma é montado pelo Regem a partir da
+proposta, nunca escrito pela IA. Assim o que se confirma é o que acontece, e o filtro de "valor sem origem" continua valendo.
+
+| Fase | O que entra | Migration |
+|---|---|---|
+| C1 · A IA conduz o documento | Nota, cupom, boleto e lista: depois da leitura, a IA recebe o estado inteiro (as linhas, as ligações, o pedido que bate, as dúvidas) e conversa livre. Os leitores de código saem da frente da IA (o texto sempre vai a ela) e ela grava pela ferramenta do documento em andamento. As perguntas fixas da P4a viram conversa. Entra aqui a P4c: veio faltando (fica pendente no pedido), não veio (falta ou cancelado), veio de outro lugar (fornecedor e valor), é de outro pedido e o item a mais no próprio pedido. Os botões ficam como atalho | não |
+| C2 · O mapa do Regem | As 1.275 funções com a frase em português, a tela e a marca: só lê, botão, PIN, só na tela, interna. Num arquivo do código, revisado pela DMS (o rascunho sai pela IA uma vez). Função nova sem marca reprova o CI. As funções que devolvem dado pessoal de cliente ou de colaborador marcam os campos que saem antes da IA | não |
+| C3 · Ler qualquer tela | Ferramentas para procurar no mapa pelo sentido e ler a função de leitura com a permissão do perfil da pessoa (como se ela abrisse a tela), só da empresa dela; dado pessoal fora | não |
+| C6 · O motivo e os caminhos | Cada recusa volta com o motivo (perfil, segurança, falta dado, o Regem não tem, depende de fora) e os caminhos: quem pode, o link da tela com o passo a passo, cadastrar o que falta e terminar a tarefa, o mais parecido que existe hoje, o pedido anotado à DMS; "pedir ao presidente" com o pedido pronto para ele autorizar pelo WhatsApp dele | sim, 1 (o pedido a quem pode) |
+| C4 · Fazer qualquer tarefa | A IA propõe a função de escrita com os campos; o Regem valida com o mesmo DTO, monta o "Vou fazer", confirma pela marca (botão ou PIN), faz pela mesma função, confere o efeito e audita com a origem Mister. Abre por área, cada uma com casos na avaliação. As 43 ações de hoje ficam (têm conferências próprias) | não |
+| C5 · Falar o PIN | Por pessoa: liga pela conversa, digitando o PIN uma vez, com o aviso do risco. O áudio que chega com um PIN esperando é transcrito e conferido pelo código, antes da IA e da memória; nada é guardado (nem o áudio nem os números); áudio encaminhado não vale (o WhatsApp marca o encaminhado); depois o Mister pede para apagar o áudio; erros falados e digitados somam no bloqueio de 5. Mister › Pessoas mostra quem ligou e o presidente desliga | sim, 1 (a marca por pessoa) |
+| C7 · Aprender pela tarefa feita | A tarefa confirmada vira exemplo da empresa: o pedido nas palavras da pessoa e o que foi feito, sem dado pessoal. A próxima parecida recebe até 3 exemplos. Mister › O que aprendi (ver e esquecer). Ajuste "Aprender pela tarefa feita", sem custo, nasce desligado | sim, 1 (só na nuvem) |
+| C8 · Ideias da semana | Uma vez por semana (dia e hora escolhidos), a IA olha os números pelas análises que já existem e manda até 3 ideias, cada uma com o que os números mostram, a sugestão e "quer que eu faça?". Ajuste "Ideias da semana", desligado, com o preço | sim, 1 (o ajuste) |
+
+**Decisões, a recomendada primeiro.**
+- V10-1: a IA conversa livre e o "Vou fazer" é montado pelo Regem (× a IA escreve tudo × como hoje).
+- V10-2: o mapa com todas as funções e a marca de cada uma (× uma ação por vez).
+- V10-3: a DMS marca cada função numa lista fixa revisada, e a função nova sem marca reprova o CI (× a IA decide na hora).
+- V10-4: dado de cliente e de colaborador nunca vai à IA, só números, como hoje (× vai quando a pessoa pedir).
+- V10-5: falar o PIN. Cada pessoa liga para si; o PIN inteiro, conferido pelo código; encaminhado não vale; o Mister pede para
+  apagar o áudio. As alternativas: falar só 2 números sorteados (menos rastro no áudio, mas o chute acerta 1 em 100) ou só digitar.
+- V10-6: o motivo, os caminhos e "peço a quem pode" (× o motivo e o link).
+- V10-7: a tarefa confirmada vira exemplo da empresa, com a tela, sem dado pessoal (× sem tela × não guardar).
+- V10-8: ideias uma vez por semana, até 3, desligadas com o preço (× todo dia × só quando pedir).
+- V10-9: a ordem C1, C2, C3, C6, C4, C5, C7, C8.
+
+**O risco do PIN falado (dito ao dono em 25/11).** O áudio fica gravado no celular: quem pegar o celular destravado pode ouvir o
+PIN. Por isso a pessoa liga para si sabendo do risco, o Mister pede para apagar o áudio e o digitado continua sempre disponível.
+
+**Custo.** Pela tabela do Claude (Haiku 5.5: US$ 0,10 e 0,50 por milhão de tokens; Sonnet 5.5: US$ 2 e 10), com o dólar a R$ 5,50:
+- pergunta comum no Haiku, com a busca no mapa: cerca de R$ 0,01, como hoje;
+- conversa de um documento com o Sonnet nas tarefas: cerca de R$ 0,50 a mais por documento (30 no mês: uns R$ 15);
+- ideias da semana: cerca de R$ 0,45 por semana;
+- montar o mapa uma vez, por conta da DMS: cerca de R$ 60;
+- aprender e PIN falado: quase nada.
+
+**O que ainda não se sabe.**
+- Se o Haiku conduz bem a conversa do documento ou se precisa do Sonnet (a avaliação real mede).
+- Quantas funções ficam em cada marca (sai na C2).
+- Se a transcrição entende bem os números falados (teste com 20 áudios antes de ligar a C5).
