@@ -904,6 +904,61 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         sangriasESuprimentos: [{ tipo: 'sangria', valor: v(480.35), hora: '19:30', por: 'Bruna', motivo: 'dinheiro demais no caixa' }],
         ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
       });
+    case 'quem_mudou_o_que':
+      return ok({
+        de: '18/11',
+        ate: ROTULO.hoje,
+        eventos: [
+          { quando: '23/11 17:42', quem: 'Carlos Lima', perfil: 'gerente', area: 'cardapio', oQueFez: 'mudou preco canal', detalhe: { produto: 'X-Bacon', canal: 'ifood', de: '32.90', para: '34.90' } },
+          { quando: '22/11 10:05', quem: 'Ana Souza', perfil: 'presidente', area: 'estoque', oQueFez: 'ajustou estoque', detalhe: { item: 'Bacon', quantidade: 2 } },
+        ],
+        comoLer: 'O registro é imutável (append-only). Do detalhe só vem o que diz o que mudou; o resto fica em Configurações › Auditoria.',
+      });
+    case 'pedidos_de_manutencao':
+      return ok({
+        loja: LOJA,
+        abertos: 2,
+        pedidos: [
+          { titulo: 'Chapa não esquenta do lado esquerdo', equipamento: 'Chapa 1', prioridade: 'critica', situacao: 'em andamento', responsavel: 'Carlos Lima', abertoHaDias: 3 },
+          { titulo: 'Porta do freezer não fecha', equipamento: 'Freezer 2', prioridade: 'normal', situacao: 'aberto', responsavel: null, abertoHaDias: 9 },
+        ],
+      });
+    case 'ordens_de_producao':
+      return ok({
+        loja: LOJA,
+        dia: ROTULO.hoje,
+        ordens: 3,
+        porSituacao: { liberada: 1, 'em producao': 1, 'concluida total': 1 },
+        lista: [
+          { produto: 'Molho da casa', quantidade: '10 kg', situacao: 'em producao', hora: '09:00', setor: 'Cozinha', quem: 'Diego' },
+          { produto: 'Pão brioche', quantidade: '120 un', produzido: '120 un', situacao: 'concluida total', hora: '07:00', setor: 'Padaria' },
+          { produto: 'Cebola caramelizada', quantidade: '4 kg', situacao: 'liberada', hora: '14:00', setor: 'Cozinha' },
+        ],
+      });
+    case 'candidatos_das_vagas':
+      return ok({
+        loja: LOJA,
+        fichas: 14,
+        porSituacao: { nova: 5, 'em analise': 4, entrevista: 2, aprovado: 1, recusado: 2 },
+        maisNovas: [
+          { ficha: '1042', situacao: 'nova', funcoes: 'chapeiro', tipoDeVaga: 'fixo', chegouHaDias: 0, distanciaKm: 3.4 },
+          { ficha: '1041', situacao: 'nova', funcoes: 'atendente, caixa', tipoDeVaga: 'freelancer', chegouHaDias: 1 },
+        ],
+        comoLer: 'O nome, o telefone e o endereço de quem mandou a ficha não vêm aqui (dado pessoal): abra a ficha pelo número em Pessoas › Candidatos.',
+      });
+    case 'fidelidade_e_cashback':
+      return ok({
+        ...(perfil.verValores ? {} : { aviso: SEM_VALORES }),
+        planos: [{ tipo: 'cashback em R$', percentual: 5, sobre: 'o pedido sem a entrega', prazoDias: 60 }],
+        aResgatar: [{ tipo: 'R$', clientes: 318, ...(perfil.verValores ? { total: v(2486.35) } : {}), clientesVencendoEm7Dias: 41, ...(perfil.verValores ? { vencendoEm7Dias: v(287.15) } : {}) }],
+        periodo: 'últimos 30 dias',
+        movimentos: [
+          { tipo: 'R$', oQue: 'ganho', vezes: 905, ...(perfil.verValores ? { soma: v(3920.45) } : {}) },
+          { tipo: 'R$', oQue: 'resgatado', vezes: 212, ...(perfil.verValores ? { soma: v(1406.85) } : {}) },
+          { tipo: 'R$', oQue: 'vencido', vezes: 37, ...(perfil.verValores ? { soma: v(254.65) } : {}) },
+        ],
+        comoLer: 'Só os números da empresa: quem tem saldo fica na tela (Delivery › Cashback). "vencido" é o saldo que expirou sem uso.',
+      });
     case 'campanhas_de_marketing':
       return ok({
         lidoAs: '19:10',
@@ -1379,6 +1434,12 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c110', pergunta: 'Para a campanha que está mandando agora, a do frete grátis.', consultas: ['propor_acao'], contem: ['frete', 'Autorizar'] },
   { id: 'c111', pergunta: 'Repete a última campanha de marketing para o mesmo público.', consultas: ['propor_acao'], contem: ['PIN'] },
   { id: 'c112', pergunta: 'Como foi a campanha do frete grátis de ontem? Deu pedido?', consultas: ['campanhas_de_marketing'], numeros: ['38'], contem: ['frete'] },
+  // Etapa 9 de 24/11: auditoria, manutenção, produção, candidatos e cashback.
+  { id: 'c113', pergunta: 'Quem mudou o preço do X-Bacon no iFood esta semana?', consultas: ['quem_mudou_o_que'], contem: ['Carlos'] },
+  { id: 'c114', pergunta: 'Tem alguma manutenção aberta? A chapa já foi resolvida?', consultas: ['pedidos_de_manutencao'], contem: ['Chapa'] },
+  { id: 'c115', pergunta: 'O que a cozinha tem de produzir hoje? O molho já saiu?', consultas: ['ordens_de_producao'], contem: ['Molho'] },
+  { id: 'c116', pergunta: 'Chegou ficha nova de candidato? Quantas estão esperando análise?', consultas: ['candidatos_das_vagas'], numeros: ['5'], contem: ['1042'] },
+  { id: 'c117', pergunta: 'Quanto de cashback os clientes têm para resgatar e quanto vence esta semana?', consultas: ['fidelidade_e_cashback'], numeros: ['2.486,35', '287,15'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

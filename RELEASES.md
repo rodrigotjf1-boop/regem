@@ -12,6 +12,13 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Mister: as 9 etapas de acesso de 24/11 (#1321 a #1328 e o da etapa 9; SEM migration).** Mesas e caixa, entregadores, encomendas, avaliações,
+  ponto, pedido de compra, cardápio, campanhas, auditoria, manutenção, produção, candidatos e cashback pela conversa. Só na nuvem. Vai no
+  `.zip` sem efeito na loja.
+
+- **Delivery › Encomendas no dia da loja (24/11; ERR-605; SEM migration).** A agenda não some num dia com mais de 200 pedidos e a
+  encomenda das 21h fica no dia dela. **Vai no `.zip`** (a tela também roda no servidor da loja).
+
 - **GoGeM: avisos só assinados, fase 4 / P-7 (24/11; SEM migration).** O cancelamento do totem e o "Publicar no GoGeM" saem só para o endereço que o GoGeM registrou, sem o `X-Sync-Token`; sem registro, o aviso espera. Só a nuvem fala com o GoGeM: vai no `.zip` sem efeito na loja (o servidor da loja continua repassando à nuvem).
 
 - **Devolução de delivery concluído pelo PDV (24/11; ERR-603; SEM migration).** D-03 da revisão do PDV: o pedido cuja venda foi

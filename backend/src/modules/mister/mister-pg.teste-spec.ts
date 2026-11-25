@@ -13099,6 +13099,119 @@ export function testesDoMisterComPostgres(): void {
         }
       });
 
+      it('etapa 9 de 24/11: quem mudou o quê (só o presidente, sem texto livre nem telefone), a manutenção, a produção, os candidatos (sem nome) e o cashback (sem telefone)', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+        // A auditoria é só de acréscimo (mig 023): numa empresa à parte, que fica no banco como a da `inatividade-pg.spec`.
+        const [{ id: C }] = await q(`insert into empresa (nome) values ($1) returning id::text as id`, [`Auditoria E9 ${MARCA}`]);
+        const [{ id: carlosC }] = await q(`insert into colaborador (tenant_id, nome) values ($1, 'Carlos Auditado') returning id::text as id`, [C]);
+        const criados = { manutencao: [] as string[], ordens: [] as string[], fichas: [] as string[], cashback: false };
+        try {
+          await q(
+            `insert into audit_log (tenant_id, actor_tipo, actor_id, actor_perfil, tipo, acao, detalhe, origem, created_at) values
+               ($1, 'usuario', $2, 'gerente', 'cardapio', 'mudou_preco_canal', $3::jsonb, 'web', now() - interval '2 days'),
+               ($1, 'usuario', $2, 'gerente', 'cliente', 'editou_cliente', $4::jsonb, 'web', now() - interval '1 day'),
+               ($1, 'usuario', null, 'sistema', 'estoque', 'baixa_automatica', null, 'sistema', now() - interval '20 days')`,
+            [C, carlosC, JSON.stringify({ produto: 'X-Bacon E9', canal: 'ifood', de: '32.90', para: '34.90', motivo: 'o fornecedor subiu o preço' }), JSON.stringify({ nome: 'Fulano', telefone: '21999990000', campo: 'telefone', para: '21988887777' })],
+          );
+          const presidenteDeC = { ...e, tenantId: C } as any;
+          const aud = await ferramentas.executar(presidenteDeC, 'quem_mudou_o_que', { busca: 'x-bacon' });
+          expect(aud.ok).toBe(true);
+          expect(aud.dados.eventos).toEqual([
+            expect.objectContaining({ quem: 'Carlos Auditado', perfil: 'gerente', area: 'cardapio', oQueFez: 'mudou preco canal', detalhe: { produto: 'X-Bacon E9', canal: 'ifood', de: '32.90', para: '34.90' } }),
+          ]);
+          // Sem busca: os dois dos últimos 7 dias; o telefone e o texto livre não saem do detalhe.
+          const todos = await ferramentas.executar(presidenteDeC, 'quem_mudou_o_que', {});
+          expect((todos.dados.eventos as any[]).map((x) => x.oQueFez)).toEqual(['editou cliente', 'mudou preco canal']);
+          const texto = JSON.stringify(todos.dados);
+          expect(texto).not.toContain('2199999');
+          expect(texto).not.toContain('2198888');
+          expect(texto).not.toContain('fornecedor subiu');
+          // O de 20 dias atrás só com o período; o gerente não chega.
+          const antigo = await ferramentas.executar(presidenteDeC, 'quem_mudou_o_que', { de: somarDias(hojeISO(), -30), ate: hojeISO() });
+          expect((antigo.dados.eventos as any[]).map((x) => x.quem)).toEqual(['Carlos Auditado', 'Carlos Auditado', 'o sistema']);
+          expect(await ferramentas.executar({ ...presidenteDeC, nivel: 'gerente', permissoes: { auditoria: true } }, 'quem_mudou_o_que', {})).toEqual({
+            ok: false,
+            dados: { erro: 'Quem mudou o quê pela conversa é só do presidente.' },
+          });
+
+          // A manutenção: a urgente primeiro; a concluída não aparece.
+          for (const [titulo, prioridade, status] of [['Freezer E9 não fecha', 'normal', 'aberto'], ['Chapa E9 fria', 'critica', 'em_andamento'], ['Coifa E9', 'alta', 'concluido']]) {
+            const [{ id }] = await q(`insert into pedido_manutencao (tenant_id, unidade_id, titulo, prioridade, status) values ($1, $2, $3, $4, $5) returning id::text as id`, [A, lojaDeA, titulo, prioridade, status]);
+            criados.manutencao.push(id);
+          }
+          const man = await ferramentas.executar(e, 'pedidos_de_manutencao', {});
+          const doTeste = (man.dados.pedidos as any[]).filter((p) => p.titulo.includes('E9'));
+          expect(doTeste.map((p) => [p.titulo, p.prioridade, p.situacao])).toEqual([
+            ['Chapa E9 fria', 'critica', 'em andamento'],
+            ['Freezer E9 não fecha', 'normal', 'aberto'],
+          ]);
+          expect((await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true } } } as any, 'pedidos_de_manutencao', {})).ok).toBe(false);
+
+          // A produção de hoje.
+          const [{ id: ficha }] = await q(`insert into ficha_tecnica (tenant_id, nome) values ($1, 'Molho E9') returning id::text as id`, [A]);
+          criados.fichas.push(ficha);
+          const [{ id: op }] = await q(
+            `insert into ordem_producao (tenant_id, unidade_id, ficha_id, quantidade_planejada, unidade, data_producao, hora_inicio, status) values ($1, $2, $3, 10, 'kg', $4::date, '09:00', 'em_producao') returning id::text as id`,
+            [A, lojaDeA, ficha, hojeISO()],
+          );
+          criados.ordens.push(op);
+          const prod = await ferramentas.executar(e, 'ordens_de_producao', {});
+          expect((prod.dados.lista as any[]).find((o) => o.produto === 'Molho E9')).toEqual({ produto: 'Molho E9', quantidade: '10 kg', situacao: 'em producao', hora: '09:00' });
+          expect((await ferramentas.executar(e, 'ordens_de_producao', { dia: somarDias(hojeISO(), 1) })).dados.lista as any[]).not.toEqual(expect.arrayContaining([expect.objectContaining({ produto: 'Molho E9' })]));
+
+          // Os candidatos: pelo serviço (a tabela é só da nuvem), sem o nome nem o contato.
+          (ferramentas as any).vagasDeTeste = {
+            lista: async () => [
+              { id: 'c1', protocolo: 1042, situacao: 'nova', nome: 'Maria Candidata', telefone: '21977776666', bairro: 'Bairro Secreto E9', funcoes: ['chapeiro'], tipoVaga: 'fixo', recebidoEm: new Date(), distanciaKm: 3.4, loja: 'Loja Centro' },
+              { id: 'c2', protocolo: 1041, situacao: 'em_analise', nome: 'João Candidato', telefone: '21966665555', funcoes: ['atendente', 'caixa'], recebidoEm: new Date(Date.now() - 86_400_000 * 2) },
+            ],
+          };
+          const cand = await ferramentas.executar(e, 'candidatos_das_vagas', {});
+          expect(cand.dados).toMatchObject({ fichas: 2, porSituacao: { nova: 1, 'em analise': 1 } });
+          expect((cand.dados.maisNovas as any[])[0]).toMatchObject({ ficha: '1042', situacao: 'nova', funcoes: 'chapeiro', tipoDeVaga: 'fixo', chegouHaDias: 0, distanciaKm: 3.4 });
+          const textoCand = JSON.stringify(cand.dados);
+          for (const segredo of ['Maria', 'João', '2197777', '2196666', 'Bairro Secreto']) expect(textoCand).not.toContain(segredo);
+
+          // O cashback: o plano, o saldo a resgatar e o que vence em 7 dias, e o que entrou e saiu — sem telefone.
+          await q(`insert into cashback_plano (tenant_id, tipo, percentual, base, prazo_resgate_dias) values ($1, 'valor', 5, 'sem_frete', 60)`, [A]);
+          await q(
+            `insert into cashback_saldo (tenant_id, telefone, tipo, saldo, expira_em) values ($1, '21900000001', 'valor', 12.5, now() + interval '3 days'), ($1, '21900000002', 'valor', 30, now() + interval '40 days'), ($1, '21900000003', 'valor', 0, null)`,
+            [A],
+          );
+          await q(
+            `insert into cashback_movimento (tenant_id, telefone, tipo, delta, origem) values ($1, '21900000001', 'valor', 20, 'credito'), ($1, '21900000001', 'valor', -7.5, 'resgate'), ($1, '21900000002', 'valor', 30, 'credito')`,
+            [A],
+          );
+          criados.cashback = true;
+          const cb = await ferramentas.executar(e, 'fidelidade_e_cashback', {});
+          expect(cb.dados).toMatchObject({
+            planos: [{ tipo: 'cashback em R$', percentual: 5, sobre: 'o pedido sem a entrega', prazoDias: 60 }],
+            aResgatar: [{ tipo: 'R$', clientes: 2, total: 42.5, clientesVencendoEm7Dias: 1, vencendoEm7Dias: 12.5 }],
+            periodo: 'últimos 30 dias',
+          });
+          expect(cb.dados.movimentos).toEqual(expect.arrayContaining([{ tipo: 'R$', oQue: 'ganho', vezes: 2, soma: 50 }, { tipo: 'R$', oQue: 'resgatado', vezes: 1, soma: 7.5 }]));
+          expect(JSON.stringify(cb.dados)).not.toContain('2190000');
+          const cbSemValores = await ferramentas.executar({ ...e, nivel: 'gerente', verValores: false, permissoes: { cashback: true } } as any, 'fidelidade_e_cashback', {});
+          expect((cbSemValores.dados.aResgatar as any[])[0]).not.toHaveProperty('total');
+          expect((await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true } } } as any, 'fidelidade_e_cashback', {})).ok).toBe(false);
+        } finally {
+          delete (ferramentas as any).vagasDeTeste;
+          await q(`delete from pedido_manutencao where id = any($1::uuid[])`, [criados.manutencao]);
+          await q(`delete from ordem_producao where id = any($1::uuid[])`, [criados.ordens]);
+          await q(`delete from ficha_tecnica where id = any($1::uuid[])`, [criados.fichas]);
+          if (criados.cashback) {
+            await q(`delete from cashback_movimento where tenant_id = $1 and telefone like '219000000%'`, [A]);
+            await q(`delete from cashback_saldo where tenant_id = $1 and telefone like '219000000%'`, [A]);
+            await q(`delete from cashback_plano where tenant_id = $1 and percentual = 5 and prazo_resgate_dias = 60`, [A]);
+          }
+          await q(`delete from colaborador where id = $1`, [carlosC]).catch(() => undefined);
+          // A empresa da auditoria fica (a linha da audit_log não sai — mig 023).
+          await q(`delete from empresa where id = $1`, [C]).catch(() => undefined);
+        }
+      });
+
       it('pausar e reabrir o cardápio, aceitar, despachar e marcar pronto — só no "Autorizar" de quem pediu, pelo serviço da tela, com o efeito conferido', async () => {
         const tel = telefone();
         const telCarlos = telefone();
