@@ -628,6 +628,16 @@ export class MisterFerramentasService {
         return this.avaliacoesDosClientes(e, en, loja);
       case 'campanhas_de_marketing':
         return this.campanhasDeMarketing(e);
+      case 'quem_mudou_o_que':
+        return this.quemMudouOQue(e, en);
+      case 'pedidos_de_manutencao':
+        return this.pedidosDeManutencao(e, loja);
+      case 'ordens_de_producao':
+        return this.ordensDeProducao(e, en, loja);
+      case 'candidatos_das_vagas':
+        return this.candidatosDasVagas(e, loja);
+      case 'fidelidade_e_cashback':
+        return this.fidelidadeECashback(e, en);
       case 'equipe_do_dia':
         return this.equipeDoDia(e, en, loja);
       case 'historia_do_pedido':
@@ -3706,6 +3716,239 @@ export class MisterFerramentasService {
         ...(pedidos.length > LIMITE ? { maisDe: LIMITE, observacao: `Há mais de ${LIMITE} encomendas no período: peça menos dias.` } : {}),
         dias,
         comoLer: 'Cada dia traz o que produzir (a soma dos itens das encomendas) e a lista na ordem da hora. "atacado" são as ordens de produção das vendas de atacado. O nome do cliente não vem.',
+      },
+    };
+  }
+
+  // ───────────────────────────── etapa 9 de 24/11: auditoria, manutenção, produção, candidatos e fidelidade ─────────────
+
+  /**
+   * Quem mudou o quê (Configurações › Auditoria) — SÓ o presidente pela conversa (a tela também deixa o gerente com a permissão;
+   * aqui fica mais estreito). Os eventos do período (padrão 7 dias), com a busca no que foi feito, em quem fez e no detalhe; do
+   * detalhe só vão os campos que dizem O QUE mudou (nome, de, para, valor…), nunca texto livre nem telefone.
+   */
+  private async quemMudouOQue(e: EscopoDoMister, en: Record<string, unknown>): Promise<ResultadoDaFerramenta> {
+    if (e.nivel !== 'presidente' || !this.pode(e, 'auditoria')) return recusa('Quem mudou o quê pela conversa é só do presidente.');
+    const hoje = hojeISO();
+    const lerDia = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.trim()) ? v.trim() : null);
+    const de = lerDia(en.de) ?? somarDias(hoje, -6);
+    const ate = lerDia(en.ate) ?? hoje;
+    if (ate < de) return recusa('O fim do período vem antes do início.');
+    if (diasEntre(de, ate).length > 92) return recusa('Peça no máximo 92 dias de cada vez.');
+    const busca = String(en.busca ?? '').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 60);
+    const q = `%${busca.replace(/[%_\\]/g, (m) => '\\' + m)}%`;
+    const eventos = linhas(
+      await this.db.execute(sql`
+        select a.tipo, a.acao, a.detalhe, a.actor_perfil as perfil, a.origem, a.created_at as em, c.nome as quem
+          from audit_log a
+          left join colaborador c on c.id = a.actor_id
+         where a.tenant_id = ${e.tenantId}::uuid and ${noPeriodo('a.created_at', `${de} 00:00:00`, `${ate} 23:59:59.999`)}
+           ${busca ? sql`and (lower(a.acao) like ${q} or lower(coalesce(a.detalhe::text, '')) like ${q} or lower(coalesce(c.nome, '')) like ${q})` : sql``}
+         order by a.created_at desc
+         limit 41`),
+    );
+    const CAMPOS = new Set(['nome', 'produto', 'produtoNome', 'item', 'insumo', 'campo', 'de', 'para', 'antes', 'depois', 'canal', 'canais', 'valor', 'preco', 'precoNovo', 'precoAntigo', 'status', 'situacao', 'tipo', 'quantidade', 'categoria', 'lista', 'pedido', 'numero', 'dia', 'data']);
+    const pareceContato = (s: string) => /\d{8,}|@|\(\d{2}\)/.test(s.replace(/[\s.-]/g, ''));
+    const doDetalhe = (d: unknown): Record<string, unknown> | undefined => {
+      if (!d || typeof d !== 'object' || Array.isArray(d)) return undefined;
+      const o: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(d as Record<string, unknown>)) {
+        if (!CAMPOS.has(k)) continue;
+        if (typeof v === 'number' || typeof v === 'boolean') o[k] = v;
+        else if (typeof v === 'string' && v.length <= 60 && !pareceContato(v)) o[k] = v;
+      }
+      return Object.keys(o).length ? o : undefined;
+    };
+    return {
+      ok: true,
+      dados: {
+        de: diaMes(de),
+        ate: diaMes(ate),
+        ...(busca ? { busca } : {}),
+        eventos: eventos.slice(0, 40).map((a) => ({
+          quando: dataHoraCurta(a.em),
+          quem: a.quem ? String(a.quem) : a.origem === 'sistema' ? 'o sistema' : 'alguém sem cadastro',
+          perfil: a.perfil ? String(a.perfil) : null,
+          area: String(a.tipo ?? ''),
+          oQueFez: String(a.acao ?? '').replace(/_/g, ' '),
+          ...(doDetalhe(a.detalhe) ? { detalhe: doDetalhe(a.detalhe) } : {}),
+          ...(a.origem && a.origem !== 'web' ? { por: String(a.origem) } : {}),
+        })),
+        ...(eventos.length > 40 ? { observacao: 'Há mais de 40 eventos: peça um período menor ou uma busca.' } : {}),
+        comoLer: 'O registro é imutável (append-only). Do detalhe só vem o que diz o que mudou; o resto fica em Configurações › Auditoria.',
+      },
+    };
+  }
+
+  /** Os pedidos de manutenção abertos (a lista de Manutenção), do mais urgente ao mais velho. */
+  private async pedidosDeManutencao(e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'manutencao')) return recusa(SEM_PERMISSAO);
+    const agora = Date.now();
+    const ps = linhas(
+      await this.db.execute(sql`
+        select pm.titulo, pm.equipamento_ref as equipamento, pm.prioridade, pm.status, c.nome as responsavel, pm.prazo_15d as prazo, pm.created_at as "abertoEm"
+          from pedido_manutencao pm
+          left join colaborador c on c.id = pm.responsavel_id
+         where pm.tenant_id = ${e.tenantId}::uuid and pm.deleted_at is null and pm.status in ('aberto', 'em_andamento', 'concluido_parcial')
+           ${sqlUnidade('pm.unidade_id', loja.atual)}
+         order by case pm.prioridade when 'critica' then 0 when 'alta' then 1 when 'normal' then 2 else 3 end, pm.created_at
+         limit 30`),
+    );
+    const SIT: Record<string, string> = { aberto: 'aberto', em_andamento: 'em andamento', concluido_parcial: 'concluído em parte' };
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        abertos: ps.length,
+        pedidos: ps.map((p) => ({
+          titulo: String(p.titulo ?? ''),
+          ...(p.equipamento ? { equipamento: String(p.equipamento) } : {}),
+          prioridade: p.prioridade ? String(p.prioridade) : null,
+          situacao: SIT[String(p.status)] ?? String(p.status),
+          responsavel: p.responsavel ? String(p.responsavel) : null,
+          abertoHaDias: Math.floor((minutosDesde(p.abertoEm, agora) ?? 0) / 1440),
+          ...(p.prazo ? { prazo: dataHoraCurta(p.prazo) } : {}),
+        })),
+      },
+    };
+  }
+
+  /** As ordens de produção de um dia (padrão hoje): o que produzir, quanto, em que setor e em que pé está. */
+  private async ordensDeProducao(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'producao_kds')) return recusa(SEM_PERMISSAO);
+    const dia = typeof en.dia === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(en.dia.trim()) ? en.dia.trim() : hojeISO();
+    const os = linhas(
+      await this.db.execute(sql`
+        select f.nome as produto, op.quantidade_planejada::float8 as planejada, op.quantidade_produzida::float8 as produzida, op.unidade, op.status,
+               to_char(op.hora_inicio, 'HH24:MI') as hora, s.nome as setor, c.nome as quem, op.origem
+          from ordem_producao op
+          left join ficha_tecnica f on f.id = op.ficha_id
+          left join setor s on s.id = op.setor_id
+          left join colaborador c on c.id = op.colaborador_id
+         where op.tenant_id = ${e.tenantId}::uuid and op.deleted_at is null and op.data_producao = ${dia}::date
+           ${sqlUnidade('op.unidade_id', loja.atual)}
+         order by op.hora_inicio nulls last, f.nome
+         limit 101`),
+    );
+    const porSituacao: Record<string, number> = {};
+    for (const o of os.slice(0, 100)) porSituacao[String(o.status).replace(/_/g, ' ')] = (porSituacao[String(o.status).replace(/_/g, ' ')] ?? 0) + 1;
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        dia: diaComSemana(dia),
+        ordens: Math.min(os.length, 100),
+        porSituacao,
+        lista: os.slice(0, 100).map((o) => ({
+          produto: String(o.produto ?? 'produto'),
+          quantidade: `${Number(o.planejada)} ${o.unidade ?? 'un'}`,
+          ...(o.produzida != null ? { produzido: `${Number(o.produzida)} ${o.unidade ?? 'un'}` } : {}),
+          situacao: String(o.status).replace(/_/g, ' '),
+          ...(o.hora ? { hora: String(o.hora) } : {}),
+          ...(o.setor ? { setor: String(o.setor) } : {}),
+          ...(o.quem ? { quem: String(o.quem) } : {}),
+          ...(o.origem === 'encomenda_atacado' ? { origem: 'encomenda de atacado' } : {}),
+        })),
+        ...(os.length > 100 ? { observacao: 'Há mais de 100 ordens no dia: a lista traz as 100 primeiras.' } : {}),
+      },
+    };
+  }
+
+  /** O serviço das vagas (a tabela das fichas é só da nuvem: o Mister lê pelo serviço). Os testes usam `vagasDeTeste`. */
+  vagasDeTeste: { lista: (t: string, u: string | null) => Promise<any[]> } | null = null;
+  private async servicoDasVagas(): Promise<{ lista: (t: string, u: string | null) => Promise<any[]> } | null> {
+    if (this.vagasDeTeste) return this.vagasDeTeste;
+    if (!this.moduleRef) return null;
+    try {
+      const { VagasService } = await import('../vagas/vagas.service');
+      return this.moduleRef.get(VagasService, { strict: false }) as any;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * As fichas de candidatos (Pessoas › Candidatos): quantas em cada situação e as 10 mais novas pelo número da ficha, a função,
+   * o tipo de vaga e há quantos dias chegou. O nome, o telefone, o endereço e a idade NÃO vão ao modelo (é dado pessoal).
+   */
+  private async candidatosDasVagas(e: EscopoDoMister, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'candidatos')) return recusa(SEM_PERMISSAO);
+    const servico = await this.servicoDasVagas();
+    if (!servico) return { ok: false, dados: { erro: 'As fichas de candidatos não estão disponíveis agora.' } };
+    const fichas = (await servico.lista(e.tenantId, loja.atual)) as any[];
+    const agora = Date.now();
+    const porSituacao: Record<string, number> = {};
+    for (const f of fichas) porSituacao[String(f.situacao ?? 'nova').replace(/_/g, ' ')] = (porSituacao[String(f.situacao ?? 'nova').replace(/_/g, ' ')] ?? 0) + 1;
+    const lista = (v: unknown) => (Array.isArray(v) ? v.map(String).join(', ') : v ? String(v) : null);
+    return {
+      ok: true,
+      dados: {
+        loja: loja.nome,
+        fichas: fichas.length,
+        porSituacao,
+        maisNovas: fichas.slice(0, 10).map((f) => ({
+          ficha: f.protocolo != null ? String(f.protocolo) : 'sem número',
+          situacao: String(f.situacao ?? 'nova').replace(/_/g, ' '),
+          funcoes: lista(f.funcoes),
+          ...(f.tipoVaga ? { tipoDeVaga: String(f.tipoVaga) } : {}),
+          ...(f.escala ? { escala: String(f.escala) } : {}),
+          chegouHaDias: f.recebidoEm ? Math.floor((minutosDesde(f.recebidoEm, agora) ?? 0) / 1440) : null,
+          ...(f.distanciaKm != null ? { distanciaKm: Number(f.distanciaKm) } : {}),
+          ...(f.loja && !loja.atual ? { loja: String(f.loja) } : {}),
+        })),
+        comoLer: 'O nome, o telefone e o endereço de quem mandou a ficha não vêm aqui (dado pessoal): abra a ficha pelo número em Pessoas › Candidatos.',
+      },
+    };
+  }
+
+  /**
+   * O cashback e a fidelidade (Delivery › Cashback): os planos ativos, quanto os clientes têm a resgatar (e quanto vence em 7 dias)
+   * e o que entrou, saiu e venceu no período (padrão 30 dias). Só números da empresa: nenhum telefone.
+   */
+  private async fidelidadeECashback(e: EscopoDoMister, en: Record<string, unknown>): Promise<ResultadoDaFerramenta> {
+    if (!this.pode(e, 'cashback')) return recusa(SEM_PERMISSAO);
+    const dias = en.periodo === '7_dias' ? 7 : en.periodo === 'este_mes' ? null : 30;
+    const hoje = hojeISO();
+    const inicio = dias ? somarDias(hoje, -(dias - 1)) : `${hoje.slice(0, 8)}01`;
+    const planos = linhas(
+      await this.db.execute(sql`select tipo, percentual::float8 as percentual, base, prazo_resgate_dias as prazo, regras from cashback_plano where tenant_id = ${e.tenantId}::uuid and ativo and status = 'ativo' order by criado_em limit 10`),
+    );
+    const saldos = linhas(
+      await this.db.execute(sql`
+        select tipo, count(*) filter (where saldo > 0)::int as clientes, coalesce(sum(saldo) filter (where saldo > 0), 0)::float8 as total,
+               count(*) filter (where saldo > 0 and expira_em between now() and now() + interval '7 days')::int as "clientesVencendo",
+               coalesce(sum(saldo) filter (where saldo > 0 and expira_em between now() and now() + interval '7 days'), 0)::float8 as vencendo
+          from cashback_saldo where tenant_id = ${e.tenantId}::uuid group by tipo`),
+    );
+    const movs = linhas(
+      await this.db.execute(sql`
+        select tipo, origem, count(*)::int as vezes, coalesce(sum(abs(delta)), 0)::float8 as soma
+          from cashback_movimento
+         where tenant_id = ${e.tenantId}::uuid and ${noPeriodo('criado_em', `${inicio} 00:00:00`, `${hoje} 23:59:59.999`)}
+         group by tipo, origem`),
+    );
+    const emReais = (tipo: string, v: number) => (tipo === 'valor' ? (e.verValores ? reais(v) : undefined) : Math.round(v));
+    const ORIGEM: Record<string, string> = { credito: 'ganho', resgate: 'resgatado', estorno: 'estornado', expiracao: 'vencido' };
+    return {
+      ok: true,
+      dados: {
+        ...(e.verValores ? {} : { aviso: SEM_VALORES }),
+        planos: planos.map((p) => (p.tipo === 'valor' ? { tipo: 'cashback em R$', percentual: Number(p.percentual ?? 0), sobre: p.base === 'sem_frete' ? 'o pedido sem a entrega' : 'o total do pedido', prazoDias: p.prazo ?? null } : { tipo: 'pontos', regras: Array.isArray(p.regras) ? p.regras.length : 0, prazoDias: p.prazo ?? null })),
+        aResgatar: saldos.map((s) => ({
+          tipo: s.tipo === 'valor' ? 'R$' : 'pontos',
+          clientes: Number(s.clientes),
+          ...(emReais(String(s.tipo), Number(s.total)) !== undefined ? { total: emReais(String(s.tipo), Number(s.total)) } : {}),
+          clientesVencendoEm7Dias: Number(s.clientesVencendo),
+          ...(emReais(String(s.tipo), Number(s.vencendo)) !== undefined ? { vencendoEm7Dias: emReais(String(s.tipo), Number(s.vencendo)) } : {}),
+        })),
+        periodo: dias ? `últimos ${dias} dias` : 'este mês',
+        movimentos: movs.map((m) => ({
+          tipo: m.tipo === 'valor' ? 'R$' : 'pontos',
+          oQue: ORIGEM[String(m.origem)] ?? String(m.origem),
+          vezes: Number(m.vezes),
+          ...(emReais(String(m.tipo), Number(m.soma)) !== undefined ? { soma: emReais(String(m.tipo), Number(m.soma)) } : {}),
+        })),
+        comoLer: 'Só os números da empresa: quem tem saldo fica na tela (Delivery › Cashback). "vencido" é o saldo que expirou sem uso.',
       },
     };
   }

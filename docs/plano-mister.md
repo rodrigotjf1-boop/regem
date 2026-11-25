@@ -2513,3 +2513,24 @@ PIN, perfil e permissão; integrações e chaves; nota fiscal; excluir em massa;
 
 **Custo (tabela do Claude, dólar a R$ 5,50, 114 perguntas em 7 dias).** Pergunta comum no Haiku: cerca de R$ 0,01. Resposta no Sonnet:
 cerca de R$ 0,20. Ligar um documento pela IA: cerca de R$ 0,15.
+
+### Versão 9 — as 9 etapas de acesso (pedido do dono em 24/11/2026)
+
+O dono perguntou o que o Mister ainda não tinha acesso; as 9 etapas recomendadas entraram uma por PR, sem migration, cada ação pelo
+MESMO serviço da tela, com a permissão da rota e o efeito conferido. Dinheiro, preço, ponto e mensagem a muitos clientes: PIN.
+
+| Etapa | O que entrou | PR |
+|---|---|---|
+| 1 · Mesas e caixa | Consulta `mesas_e_comandas` (a mesa parada, sem o nome do cliente); `fechar_caixa` (cego: o contado ou "sem contagem"; o delivery com entrega pendente pede o motivo) e `sangria`, com PIN. | #1321 |
+| 2 · Entregadores | Consulta `acerto_dos_entregadores` (o cálculo da tela); `pagar_entregador` com PIN, o valor sempre o do cálculo e conferido de novo no PIN. | #1322 |
+| 3 · Encomendas | Consulta `agenda_de_encomendas` por dia da loja, com o que produzir e o atacado. Corrigiu Delivery › Encomendas (ERR-605: vazia num dia cheio; a das 21h no dia seguinte). | #1323 |
+| 4 · Avaliações | Consulta `avaliacoes_dos_clientes`: os números, o que pesou e as notas baixas — o comentário e o nome do cliente não vão à IA. | #1324 |
+| 5 · Ponto | `incluir_marcacao` e `desconsiderar_marcacao` com o motivo e o PIN (Portaria 671: nada se apaga). Incluir pede ponto.criar; desconsiderar, ponto.editar. | #1325 |
+| 6 · Pedido de compra | `pedido_enviado` (botão): quem diz que mandou é a pessoa; o Regem registra quando e por onde. | #1326 |
+| 7 · Cardápio | `criar_categoria` e `criar_produto` (botão; sem foto, ficha e código PDV) e `promocao_do_produto` (o "de/por", PIN). | #1327 |
+| 8 · Campanhas | Consulta `campanhas_de_marketing`; `pausar_campanha` (botão) e `repetir_campanha` (PIN, com o público e o custo antes). | #1328 |
+| 9 · O resto | Consultas `quem_mudou_o_que` (só o presidente), `pedidos_de_manutencao`, `ordens_de_producao`, `candidatos_das_vagas` (sem nome nem contato) e `fidelidade_e_cashback` (sem telefone). | este PR |
+
+**Ficou fora, de propósito.** Promoção com data de fim (o Regem não tem; seria fluxo novo — pede protótipo). Mensagem nova de campanha
+pela conversa (texto a muitos clientes; na API oficial, modelo aprovado pela Meta): só na tela. Repetir campanha do Clube, da hora
+habitual, agendada, com cupom ou pelo perfil: só na tela. Abono e atestado de ponto: só na tela.

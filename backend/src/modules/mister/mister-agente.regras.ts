@@ -391,6 +391,11 @@ export type NomeDaFerramenta =
   | 'agenda_de_encomendas'
   | 'avaliacoes_dos_clientes'
   | 'campanhas_de_marketing'
+  | 'quem_mudou_o_que'
+  | 'pedidos_de_manutencao'
+  | 'ordens_de_producao'
+  | 'candidatos_das_vagas'
+  | 'fidelidade_e_cashback'
   | 'equipe_do_dia'
   | 'historia_do_pedido'
   | 'tempos_dos_pedidos'
@@ -898,6 +903,40 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
     description:
       'As campanhas de Delivery › Marketing: a situação de cada uma (mandando, pausada, concluída) e, nas 5 mais novas, o público, as enviadas, as falhas, os cliques, os pedidos em até 7 dias e o quanto venderam (só com "Ver valores em R$"). Use para "como foi a campanha de ontem?", "tem campanha mandando agora?".',
     input_schema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'quem_mudou_o_que',
+    description:
+      'Quem mudou o quê (o registro imutável de Configurações › Auditoria), SÓ para o presidente: os eventos do período (padrão os últimos 7 dias), com a busca no que foi feito, no nome de quem fez e no detalhe. Use para "quem mudou o preço do X-Bacon?", "o que a Bruna fez ontem no sistema?".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        busca: { type: 'string', description: 'O que procurar: o produto, a pessoa, a ação ("preço", "cancelou").' },
+        de: { type: 'string', description: 'Primeiro dia, AAAA-MM-DD.' },
+        ate: { type: 'string', description: 'Último dia, AAAA-MM-DD.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'pedidos_de_manutencao',
+    description: 'Os pedidos de manutenção abertos (Manutenção): o título, o equipamento, a prioridade, a situação, o responsável e há quantos dias estão abertos. Use para "o que está quebrado?", "a manutenção da chapa andou?".',
+    input_schema: { type: 'object', properties: { loja: LOJA }, additionalProperties: false },
+  },
+  {
+    name: 'ordens_de_producao',
+    description: 'As ordens de produção de um dia (padrão hoje): o produto, a quantidade, o que já foi produzido, a situação, a hora, o setor e quem faz. Use para "o que a cozinha tem de produzir hoje?", "a produção do molho saiu?".',
+    input_schema: { type: 'object', properties: { dia: { type: 'string', description: 'O dia, AAAA-MM-DD (padrão hoje).' }, loja: LOJA }, additionalProperties: false },
+  },
+  {
+    name: 'candidatos_das_vagas',
+    description: 'As fichas de candidatos (Pessoas › Candidatos): quantas em cada situação e as 10 mais novas pelo número da ficha, a função e há quantos dias chegaram. O nome e o contato não vêm (dado pessoal). Use para "chegou ficha nova?", "quantos candidatos para cozinha?".',
+    input_schema: { type: 'object', properties: { loja: LOJA }, additionalProperties: false },
+  },
+  {
+    name: 'fidelidade_e_cashback',
+    description: 'O cashback e os pontos (Delivery › Cashback): os planos ativos, quanto os clientes têm a resgatar e quanto vence em 7 dias, e o que foi ganho, resgatado e vencido no período (padrão 30 dias). Valores em R$ só com "Ver valores em R$". Use para "quanto de cashback está para vencer?", "o cashback está sendo usado?".',
+    input_schema: { type: 'object', properties: { periodo: { type: 'string', enum: ['7_dias', '30_dias', 'este_mes'] } }, additionalProperties: false },
   },
   {
     name: 'equipe_do_dia',
