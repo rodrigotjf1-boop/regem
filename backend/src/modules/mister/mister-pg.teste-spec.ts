@@ -13,6 +13,7 @@ import { perfilPadrao } from '../../auth/permissoes';
 import { comTravaDaEmpresa, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { dataNoFuso, hojeISO, horaNoFuso, somarDias } from '../../common/data';
 import { agendadosParaDepois, pendenciasDoTurno } from '../delivery/pendencias-turno';
+import { EntregadorService } from '../entregador/entregador.service';
 import { idEntitlement, uuidDeChave } from '../../common/id-deterministico';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
@@ -4164,6 +4165,7 @@ export function testesDoMisterComPostgres(): void {
         c98: { acao: 'mudar_fornecedor', fornecedor: 'Felipão', contato: 'Marcos' },
         c100: { acao: 'fechar_caixa', caixaDaLoja: 'balcão', semContagem: true },
         c101: { acao: 'sangria', caixaDaLoja: 'balcão', valorDaSangria: 200, motivoDoCaixa: 'pagar o gás' },
+        c103: { acao: 'pagar_entregador', entregadorDoAcerto: 'Jefferson' },
         c51: { periodo: 'este_mes' },
         c52: { periodo: 'este_mes', pessoa: 'Bruna' },
         c55: { acao: 'movimentar_estoque', item: 'bacon', tipo: 'entrada', quantidade: 10, medidaDita: 'kg' },
@@ -12509,6 +12511,115 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from comanda_item where comanda_id = any($1::uuid[])`, [criados.comandas]);
           await q(`delete from comanda where id = any($1::uuid[])`, [criados.comandas]);
           await q(`delete from mesa where id = any($1::uuid[])`, [criados.mesas]);
+          await q(`update caixa_sessao set status = 'aberta' where id = any($1::uuid[])`, [caixasDeAntes]);
+        }
+      });
+
+      it('etapa 2 de 24/11: o acerto dos entregadores — a consulta e o pagamento com o PIN, pelo serviço da tela, só com o acerto da pergunta', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const pinsAntes = await q(`select id, pin_hash from colaborador where id = $1`, [pessoa.ana]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        // O serviço de verdade dos entregadores; a lista deles é a mesma consulta do `DeliveryService.listarEntregadores`.
+        const deliveryDosEntregadores = {
+          listarEntregadores: async (t: string) =>
+            q(`select c.id::text as id, c.nome from colaborador c join funcao f on f.id = c.funcao_id where c.tenant_id = $1 and c.status = 'ativo' and f.nome ilike '%entregador%' order by c.nome`, [t]),
+        };
+        const entregadores = new EntregadorService(db, deliveryDosEntregadores as any, {} as any);
+        (acoes as any).entregadorDeTeste = entregadores;
+        (ferramentas as any).entregadorDeTeste = entregadores;
+        const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+        const pin = async (r: any) => {
+          const c = codigo(await propostasDasAcoes.enviarLink(r.proposta!.id, pessoa.ana, tel, r.proposta!.pergunta));
+          return { c, vista: await propostasDasAcoes.verPeloLink(c) };
+        };
+        const caixasDeAntes = (await q(`update caixa_sessao set status = 'fechada' where tenant_id = $1 and status = 'aberta' and origem = 'delivery' returning id::text as id`, [A])).map((x: any) => x.id);
+        const ids: Record<string, string> = {};
+        const pedidos: string[] = [];
+        const hojeDM = `${hojeISO().slice(8, 10)}/${hojeISO().slice(5, 7)}`;
+        try {
+          [{ id: ids.funcao }] = await q(`insert into funcao (tenant_id, nome, categoria) values ($1, 'Entregador E2', 'execucao') returning id::text as id`, [A]);
+          [{ id: ids.jeff }] = await q(`insert into colaborador (tenant_id, nome, funcao_id) values ($1, 'Jefferson E2', $2) returning id::text as id`, [A, ids.funcao]);
+          [{ id: ids.rafa }] = await q(`insert into colaborador (tenant_id, nome, funcao_id) values ($1, 'Rafa E2', $2) returning id::text as id`, [A, ids.funcao]);
+          await q(
+            `insert into entregador_perfil_pagamento (tenant_id, colaborador_id, modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos, base_taxa, periodicidade) values ($1, $2, 'diaria_taxas', 6000, 0, 0, 'real', 'dia'), ($1, $3, 'so_taxas', 0, 0, 0, 'real', 'dia')`,
+            [A, ids.jeff, ids.rafa],
+          );
+          const entrega = async (quem: string, taxa: number) => {
+            const [{ id }] = await q(`insert into pedido_externo (tenant_id, canal, tipo, status, taxa_entrega, entregador_id, concluido_em, display_id) values ($1, 'proprio', 'entrega', 'concluido', $2, $3, now(), 'E2') returning id::text as id`, [A, taxa, quem]);
+            pedidos.push(id);
+          };
+          await entrega(ids.jeff, 7.5);
+          await entrega(ids.jeff, 5);
+          await entrega(ids.rafa, 6);
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+
+          // 1) A consulta, com o caixa de entregas fechado.
+          const ver = await ferramentas.executar(e, 'acerto_dos_entregadores', {});
+          expect(ver.ok).toBe(true);
+          expect(ver.dados.caixaDeEntregas).toBe('fechado');
+          expect((ver.dados.entregadores as any[]).find((x) => x.entregador === 'Jefferson E2')).toEqual({
+            entregador: 'Jefferson E2', modelo: 'diária + taxas', periodo: `de ${hojeDM}`, entregasSemAcerto: 2, situacao: 'a pagar', aPagar: 72.5, diaria: 60, taxas: 12.5,
+          });
+          const semValores = await ferramentas.executar({ ...e, nivel: 'gerente', verValores: false, permissoes: { delivery: true } } as any, 'acerto_dos_entregadores', {});
+          expect((semValores.dados.entregadores as any[]).find((x) => x.entregador === 'Jefferson E2')).not.toHaveProperty('aPagar');
+          expect((await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true } } } as any, 'acerto_dos_entregadores', {})).ok).toBe(false);
+          // Pagar com o caixa de entregas fechado: a trava da tela.
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'jefferson e2' })).toEqual({
+            ok: false,
+            dados: { erro: 'O caixa de entregas está fechado: abra o turno para pagar (o pagamento sai como sangria dele).' },
+          });
+
+          // 2) Com o caixa aberto: o valor do cálculo, a página do PIN, o pagamento pelo serviço (fechamento, sangria, entregas acertadas).
+          [{ id: ids.caixa }] = await q(`insert into caixa_sessao (tenant_id, origem, status, valor_abertura, aberta_por_id) values ($1, 'delivery', 'aberta', 0, $2) returning id::text as id`, [A, pessoa.ana]);
+          const r = await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'jefferson e2' });
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toBe(
+            `Pagar R$ 72,50 a Jefferson E2 (diária + taxas: 2 entregas de ${hojeDM}; diária R$ 60,00 + taxas R$ 12,50). Sai como sangria do caixa de entregas, e essas entregas ficam acertadas.`,
+          );
+          expect(r.proposta).toMatchObject({ procedimento: 'pagar_entregador', nivel: 'pin' });
+          const { c, vista } = await pin(r);
+          expect(vista).toMatchObject({ titulo: 'Pagar o entregador', valor: 72.5, botao: 'Pagar' });
+          expect(vista.itens).toEqual(['Entregador: Jefferson E2', `2 entregas de ${hojeDM}`, 'Diária: R$ 60,00', 'Taxas: R$ 12,50']);
+          expect(await q(`select 1 from entregador_fechamento where colaborador_id = $1`, [ids.jeff])).toEqual([]);
+          await propostasDasAcoes.autorizarPeloLink(c, '2580');
+          expect(await esperarFim(r.proposta!.id)).toMatchObject({
+            situacao: 'feita',
+            resultado: 'Paguei R$ 72,50 a Jefferson E2 (2 entregas). A sangria está no caixa de entregas e essas entregas ficaram acertadas.',
+          });
+          const [f] = await q(`select id::text as id, total_centavos::int as total, entregas, criado_por::text as quem, lancamento_caixa_id::text as lanc from entregador_fechamento where colaborador_id = $1`, [ids.jeff]);
+          expect(f).toMatchObject({ total: 7250, entregas: 2, quem: pessoa.ana });
+          expect(await q(`select categoria, valor::float8 as valor, sessao_id::text as sessao from lancamento_caixa where id = $1`, [f.lanc])).toEqual([{ categoria: 'pagamento_entregador', valor: 72.5, sessao: ids.caixa }]);
+          expect((await q(`select count(*)::int as n from pedido_externo where entregador_id = $1 and entregador_fechamento_id = $2`, [ids.jeff, f.id]))[0].n).toBe(2);
+          // Já pago neste turno: a trava da tela.
+          expect((await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'Jefferson E2' })).dados.erro).toBe(
+            'Jefferson E2 já foi pago neste turno do caixa de entregas (R$ 72,50). Um novo pagamento só no próximo turno.',
+          );
+
+          // 3) O acerto mudou entre a pergunta e o PIN (mais uma entrega do Rafa): nada é pago.
+          const r2 = await ferramentas.executar(e, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'Rafa E2' });
+          expect(r2.dados.oQueVouFazer).toContain('Pagar R$ 6,00 a Rafa E2 (só taxas: 1 entrega');
+          const p2 = await pin(r2);
+          await entrega(ids.rafa, 4);
+          await propostasDasAcoes.autorizarPeloLink(p2.c, '2580');
+          expect(await esperarFim(r2.proposta!.id)).toMatchObject({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.entregadorMudou });
+          expect(await q(`select 1 from entregador_fechamento where colaborador_id = $1`, [ids.rafa])).toEqual([]);
+          // Sem "Ver valores", o gerente não paga.
+          expect((await ferramentas.executar({ ...e, nivel: 'gerente', verValores: false, permissoes: { delivery: true, ver_financeiro: false } } as any, 'propor_acao', { acao: 'pagar_entregador', entregadorDoAcerto: 'Rafa E2' })).ok).toBe(false);
+        } finally {
+          delete (acoes as any).entregadorDeTeste;
+          delete (ferramentas as any).entregadorDeTeste;
+          for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
+          const gente = [ids.jeff, ids.rafa].filter(Boolean);
+          await q(`delete from pedido_externo where id = any($1::uuid[])`, [pedidos]);
+          await q(`delete from entregador_fechamento where colaborador_id = any($1::uuid[])`, [gente]).catch(() => undefined);
+          if (ids.caixa) {
+            await q(`delete from lancamento_caixa where sessao_id = $1`, [ids.caixa]).catch(() => undefined);
+            await q(`delete from caixa_sessao where id = $1`, [ids.caixa]).catch(() => undefined);
+          }
+          await q(`delete from entregador_perfil_pagamento where colaborador_id = any($1::uuid[])`, [gente]).catch(() => undefined);
+          await q(`delete from colaborador where id = any($1::uuid[])`, [gente]).catch(() => undefined);
+          if (ids.funcao) await q(`delete from funcao where id = $1`, [ids.funcao]).catch(() => undefined);
           await q(`update caixa_sessao set status = 'aberta' where id = any($1::uuid[])`, [caixasDeAntes]);
         }
       });

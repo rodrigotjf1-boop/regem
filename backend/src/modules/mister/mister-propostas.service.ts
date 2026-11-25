@@ -52,6 +52,7 @@ import { estadoDaSessao } from './mister-sessao';
 import { apresentacaoDaConta, apresentacaoDoCupom } from './mister-acoes-loja';
 import { apresentacaoDaClassificacao } from './mister-acoes-banco';
 import { apresentacaoDoCaixa } from './mister-acoes-caixa';
+import { apresentacaoDoEntregador } from './mister-acoes-entregador';
 import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDaBaixa, apresentacaoDoHorario, apresentacaoDoPreco, ehAcaoDoMister, ehDadoInformado } from './mister-acoes';
 import { PROCEDIMENTO_DO_PLANO, RESULTADO_DO_PLANO_TROCADO, TEXTOS_DO_PLANO } from './mister-plano';
 
@@ -781,6 +782,7 @@ export class MisterPropostasService implements OnModuleInit {
     if (p.procedimento === 'lancar_conta' && p.parametros?.descricao) apresentacao = apresentacaoDaConta(p.parametros);
     if (p.procedimento === 'classificar_banco' && p.parametros?.lancamentoId) apresentacao = apresentacaoDaClassificacao(p.parametros);
     if ((p.procedimento === 'fechar_caixa' || p.procedimento === 'sangria') && p.parametros?.sessaoId) apresentacao = apresentacaoDoCaixa(p.parametros);
+    if (p.procedimento === 'pagar_entregador' && p.parametros?.entregadorId) apresentacao = apresentacaoDoEntregador(p.parametros);
     return {
       estado: estadoDoLink(p),
       empresa: String(p.empresa ?? ''),

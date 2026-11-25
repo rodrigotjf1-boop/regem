@@ -62,6 +62,7 @@ import { EscalaService } from '../escala/escala.service';
 import { resumoDaClassificacao, type ParametrosDaClassificacao } from './mister-acoes-banco';
 import { resumoDaContagem, type ParametrosDaContagem } from './mister-acoes-contagem';
 import { MOTIVO_MINIMO, nomeDoCaixa, resumoDaSangria, resumoDoFechamento, type ParametrosDoCaixa } from './mister-acoes-caixa';
+import { acharEntregador, recusaDoAcerto, resumoDoPagamento, type LinhaDoAcerto, type ParametrosDoEntregador } from './mister-acoes-entregador';
 import { agendadosParaDepois, pendenciasDoTurno } from '../delivery/pendencias-turno';
 import { ModuleRef } from '@nestjs/core';
 import type { ParametrosDeCadastro } from './mister-acoes-cadastro';
@@ -412,6 +413,19 @@ export class MisterAcoesService implements OnModuleInit {
         resumo = r.resumo;
         alvo = r.alvo;
         unidadeId = r.unidadeId;
+      }
+      if (c.parametros.acao === 'pagar_entregador') {
+        // Etapa 2 (24/11): o acerto do entregador pelo MESMO cálculo da tela (o período de cada um e as entregas sem acerto).
+        const servico = await this.servicoDoEntregador();
+        if (!servico) return recusa(TEXTOS_DAS_ACOES.entregadorIndisponivel);
+        const achado = acharEntregador((await servico.fechamentoEntregadores(e.tenantId)) as LinhaDoAcerto[], (c.parametros as ParametrosDoEntregador).entregador);
+        if ('erro' in achado) return recusa(achado.erro);
+        const l = achado.linha;
+        const nao = recusaDoAcerto(l);
+        if (nao) return recusa(nao);
+        Object.assign(parametros, { entregadorId: l.colaboradorId, nomeDoEntregador: l.nome, entregas: l.entregas, diaria: l.diaria, taxas: l.taxas, total: l.total, periodo: l.periodo });
+        resumo = resumoDoPagamento(l);
+        alvo = `entregador:${l.colaboradorId}`;
       }
       if (c.parametros.acao === 'contar_estoque') {
         // Versão 9, O3: a lista de Estoque › Contagem (pelo nome, ou a única) e cada insumo dito achado NELA, na unidade dele.
@@ -846,6 +860,42 @@ export class MisterAcoesService implements OnModuleInit {
       return { feita: true, texto: `Fechei ${x.nomeDoCaixa}${x.semContagem ? ', sem contagem' : ''}. A diferença, se houver, está no relatório de turnos.` };
     } catch (err: any) {
       return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(motivo(err)) };
+    }
+  }
+
+  /** O serviço dos entregadores (Delivery › Entregadores), achado na hora: o módulo dele não exporta o serviço. Os testes usam `entregadorDeTeste`. */
+  entregadorDeTeste: { fechamentoEntregadores: (t: string) => Promise<any[]>; pagarEntregador: (t: string, ator: string | null, id: string) => Promise<any> } | null = null;
+  private async servicoDoEntregador() {
+    if (this.entregadorDeTeste) return this.entregadorDeTeste;
+    if (!this.moduleRef) return null;
+    try {
+      const { EntregadorService } = await import('../entregador/entregador.service');
+      return this.moduleRef.get(EntregadorService, { strict: false }) as any;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Paga pelo MESMO serviço da tela; o acerto tem de ser o da pergunta (as mesmas entregas e o mesmo valor). */
+  private async aplicarEntregador(
+    p: { id: string; tenantId: string; unidadeId: string | null },
+    x: ParametrosDoEntregador & { entregadorId: string; nomeDoEntregador: string; entregas: number; total: number },
+    quem: string,
+  ): Promise<{ feita: boolean; texto: string }> {
+    const servico = await this.servicoDoEntregador();
+    if (!servico) return { feita: false, texto: 'isso não está disponível agora. Nada foi feito.' };
+    const agora = ((await servico.fechamentoEntregadores(p.tenantId)) as LinhaDoAcerto[]).find((l) => l.colaboradorId === x.entregadorId);
+    if (!agora || recusaDoAcerto(agora) || agora.total !== x.total || agora.entregas !== x.entregas) return { feita: false, texto: TEXTOS_DAS_ACOES.entregadorMudou };
+    try {
+      const r: any = await servico.pagarEntregador(p.tenantId, quem, x.entregadorId);
+      const [f] = linhas(
+        await this.db.execute(sql`select total_centavos::int as total, lancamento_caixa_id::text as lanc from entregador_fechamento where id = ${r?.fechamentoId ?? null}::uuid and tenant_id = ${p.tenantId}::uuid`),
+      );
+      if (!f?.lanc) return { feita: false, texto: 'o pagamento não apareceu no caixa de entregas. Confira em Delivery › Entregadores.' };
+      const valor = `R$ ${(Number(f.total) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      return { feita: true, texto: `Paguei ${valor} a ${x.nomeDoEntregador} (${x.entregas === 1 ? '1 entrega' : `${x.entregas} entregas`}). A sangria está no caixa de entregas e essas entregas ficaram acertadas.` };
+    } catch (err: any) {
+      return { feita: false, texto: TEXTOS_DAS_ACOES.recusado(String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240)) };
     }
   }
 
@@ -1591,6 +1641,7 @@ export class MisterAcoesService implements OnModuleInit {
     if (parametros.acao === 'classificar_banco') return this.aplicarClassificacao(p, parametros as any, e, quem);
     if (parametros.acao === 'contar_estoque') return this.aplicarContagem(p, parametros as any, quem);
     if (parametros.acao === 'fechar_caixa' || parametros.acao === 'sangria') return this.aplicarCaixa(p, parametros as any, e, quem);
+    if (parametros.acao === 'pagar_entregador') return this.aplicarEntregador(p, parametros as any, quem);
     try {
       if (parametros.acao === 'pausar_canal' || parametros.acao === 'reabrir_canal') {
         if (!this.pausa) return { feita: false, texto: 'a pausa dos canais não está disponível agora. Nada foi feito.' };
