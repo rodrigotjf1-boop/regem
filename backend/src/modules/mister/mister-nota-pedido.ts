@@ -82,6 +82,9 @@ export const FRASES_DO_PEDIDO_DA_NOTA = {
     lancaEstoque(n)
       ? `📦 O pedido "${p.nome}" é recebido com ${doDocumento(n).este}: a entrada no estoque sai pelo pedido.`
       : `📦 O pedido "${p.nome}" fica marcado como recebido, sem mexer no estoque.`,
+  /** PR-8: o resumo da nota que dá entrada sem pedido que bata (sem pedido aberto, ou "Não é deste pedido"). */
+  semPedidoNoResumo: (n: NotaNoMister): string =>
+    `📦 Sem pedido aberto que bata com ${doDocumento(n).este}: a entrada vira um pedido já recebido em Estoque › Pedidos.`,
   /** O resumo da NF com "Só marcar recebido": só a conta a pagar (o cupom tem o dele, já pago). */
   soDespesaDaNota: (n: NotaNoMister): string => {
     const parcelas = n.duplicatas.length > 1 ? ` em ${n.duplicatas.length} parcelas` : '';
@@ -95,6 +98,10 @@ export const FRASES_DO_PEDIDO_DA_NOTA = {
     `${r.naoVieram.length ? ` Não ${r.naoVieram.length === 1 ? 'veio' : 'vieram'} (fica como falta no pedido): ${r.naoVieram.join(', ')}.` : ''}` +
     `${r.pendentes.length ? ` A validade de ${r.pendentes.join(', ')} ficou pendente: responda a data quando souber.` : ''}`,
   semEstoque: (p: PedidoDaNota): string => `📦 Marquei o pedido "${p.nome}" como recebido em Estoque › Pedidos, sem mexer no estoque.`,
+  /** PR-8: a nota sem pedido virou um pedido já recebido. */
+  criado: (p: PedidoDaNota, pendentes: string[]): string =>
+    `📦 Não havia pedido aberto que batesse: registrei como pedido já recebido em Estoque › Pedidos, "${p.nome}".` +
+    `${pendentes.length ? ` A validade de ${pendentes.join(', ')} ficou pendente: responda a data quando souber.` : ''}`,
 };
 
 /** Os botões (o WhatsApp aceita até 20 letras em cada um). */

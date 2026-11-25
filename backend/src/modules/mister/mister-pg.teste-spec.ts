@@ -9111,6 +9111,95 @@ export function testesDoMisterComPostgres(): void {
         }
       });
 
+      it('P4b de "Pedidos e recebimento" (PR-8): o cupom sem pedido que bata vira um pedido já recebido em Estoque › Pedidos — sem conta do pedido, sem recebimento avulso', async () => {
+        const CNPJ = '45997418000153';
+        const doCupom = () =>
+          falar(
+            JSON.stringify({
+              especie: 'cupom',
+              chave: null,
+              emitenteNome: 'Atacadão P4b',
+              emitenteCnpj: CNPJ,
+              numero: '7101',
+              dataEmissao: '2026-11-19',
+              valorTotal: '90,00',
+              formaPagamento: 'pix',
+              itens: [
+                { descricao: 'OLEO P4B 900ML', quantidade: '8', unidade: 'UN', valorUnitario: '7,50', valorTotal: '60,00' },
+                { descricao: 'SAL P4B 1KG', quantidade: '10', unidade: 'UN', valorUnitario: '3,00', valorTotal: '30,00' },
+              ],
+              legivel: true,
+            }),
+          );
+        const ultimo = async () => (await docs()).slice(-1)[0];
+        const compras = new ComprasService(db, { emit: () => true } as any, auditoria);
+        (notas as any).compras = compras;
+        const itens: string[] = [];
+        process.env.MISTER_NOTAS = '1';
+        process.env.MISTER_CUPOM = '1';
+        try {
+          const [{ id: oleo }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida, validade_obrigatoria) values ($1, 'Óleo P4b', 'unidade', true) returning id::text as id`, [A]);
+          const [{ id: sal }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Sal P4b', 'unidade') returning id::text as id`, [A]);
+          itens.push(oleo, sal);
+          for (const [descricao, item] of [['OLEO P4B 900ML', oleo], ['SAL P4B 1KG', sal]] as const)
+            await q(`insert into mister_de_para (tenant_id, fornecedor_cnpj, chave, item_id) values ($1, $2, $3, $4)`, [A, CNPJ, chaveDoDePara({ codigo: null, descricao } as any), item]);
+
+          // Sem pedido aberto com estes itens: o "Como deseja lançar?" de sempre; com "Estoque e despesa", o resumo diz o destino.
+          ia.roteiro = [leitura({ tipo: 'nota' }), doCupom()];
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          const c = await ultimo();
+          expect(c).toMatchObject({ situacao: 'falta', motivo: 'como_lancar' });
+          expect(c.dados.nota.pedido).toBeNull();
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:cl:${c.id}:e`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.at(-1)!.texto).toMatch(/^📦 Sem pedido aberto que bata com este cupom: a entrada vira um pedido já recebido em Estoque › Pedidos\.\n\n🧾 Cupom/);
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:lancar:${c.id}`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.at(-1)!.texto).toBe(
+            '📦 Não havia pedido aberto que batesse: registrei como pedido já recebido em Estoque › Pedidos, "Cupom 7101 · Atacadão P4b". ' +
+              'A validade de Óleo P4b ficou pendente: responda a data quando souber.\n\n' +
+              'Lancei em Estoque › Pedidos (2 itens) e a despesa de R$ 90,00 já paga, em Financeiro › Contas a pagar.',
+          );
+          // O pedido nasceu da nota e já recebido: fora do KDS e do painel, as linhas pela nota, a validade do óleo pendente.
+          const [p] = await q(`select id::text as id, status, enviar_kds as kds, enviar_dashboard as painel, data_recebimento::text as data, nota_ref from compra_lista where tenant_id = $1 and nome = 'Cupom 7101 · Atacadão P4b' and deleted_at is null`, [A]);
+          expect(p).toMatchObject({ status: 'recebida', kds: false, painel: false, data: '2026-11-19', nota_ref: '7101' });
+          expect(await q(`select ci.qtd_recebida::float8 as q, ci.custo_unitario::float8 as c, ci.validade_pendente as v from compra_item ci where ci.lista_id = $1 order by ci.qtd_recebida`, [p.id])).toEqual([
+            { q: 8, c: 7.5, v: true },
+            { q: 10, c: 3, v: false },
+          ]);
+          expect((await ultimo()).dados.nota.pedido).toMatchObject({ listaId: p.id, resposta: 'receber', criadoPelaNota: true });
+          // Uma entrada por item, pelo pedido; nenhum recebimento avulso; só a conta do cupom (paga), nenhuma do pedido.
+          expect(await q(`select count(*)::int as n from movimento_estoque where item_id = any($1::uuid[])`, [itens])).toEqual([{ n: 2 }]);
+          expect(await q(`select count(*)::int as n from recebimento_item where item_id = any($1::uuid[])`, [itens])).toEqual([{ n: 0 }]);
+          expect(await q(`select descricao, status from titulo_financeiro where tenant_id = $1 and (origem_id = $2 or descricao like 'Cupom 7101%')`, [A, p.id])).toEqual([
+            { descricao: 'Cupom 7101 · Atacadão P4b', status: 'pago' },
+          ]);
+          // Depois de lançado, o "Desfazer" da nota com estoque manda à tela do pedido (o estoque não se desfaz pela conversa).
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:desfazer:${c.id}`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.at(-1)!.texto).toBe('A nota entrou pelo Estoque › Pedidos: o que mudar nela é por lá.');
+          // O item que não é da empresa é recusado antes de criar qualquer pedido.
+          const antes = await q(`select count(*)::int as n from compra_lista where tenant_id = $1`, [A]);
+          await expect(compras.registrarPedidoRecebido(A, { nome: 'x', fornecedorId: null, dataRecebimento: null, notaRef: null, itens: [{ itemId: randomUUID(), quantidade: 1 }] }, lojaDeA)).rejects.toThrow(
+            'Um item da nota não está mais no estoque desta empresa.',
+          );
+          expect(await q(`select count(*)::int as n from compra_lista where tenant_id = $1`, [A])).toEqual(antes);
+        } finally {
+          delete process.env.MISTER_NOTAS;
+          delete process.env.MISTER_CUPOM;
+          delete (notas as any).compras;
+          await q(`delete from lancamento_caixa where tenant_id = $1 and titulo_id in (select id from titulo_financeiro where tenant_id = $1 and descricao like 'Cupom 7101%')`, [A]).catch(() => undefined);
+          await q(`delete from titulo_financeiro where tenant_id = $1 and descricao like 'Cupom 7101%'`, [A]).catch(() => undefined);
+          await q(`delete from lote where item_id = any($1::uuid[])`, [itens]).catch(() => undefined);
+          await q(`delete from movimento_estoque where item_id = any($1::uuid[])`, [itens]).catch(() => undefined);
+          await q(`delete from compra_item where item_id = any($1::uuid[])`, [itens]).catch(() => undefined);
+          await q(`delete from compra_lista where tenant_id = $1 and nome = 'Cupom 7101 · Atacadão P4b'`, [A]).catch(() => undefined);
+          await q(`delete from mister_de_para where tenant_id = $1 and fornecedor_cnpj = $2`, [A, CNPJ]).catch(() => undefined);
+          for (const tb of ['item_estoque_unidade', 'item_conversao', 'item_fornecedor']) await q(`delete from ${tb} where item_id = any($1::uuid[])`, [itens]).catch(() => undefined);
+          await q(`delete from item_estoque where id = any($1::uuid[])`, [itens]).catch(() => undefined);
+        }
+      });
+
       it('a nota com as notas DESLIGADAS segue com a frase de antes (nada é lido nem lançado)', async () => {
         ia.roteiro = [leitura({ tipo: 'nota' })];
         expect(await foto(telAna, novaMidia())).toBe('documento');

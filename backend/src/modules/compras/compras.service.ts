@@ -920,6 +920,84 @@ export class ComprasService {
   }
 
   /**
+   * P4 de "Pedidos e recebimento" (PR-8: "a nota sem pedido vira um pedido já recebido em Estoque › Pedidos — tudo num lugar
+   * só"): o pedido nasce com as linhas da nota e é recebido na hora pelo MESMO `receber` (estoque, custo médio, lote; a conta
+   * não — a despesa é a da nota). Diferenças da criação pela tela, porque é o registro do que CHEGOU, não um pedido a mandar:
+   * a marca não é exigida (a nota não diz qual é); não vai ao KDS nem ao painel; o insumo repetido na nota vira uma linha só.
+   * Se o recebimento recusa, o pedido criado sai (não sobra pedido aberto que ninguém fez).
+   */
+  async registrarPedidoRecebido(
+    tenantId: string,
+    dados: { nome: string; fornecedorId: string | null; dataRecebimento: string | null; notaRef: string | null; itens: { itemId: string; quantidade: number; custoUnitario?: number }[] },
+    atual: string | null = null,
+    atorId?: string | null,
+  ): Promise<{ id: string; nome: string; itens: number; pendentes: string[] }> {
+    const porInsumo = new Map<string, { quantidade: number; total: number; comValor: boolean }>();
+    for (const i of dados.itens) {
+      if (!(i.quantidade > 0)) continue;
+      const a = porInsumo.get(i.itemId) ?? { quantidade: 0, total: 0, comValor: true };
+      a.quantidade += i.quantidade;
+      if (i.custoUnitario != null && i.custoUnitario > 0) a.total += i.custoUnitario * i.quantidade;
+      else a.comValor = false;
+      porInsumo.set(i.itemId, a);
+    }
+    if (!porInsumo.size) throw new BadRequestException('A nota não tem item para dar entrada.');
+    const ids = [...porInsumo.keys()];
+    const daEmpresa = await this.db
+      .select({ id: itemEstoque.id })
+      .from(itemEstoque)
+      .where(and(eq(itemEstoque.tenantId, tenantId), inArray(itemEstoque.id, ids), isNull(itemEstoque.deletedAt)));
+    if (daEmpresa.length !== ids.length) throw new BadRequestException('Um item da nota não está mais no estoque desta empresa.');
+    const nome = (limparNome(dados.nome) || 'Nota sem pedido').slice(0, 120);
+    const lista = await this.db.transaction(async (tx) => {
+      const [l] = await tx
+        .insert(compraLista)
+        .values({
+          tenantId,
+          unidadeId: atual,
+          nome,
+          fornecedorId: dados.fornecedorId,
+          dataRecebimento: dados.dataRecebimento,
+          enviarKds: false,
+          enviarDashboard: false,
+        })
+        .returning({ id: compraLista.id });
+      await tx.insert(compraItem).values(
+        ids.map((itemId) => {
+          const a = porInsumo.get(itemId)!;
+          const q = Math.round(a.quantidade * 10000) / 10000;
+          return { tenantId, listaId: l.id, itemId, quantidade: String(q), custoUnitario: a.comValor && a.total > 0 ? String(Math.round((a.total / q) * 10000) / 10000) : undefined };
+        }),
+      );
+      return l;
+    });
+    const linhas = await this.db
+      .select({ id: compraItem.id, quantidade: compraItem.quantidade })
+      .from(compraItem)
+      .where(and(eq(compraItem.listaId, lista.id), eq(compraItem.tenantId, tenantId)));
+    try {
+      await this.receber(
+        tenantId,
+        lista.id,
+        atorId,
+        { itens: linhas.map((l) => ({ compraItemId: l.id, qtdRecebida: Number(l.quantidade), validadePendente: true })), notaRef: dados.notaRef ?? undefined } as any,
+        atual,
+        { semConta: true },
+      );
+    } catch (e) {
+      await this.db.update(compraLista).set({ deletedAt: new Date(), updatedAt: new Date() }).where(and(eq(compraLista.id, lista.id), eq(compraLista.tenantId, tenantId)));
+      throw e;
+    }
+    // A validade obrigatória ficou pendente (a nota não traz a data): o aviso da P1 pergunta depois.
+    const pendentes = await this.db
+      .select({ nome: itemEstoque.nome, nomeComercial: itemEstoque.nomeComercial })
+      .from(compraItem)
+      .innerJoin(itemEstoque, eq(itemEstoque.id, compraItem.itemId))
+      .where(and(eq(compraItem.listaId, lista.id), eq(compraItem.tenantId, tenantId), eq(compraItem.validadePendente, true)));
+    return { id: lista.id, nome, itens: linhas.length, pendentes: pendentes.map((p) => p.nomeComercial || p.nome) };
+  }
+
+  /**
    * P3 de "Pedidos e recebimento" (25/11): a nova previsão de recebimento de um pedido ainda não recebido — o "Mudar a previsão"
    * do aviso do pedido atrasado do Mister. A gravação confere de novo que não foi recebido (o recebimento no meio não muda a data).
    */

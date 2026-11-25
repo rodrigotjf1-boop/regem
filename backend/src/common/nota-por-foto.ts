@@ -377,6 +377,8 @@ export interface PedidoDaNota {
   batem: number;
   /** "receber" = "Receber o pedido"; "nao" = "Não é deste pedido" (a nota segue sozinha); null = ainda sem resposta. */
   resposta: 'receber' | 'nao' | null;
+  /** PR-8: o pedido NASCEU da nota (não havia pedido aberto que batesse) e foi recebido no lançamento. */
+  criadoPelaNota?: boolean;
 }
 
 /** Versão 9, O2: até quantas mudanças a linha do modelo mostra. */
@@ -527,8 +529,8 @@ export const FRASES_DA_NOTA = {
       : 'Sem parcelas na nota: a conta a pagar entra sem vencimento.';
     return `${FRASES_DA_NOTA.cabecalho(n)}${comModelo(n)}\n${linhas.join('\n')}\n\n${pagamento}\n\nLanço a entrada no estoque e a conta a pagar de R$ ${reaisDe(n.valorTotalCentavos)}?`;
   },
-  lancada: (n: NotaNoMister, contas: number, custos: string[] = []): string =>
-    `Lancei em Estoque › Recebimento e nas contas a pagar${contas > 1 ? ` (${contas} parcelas)` : ''}: ${n.itens.filter((x) => x.estado === 'ligado').length} itens no estoque.` +
+  lancada: (n: NotaNoMister, contas: number, custos: string[] = [], onde = 'Estoque › Recebimento'): string =>
+    `Lancei em ${onde} e nas contas a pagar${contas > 1 ? ` (${contas} parcelas)` : ''}: ${n.itens.filter((x) => x.estado === 'ligado').length} itens no estoque.` +
     (custos.length ? `\n\n${custos.join('\n')}` : ''),
 
   // ── o cupom fiscal de compra (M6h) ──
@@ -555,9 +557,9 @@ export const FRASES_DA_NOTA = {
     const linhas = destinosDosItens(n).map((d) => `• ${d.descricao}, ${d.quanto} → ${d.destino}`);
     return `${FRASES_DA_NOTA.cabecalhoDoCupom(n)}${comModelo(n)}\n${linhas.join('\n')}\n\nLanço a entrada no estoque e a despesa de R$ ${reaisDe(n.valorTotalCentavos)} como já paga${forma}?`;
   },
-  cupomLancado: (n: NotaNoMister, custos: string[] = []): string =>
+  cupomLancado: (n: NotaNoMister, custos: string[] = [], onde = 'Estoque › Recebimento'): string =>
     (n.comoLancar === 'estoque'
-      ? `Lancei em Estoque › Recebimento (${((k) => (k === 1 ? '1 item' : `${k} itens`))(n.itens.filter((x) => x.estado === 'ligado').length)}) e a despesa de R$ ${reaisDe(n.valorTotalCentavos)} já paga, em Financeiro › Contas a pagar.`
+      ? `Lancei em ${onde} (${((k) => (k === 1 ? '1 item' : `${k} itens`))(n.itens.filter((x) => x.estado === 'ligado').length)}) e a despesa de R$ ${reaisDe(n.valorTotalCentavos)} já paga, em Financeiro › Contas a pagar.`
       : `Lancei a despesa de R$ ${reaisDe(n.valorTotalCentavos)} já paga, em Financeiro › Contas a pagar. O estoque não mudou.`) + (custos.length ? `\n\n${custos.join('\n')}` : ''),
   cupomNaoLancado: 'Certo: não lancei o cupom. Ele fica em Mister › Documentos, como recusado.',
 

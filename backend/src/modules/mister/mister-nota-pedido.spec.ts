@@ -75,6 +75,12 @@ describe('a resposta e o caminho do estoque', () => {
         'Veio menos: Batata 7 mm: 25 de 30. Não vieram (fica como falta no pedido): Cebola, Tomate. A validade de Hambúrguer 56 g ficou pendente: responda a data quando souber.',
     );
     expect(FRASES_DO_PEDIDO_DA_NOTA.recebido(pedido, { entraram: 1, faltaram: [], naoVieram: [], pendentes: [], aMais: 0 })).toBe('📦 Recebi o pedido "Compras do mercado" em Estoque › Pedidos: 1 item entrou no estoque.');
+    // PR-8: a nota sem pedido que bata vira um pedido já recebido.
+    expect(FRASES_DO_PEDIDO_DA_NOTA.semPedidoNoResumo(nota())).toBe('📦 Sem pedido aberto que bata com esta nota: a entrada vira um pedido já recebido em Estoque › Pedidos.');
+    expect(FRASES_DO_PEDIDO_DA_NOTA.criado({ ...pedido, nome: 'Cupom 7101 · Atacadão' }, [])).toBe(
+      '📦 Não havia pedido aberto que batesse: registrei como pedido já recebido em Estoque › Pedidos, "Cupom 7101 · Atacadão".',
+    );
+    expect(FRASES_DO_PEDIDO_DA_NOTA.criado(pedido, ['Óleo'])).toMatch(/A validade de Óleo ficou pendente: responda a data quando souber\.$/);
   });
 
   it('os botões cabem no WhatsApp (até 20 letras) e se leem de volta', () => {
