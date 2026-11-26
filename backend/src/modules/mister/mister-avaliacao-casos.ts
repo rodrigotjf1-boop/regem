@@ -29,7 +29,10 @@ import { botoesDoPlano, lerPassos, textoDoPlano } from './mister-plano';
 import { ehTipoDeAviso } from './mister-avisos.regras';
 import { montarNoticias, pedidoDasNoticias } from './mister-noticias';
 import { montarLinks, pedidoDoLink } from './mister-abrir';
-import { TEXTOS_DAS_TELAS, pedidoDaLeitura, procurarTelas, resultadoDaLeitura } from './mister-telas.service';
+import { TEXTOS_DAS_TELAS, pedidoDaLeitura, procurarTelas, recusaDaTela, resultadoDaLeitura } from './mister-telas.service';
+import { MOTIVO_NAO_TEM, SIGA_DO_QUE_FALTA, comMotivo } from './mister-motivo';
+import { recusaPeloPerfil } from './mister-acoes-perfil';
+import { perfilPadrao } from '../../auth/permissoes';
 import type { BoletimDoRamo, NoticiaDoBoletim } from '../pulso/pulso.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -462,6 +465,9 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       const c = conferirAcao(en.acao, en, AGORA_DA_AVALIACAO_INSTANTE);
       if ('erro' in c) return recusa(c.erro);
       const p = c.parametros;
+      // Versão 10, C6: a MESMA conferência do perfil (o gerente de teste tem as permissões padrão do nível), com o motivo.
+      const pelo = recusaPeloPerfil({ nivel: perfil.nivel, verValores: perfil.verValores, permissoes: perfil.nivel === 'presidente' ? null : perfilPadrao(perfil.nivel).permissoes }, p.acao);
+      if (pelo) return comMotivo(pelo.erro, pelo.motivo);
       // Versão 10, C10a: a mesma trava da de verdade — número da loja na imagem só com origem (o laço passa `__origem`).
       if (p.acao === 'criar_imagem') {
         const sem = numerosSemOrigem(p.pedido, origemDe(en.__origem));
@@ -897,10 +903,10 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       return procurarTelas(en);
     case 'ler_no_regem': {
       const p = pedidoDaLeitura(en);
-      if ('erro' in p) return recusa(p.erro);
+      if ('erro' in p) return recusaDaTela(p.erro);
       const tela = TELAS_DA_AVALIACAO[p.f.rota];
-      if (!tela) return recusa(TEXTOS_DAS_TELAS.semServidor);
-      if (tela.soPresidente && perfil.nivel !== 'presidente') return recusa(TEXTOS_DAS_TELAS.semPermissao);
+      if (!tela) return recusaDaTela(TEXTOS_DAS_TELAS.semServidor);
+      if (tela.soPresidente && perfil.nivel !== 'presidente') return recusaDaTela(TEXTOS_DAS_TELAS.semPermissao);
       return resultadoDaLeitura(p.f, LOJA, p.pares, tela.resposta, perfil.verValores);
     }
     case 'insumo_vendido': {
@@ -1359,7 +1365,7 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       });
     }
     case 'anotar_o_que_falta':
-      return ok({ anotado: true, siga: 'Responda agora: diga que você ainda não tem acesso a essa informação e, em uma frase, o que você consegue responder hoje.' });
+      return ok({ anotado: true, motivo: MOTIVO_NAO_TEM.motivo, siga: SIGA_DO_QUE_FALTA });
     case 'propor_procedimento':
       // F4.3: a loja de teste não tem aviso aberto — a avaliação não cria proposta nenhuma. F4.2b: nem pedido aberto.
       if (en.procedimento === 'cancelar_pedido') return ok({ proposta: null, motivo: 'Não achei pedido aberto com esse número nas últimas 24 horas nesta loja.' });
@@ -1574,6 +1580,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c128', pergunta: 'Tem alguma pendência com fornecedor?', consultas: ['procurar_no_regem', 'ler_no_regem'], contem: ['Hortifruti', 'muçarela|mucarela'] },
   // O perfil que não abre a tela: o gerente lê, a tela recusa, e ele diz quem muda o perfil.
   { id: 'c129', pergunta: 'Qual foi a diferença no fechamento do caixa de ontem à noite?', perfil: GERENTE_SEM_VALORES, semValores: true, contem: ['perfil'] },
+  // Versão 10, C6 (26/11): quando não dá, o motivo e os caminhos — o gerente pede o que é do presidente ou o que o perfil não abre.
+  { id: 'c130', pergunta: 'Guarda aí o saldo do banco de hoje: 42.300 reais.', perfil: GERENTE_SEM_VALORES, contem: ['presidente'] },
+  { id: 'c131', pergunta: 'Marca como paga a conta da Distribuidora Boa Carne, paguei no pix.', perfil: GERENTE_SEM_VALORES, contem: ['presidente', 'perfil'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

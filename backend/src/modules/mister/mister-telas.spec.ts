@@ -1,4 +1,5 @@
-import { TEXTOS_DAS_TELAS, pedidoDaLeitura, procurarTelas, resultadoDaLeitura } from './mister-telas.service';
+import { TEXTOS_DAS_TELAS, pedidoDaLeitura, procurarTelas, recusaDaTela, resultadoDaLeitura } from './mister-telas.service';
+import { MOTIVO_NAO_TEM } from './mister-motivo';
 import { funcaoDoMapa } from './mapa/busca-no-mapa';
 import { FERRAMENTAS, ferramentasDaConversa, podeRodarJunto } from './mister-agente.regras';
 
@@ -37,7 +38,17 @@ describe('C3 · o pedido de leitura', () => {
     const achou = procurarTelas({ busca: 'cupons do cardápio' });
     expect(achou.ok).toBe(true);
     expect((achou.dados.achadas as any[])[0].rota).toBe('GET /api/v1/cardapio/cupons');
-    expect(procurarTelas({ busca: 'xyzw qwerty' }).dados).toEqual({ achadas: [], siga: TEXTOS_DAS_TELAS.nadaAchado });
+    // C6: sem tela que sirva, o motivo é "o Regem ainda não tem", com os caminhos.
+    expect(procurarTelas({ busca: 'xyzw qwerty' }).dados).toEqual({ achadas: [], siga: TEXTOS_DAS_TELAS.nadaAchado, motivo: 'nao_tem', caminhos: MOTIVO_NAO_TEM.caminhos });
+  });
+
+  it('C6: as recusas das telas voltam com o motivo e os caminhos (perfil, dado de pessoa, só na tela, PIN)', () => {
+    expect(recusaDaTela(TEXTOS_DAS_TELAS.semPermissao).dados).toMatchObject({ motivo: 'perfil', quemPode: expect.stringContaining('presidente'), caminhos: expect.arrayContaining([expect.stringContaining('Configurações › Acessos & perfis')]) });
+    expect(recusaDaTela(TEXTOS_DAS_TELAS.pessoal).dados).toMatchObject({ motivo: 'seguranca' });
+    expect(recusaDaTela(TEXTOS_DAS_TELAS.naoELeitura).dados).toMatchObject({ motivo: 'so_na_tela' });
+    expect(recusaDaTela(TEXTOS_DAS_TELAS.esperaOPin).dados).toMatchObject({ motivo: 'seguranca' });
+    // O que não tem motivo volta só com a frase, como antes.
+    expect(recusaDaTela(TEXTOS_DAS_TELAS.semServidor)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_TELAS.semServidor } });
   });
 
   it('o resultado vai filtrado, com a frase da tela; sem valores, avisa', () => {

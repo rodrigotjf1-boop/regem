@@ -2873,7 +2873,7 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
 - **O que o plano pedia e ficou para a C3:** marcar os campos de dado pessoal. Saiu de outro jeito: a leitura inteira com dado de
   pessoa ganha a marca `pessoal`, e um filtro por nome de campo vale para todas as respostas.
 
-### C3 — ler qualquer tela (26/11/2026; SEM migration; só na nuvem; nasce DESLIGADA, `MISTER_LER_TELAS=1`)
+### C3 — ler qualquer tela (26/11/2026, #1358, NO AR; SEM migration; só na nuvem; nasce DESLIGADA, `MISTER_LER_TELAS=1`)
 
 - **As duas ferramentas** (`mister-telas.service.ts`):
   - `procurar_no_regem`: procura no mapa pelas palavras (`mapa/busca-no-mapa.ts`), sem IA e sem banco. Devolve até 8 leituras,
@@ -2929,3 +2929,36 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
   - **a avaliação** ganhou c126 a c129 (129 perguntas): os cupons ativos, a taxa de um bairro, a pendência do fornecedor (o
     telefone e o contato não chegam à IA) e o gerente sem valores no fechamento do caixa.
 - **Para ligar:** rodar a avaliação real com `MISTER_LER_TELAS=1` e, com ela boa, pôr a variável na API.
+
+### C6a — quando não dá: o motivo e os caminhos (26/11/2026; SEM migration; só na nuvem)
+
+- **A C6 virou duas entregas.**
+  - **C6a (esta):** cada recusa volta com o motivo e os caminhos.
+  - **C6b:** o "pedir ao presidente" com os botões do protótipo, que é a parte com a migration prevista.
+- **O motivo** (`mister-motivo.ts`) é um de seis, fixos, e a recusa volta à IA com o porquê, até 4 caminhos e quem pode:
+  - **perfil:** o perfil desta pessoa não faz isso. Caminhos: quem pode, e "o presidente muda o perfil em Configurações › Acessos
+    & perfis" (caminho conferido no `shell.tsx`, V65);
+  - **seguranca:** a sessão com o PIN vencida (o link do PIN vai depois da resposta) ou a tela com dado de pessoa (o dado fica
+    só no Regem);
+  - **so_na_tela:** a função que não é leitura e o que devolve arquivo (o link vai por `abrir_no_regem`, quando ele estiver
+    ligado);
+  - **falta_dado:** reservado; as análises já dizem o que falta;
+  - **nao_tem:** o Regem ainda não tem. Caminhos: o mais parecido de hoje e o pedido anotado para a DMS;
+  - **de_fora:** a conexão por QR Code, que não tem o botão de autorizar.
+- **Onde o motivo aparece:**
+  - nas ações (`propor_acao`). A conferência do perfil saiu do serviço para `mister-acoes-perfil.ts` (`recusaPeloPerfil`),
+    pura: o serviço e a avaliação usam a mesma, na mesma ordem de antes (só do presidente, a permissão da rota, o dinheiro com
+    o PIN em dia, Banco e repasses);
+  - nas consultas prontas que o perfil não abre;
+  - nas telas da C3 (`recusaDaTela`);
+  - na busca sem tela que sirva;
+  - na anotação do que falta, que agora manda dizer "o Regem ainda não tem", o mais parecido e "anotei para a DMS".
+- **A instrução:** a recusa com motivo começa pelo porquê, em uma frase e nas palavras da IA. Depois vêm os caminhos que vieram,
+  numerados, e quem pode. A IA nunca oferece caminho que não veio nem diz que vai fazer o que a recusa barrou. O "ainda não
+  tenho acesso" virou "por que não dá".
+- **A avaliação:** o dublê das ações passa a conferir o perfil pela mesma função (o gerente de teste tem as permissões padrão
+  do nível). Ganhou c130 (o gerente guarda o saldo: só o presidente) e c131 (o gerente marca a conta como paga: o perfil não
+  abre). São 131 perguntas.
+- **O que ainda não é da C6a:**
+  - "pedir ao presidente" (C6b);
+  - "falta um dado: cadastro e termino a tarefa" usa as ações que já existem, e as que faltam entram na C4.

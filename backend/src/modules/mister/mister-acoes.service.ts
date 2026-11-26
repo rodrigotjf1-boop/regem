@@ -5,8 +5,9 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { uuidDeChave } from '../../common/id-deterministico';
 import { hojeISO, horaNoFuso } from '../../common/data';
 import { pausaVigenteDoCanal, type CanalDaPausa } from '../../common/pausa-do-canal';
-import { pode, podeAcessar, type Permissoes } from '../../auth/permissoes';
 import type { AuthUser } from '../../auth/auth-user';
+import { podeFazer, recusaPeloPerfil } from './mister-acoes-perfil';
+import { MOTIVO_DO_QR, comMotivo, motivoDoPerfil, type MotivoDaFerramenta } from './mister-motivo';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { IaEmpresaService } from '../ia/ia-empresa.service';
 import {
@@ -136,37 +137,8 @@ function escolherUm<T>(achados: any[], dito: string, nome: (a: any) => string, n
   if (achados.length === 1) return montar(achados[0]);
   return { erro: varios(achados.map((a) => `"${nome(a)}"`).join(', ')) };
 }
-/** A frase de quem não tem a permissão da ação (a mesma da rota da tela). */
-const semPermissaoDe = (p: DefinicaoDaAcao['permissao']) =>
-  p === 'financeiro'
-    ? TEXTOS_DAS_ACOES.semPermissaoConta
-    : p === 'estoque'
-    ? TEXTOS_DAS_ACOES.semPermissaoEstoque
-    : p === 'cupons'
-    ? TEXTOS_DAS_ACOES.semPermissaoCupons
-    : p === 'cadastros'
-    ? TEXTOS_DAS_ACOES.semPermissaoCadastros
-    : p === 'escalas'
-    ? TEXTOS_DAS_ACOES.semPermissaoEscalas
-    : p === 'pdv'
-    ? TEXTOS_DAS_ACOES.semPermissaoCaixa
-    : p === 'ponto'
-    ? TEXTOS_DAS_ACOES.semPermissaoPonto
-    : p === 'meu_dia'
-    ? TEXTOS_DAS_ACOES.semPermissaoTarefas
-    : p === 'loja'
-      ? TEXTOS_DAS_ACOES.semPermissaoLoja
-      : p === 'checklist'
-        ? TEXTOS_DAS_ACOES.semPermissaoChecklist
-        : TEXTOS_DAS_ACOES.semPermissao;
-/** A MESMA conta do `PermissoesGuard`: o estoque e a escala são CRUD (as rotas pedem `criar`/`editar`), os outros são chaves simples. */
-const temAPermissao = (perm: Permissoes | undefined | null, p: DefinicaoDaAcao['permissao'], crud: DefinicaoDaAcao['crud'] = 'editar') =>
-  // As chaves com ações (ver, criar, editar, excluir) conferem a ação da rota; as outras, o acesso. O ponto entrou na etapa 5
-  // (24/11): incluir pede ponto.criar e desconsiderar, ponto.editar — sem isso, quem só vê o ponto ajustava pela conversa.
-  p === 'estoque' || p === 'escalas' || p === 'ponto' ? pode(perm, p, crud ?? 'editar') : podeAcessar(perm, p);
-/** A permissão da ação: a da rota e, no preço, "Ver valores em R$" (o `exigirVerValores` da rota). O presidente pode tudo. */
-const podeFazer = (e: { nivel: string; permissoes?: Permissoes | null }, def: (typeof ACOES)[AcaoDoMister]) =>
-  e.nivel === 'presidente' || (temAPermissao(e.permissoes, def.permissao, def.crud) && (!def.pedeVerValores || !!e.permissoes?.ver_financeiro));
+// A conferência do perfil (a frase de quem não tem a permissão, a conta do `PermissoesGuard`, o que o presidente pode) mora em
+// `mister-acoes-perfil.ts`, pura: a avaliação usa a mesma (versão 10, C6).
 const NOME_DA_SITUACAO: Record<string, string> = { novo: 'aguardando aceite', confirmado: 'em preparo', pronto: 'pronto', despachado: 'a caminho', concluido: 'concluído', entregue: 'entregue', cancelado: 'cancelado' };
 
 /** A ação conferida, pronta para virar proposta (`propor_acao`) ou um passo do plano (V7c). */
@@ -225,7 +197,7 @@ export class MisterAcoesService implements OnModuleInit {
   async propor(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
     try {
       const pronta = await this.preparar(e, en, loja);
-      if ('erro' in pronta) return recusa(pronta.erro);
+      if ('erro' in pronta) return pronta.motivo ? comMotivo(pronta.erro, pronta.motivo) : recusa(pronta.erro);
       const { acao, def, unidadeId, parametros, resumo, alvo } = pronta;
       const p = await this.gravar(e, acao, unidadeId, parametros, alvo);
       if (!p) return recusa('Essa mesma ação já foi autorizada e está em andamento; o resultado chega na conversa.');
@@ -259,26 +231,21 @@ export class MisterAcoesService implements OnModuleInit {
    * Toda a conferência da ação, sem gravar nada: o formato, a permissão do perfil, o alvo e o "o que vou fazer". É a porta
    * única: `propor_acao` passa por aqui e cada passo do plano (V7c) também, ao propor e de novo na hora de fazer. Pode lançar.
    */
-  async preparar(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<AcaoPreparada | { erro: string }> {
+  async preparar(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<AcaoPreparada | { erro: string; motivo?: MotivoDaFerramenta }> {
     const recusa = (erro: string) => ({ erro });
     {
-      if (e.nivel !== 'presidente' && e.nivel !== 'gerente') return recusa(TEXTOS_DAS_ACOES.soGestor);
+      if (e.nivel !== 'presidente' && e.nivel !== 'gerente') return { erro: TEXTOS_DAS_ACOES.soGestor, motivo: motivoDoPerfil('o presidente ou o gerente') };
       const c = conferirAcao(en.acao, en);
       if ('erro' in c) return recusa(c.erro);
       const def = ACOES[c.parametros.acao];
-      // V7f: o dado da empresa inteira é do presidente da empresa inteira, com o PIN da sessão em dia.
-      if (def.soPresidente && e.nivel !== 'presidente') return recusa(TEXTOS_DAS_ACOES.dadoSoPresidente);
-      if (def.soPresidente && e.presa) return recusa(TEXTOS_DAS_ACOES.dadoEmpresaInteira);
-      if (def.soPresidente && !e.verValores) return recusa(TEXTOS_DAS_ACOES.dadoPedePin);
-      if (!podeFazer(e, def))
-        return recusa(def.id === 'mudar_horario' ? TEXTOS_DAS_ACOES.semPermissaoHorario : def.id === 'mudar_preco' ? TEXTOS_DAS_ACOES.semPermissaoPreco : def.id === 'lancar_conta' ? TEXTOS_DAS_ACOES.semPermissaoLancarConta : semPermissaoDe(def.permissao));
-      // Lote 10: quem autoriza dinheiro VÊ o valor. Com o PIN da sessão vencido, o link da sessão vai depois desta resposta.
-      if ((c.parametros.acao === 'pagar_conta' || c.parametros.acao === 'lancar_conta' || c.parametros.acao === 'classificar_banco') && !e.verValores) return recusa(TEXTOS_DAS_ACOES.contaPedePin);
-      // Banco e repasses é só do presidente, como a rota (V8-2): o gerente não recebe nem a contagem.
-      if (c.parametros.acao === 'classificar_banco' && e.nivel !== 'presidente') return recusa(TEXTOS_DAS_ACOES.bancoSoPresidente);
+      // V7f: o dado da empresa inteira é do presidente da empresa inteira, com o PIN da sessão em dia; a permissão da rota; o
+      // dinheiro com o PIN em dia; Banco e repasses só do presidente (V8-2). Versão 10, C6: com o motivo e os caminhos.
+      const pelo = recusaPeloPerfil(e, c.parametros.acao);
+      if (pelo) return pelo;
       if (c.parametros.acao === 'criar_imagem' && !imagemLigada()) return recusa(TEXTOS_DAS_ACOES.imagemDesligada);
       // A de PIN vai pelo link, que também sai pela conexão por QR Code (escrito na mensagem).
-      if (def.nivel === 'botao' && this.numero && (await this.numero.ler()).provedor === 'evolution') return recusa(ehDadoInformado(def.id) ? TEXTOS_DAS_ACOES.dadoSemBotao : TEXTOS_DAS_ACOES.semBotao);
+      if (def.nivel === 'botao' && this.numero && (await this.numero.ler()).provedor === 'evolution')
+        return { erro: ehDadoInformado(def.id) ? TEXTOS_DAS_ACOES.dadoSemBotao : TEXTOS_DAS_ACOES.semBotao, motivo: MOTIVO_DO_QR };
       // A loja: a da conversa (o gerente, a dele); a empresa de uma loja só, ela.
       const lojas = loja.atual ? [loja.atual] : e.lojas.map((l) => l.id);
       if (!lojas.length && !e.lojaUnica) return recusa(TEXTOS_DAS_ACOES.semPermissao);

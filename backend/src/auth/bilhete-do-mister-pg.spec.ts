@@ -7,7 +7,7 @@ import { Pool } from 'pg';
 import { DRIZZLE } from '../db/drizzle.module';
 import * as schema from '../db/schema';
 import { AuditoriaService } from '../modules/auditoria/auditoria.service';
-import { MisterTelasService, TEXTOS_DAS_TELAS } from '../modules/mister/mister-telas.service';
+import { MisterTelasService, TEXTOS_DAS_TELAS, recusaDaTela } from '../modules/mister/mister-telas.service';
 import type { EscopoDoMister } from '../modules/mister/mister-ferramentas.service';
 import { UnidadeController } from '../modules/unidade/unidade.controller';
 import { UnidadeService } from '../modules/unidade/unidade.service';
@@ -124,14 +124,14 @@ descrever('o bilhete do Mister lê a tela como a pessoa (Postgres e HTTP de verd
     const a = await empresa('presidente', {});
     expect((await telas.ler(escopo(a), { rota: 'GET /api/v1/unidades' }, LOJA)).ok).toBe(true);
     await q(`update colaborador set status = 'bloqueado' where id = $1`, [a.id]);
-    expect(await telas.ler(escopo(a), { rota: 'GET /api/v1/unidades' }, LOJA)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_TELAS.semPermissao } });
+    expect(await telas.ler(escopo(a), { rota: 'GET /api/v1/unidades' }, LOJA)).toEqual(recusaDaTela(TEXTOS_DAS_TELAS.semPermissao));
     await q(`update colaborador set status = 'ativo', deleted_at = now() where id = $1`, [a.id]);
-    expect(await telas.ler(escopo(a), { rota: 'GET /api/v1/unidades' }, LOJA)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_TELAS.semPermissao } });
+    expect(await telas.ler(escopo(a), { rota: 'GET /api/v1/unidades' }, LOJA)).toEqual(recusaDaTela(TEXTOS_DAS_TELAS.semPermissao));
   });
 
   it('o gerente sem a permissão da tela recebe a recusa do perfil (as mesmas travas da tela)', async () => {
     const g = await empresa('gerente', {});
-    expect(await telas.ler(escopo(g, 'gerente'), { rota: 'GET /api/v1/unidades' }, LOJA)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_TELAS.semPermissao } });
+    expect(await telas.ler(escopo(g, 'gerente'), { rota: 'GET /api/v1/unidades' }, LOJA)).toEqual(recusaDaTela(TEXTOS_DAS_TELAS.semPermissao));
     const comPermissao = await empresa('gerente', { unidades: true });
     const r = await telas.ler(escopo(comPermissao, 'gerente'), { rota: 'GET /api/v1/unidades' }, LOJA);
     expect(r.ok).toBe(true);
@@ -139,7 +139,7 @@ descrever('o bilhete do Mister lê a tela como a pessoa (Postgres e HTTP de verd
 
   it('com a sessão do PIN pendente, a leitura espera o PIN e nem chama a API', async () => {
     const a = await empresa('presidente', {});
-    expect(await telas.ler({ ...escopo(a), pinPendente: true }, { rota: 'GET /api/v1/unidades' }, LOJA)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_TELAS.esperaOPin } });
+    expect(await telas.ler({ ...escopo(a), pinPendente: true }, { rota: 'GET /api/v1/unidades' }, LOJA)).toEqual(recusaDaTela(TEXTOS_DAS_TELAS.esperaOPin));
     expect(bilhetesVivos()).toBe(0);
   });
 });
