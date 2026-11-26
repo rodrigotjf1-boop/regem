@@ -33,8 +33,14 @@ test('respondendo: selo "responde o chat", sem faixa, botão de pausar; o resumo
   assert.equal(par(v, 'Mensagens'), '3 levadas ao Regem desde que o programa abriu');
   assert.equal(par(v, 'Fila de saída'), 'livre · 2 enviadas por este PC');
   assert.deepEqual(botoes(v), ['Abrir o iFood', 'Abrir a 99', 'Pausar a ponte neste PC', 'Abrir o Atendimento']);
-  assert.deepEqual(Object.keys(r).sort(), ['abrir', 'atualizadoEm', 'ifood', 'lidas', 'ligada', 'maquina', 'n99', 'nome', 'nuvem', 'papel', 'pareada', 'pausadaEm', 'saida', 'saida99', 'soObservar', 'ultimoAviso', 'versao'].sort());
+  assert.deepEqual(Object.keys(r).sort(), ['abrir', 'atualizadoEm', 'ifood', 'lidas', 'ligada', 'maquina', 'n99', 'nome', 'nuvem', 'papel', 'pareada', 'pausadaEm', 'peso', 'saida', 'saida99', 'soObservar', 'ultimoAviso', 'versao'].sort());
   assert.equal(r.atualizadoEm, '2026-11-05T17:40:00.000Z');
+  assert.equal(r.peso, null); // sem medida ainda
+});
+
+test('o peso da ponte no PC (0.7.9) vai no resumo — é o que o arquivo do estado leva para acompanhar o turno', () => {
+  const peso = { processos: 7, cpuPct: 15, memoriaMb: 1154, nucleos: 4, porTipo: {}, medidoEm: '2026-11-25T23:44:00.000Z' };
+  assert.deepEqual(base({}, { peso }).peso, peso);
 });
 
 test('pausada: o selo e a faixa dizem desde quando; o botão vira "Retomar" (o nome que as telas do Regem citam — V65)', () => {

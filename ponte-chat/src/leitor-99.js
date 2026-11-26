@@ -16,6 +16,7 @@
 // Só LÊ: não clica, não escreve. A escuta da rede é pelo depurador do Chromium, como a do iFood (`leitor.js`).
 
 const { Vistos } = require('./sendbird');
+const { LIMITES_DA_ESCUTA } = require('./limites-da-escuta');
 
 const TEXTO = 65536;
 const IMAGEM = 196608;
@@ -274,7 +275,8 @@ function ligarLeitor99(wc, { aoChegar, aoMudar, registrarErro, anotar, env = pro
   };
   const preparar = (sid) =>
     Promise.all([
-      dbg.sendCommand('Network.enable', {}, sid).catch(() => {}),
+      // com limite (0.7.9): sem ele o Chromium guarda o corpo de toda resposta da página — ver `limites-da-escuta.js`
+      dbg.sendCommand('Network.enable', { ...LIMITES_DA_ESCUTA }, sid).catch(() => {}),
       dbg.sendCommand('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sid).catch(() => {}),
     ]);
   const pronto = preparar(undefined);

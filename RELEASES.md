@@ -12,6 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.15)
 
+- **Ponte do chat 0.7.9 — mais leve no PC da loja (25/11; ERR-619; SEM migration).** O diagnóstico da tela a cada 30 s e só
+  com a janela do Gestor aparecendo (era a cada 3 s, varrendo a página inteira); a escuta da rede com limite (16 MB / 3 MB);
+  o peso da ponte no `estado-da-ponte.json`. **Só no `.exe`** (o `.zip` não leva a ponte). Depois de instalar, conferir o
+  `peso` com a loja em serviço (antes: 15% da CPU da máquina e 1,15 GB).
+
 - **Importação de produtos casa também pelo nome comercial (25/11; ERR-615; SEM migration).** Regra do dono: lista de compras,
   pedidos e notas pelo nome comercial; o nome é o das fichas. A prévia e a gravação da importação por planilha comparam pelos dois
   (a planilha do Alô Chefia criaria em dobro 14 produtos renomeados). Vai no `.zip` (backend e tela); não mexe no edge.

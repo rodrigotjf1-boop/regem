@@ -68,6 +68,8 @@ function resumo(e, o = {}) {
     ultimoAviso: e.ultimoErro || null,
     // para o ícone do Regem abrir/pausar/retomar ESTE programa (o caminho do executável e, no modo de teste, a pasta)
     abrir: o.abrir || null,
+    // o peso da ponte no PC (0.7.9): CPU da máquina e memória somadas dos processos dela — ver `peso.js`
+    peso: o.peso || null,
     atualizadoEm: (o.agora || new Date()).toISOString(),
   };
 }

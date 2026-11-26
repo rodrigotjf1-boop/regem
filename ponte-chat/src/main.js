@@ -52,6 +52,7 @@ const { Saida } = require('./saida');
 const { INSTALAR_VIGIA, ESTADO_DA_TELA, ABRIR_PEDIDOS, avaliarTela, deveVoltarAoQuadro, mexeuDesde } = require('./tela-livre');
 const local = require('./estado-local');
 const loginDoIfood = require('./login-do-ifood');
+const { pesoDasMetricas } = require('./peso');
 
 const GESTOR = process.env.REGEM_PONTE_GESTOR || 'https://gestordepedidos.ifood.com.br/';
 const SO_OBSERVAR = process.argv.includes('--so-observar') || process.env.REGEM_PONTE_SO_OBSERVAR === '1';
@@ -62,6 +63,10 @@ const FILA_MS = Number(process.env.REGEM_PONTE_FILA_MS) || 3000;
 const SAIDA_MS = Number(process.env.REGEM_PONTE_SAIDA_MS) || 5000;
 const PARADA_MS = Number(process.env.REGEM_PONTE_PARADA_MS) || 10000;
 const ESPERA_TELA_MS = Number(process.env.REGEM_PONTE_ESPERA_TELA_MS) || 45000;
+// O diagnóstico da TELA do chat (0.7.9): era a cada 3 s, com a janela escondida também — duas varreduras da página inteira
+// do Gestor (`body *` com a posição de cada elemento), o que mais pesava no PC fraco da loja (medido em 25/11). Agora a
+// cada 30 s e só com a janela do Gestor aparecendo: é só anotação (o envio lê a tela por conta própria na hora de mandar).
+const DIAG_TELA_MS = Number(process.env.REGEM_PONTE_DIAG_TELA_MS) || 30000;
 const VOLTAR_AO_QUADRO_MS = Number(process.env.REGEM_PONTE_VOLTAR_MS) || 60000; // Gestor fora de "Pedidos" e parado: volta (ERR-418)
 const ECO_MS = Number(process.env.REGEM_PONTE_ECO_MS) || 20000; // quanto esperar o eco do envio (a prova encurta)
 // A 99 (4a): o portal (a prova troca pela 99 de mentira); "logada" = respondeu o polling do IM nos últimos 5 min
@@ -162,9 +167,21 @@ if (!app.requestSingleInstanceLock()) {
     return `${ifood} · ${n}`;
   }
 
+  // O peso da ponte no PC (0.7.9): medido num relógio próprio (a CPU do Electron é a média desde a leitura anterior — ler
+  // a cada mudança de estado picaria a média) e levado no resumo, que vai para o `estado-da-ponte.json`.
+  let pesoAtual = null;
+  function medirPeso() {
+    try {
+      pesoAtual = { ...pesoDasMetricas(app.getAppMetrics(), os.cpus().length), medidoEm: new Date().toISOString() };
+    } catch {
+      /* sem medida: o resumo segue sem o peso */
+    }
+  }
+
   /** O resumo de agora (a janela "Estado da ponte" e o arquivo que o ícone "Regem neste PC" lê). */
   function resumoDeAgora() {
     return local.resumo(estado, {
+      peso: pesoAtual,
       versao: app.getVersion(),
       maquina: os.hostname(),
       pareada: !!cfg.credencial(),
@@ -1019,6 +1036,8 @@ if (!app.requestSingleInstanceLock()) {
     const primeiro = local.comandoDe(process.argv);
     if (primeiro) executar(primeiro).catch((e) => registrarErro(String(e && e.message)));
     atualizarBandeja();
+    medirPeso(); // a 1ª leitura zera a conta da CPU; a média vale a partir da seguinte
+    setInterval(medirPeso, SINAL_MS);
     setInterval(() => sinalDeVida().catch((e) => registrarErro(String(e && e.message))), SINAL_MS);
     setInterval(() => {
       fila.descarregar(estado.ligada && !estado.pausadaEm && !SO_OBSERVAR).catch((e) => registrarErro(String(e && e.message)));
@@ -1055,6 +1074,8 @@ if (!app.requestSingleInstanceLock()) {
     let ultimoQuadro = '';
     setInterval(async () => {
       if (!diagnostico || !gestor || gestor.isDestroyed()) return;
+      // só com a janela aparecendo (0.7.9): escondida ou minimizada, ninguém mexe na tela e a varredura só pesa
+      if (!gestor.isVisible() || gestor.isMinimized()) return;
       const q = await lerOQuadro(gestor.webContents).catch(() => null);
       if (q) {
         const fq = JSON.stringify({ c: q.cartoes.map((c) => [c.caminho.replace(/\d/g, '0'), c.clicavel && c.clicavel.caminho]), b: q.botoesDeChat.map((b) => [b.rotulo, b.titulo, b.testid]), k: q.ultimoClique && q.ultimoClique.em });
@@ -1069,6 +1090,6 @@ if (!app.requestSingleInstanceLock()) {
       if (forma === ultimaForma) return;
       ultimaForma = forma;
       diagnostico.anotar({ ev: 'tela_do_chat', ...r });
-    }, 3000);
+    }, DIAG_TELA_MS);
   });
 }
