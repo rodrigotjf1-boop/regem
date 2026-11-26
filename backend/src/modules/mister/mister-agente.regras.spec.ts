@@ -299,6 +299,8 @@ describe('Mister — o que o modelo recebe', () => {
       'documento_em_andamento',
       // Versão 6, M6i: o "refazer" do último gráfico.
       'refazer_grafico',
+      // Versão 10, C10b: o gráfico de qualquer consulta desta pergunta, desenhado pelo Regem.
+      'grafico_livre',
       // Versão 6, M6j: a porta das ações.
       'propor_acao',
       // Versão 7, V7c: várias ações num pedido, com um botão só.
@@ -308,7 +310,7 @@ describe('Mister — o que o modelo recebe', () => {
     ]);
     expect(ehConsulta('gasto_do_whatsapp')).toBe(true);
     // Versão 4, M4d (mig 452): o "fica de olho" e o lembrete marcam — não leem dado para responder — e vão um de cada vez.
-    for (const n of ['ficar_de_olho', 'lembrete', 'regras', 'lista_de_compras', 'refazer_grafico', 'propor_acao', 'propor_plano', 'abrir_no_regem'])
+    for (const n of ['ficar_de_olho', 'lembrete', 'regras', 'lista_de_compras', 'refazer_grafico', 'grafico_livre', 'propor_acao', 'propor_plano', 'abrir_no_regem'])
       expect([n, ehConsulta(n), podeRodarJunto(n)]).toEqual([n, false, false]);
     // Versão 4, M4b (mig 449): anotar na memória não é consulta — não lê dado para responder — e não roda junto com outra.
     expect(ehConsulta('lembrar')).toBe(false);

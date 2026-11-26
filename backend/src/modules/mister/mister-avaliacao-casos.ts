@@ -24,6 +24,7 @@ import { AVISOS_QUE_NAO_SE_CALAM, Regra, conferirRegra, descreverRegra, fraseDoQ
 import { lerPedidos } from './mister-lista';
 import { ACOES, TEXTOS_DAS_ACOES, conferirAcao, resumoDoPedido, sigaDaAcao } from './mister-acoes';
 import { numerosSemOrigem, origemDe } from './mister-imagem-numeros';
+import { lerGraficoLivre, valoresSemOrigem } from './grafico/plano-livre';
 import { botoesDoPlano, lerPassos, textoDoPlano } from './mister-plano';
 import { ehTipoDeAviso } from './mister-avisos.regras';
 import { montarNoticias, pedidoDasNoticias } from './mister-noticias';
@@ -411,6 +412,15 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
         ...(r.regra.substitui?.length ? { dizerAntesDoConfirmar: fraseDoQueDeixaDeChegar(r.regra.substitui) } : {}),
         siga: 'Mostre o "oQueVouFazer" como veio e diga que os botões Confirmar e Mudar vão junto. Nada liga sem o Confirmar.',
       });
+    }
+    case 'grafico_livre': {
+      // Versão 10, C10b: a mesma conferência da de verdade (a forma, os itens, a origem de cada número); na avaliação nada é desenhado.
+      const g = lerGraficoLivre(en);
+      if ('erro' in g) return recusa(g.erro);
+      if (g.unidade === 'reais' && !perfil.verValores) return recusa('O perfil desta pessoa no Regem não mostra valores em reais: o gráfico em reais não sai. Responda sem valores.');
+      const sem = valoresSemOrigem(g, origemDe(en.__origem));
+      if (sem.length) return recusa(`Estes valores não vieram de uma consulta desta pergunta: ${sem.slice(0, 3).join('; ')}. Consulte agora e mande os números exatos que vieram (o gráfico só leva o que o Regem trouxe).`);
+      return ok({ desenhado: true, forma: g.forma, titulo: g.titulo, itens: g.itens.length, siga: 'A imagem do gráfico vai antes da sua resposta, desenhada pelo Regem com estes números: diga em 2 ou 3 frases o que importa, sem descrever as barras uma a uma.' });
     }
     case 'refazer_grafico':
       // Versão 6, M6i: na avaliação não há gráfico guardado — a resposta é a de quem não tem o que refazer.
@@ -1511,6 +1521,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c123', pergunta: 'Sobre o cupom: o resto da batata chega amanhã e a cebola eu cancelei.', consultas: ['documento_em_andamento'], contem: ['14/11'] },
   // Versão 10, C1b-2 (26/11): "veio de outro lugar" — a cebola comprada no mercado, com o valor (a conta entra já paga).
   { id: 'c124', pergunta: 'A cebola que não veio eu comprei no Mercado do Zé, deu 48 reais no pix.', consultas: ['documento_em_andamento'], contem: ['Mercado do Zé', '48'] },
+  // Versão 10, C10b (26/11): um gráfico de uma consulta que não tem gráfico pronto — consultar e depois desenhar.
+  { id: 'c125', pergunta: 'Me mostra num gráfico quanto falta de cada item do estoque que está abaixo do mínimo.', consultas: ['estoque_em_alerta', 'grafico_livre'], contem: ['Pão de hambúrguer'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

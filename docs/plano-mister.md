@@ -2775,7 +2775,7 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
   - o fornecedor é cadastrado só no lançamento;
   - a linha fica com o fornecedor e o custo de lá, a conta entra paga, e o outro pedido continua aberto.
 
-### C9 — o "feito" e o "não deu" escritos pela IA (26/11/2026; mig 506; só na nuvem)
+### C9 — o "feito" e o "não deu" escritos pela IA (26/11/2026, #1352, NO AR; mig 506 aplicada; só na nuvem)
 
 - **O ajuste "A IA escreve as respostas"** fica em Mister › Jeito e memória › Avisos. É a coluna nova
   `mister_conversa_config.respostas_escritas` (mig 506). Nasce desligado e só o presidente muda (a rota `PATCH conversa`).
@@ -2801,3 +2801,30 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
   - ligado: o texto da IA, com a frase do Regem e os 5 segundos no pedido;
   - número que sumiu ou que apareceu: a frase fixa;
   - IA sem crédito: a frase fixa.
+
+### C10b — qualquer gráfico, desenhado pelo Regem (26/11/2026; SEM migration; só na nuvem)
+
+- **A ferramenta nova `grafico_livre`** desenha o gráfico de QUALQUER consulta desta pergunta: as contas por categoria, o estoque
+  em alerta, as faltas, os canais, o cashback. É para quando nenhum dos 8 tipos do `mostrar_grafico` serve. Ela não conta como
+  consulta: entra em `FERRAMENTAS_QUE_NAO_SAO_CONSULTA`, como o `refazer_grafico`, e roda depois das consultas.
+- **O que a IA manda:** a forma (colunas, linha, horizontais, tabela, participação), o título (3 a 70 letras), a medida (reais,
+  quantidade, porcentagem), de 2 a 12 itens (rótulo e valor numérico) e, se quiser, o destaque.
+- **A conferência** (`grafico/plano-livre.ts`):
+  - cada valor tem de ter vindo das consultas desta pergunta ou da fala da pessoa, pela origem que o laço passa (a mesma da
+    C10a);
+  - vale também a soma ou a diferença de dois números que vieram ("quanto falta" = mínimo − saldo), em centavos, conta exata;
+  - a porcentagem vale se é a conta de dois números;
+  - valor em reais só para quem vê valores;
+  - número sem origem é recusado, e a IA consulta de novo.
+- **O desenho** é o de sempre (`imagem-do-plano.ts`), sem custo e sem IA de imagem:
+  - colunas e linha viram barras; deitadas, tabela e participação viram partes;
+  - o total aparece só na participação;
+  - o rodapé diz "desenhado pelo Regem com os números desta conversa".
+  O plano fica guardado para o "refazer" e só sai com a imagem ligada (`MISTER_MIDIA`, como os outros gráficos).
+- **Instruções:**
+  - o `mostrar_grafico` aponta o `grafico_livre` para as outras consultas;
+  - a regra da imagem do DMS Graph (C10a) prefere o gráfico do Regem para uma série de números.
+- **Avaliação:** c125 ("quanto falta de cada item abaixo do mínimo": consultar o estoque e depois desenhar). São 125 perguntas.
+- **Diferenças do protótipo:**
+  - não há a forma "pizza": a participação é a pizza do desenho de sempre;
+  - o botão "Fazer em gráfico" da C10a não entrou: a pessoa pede em texto.

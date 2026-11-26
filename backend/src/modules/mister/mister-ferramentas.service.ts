@@ -50,6 +50,8 @@ import { PlanoDoPdfDoInsumo, gerarPdfDoInsumo, nomeDoPdfDoInsumo, planoDoPdfDoIn
 import { GraficoDaConversa, valeAImagem } from './grafico/grafico-do-insumo';
 import { PlanoDoGrafico, nomeDoCanal, planoCanais, planoMaisVendidos, planoVendasPorDia, planoVendasPorHora, reaisCurtos, valeOPlano } from './grafico/plano-do-grafico';
 import { GRAFICO_GUARDADO_MIN, refazerPlano } from './grafico/refazer-do-grafico';
+import { lerGraficoLivre, planoLivre, valoresSemOrigem } from './grafico/plano-livre';
+import { origemDe } from './mister-imagem-numeros';
 import { TIPOS_DE_GRAFICO_DA_ANALISE, TipoDeGraficoDaAnalise, planoDaMercadoria, planoDasFases, planoDoPico, planoDosCancelamentos } from './grafico/plano-da-analise';
 import {
   FOCOS_DA_ANALISE,
@@ -700,6 +702,8 @@ export class MisterFerramentasService {
         return this.documento ? this.documento(e, en) : Promise.resolve(recusa('O cupom pela conversa ainda não está disponível neste servidor.'));
       case 'refazer_grafico':
         return Promise.resolve(this.refazerGrafico(e, en));
+      case 'grafico_livre':
+        return Promise.resolve(this.graficoLivre(e, en, loja));
       case 'propor_acao':
         return this.acoes ? this.acoes(e, en, loja) : Promise.resolve(recusa('As ações do Mister ainda não estão disponíveis neste servidor.'));
       case 'propor_plano':
@@ -741,6 +745,34 @@ export class MisterFerramentasService {
         siga: 'A imagem refeita vai antes da sua resposta, com os MESMOS números: diga em uma frase o que mudou na apresentação e o que ela mostra de principal. Não consulte de novo.',
       },
       graficos: [r.plano],
+    };
+  }
+
+  /**
+   * Versão 10, C10b: o gráfico de qualquer consulta desta pergunta, desenhado pelo Regem. A IA manda a forma, o título e os itens;
+   * o código confere cada número contra o que as consultas desta pergunta trouxeram (a origem que o laço passa, como na imagem
+   * da C10a) e monta o plano — o desenho e o "refazer" são os de sempre. Valor em reais só para quem vê valores.
+   */
+  private graficoLivre(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): ResultadoDaFerramenta {
+    const g = lerGraficoLivre(en);
+    if ('erro' in g) return recusa(g.erro);
+    if (g.unidade === 'reais' && !e.verValores) return recusa('O perfil desta pessoa no Regem não mostra valores em reais: o gráfico em reais não sai. Responda sem valores.');
+    const sem = valoresSemOrigem(g, origemDe(en.__origem));
+    if (sem.length)
+      return recusa(`Estes valores não vieram de uma consulta desta pergunta: ${sem.slice(0, 3).join('; ')}. Consulte agora e mande os números exatos que vieram (o gráfico só leva o que o Regem trouxe).`);
+    if (!midiaNaInstalacao()) return recusa('O gráfico na conversa ainda não está ligado nesta instalação: responda com os números em texto.');
+    const plano = planoLivre(g, { loja: loja.nome, lidoEm: lidoAgora() });
+    this.guardarGrafico(e, plano);
+    return {
+      ok: true,
+      dados: {
+        desenhado: true,
+        forma: plano.forma,
+        titulo: plano.titulo,
+        itens: g.itens.length,
+        siga: 'A imagem do gráfico vai antes da sua resposta, desenhada pelo Regem com estes números: diga em 2 ou 3 frases o que importa (o total, a comparação, o destaque), sem descrever as barras uma a uma.',
+      },
+      graficos: [plano],
     };
   }
 

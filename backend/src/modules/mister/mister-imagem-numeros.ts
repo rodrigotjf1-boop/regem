@@ -78,7 +78,7 @@ export function origemDe(v: unknown): OrigemDosNumeros {
 const TETO_DA_PORCENTAGEM = 300;
 
 /** A porcentagem é a conta de dois números da origem (a parte de um total, ou a variação de um para o outro)? */
-function porcentagemDaConta(alvo: number, origem: number[]): boolean {
+export function porcentagemDaConta(alvo: number, origem: number[]): boolean {
   const pct = alvo / 100;
   const tolerancia = alvo % 100 === 0 ? 0.5 : 0.05;
   const base = origem.map(Math.abs).filter((v) => v > 0).slice(0, TETO_DA_PORCENTAGEM);
