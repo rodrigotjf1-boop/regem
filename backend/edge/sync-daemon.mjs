@@ -56,11 +56,12 @@ import {
 } from './sync-push-ritmo.mjs';
 // A conexão com a nuvem (1.30.16): UM agente do undici para todas as chamadas — keep-alive de 60 s e abertura de 3 s
 // com nova tentativa na hora. As regras ficam em rede-regras.mjs (testadas); o fetch do pacote usa o agente explícito.
-import { Agent as AgenteDoUndici, fetch as fetchDoUndici } from 'undici';
-import { opcoesDoAgente, ehFalhaDeAbertura, pausaAntesDeTentarDeNovo } from './rede-regras.mjs';
+import { Agent as AgenteDoUndici, fetch as fetchDoUndici, buildConnector as conectorDoUndici } from 'undici';
+import { opcoesDoAgente, ehFalhaDeAbertura, pausaAntesDeTentarDeNovo, resumoDaJanela } from './rede-regras.mjs';
 // ERR-616 (1.30.16): na tabela com chave de negócio, a loja adota o id da nuvem em vez de pular a linha (23505).
 import { sqlAdotarIdDaNuvem } from './pull-chave-de-negocio.mjs';
-// A rede na batida (1.30.16): as taxas de aberturas que falharam e de retransmissão, pelos contadores TCP do Windows.
+// Os contadores TCP do Windows (1.30.16): vão na batida só como INFORMAÇÃO — são do PC inteiro (a rede local entra junto);
+// o alerta de rede usa o que o próprio sync viu da nuvem (conexoesNuvem, contado no agente).
 import { contadoresTcp, taxasTcp } from './tcp-taxas.mjs';
 import {
   PEDIDOS_INTERVALO_MS as PEDIDOS_INTERVALO_PADRAO_MS, PAUSA_SEM_ROTA_MS, LIMITE_POR_ID,
@@ -129,8 +130,21 @@ function ehTransitorio(e) {
 // deduplica por seq. Na última tentativa devolve a resposta 5xx (o chamador loga o corpo).
 const GATEWAY_5XX = new Set([502, 503, 504]);
 // O agente ÚNICO (1.30.16): o mesmo para pull, envio, restore, snapshot, conferência dos pedidos e o resto — a conexão
-// aberta num serve ao seguinte. Ver rede-regras.mjs.
-const AGENTE_NUVEM = new AgenteDoUndici(opcoesDoAgente(process.env));
+// aberta num serve ao seguinte. Ver rede-regras.mjs. O conector CONTA cada conexão que abriu para a nuvem e as que falharam
+// ao abrir (prazo, recusa, rede, TLS); o fetchT conta as novas tentativas — é a medida de rede da batida (conexoesNuvem).
+const contagemNuvem = { aberturas: 0, falhas: 0, novasTentativas: 0 };
+const OPCOES_NUVEM = opcoesDoAgente(process.env);
+const conectarNaNuvem = conectorDoUndici(OPCOES_NUVEM.connect);
+const AGENTE_NUVEM = new AgenteDoUndici({
+  ...OPCOES_NUVEM,
+  connect: (opcoes, pronto) => {
+    contagemNuvem.aberturas += 1;
+    conectarNaNuvem(opcoes, (erro, socket) => {
+      if (erro) contagemNuvem.falhas += 1;
+      pronto(erro, socket);
+    });
+  },
+});
 async function fetchT(url, opts = {}, ms = FETCH_TIMEOUT_MS) {
   const metodo = (opts.method || 'GET').toUpperCase();
   const idempotente = metodo === 'GET' || metodo === 'HEAD';
@@ -153,6 +167,7 @@ async function fetchT(url, opts = {}, ms = FETCH_TIMEOUT_MS) {
       // batia na trava dele (429) e o ciclo inteiro falhava (ERR-278). O lote volta no próximo ciclo.
       if (!abertura && !idempotente && ehTempoEsgotado(causa)) break;
       if ((!abertura && !ehTransitorio(e)) || tent === FETCH_TENTATIVAS) break;
+      contagemNuvem.novasTentativas += 1;
       const pausa = pausaAntesDeTentarDeNovo(causa, tent); // 0 na abertura; 0,6 s × n no resto (socket novo)
       if (pausa) await new Promise((r) => setTimeout(r, pausa));
     }
@@ -1695,6 +1710,8 @@ async function statusServicosEDisco() {
 
 // A leitura anterior dos contadores TCP (na memória: a taxa é a diferença entre duas batidas — tcp-taxas.mjs).
 let tcpAnterior = null;
+// As contagens das conexões com a nuvem por batida (a janela de 30 min do resumoDaJanela).
+const historicoNuvem = [];
 
 // Saúde rica — só no heartbeat de FIM de ciclo. Cada coleta é best-effort; nada pode
 // derrubar o heartbeat (já best-effort).
@@ -1711,8 +1728,18 @@ async function coletarSaude() {
     const d = await getState('relogio_desvio_s', '');
     if (d !== '') saude.relogioDesvioS = Number(d); // + adiantado, − atrasado (segundos)
   } catch { /* */ }
-  // A rede (1.30.16): aberturas de conexão que falharam e retransmissão, na janela desde a batida anterior. O vigia da
-  // nuvem alerta (regra rede_instavel) e o console mostra o selo "rede".
+  // A rede (1.30.16). (1) conexoesNuvem — o que o PRÓPRIO sync viu da nuvem nos últimos 30 min (aberturas, falhas de
+  // abertura e novas tentativas, contadas no agente): é o que o vigia usa (regra rede_instavel) e o selo "rede" do console.
+  // (2) tcp — os contadores TCP do Windows, só como INFORMAÇÃO: são do PC inteiro e a rede local entra junto (rede-regras.mjs).
+  try {
+    const agora = Date.now();
+    historicoNuvem.push({ em: agora, ...contagemNuvem });
+    contagemNuvem.aberturas = 0;
+    contagemNuvem.falhas = 0;
+    contagemNuvem.novasTentativas = 0;
+    while (historicoNuvem.length > 120) historicoNuvem.shift();
+    saude.conexoesNuvem = resumoDaJanela(historicoNuvem, agora);
+  } catch { /* */ }
   try {
     if (sd.tcp) {
       const agora = Date.now();

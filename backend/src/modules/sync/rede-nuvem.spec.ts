@@ -47,11 +47,31 @@ describe('a conexão com a nuvem (edge/rede-regras.mjs)', () => {
     expect(r.pausaAntesDeTentarDeNovo('ECONNRESET', 2)).toBe(1200);
   });
 
-  it('o daemon usa UM agente para todas as chamadas: nenhum fetch solto, só o fetch do undici com o agente', () => {
+  it('o daemon usa UM agente para todas as chamadas, que CONTA as aberturas e as falhas; nenhum fetch solto', () => {
     const daemon = readFileSync(join(EDGE, 'sync-daemon.mjs'), 'utf8').replace(/\/\/.*$/gm, '');
-    expect(daemon).toMatch(/new AgenteDoUndici\(opcoesDoAgente\(process\.env\)\)/);
+    expect(daemon).toMatch(/const OPCOES_NUVEM = opcoesDoAgente\(process\.env\);/);
+    expect(daemon).toMatch(/const conectarNaNuvem = conectorDoUndici\(OPCOES_NUVEM\.connect\);/);
+    expect(daemon).toMatch(/contagemNuvem\.aberturas \+= 1;\s*conectarNaNuvem\(opcoes, \(erro, socket\) => \{\s*if \(erro\) contagemNuvem\.falhas \+= 1;/);
+    expect(daemon).toMatch(/contagemNuvem\.novasTentativas \+= 1;/);
     expect(daemon).toMatch(/fetchDoUndici\(url, \{ \.\.\.opts, dispatcher: AGENTE_NUVEM, signal: AbortSignal\.timeout\(ms\) \}\)/);
+    expect(daemon).toMatch(/saude\.conexoesNuvem = resumoDaJanela\(historicoNuvem, agora\);/);
     expect(daemon.match(/(?<![\w.$])fetch\(/g) ?? []).toEqual([]);
+  });
+
+  it('a janela de 30 min: soma as batidas dentro dela; a rede ruim (25/11) e a sã; sem batida, null', () => {
+    const agora = 10 * 60 * 60 * 1000;
+    const min = (m: number) => agora - m * 60_000;
+    const ruim = [
+      { em: min(40), aberturas: 99, falhas: 99, novasTentativas: 99 }, // fora da janela
+      { em: min(25), aberturas: 20, falhas: 9, novasTentativas: 12 },
+      { em: min(10), aberturas: 15, falhas: 6, novasTentativas: 8 },
+      { em: min(1), aberturas: 5, falhas: 2, novasTentativas: 3 },
+    ];
+    expect(r.resumoDaJanela(ruim, agora)).toEqual({ aberturas: 40, falhas: 17, falhasPct: 42.5, novasTentativas: 23, janelaMin: 25 });
+    expect(r.resumoDaJanela([{ em: min(5), aberturas: 3, falhas: 0, novasTentativas: 0 }], agora)).toMatchObject({ falhasPct: 0 });
+    expect(r.resumoDaJanela([{ em: min(5), aberturas: 0, falhas: 0, novasTentativas: 0 }], agora)).toMatchObject({ aberturas: 0, falhasPct: 0 });
+    expect(r.resumoDaJanela([], agora)).toBeNull();
+    expect(r.resumoDaJanela([{ em: min(31), aberturas: 9, falhas: 9 }], agora)).toBeNull();
   });
 });
 
@@ -87,5 +107,37 @@ describe('a conexão aberta de verdade (undici contra um servidor HTTP local)', 
   it('com 4,6 s entre as chamadas: o padrão antigo abre 2 conexões; o agente novo reaproveita a mesma', async () => {
     expect(await duasChamadasComIntervalo(new Agent())).toBe(2);
     expect(await duasChamadasComIntervalo(new Agent(r.opcoesDoAgente({})))).toBe(1);
+  });
+
+  it('o conector que conta (como o do daemon): a conexão mantida conta 1 abertura; a porta fechada conta 1 falha', async () => {
+    const { buildConnector } = require('undici');
+    const conta = { aberturas: 0, falhas: 0 };
+    const opc = r.opcoesDoAgente({});
+    const conectar = buildConnector(opc.connect);
+    const agente = new Agent({
+      ...opc,
+      connect: (o: any, pronto: any) => {
+        conta.aberturas += 1;
+        conectar(o, (erro: any, s: any) => {
+          if (erro) conta.falhas += 1;
+          pronto(erro, s);
+        });
+      },
+    });
+    // um instante entre as duas: a chamada colada na anterior acha o cliente ainda ocupado e o pool abre outra conexão
+    // (normal, e contada também) — aqui o que se prova é que a contagem bate com as conexões que o servidor recebeu
+    conexoes = 0;
+    await (await fetchDoUndici(base, { dispatcher: agente })).text();
+    await new Promise((ok) => setTimeout(ok, 200));
+    await (await fetchDoUndici(base, { dispatcher: agente })).text();
+    expect([conta, conexoes]).toEqual([{ aberturas: 1, falhas: 0 }, 1]);
+    // uma porta sem ninguém: a abertura falha (ECONNREFUSED) e conta
+    const fechado = createServer();
+    await new Promise<void>((ok) => fechado.listen(0, '127.0.0.1', () => ok()));
+    const porta = (fechado.address() as AddressInfo).port;
+    await new Promise((ok) => fechado.close(ok));
+    await expect(fetchDoUndici(`http://127.0.0.1:${porta}/`, { dispatcher: agente })).rejects.toThrow();
+    expect(conta).toEqual({ aberturas: 2, falhas: 1 });
+    await agente.close();
   });
 });

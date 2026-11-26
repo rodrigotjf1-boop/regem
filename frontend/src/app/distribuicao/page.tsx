@@ -140,15 +140,14 @@ function infraBadges(l: any) {
       `${Math.round(pct)}% do limite de transações do Postgres${pct > 80 ? ' — crítico, o banco pode parar de aceitar escrita' : ' — acompanhar'}`, 'tx'));
   }
 
-  // A rede da loja (1.30.16): aberturas de conexão que falharam e retransmissão na janela da batida — os MESMOS limites
+  // A internet da loja (1.30.16): as conexões que o próprio sync abriu para a nuvem nos últimos 30 min — os MESMOS limites
   // da regra rede_instavel do vigia (`vigia.regras.ts`). Só com movimento que dê conta (20 aberturas ou mais).
-  const tcp = s.tcp;
-  const aberturas = Number(tcp?.aberturas);
-  const falhasPct = Number(tcp?.falhasPct);
-  const retransPct = Number(tcp?.retransmissaoPct);
-  if (Number.isFinite(aberturas) && aberturas >= 20 && (falhasPct > 10 || retransPct > 3)) {
+  const rede = s.conexoesNuvem;
+  const aberturas = Number(rede?.aberturas);
+  const falhasPct = Number(rede?.falhasPct);
+  if (Number.isFinite(aberturas) && aberturas >= 20 && falhasPct > 5) {
     itens.push(selo('alerta', `rede ${Math.round(falhasPct)}%`,
-      `internet da loja perdendo conexões: ${falhasPct}% das aberturas falharam e ${retransPct}% dos envios foram repetidos no último minuto — o roteador ou o modem podem precisar de reinício`, 'rede'));
+      `internet da loja perdendo conexões: ${falhasPct}% das ${aberturas} conexões com a nuvem não abriram nos últimos ${rede.janelaMin ?? 30} min — o roteador ou o modem podem precisar de reinício`, 'rede'));
   }
 
   if (!itens.length) return <span className="text-xs text-slate-600">—</span>;

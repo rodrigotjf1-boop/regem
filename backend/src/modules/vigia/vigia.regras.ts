@@ -45,12 +45,13 @@ export const LIMITES_DO_VIGIA = {
   /** Sync falhando sem parar há mais que isto. */
   syncFalhandoMin: 15,
   /**
-   * A rede da loja (1.30.16, análise de rede de 25–26/11/2026 — o selo "rede" do console): aberturas de conexão que
-   * falharam acima disto, ou retransmissão TCP acima disto, na janela da batida. No pico do defeito: 41% e 3,7%; com a
-   * rede boa, 0%. Só com movimento que dê conta: menos aberturas que o mínimo na janela não dizem nada.
+   * A internet da loja (1.30.16, análise de rede de 25–26/11/2026 — o selo "rede" do console): as conexões que o PRÓPRIO
+   * sync abriu para a nuvem nos últimos 30 min (`saude.conexoesNuvem`), com falha de abertura acima disto. Rede ruim:
+   * 34–53% sem resposta; rede sã: 0 em 120. Só com movimento que dê conta (o keep-alive longo abre poucas por minuto).
+   * Os contadores TCP do Windows (`saude.tcp`) NÃO entram: são do PC inteiro e a rede local da loja dava 41% com a
+   * internet sã (impressora que não existe mais, Windows Update entre os PCs, sistema antigo tentando um MySQL).
    */
-  redeFalhasPct: 10,
-  redeRetransmissaoPct: 3,
+  redeFalhasPct: 5,
   redeAberturasMin: 20,
 } as const;
 export type LimitesDoVigia = { [K in keyof typeof LIMITES_DO_VIGIA]: number };
@@ -187,18 +188,20 @@ export function acharProblemas(s: ServidorVigiado, agora: Date, limites: Limites
       evidencia: { desvioS: Math.round(desvio), maximoS: limites.relogioMaximoS },
     });
 
-  // A rede da loja perdendo conexões (1.30.16): taxas da janela da batida (saude.tcp, dos contadores TCP do Windows).
-  const tcp = saude.tcp && typeof saude.tcp === 'object' ? saude.tcp : null;
-  const aberturas = num(tcp?.aberturas) ?? 0;
-  const falhasPct = num(tcp?.falhasPct) ?? 0;
-  const retransmissaoPct = num(tcp?.retransmissaoPct) ?? 0;
-  if (tcp && aberturas >= limites.redeAberturasMin && (falhasPct > limites.redeFalhasPct || retransmissaoPct > limites.redeRetransmissaoPct))
+  // A internet da loja perdendo conexões (1.30.16): o que o próprio sync viu da nuvem nos últimos 30 min.
+  const rede = saude.conexoesNuvem && typeof saude.conexoesNuvem === 'object' ? saude.conexoesNuvem : null;
+  const aberturas = num(rede?.aberturas) ?? 0;
+  const falhasPct = num(rede?.falhasPct) ?? 0;
+  if (rede && aberturas >= limites.redeAberturasMin && falhasPct > limites.redeFalhasPct)
     achados.push({
       regra: 'rede_instavel',
       chave: chaveDoServidor(s.equipamentoId),
       gravidade: 'atencao',
       publico: 'distribuicao',
-      evidencia: { falhasPct, retransmissaoPct, aberturas, janelaS: num(tcp.janelaS), maximoFalhasPct: limites.redeFalhasPct, maximoRetransmissaoPct: limites.redeRetransmissaoPct },
+      evidencia: {
+        falhasPct, aberturas, falhas: num(rede.falhas), novasTentativas: num(rede.novasTentativas), janelaMin: num(rede.janelaMin),
+        maximoFalhasPct: limites.redeFalhasPct,
+      },
     });
 
   // Sync falhando sem parar (o servidor bate, mas não sincroniza).
