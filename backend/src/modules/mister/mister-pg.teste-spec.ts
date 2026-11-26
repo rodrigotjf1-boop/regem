@@ -529,7 +529,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '501_mister_ligar_pela_ia.sql', '502_mister_ia_forte_nas_tarefas.sql', '503_mister_modelos_de_compra.sql', '506_mister_respostas_escritas.sql', '507_mister_pin_falado.sql', '508_mister_aprendizado.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '501_mister_ligar_pela_ia.sql', '502_mister_ia_forte_nas_tarefas.sql', '503_mister_modelos_de_compra.sql', '506_mister_respostas_escritas.sql', '507_mister_pin_falado.sql', '508_mister_aprendizado.sql', '509_mister_imagem_na_conversa.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -8141,7 +8141,7 @@ export function testesDoMisterComPostgres(): void {
 
       it('o ajuste da empresa: "pergunta antes" segura o boleto que lançaria sozinho; desligado, a foto segue como antes; o salvar confere', async () => {
         // Versão 4 (mig 447): o jeito vem junto, no padrão (nada muda). M4d (mig 452): o "fica de olho" nasce desligado.
-        const SEM_JEITO = { analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, respostasEscritas: false, aprenderTarefas: false, perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null };
+        const SEM_JEITO = { analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, respostasEscritas: false, aprenderTarefas: false, imagemNaConversa: false, perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null };
         expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'sozinho', ...SEM_JEITO });
         await expect(conversa.salvar(usuario('ana'), { documentosModo: 'sempre' })).rejects.toBeInstanceOf(BadRequestException);
         await expect(conversa.salvar(usuario('ana'), { documentosLigado: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
@@ -8149,18 +8149,18 @@ export function testesDoMisterComPostgres(): void {
         // Salvar só o modo mantém o "ligado" (o ausente mantém o salvo).
         expect(await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' })).toEqual({
           conversa: { documentosLigado: true, documentosModo: 'perguntar', ...SEM_JEITO },
-          disponivel: { documentos: true, notas: process.env.MISTER_NOTAS === '1', resumoEmArquivo: process.env.MISTER_MIDIA === '1' },
+          disponivel: { documentos: true, notas: process.env.MISTER_NOTAS === '1', resumoEmArquivo: process.env.MISTER_MIDIA === '1', imagem: process.env.MISTER_CRIAR_IMAGEM === '1' },
         });
         // A tela sabe se a função está ligada NESTA instalação (a mesma regra dos serviços): sem a variável, "em breve".
         const notasAntes = process.env.MISTER_NOTAS;
         try {
           process.env.MISTER_NOTAS = '1';
-          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: true, notas: true, resumoEmArquivo: process.env.MISTER_MIDIA === '1' });
+          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: true, notas: true, resumoEmArquivo: process.env.MISTER_MIDIA === '1', imagem: process.env.MISTER_CRIAR_IMAGEM === '1' });
           delete process.env.MISTER_DOCUMENTOS;
-          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: false, notas: false, resumoEmArquivo: process.env.MISTER_MIDIA === '1' });
+          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: false, notas: false, resumoEmArquivo: process.env.MISTER_MIDIA === '1', imagem: process.env.MISTER_CRIAR_IMAGEM === '1' });
           process.env.EDGE_MODE = 'true';
           process.env.MISTER_DOCUMENTOS = '1';
-          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: false, notas: false, resumoEmArquivo: process.env.MISTER_MIDIA === '1' });
+          expect((await conversa.daTela(A)).disponivel).toEqual({ documentos: false, notas: false, resumoEmArquivo: process.env.MISTER_MIDIA === '1', imagem: process.env.MISTER_CRIAR_IMAGEM === '1' });
         } finally {
           delete process.env.EDGE_MODE;
           process.env.MISTER_DOCUMENTOS = '1';
@@ -8195,12 +8195,12 @@ export function testesDoMisterComPostgres(): void {
         await expect(conversa.salvar(usuario('ana'), { avisosEscritos: 'loja' })).rejects.toBeInstanceOf(BadRequestException);
         // O jeito vira uma linha só, com os espaços apertados; os grupos saem na ordem da tela, sem repetir.
         const r = await conversa.salvar(usuario('ana'), { perfil: 'descontraido', jeito: '  Fale como sócio,\n sem formalidade.  ', avisosEscritos: ['fiscal', 'loja', 'loja'] });
-        expect(r.conversa).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, respostasEscritas: false, aprenderTarefas: false, documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
+        expect(r.conversa).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, respostasEscritas: false, aprenderTarefas: false, imagemNaConversa: false, documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         expect(auditados.filter((a) => a.acao === 'mister_conversa_alterada').at(-1)).toMatchObject({ detalhe: { antes: { perfil: 'hoje', jeito: null }, depois: { perfil: 'descontraido' } } });
         // Salvar só o perfil não apaga o jeito, os grupos nem o ajuste dos documentos.
         await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' });
         await conversa.salvar(usuario('ana'), { perfil: 'objetivo' });
-        expect(await conversa.daEmpresa(A)).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, respostasEscritas: false, aprenderTarefas: false, documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
+        expect(await conversa.daEmpresa(A)).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, respostasEscritas: false, aprenderTarefas: false, imagemNaConversa: false, documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         // M4d (mig 452): o "fica de olho" liga e desliga só com booleano (V15), sem mexer no resto.
         await expect(conversa.salvar(usuario('ana'), { ficaDeOlho: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
         expect((await conversa.salvar(usuario('ana'), { ficaDeOlho: true })).conversa).toMatchObject({ ficaDeOlho: true, perfil: 'objetivo', avisosEscritos: ['loja', 'fiscal'] });
@@ -12119,11 +12119,17 @@ export function testesDoMisterComPostgres(): void {
         const chamadas: any[] = [];
         let resposta: any = { ok: true, bytes: Buffer.from('jpeg de mentira'), mimeType: 'image/jpeg', franquia: { mes: '2026-11', usados: 3, total: 20 } };
         (acoes as any).imagens = { criarImagem: async (t: string, p: any) => (chamadas.push([t, p]), resposta) };
+        (acoes as any).conversa = new MisterConversaConfigService(db, auditoria);
         try {
           // Nasce desligada: nem a pergunta sai.
           delete process.env.MISTER_CRIAR_IMAGEM;
           expect(await ferramentas.executar(e, 'propor_acao', en)).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.imagemDesligada } });
           process.env.MISTER_CRIAR_IMAGEM = '1';
+          // Versão 10, C10c (mig 509): a instalação ligada não basta — a empresa liga "Imagem na conversa" (nasce desligado).
+          await q(`insert into mister_conversa_config (tenant_id, imagem_na_conversa) values ($1, false) on conflict (tenant_id) do update set imagem_na_conversa = false`, [A]);
+          expect(await ferramentas.executar(e, 'propor_acao', en)).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.imagemDesligadaNaEmpresa } });
+          expect(chamadas).toEqual([]);
+          await q(`update mister_conversa_config set imagem_na_conversa = true where tenant_id = $1`, [A]);
 
           // O pedido inteiro antes, com "Gerar" e "Mudar"; nada foi ao Graph.
           const r = await ferramentas.executar(e, 'propor_acao', en);
@@ -12168,9 +12174,25 @@ export function testesDoMisterComPostgres(): void {
           const id4 = idDaProposta(r4);
           await propostasDasAcoes.responder(`prop:${id4}:sim`, quem(tel, 'ana', 'presidente'));
           expect((await esperarFim(id4)).situacao).toBe('nao_deu');
+          numero.responder = () => undefined;
+
+          // C10c: o presidente desliga o ajuste entre o pedido e o "Gerar" — nada vai ao Graph, e o "Não deu" diz por quê.
+          resposta = { ok: true, bytes: Buffer.from('jpeg'), mimeType: 'image/jpeg', franquia: null };
+          const r5 = await ferramentas.executar(e, 'propor_acao', { ...en, pedidoDaImagem: `${pedido} Com borda azul.` });
+          const id5 = idDaProposta(r5);
+          expect(id5).not.toBe('');
+          await q(`update mister_conversa_config set imagem_na_conversa = false where tenant_id = $1`, [A]);
+          const antesDoGerar = chamadas.length;
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${id5}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(id5)).toMatchObject({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.imagemDesligadaAoGerar });
+          expect(chamadas).toHaveLength(antesDoGerar);
+          expect(numero.pedidos.filter((p) => p.url.endsWith('/media'))).toEqual([]);
         } finally {
           numero.responder = () => undefined;
           delete (acoes as any).imagens;
+          delete (acoes as any).conversa;
+          await q(`update mister_conversa_config set imagem_na_conversa = false where tenant_id = $1`, [A]);
           if (antes === undefined) delete process.env.MISTER_CRIAR_IMAGEM;
           else process.env.MISTER_CRIAR_IMAGEM = antes;
         }
@@ -12194,8 +12216,11 @@ export function testesDoMisterComPostgres(): void {
         };
         const conferidas = () => auditados.filter((a) => a.acao === 'mister_imagem_conferida' && a.tenantId === A);
         const jaConferidas = conferidas().length;
+        (acoes as any).conversa = new MisterConversaConfigService(db, auditoria);
         try {
           process.env.MISTER_CRIAR_IMAGEM = '1';
+          // C10c: a empresa com "Imagem na conversa" ligada.
+          await q(`insert into mister_conversa_config (tenant_id, imagem_na_conversa) values ($1, true) on conflict (tenant_id) do update set imagem_na_conversa = true`, [A]);
           // Sem a origem (ou com outro número), recusa antes de qualquer pergunta.
           const sem = await ferramentas.executar(e, 'propor_acao', en);
           expect(sem).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.imagemNumeroSemOrigem('R$ 98.400, 3.120') } });
@@ -12251,6 +12276,8 @@ export function testesDoMisterComPostgres(): void {
         } finally {
           delete (acoes as any).imagens;
           delete (acoes as any).ia;
+          delete (acoes as any).conversa;
+          await q(`update mister_conversa_config set imagem_na_conversa = false where tenant_id = $1`, [A]);
           if (antes === undefined) delete process.env.MISTER_CRIAR_IMAGEM;
           else process.env.MISTER_CRIAR_IMAGEM = antes;
         }

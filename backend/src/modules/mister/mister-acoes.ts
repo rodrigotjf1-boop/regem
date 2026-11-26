@@ -750,6 +750,11 @@ export const TEXTOS_DAS_ACOES = {
   estoquePedeLoja: 'Cada loja tem o próprio estoque: diga de qual loja é esse lançamento.',
   estoqueOutraUnidade: (item: string, unidade: string) => `"${item}" é controlado em ${unidade}. Diga a quantidade em ${unidade}.`,
   imagemDesligada: 'A criação de imagem ainda não está ligada nesta instalação.',
+  // Versão 10, C10c (mig 509): a imagem é por empresa. O caminho do menu conferido na página (V65: Mister › Avisos e relatórios,
+  // grupo Conversa); o gráfico do Regem é o que se oferece no lugar.
+  imagemDesligadaNaEmpresa:
+    'A imagem na conversa está desligada nesta empresa. Quem liga é o presidente, em Mister › Avisos e relatórios › Conversa › "Imagem na conversa" (cerca de R$ 0,35 por imagem, pela franquia do DMS Graph). No lugar, dá para fazer o gráfico desenhado pelo Regem, que não custa (mostrar_grafico ou grafico_livre).',
+  imagemDesligadaAoGerar: 'a imagem na conversa foi desligada nesta empresa depois do pedido. Nada foi gerado.',
   imagemGerando: 'Gerando a imagem. Pode levar até um minuto, e ela chega aqui.',
   imagemMudar: 'Certo, não gerei. Me diga o que mudar no pedido.',
   // C10a: o número do pedido da imagem tem de ter vindo de uma consulta desta pergunta ou da fala da pessoa.
