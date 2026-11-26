@@ -2972,6 +2972,33 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
   - **a regra de quem desliga** em Pessoas.
 - **Antes de ligar:** o teste com 20 áudios reais (o plano), para ver se a transcrição entende bem os números falados.
 
+### C7 — aprender pela tarefa feita (26/11/2026; mig 508; só na nuvem; nasce DESLIGADO, o ajuste "Aprender pela tarefa feita")
+
+- **A decisão V10-7:** a tarefa que alguém confirmou e DEU CERTO vira exemplo da empresa. A próxima pergunta parecida leva até 3
+  exemplos; a IA segue o mesmo jeito, mas propõe de novo e a pessoa confirma de novo. Nada é feito sozinho. Sem custo.
+- **O que vira exemplo** (`mister-aprendizado.ts` › `podeAprender`): as ações (`propor_acao`) e as tarefas pelo mapa
+  (`fazer_no_regem`). Ficam de fora o saldo, a folha e o custo de campanha informados, a imagem e o banco (exemplo é para
+  repetir o jeito, não o número), e o passo de um plano (o plano é a tarefa inteira).
+- **O que fica guardado:** o pedido nas palavras da pessoa (a primeira fala do `__origem`, guardada na proposta como
+  `pedidoDaPessoa`) e o "Vou fazer" do Regem (`resumoDaAcao`), os dois sem e-mail nem número de 9 dígitos (`semDadoPessoal`),
+  numa linha e cortados (300 e 600 letras). A mesma tarefa pedida com as mesmas palavras atualiza a linha (a chave é o
+  procedimento e as palavras do pedido).
+- **Quando grava:** no `concluir` da proposta que terminou "feita" (o `MisterAprendizadoService` registrado nas propostas), com o
+  ajuste ligado. Não segura a resposta e nunca lança.
+- **Na conversa** (`exemplosParaAConversa`, no bloco "Esta conversa"): os exemplos com pelo menos 2 palavras em comum com a
+  pergunta, os mais parecidos primeiro, até 3, com a data em que foram aprendidos; sem valores para quem não os vê. A IA é
+  pedida a dizer, numa frase curta, que seguiu o jeito aprendido e que dá para ver ou esquecer em Mister › O que aprendi. O
+  relatório não recebe exemplos.
+- **A mig 508:** a tabela `mister_aprendizado` (só da nuvem, com RLS; no `sync-daemon`, em SO_NUVEM) e a coluna
+  `mister_conversa_config.aprender_tarefas` (desligada).
+- **Na loja:** Mister › O que aprendi (só o presidente): a lista no modelo do Estoque (Todas, Usadas nos últimos 30 dias,
+  Paradas; busca; quem ensinou), "Ver" em gaveta (o pedido como foi dito e o que foi feito) e "Esquecer" em diálogo (auditado; o
+  que já foi feito fica). O ajuste "Aprender pela tarefa feita" fica em Mister › Avisos e relatórios › Conversa.
+- **Os testes:** `mister-aprendizado.spec.ts` (o que vira exemplo, o texto guardado, a chave, a escolha e as linhas) e, com
+  Postgres, de ponta a ponta: desligado não aprende; ligado, a pausa autorizada vira exemplo sem o e-mail; a repetida não
+  duplica; a parecida recebe e conta o uso; o plano e o saldo não viram exemplo; a lista (só o presidente, "com você", parada
+  há mais de 30 dias) e o esquecer (outra empresa não apaga; auditado).
+
 ### C4a — fazer uma tarefa pelo mapa: a primeira área (26/11/2026, #1363, NO AR; SEM migration; só na nuvem; nasce DESLIGADA, `MISTER_FAZER_TAREFAS=1`)
 
 - **A C4 abre por área** (o plano). A C4a é a primeira: uma lista FECHADA de tarefas (`mapa/tarefas-abertas.ts`), escolhidas e

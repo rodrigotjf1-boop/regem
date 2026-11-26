@@ -29,6 +29,8 @@ import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterTelasService } from './mister-telas.service';
 import { MisterTarefasService } from './mister-tarefas.service';
 import { MisterPinFaladoService } from './mister-pin-falado.service';
+import { MisterAprendizadoService } from './mister-aprendizado.service';
+import { MisterAprendizadoController } from './mister-aprendizado.controller';
 import { MisterLinkController } from './mister-link.controller';
 import { MisterLinkPublicoController } from './mister-link-publico.controller';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
@@ -122,6 +124,8 @@ import { MisterModule } from './mister.module';
     MisterTarefasService,
     // Versão 10, C5: falar o PIN (ligar pela página do PIN; o áudio conferido pelo código, antes da fila e da IA).
     MisterPinFaladoService,
+    // Versão 10, C7: aprender pela tarefa feita (os exemplos da empresa; Mister › O que aprendi).
+    MisterAprendizadoService,
     MisterAgenteService,
     MisterAvisosService,
     MisterRelatoriosService,
@@ -161,7 +165,7 @@ import { MisterModule } from './mister.module';
   // M3c (mig 443): as rotas públicas da página do link para encaminhar (`/m/r/<código>`).
   // Versão 6, M6f: a parte "Regras" do Mister na loja (a lista, pausar, retomar e apagar).
   // Versão 9, O2: a parte "Modelos de compra" do Mister na loja.
-  controllers: [MisterLinkController, MisterDocumentosController, MisterRelatorioController, MisterLinkPublicoController, MisterRegrasController, MisterCompraModelosController],
+  controllers: [MisterLinkController, MisterDocumentosController, MisterRelatorioController, MisterLinkPublicoController, MisterRegrasController, MisterCompraModelosController, MisterAprendizadoController],
   exports: [MisterAgenteService, MisterAvisosService],
 })
 export class MisterAgenteModule {}
