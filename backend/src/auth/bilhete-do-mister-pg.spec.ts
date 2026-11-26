@@ -11,7 +11,7 @@ import { MisterTelasService, TEXTOS_DAS_TELAS, recusaDaTela } from '../modules/m
 import type { EscopoDoMister } from '../modules/mister/mister-ferramentas.service';
 import { UnidadeController } from '../modules/unidade/unidade.controller';
 import { UnidadeService } from '../modules/unidade/unidade.service';
-import { CABECALHO_DO_BILHETE, bilhetesVivos, emitirBilhete } from './bilhete-do-mister';
+import { CABECALHO_DO_BILHETE, bilhetesVivos, emitirBilhete, resumoDoCorpo } from './bilhete-do-mister';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -135,6 +135,25 @@ descrever('o bilhete do Mister lê a tela como a pessoa (Postgres e HTTP de verd
     const comPermissao = await empresa('gerente', { unidades: true });
     const r = await telas.ler(escopo(comPermissao, 'gerente'), { rota: 'GET /api/v1/unidades' }, LOJA);
     expect(r.ok).toBe(true);
+  });
+
+  it('C4: a escrita pela API com o bilhete preso ao método e ao corpo — grava a certa; o corpo trocado e o método trocado recebem 401', async () => {
+    const a = await empresa('presidente', {});
+    const r = await telas.escrever(escopo(a), 'POST', '/api/v1/unidades', { nome: 'Loja pelo Mister', tipo: 'loja' }, null);
+    expect(r?.status).toBe(201);
+    expect(await q(`select 1 from unidade where tenant_id = $1 and nome = 'Loja pelo Mister'`, [a.t])).toHaveLength(1);
+    // O bilhete de um corpo não abre outro corpo, nem outro método.
+    const id = emitirBilhete({ tenantId: a.t, colaboradorId: a.id, caminho: '/api/v1/unidades', metodo: 'POST', corpoHash: resumoDoCorpo({ nome: 'Uma', tipo: 'loja' }) });
+    const trocado = await fetch(`${base}/api/v1/unidades`, { method: 'POST', headers: { [CABECALHO_DO_BILHETE]: id, 'content-type': 'application/json' }, body: JSON.stringify({ nome: 'Outra', tipo: 'loja' }) });
+    expect(trocado.status).toBe(401);
+    const id2 = emitirBilhete({ tenantId: a.t, colaboradorId: a.id, caminho: '/api/v1/unidades', metodo: 'POST', corpoHash: resumoDoCorpo({ nome: 'Uma', tipo: 'loja' }) });
+    const get = await fetch(`${base}/api/v1/unidades`, { headers: { [CABECALHO_DO_BILHETE]: id2 } });
+    expect(get.status).toBe(401);
+    expect(await q(`select nome from unidade where tenant_id = $1 and nome in ('Uma', 'Outra')`, [a.t])).toEqual([]);
+    // O gerente sem a permissão: a mesma trava da tela (403).
+    const g = await empresa('gerente', {});
+    expect((await telas.escrever(escopo(g, 'gerente'), 'POST', '/api/v1/unidades', { nome: 'Não', tipo: 'loja' }, null))?.status).toBe(403);
+    expect(bilhetesVivos()).toBe(0);
   });
 
   it('com a sessão do PIN pendente, a leitura espera o PIN e nem chama a API', async () => {

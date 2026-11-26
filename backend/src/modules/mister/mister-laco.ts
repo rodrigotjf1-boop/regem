@@ -169,7 +169,7 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
       // pessoa escreveu) para a imagem só levar número da loja que tem de onde vir. Sempre a do laço: o que o modelo puser
       // em `__origem` é sobrescrito. A trilha guarda a entrada do modelo, sem isto.
       const falas = [pergunta, ...memoria.map((m) => m.pergunta)];
-      const entradaDe = (p: any) => ((p.name === 'propor_acao' || p.name === 'grafico_livre') && p.input && typeof p.input === 'object' ? { ...p.input, __origem: { resultados: [...resultados], falas } } : p.input);
+      const entradaDe = (p: any) => ((p.name === 'propor_acao' || p.name === 'grafico_livre' || p.name === 'fazer_no_regem') && p.input && typeof p.input === 'object' ? { ...p.input, __origem: { resultados: [...resultados], falas } } : p.input);
       const feitos = await rodarNaOrdem(
         rodam.map((p: any) => async () => {
           const t0 = Date.now();

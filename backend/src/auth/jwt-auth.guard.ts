@@ -159,7 +159,7 @@ export class JwtAuthGuard implements CanActivate {
    * login (`AuthService.login` + `escopo`): a loja do colaborador; sem ela, a do setor da função.
    */
   private async peloBilhete(req: any, id: string): Promise<boolean> {
-    const b = consumirBilhete(id, req.method, req.originalUrl ?? req.url);
+    const b = consumirBilhete(id, req.method, req.originalUrl ?? req.url, Date.now(), req.body);
     if (!b) throw new UnauthorizedException('Bilhete inválido ou vencido.');
     const [row] = await this.db
       .select({

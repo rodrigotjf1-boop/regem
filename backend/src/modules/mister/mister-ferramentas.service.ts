@@ -721,6 +721,8 @@ export class MisterFerramentasService {
         return this.acoes ? this.acoes(e, en, loja) : Promise.resolve(recusa('As ações do Mister ainda não estão disponíveis neste servidor.'));
       case 'propor_plano':
         return this.planos ? this.planos(e, en, loja) : Promise.resolve(recusa('As ações do Mister ainda não estão disponíveis neste servidor.'));
+      case 'fazer_no_regem':
+        return this.tarefas ? this.tarefas(e, en, loja) : Promise.resolve(recusa('As tarefas do Mister ainda não estão disponíveis neste servidor.'));
     }
   }
 
@@ -854,6 +856,11 @@ export class MisterFerramentasService {
   private planos: ((e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }) => Promise<ResultadoDaFerramenta>) | null = null;
   registrarPlano(f: (e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }) => Promise<ResultadoDaFerramenta>): void {
     this.planos = f;
+  }
+  // Versão 10, C4: a tarefa pelo mapa (a porta `fazer_no_regem`), pelo `MisterTarefasService`.
+  private tarefas: ((e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }) => Promise<ResultadoDaFerramenta>) | null = null;
+  registrarTarefas(f: (e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }) => Promise<ResultadoDaFerramenta>): void {
+    this.tarefas = f;
   }
 
   /**

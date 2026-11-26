@@ -84,7 +84,7 @@ COMO VOCÊ TRABALHA
 - Você não sabe nada da loja de cabeça. Todo número, valor, horário, nome de produto e situação que você disser vem de uma ferramenta que você chamou para ESTA pergunta.
 - Antes de responder a uma pergunta sobre a loja, chame a ferramenta que traz o dado. Se a pergunta pede dois assuntos, chame as duas. Junte consultas, compare períodos e faça as contas que a pergunta pedir.
 - Quando uma ferramenta recusar com "motivo" e "caminhos": comece pelo porquê, em uma frase e nas suas palavras (perfil: o perfil desta pessoa no Regem não faz isso; seguranca: por segurança não sai pela conversa agora; so_na_tela: só se faz na tela do Regem; falta_dado: falta um dado no Regem; nao_tem: o Regem ainda não tem isso; de_fora: depende do WhatsApp, do canal, do banco ou da SEFAZ). Depois ofereça os caminhos que vieram, numerados quando forem mais de um, e diga quem pode quando vier "quemPode". Nunca ofereça um caminho que não veio e nunca diga que vai fazer o que a recusa barrou.
-- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza por que não dá (o Regem ainda não tem esse dado, ou você ainda não tem acesso a ele) e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, quanto a venda gastou de um insumo pela ficha técnica (por hora, por dia e de onde saiu), pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, a análise da semana, do pico e dos itens que saem juntos, das fases do mês e das perdas, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal), o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram) como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns) e o que já foi conversado com você nos últimos 30 dias. Se procurar_no_regem estiver entre as suas ferramentas, antes de dizer que não tem acesso procure a tela do Regem que tem o dado e leia com ler_no_regem (as consultas prontas vêm primeiro; o mapa é para o resto). Antes de dizer que ainda não tem acesso, chame anotar_o_que_falta com o tema do dado pedido. Nunca estime, nunca invente e nunca complete um dado que faltou.
+- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza por que não dá (o Regem ainda não tem esse dado, ou você ainda não tem acesso a ele) e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, quanto a venda gastou de um insumo pela ficha técnica (por hora, por dia e de onde saiu), pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, a análise da semana, do pico e dos itens que saem juntos, das fases do mês e das perdas, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal), o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram) como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns) e o que já foi conversado com você nos últimos 30 dias. Se procurar_no_regem estiver entre as suas ferramentas, antes de dizer que não tem acesso procure a tela do Regem que tem o dado e leia com ler_no_regem (as consultas prontas vêm primeiro; o mapa é para o resto). Do mesmo jeito, para FAZER algo que nenhuma ação pronta (propor_acao) faz, se fazer_no_regem estiver entre as suas ferramentas, procure a tarefa com procurar_no_regem e proponha com fazer_no_regem, com os campos que ela pede. Antes de dizer que ainda não tem acesso, chame anotar_o_que_falta com o tema do dado pedido. Nunca estime, nunca invente e nunca complete um dado que faltou.
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu. Valor em reais sempre exato, como veio ou como a conta deu: nunca arredonde ("R$ 15 mil").
@@ -439,7 +439,9 @@ export type NomeDaFerramenta =
   | 'abrir_no_regem'
   // Versão 10, C3: procurar no mapa do Regem e ler a tela como a pessoa (nascem desligadas, `MISTER_LER_TELAS=1`).
   | 'procurar_no_regem'
-  | 'ler_no_regem';
+  | 'ler_no_regem'
+  // Versão 10, C4: fazer uma tarefa pelo mapa (nasce desligada, `MISTER_FAZER_TAREFAS=1`).
+  | 'fazer_no_regem';
 
 // ───────────────────────────── as conversas anteriores (versão 4) ─────────────────────────────
 // O padrão do Hermes de procurar nas conversas antigas, sobre o texto que `mister_pergunta` já guarda por 30 dias.
@@ -540,6 +542,8 @@ export const FERRAMENTA_DE_ABRIR = 'abrir_no_regem' as const;
  */
 export const FERRAMENTA_DE_PROCURAR = 'procurar_no_regem' as const;
 export const FERRAMENTA_DE_LER = 'ler_no_regem' as const;
+/** Versão 10, C4 (`mister-tarefas.service.ts`): PROPÕE uma tarefa pelo mapa — não é consulta; faz algo, uma de cada vez. */
+export const FERRAMENTA_DE_FAZER = 'fazer_no_regem' as const;
 /** As ferramentas que NÃO são consulta: anotam, propõem, mandam, corrigem ou criam — não trazem dado da loja para a resposta. */
 export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DO_QUE_FALTA,
@@ -561,6 +565,7 @@ export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DO_PLANO,
   FERRAMENTA_DE_ABRIR,
   FERRAMENTA_DE_PROCURAR,
+  FERRAMENTA_DE_FAZER,
 ];
 // F4.2b: cancelar_pedido (de PIN) nasce da pergunta, preso ao pedido que a pessoa disse — não a um aviso.
 export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota', 'cancelar_pedido'] as const;
@@ -1435,6 +1440,23 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
       additionalProperties: false,
     },
   },
+  // Versão 10, C4: fazer uma tarefa pelo mapa (nasce desligada, `MISTER_FAZER_TAREFAS=1`).
+  {
+    name: 'fazer_no_regem',
+    description:
+      'Não é consulta: PROPÕE uma tarefa no Regem que só acontece quando a pessoa toca em "Autorizar" (o Regem monta o "Vou fazer" e manda os botões depois da sua resposta). Use só uma tarefa que procurar_no_regem trouxe em "tarefas", e só quando nenhuma ação pronta (propor_acao) faz o pedido. rota: exatamente como veio. parametros: o valor de cada parametro do caminho (o "id" vem de uma leitura; nunca invente). campos: só os campos que a tarefa lista, com o tipo pedido (data AAAA-MM-DD, hora HH:MM, opções como vieram); a loja o Regem põe sozinho. Se faltar um campo obrigatório que a pessoa não disse, pergunte antes. Diga em uma frase o que vai acontecer quando ela autorizar; nada foi feito ainda.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        rota: { type: 'string', description: 'A rota exata da tarefa que procurar_no_regem trouxe.' },
+        parametros: { type: 'object', description: 'O valor de cada parametro do caminho, como { "id": "…" }.', additionalProperties: { type: 'string' } },
+        campos: { type: 'object', description: 'Os campos da tarefa, como { "titulo": "…", "prioridade": "alta" }.' },
+        loja: LOJA,
+      },
+      required: ['rota'],
+      additionalProperties: false,
+    },
+  },
   // Versão 10, C10b: o gráfico de QUALQUER consulta desta pergunta, desenhado pelo Regem (sem custo, número exato).
   {
     name: 'grafico_livre',
@@ -1523,6 +1545,8 @@ export const ferramentasDaConversa = (): typeof FERRAMENTAS => {
     ...(noticiasNoMister() ? [] : ['noticias_do_ramo']),
     ...(linksNoMister() ? [] : [FERRAMENTA_DE_ABRIR]),
     ...(telasNoMister() ? [] : [FERRAMENTA_DE_PROCURAR, FERRAMENTA_DE_LER]),
+    // C4: a tarefa pede a busca (que traz as tarefas): sem as telas ligadas, não entra.
+    ...(telasNoMister() && process.env.MISTER_FAZER_TAREFAS === '1' ? [] : [FERRAMENTA_DE_FAZER]),
   ];
   return fora.length ? FERRAMENTAS.filter((f) => !fora.includes(f.name)) : FERRAMENTAS;
 };

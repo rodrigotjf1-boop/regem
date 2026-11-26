@@ -31,6 +31,7 @@ import { montarNoticias, pedidoDasNoticias } from './mister-noticias';
 import { montarLinks, pedidoDoLink } from './mister-abrir';
 import { TEXTOS_DAS_TELAS, pedidoDaLeitura, procurarTelas, recusaDaTela, resultadoDaLeitura } from './mister-telas.service';
 import { MOTIVO_NAO_TEM, SIGA_DO_QUE_FALTA, comMotivo } from './mister-motivo';
+import { TEXTOS_DAS_TAREFAS, pedidoDaTarefa } from './mister-tarefas';
 import { recusaPeloPerfil } from './mister-acoes-perfil';
 import { perfilPadrao } from '../../auth/permissoes';
 import type { BoletimDoRamo, NoticiaDoBoletim } from '../pulso/pulso.regras';
@@ -203,6 +204,8 @@ function diaPedido(en: Record<string, unknown>): 'hoje' | 'ontem' {
   return d === 'ontem' || d === '2026-11-12' ? 'ontem' : 'hoje';
 }
 
+/** C4: a loja de teste, como o campo `loja` das tarefas a recebe. */
+const LOJA_ID_DA_AVALIACAO = '00000000-0000-4000-8000-0000000000a1';
 const ok = (dados: Record<string, unknown>): ResultadoDaFerramenta => ({ ok: true, dados });
 const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
 
@@ -900,7 +903,14 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
     // Versão 10, C3: a busca no mapa é a de verdade; a leitura confere o pedido pela MESMA função e responde com as telas da
     // loja de teste, pelo MESMO filtro (as outras telas: "não consegui ler").
     case 'procurar_no_regem':
-      return procurarTelas(en);
+      // C4: na avaliação a busca traz também as tarefas abertas (na conversa, só com `MISTER_FAZER_TAREFAS=1`).
+      return procurarTelas(en, { tarefas: true });
+    case 'fazer_no_regem': {
+      // C4: a MESMA conferência do pedido e o "Vou fazer" do Regem; na avaliação nada é proposto nem feito.
+      const p = pedidoDaTarefa(en, { unidadeId: LOJA_ID_DA_AVALIACAO }, origemDe(en.__origem).resultados);
+      if ('erro' in p) return recusa(p.erro);
+      return ok({ oQueVouFazer: p.resumo, siga: TEXTOS_DAS_TAREFAS.siga });
+    }
     case 'ler_no_regem': {
       const p = pedidoDaLeitura(en);
       if ('erro' in p) return recusaDaTela(p.erro);
@@ -1583,6 +1593,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 10, C6 (26/11): quando não dá, o motivo e os caminhos — o gerente pede o que é do presidente ou o que o perfil não abre.
   { id: 'c130', pergunta: 'Guarda aí o saldo do banco de hoje: 42.300 reais.', perfil: GERENTE_SEM_VALORES, contem: ['presidente'] },
   { id: 'c131', pergunta: 'Marca como paga a conta da Distribuidora Boa Carne, paguei no pix.', perfil: GERENTE_SEM_VALORES, contem: ['presidente', 'perfil'] },
+  // Versão 10, C4a (26/11): o que nenhuma ação pronta faz — procurar a tarefa no mapa e propor com os campos.
+  { id: 'c132', pergunta: 'Abre um pedido de manutenção: a coifa da cozinha está pingando, prioridade alta.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['coifa'] },
+  { id: 'c133', pergunta: 'Cria um setor novo chamado Bar.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['Bar'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

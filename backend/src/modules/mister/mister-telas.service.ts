@@ -1,10 +1,11 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
-import { CABECALHO_DO_BILHETE, emitirBilhete } from '../../auth/bilhete-do-mister';
+import { CABECALHO_DO_BILHETE, emitirBilhete, resumoDoCorpo } from '../../auth/bilhete-do-mister';
 import { semDadoPessoal } from '../graph/graph.regras';
 import { funcaoDoMapa, LEITURAS_DO_MISTER, parametrosDoCaminho, procurarNoMapa } from './mapa/busca-no-mapa';
 import { limparLeitura } from './mapa/leitura-limpa';
 import type { FuncaoDoMapa } from './mapa/mapa-do-regem';
+import { procurarTarefas, tarefasNoMister } from './mister-tarefas';
 import { MOTIVO_DO_DADO_DE_PESSOA, MOTIVO_DO_PIN, MOTIVO_NAO_TEM, MOTIVO_SO_NA_TELA, comMotivo, motivoDoPerfil, type MotivoDaFerramenta } from './mister-motivo';
 import type { EscopoDoMister, ResultadoDaFerramenta } from './mister-ferramentas.service';
 
@@ -54,13 +55,19 @@ export const recusaDaTela = (erro: string): ResultadoDaFerramenta => {
 const recusa = recusaDaTela;
 
 /** `procurar_no_regem` (a avaliação usa a MESMA): as leituras do mapa que mais combinam com o que a IA descreveu. */
-export function procurarTelas(entrada: unknown): ResultadoDaFerramenta {
+export function procurarTelas(entrada: unknown, opcoes: { tarefas: boolean } = { tarefas: tarefasNoMister() }): ResultadoDaFerramenta {
   const en = (entrada && typeof entrada === 'object' ? entrada : {}) as Record<string, unknown>;
   const busca = String(en.busca ?? '').slice(0, 200).trim();
   if (!busca) return recusa(TEXTOS_DAS_TELAS.semBusca);
   const r = procurarNoMapa(busca);
+  // C4: com as tarefas ligadas, a busca traz também as tarefas abertas que combinam, com os campos de cada uma.
+  const tarefas = opcoes.tarefas ? procurarTarefas(busca) : [];
+  const comTarefas = tarefas.length
+    ? { tarefas, sigaDasTarefas: 'Para FAZER algo, use uma das tarefas com fazer_no_regem: a rota exata, os parametros do caminho e os campos como vieram. As ações prontas (propor_acao) vêm antes.' }
+    : {};
   if (!r.achadas.length) {
     const m = r.comDadoDePessoa ? MOTIVO_DO_DADO_DE_PESSOA : MOTIVO_NAO_TEM;
+    if (tarefas.length) return { ok: true, dados: { achadas: [], ...comTarefas } };
     return { ok: true, dados: { achadas: [], siga: r.comDadoDePessoa ? TEXTOS_DAS_TELAS.soComDadoDePessoa : TEXTOS_DAS_TELAS.nadaAchado, motivo: m.motivo, caminhos: m.caminhos } };
   }
   return {
@@ -69,6 +76,7 @@ export function procurarTelas(entrada: unknown): ResultadoDaFerramenta {
       achadas: r.achadas,
       siga: 'Escolha a que responde à pergunta e chame ler_no_regem com a rota exata, os parametros do caminho e, se precisar, a consulta. Nenhuma serve: diga que ainda não tem acesso e chame anotar_o_que_falta.',
       ...(r.comDadoDePessoa ? { comDadoDePessoa: TEXTOS_DAS_TELAS.soComDadoDePessoa } : {}),
+      ...comTarefas,
     },
   };
 }
@@ -211,6 +219,56 @@ export class MisterTelasService {
       return recusa(TEXTOS_DAS_TELAS.semServidor);
     }
     return resultadoDaLeitura(f, loja.nome, pares, bruto, e.verValores);
+  }
+
+  /**
+   * C4: a ESCRITA pela API, como a pessoa — o bilhete de uma chamada preso ao método, ao caminho e ao resumo do corpo (o guarda
+   * confere os três). Devolve o código e a mensagem da API (sem dado pessoal), ou null quando o servidor não escuta, o bilhete
+   * não sai ou a API não respondeu. Nunca lança.
+   */
+  async escrever(
+    e: EscopoDoMister,
+    metodo: 'POST' | 'PUT' | 'PATCH',
+    caminho: string,
+    corpo: Record<string, unknown>,
+    lojaAtual: string | null,
+  ): Promise<{ status: number; mensagem: string; dados: unknown } | null> {
+    const base = this.base();
+    if (!base) return null;
+    const texto = JSON.stringify(corpo ?? {});
+    let bilhete: string;
+    try {
+      bilhete = emitirBilhete({ tenantId: e.tenantId, colaboradorId: e.colaboradorId, caminho, metodo, corpoHash: resumoDoCorpo(corpo ?? {}) });
+    } catch {
+      return null;
+    }
+    try {
+      const r = await fetch(`${base}${caminho}`, {
+        method: metodo,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(PRAZO_DA_LEITURA_MS),
+        headers: {
+          [CABECALHO_DO_BILHETE]: bilhete,
+          accept: 'application/json',
+          'content-type': 'application/json',
+          ...(e.nivel === 'presidente' && lojaAtual ? { 'x-unidade-id': lojaAtual } : {}),
+        },
+        body: texto,
+      });
+      const bruto = await r.text().catch(() => '');
+      let j: any = null;
+      try {
+        j = bruto ? JSON.parse(bruto) : null;
+      } catch {
+        j = null;
+      }
+      const msg = r.status >= 400 ? (Array.isArray(j?.message) ? j.message.join('; ') : String(j?.message ?? '')) : '';
+      if (r.status >= 500) this.logger.error(`tarefa ${metodo} ${caminho.split('?')[0]} respondeu ${r.status}`);
+      return { status: r.status, mensagem: semDadoPessoal(msg).slice(0, 240), dados: r.status < 300 ? j : null };
+    } catch (err: any) {
+      this.logger.warn(`tarefa ${metodo} ${caminho.split('?')[0]} não respondeu: ${String(err?.name ?? err?.message ?? err).slice(0, 120)}`);
+      return null;
+    }
   }
 
   /** O endereço deste servidor por dentro (127.0.0.1 e a porta em que o app escuta), ou null se ele não escuta. */

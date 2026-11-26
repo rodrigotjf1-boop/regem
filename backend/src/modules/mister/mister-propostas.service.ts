@@ -59,6 +59,7 @@ import { apresentacaoDaCampanha } from './mister-acoes-campanha';
 import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDaBaixa, apresentacaoDoHorario, apresentacaoDoPreco, ehAcaoDoMister, ehDadoInformado } from './mister-acoes';
 import { PROCEDIMENTO_DO_PLANO, RESULTADO_DO_PLANO_TROCADO, TEXTOS_DO_PLANO } from './mister-plano';
 import { PROCEDIMENTO_DO_PEDIDO, TEXTOS_DO_PEDIDO, quemPediu, resumoGuardado } from './mister-pedido';
+import { PROCEDIMENTO_DA_TAREFA } from './mister-tarefas';
 import { IaEmpresaService } from '../ia/ia-empresa.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { linhasDoJeito } from './mister-agente.regras';
@@ -165,6 +166,43 @@ export class MisterPropostasService implements OnModuleInit {
   private pedido: ((p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>) | null = null;
   registrarPedido(f: (p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>): void {
     this.pedido = f;
+  }
+
+  // Versão 10, C4: a tarefa pelo mapa (`fazer_no_regem`) mora no `MisterTarefasService`; aqui passa o "Autorizar" de quem pediu.
+  private tarefa: ((p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>) | null = null;
+  registrarTarefa(f: (p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>): void {
+    this.tarefa = f;
+  }
+
+  /**
+   * A gravação de uma proposta da conversa (a ação, o pedido ao presidente, a tarefa pelo mapa): uma por "aviso" (a chave) e
+   * procedimento, renovando a que acabou; a autorizada e a executando não renovam (null).
+   */
+  async gravarDaConversa(
+    tenantId: string,
+    unidadeId: string | null,
+    avisoId: string,
+    procedimento: string,
+    nivel: 'botao' | 'pin',
+    parametros: Record<string, unknown>,
+    prazoMin: number,
+  ): Promise<{ id: string; venceEm: string | Date } | null> {
+    await this.db.execute(sql`
+      insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em)
+      values (${tenantId}::uuid, ${unidadeId}::uuid, ${avisoId}::uuid, ${procedimento}, ${JSON.stringify(parametros)}::jsonb, ${nivel},
+              clock_timestamp() + make_interval(mins => ${prazoMin}::int))
+      on conflict (aviso_id, procedimento) do update
+        set situacao = 'proposta', criada_em = clock_timestamp(), vence_em = excluded.vence_em, parametros = excluded.parametros,
+            unidade_id = excluded.unidade_id, respondida_em = null, autorizada_por = null, telefone_final = null, executada_em = null,
+            conferir_ate = null, concluida_em = null, resultado = null,
+            link_hash = null, link_para = null, link_criado_em = null, link_aberto_em = null, pin_erros = 0, bloqueada_em = null
+        where mister_proposta.situacao in ('vencida', 'recusada', 'nao_deu', 'feita', 'proposta')`);
+    const [p] = linhas(
+      await this.db.execute(sql`
+        select id::text as id, vence_em as "venceEm" from mister_proposta
+         where aviso_id = ${avisoId}::uuid and procedimento = ${procedimento} and situacao = 'proposta' and vence_em > now()`),
+    );
+    return p ? { id: p.id, venceEm: p.venceEm } : null;
   }
 
   /** Um passo do plano terminou (feito, não deu, recusado ou vencido): o plano segue. Não segura quem chamou. */
@@ -371,7 +409,8 @@ export class MisterPropostasService implements OnModuleInit {
     const plano = p.procedimento === PROCEDIMENTO_DO_PLANO;
     // Versão 10, C6b: o "Pedir ao presidente" também é de quem pediu (o gerente).
     const doPedido = p.procedimento === PROCEDIMENTO_DO_PEDIDO;
-    const acao = ehAcaoDoMister(p.procedimento) || plano || doPedido;
+    // C4: a tarefa pelo mapa também é de quem pediu.
+    const acao = ehAcaoDoMister(p.procedimento) || plano || doPedido || p.procedimento === PROCEDIMENTO_DA_TAREFA;
     if (acao && v.colaboradorId !== String(p.parametros?.colaboradorId ?? '')) {
       await this.falar(quem.telefone, TEXTOS_DAS_ACOES.naoDisponivel);
       return true;
@@ -410,6 +449,10 @@ export class MisterPropostasService implements OnModuleInit {
       ? b.autorizar
         ? TEXTOS_DO_PEDIDO.pedindo
         : TEXTOS_DO_PEDIDO.naoPediu
+      : p.procedimento === PROCEDIMENTO_DA_TAREFA
+        ? b.autorizar
+          ? 'Autorizado. Fazendo agora…'
+          : TEXTOS_DA_PROPOSTA.recusadaAcao
       : plano
       ? b.autorizar
         ? TEXTOS_DO_PLANO.autorizado
@@ -471,6 +514,17 @@ export class MisterPropostasService implements OnModuleInit {
       if (!this.plano) return this.concluir(p, false, 'os planos não estão disponíveis agora. Nada foi feito.');
       await this.plano(p.id);
       return 'executando';
+    }
+    // Versão 10, C4: a tarefa pelo mapa — pela própria API, como a pessoa (o bilhete preso ao método, ao caminho e ao corpo).
+    if (p.procedimento === PROCEDIMENTO_DA_TAREFA) {
+      if (!this.tarefa) return this.concluir(p, false, 'as tarefas do Mister não estão disponíveis agora. Nada foi feito.');
+      try {
+        const r = await this.tarefa(p);
+        return this.concluir(p, r.feita, r.texto);
+      } catch (e: any) {
+        this.logger.error(`a tarefa da proposta ${p.id} falhou — ${e?.message ?? e}`, e?.stack);
+        return this.concluir(p, false, 'a tarefa falhou no Regem. Nada foi confirmado: confira na tela.');
+      }
     }
     // Versão 10, C6b: o toque do gerente em "Pedir ao presidente" — a proposta da ação nasce para o presidente e vai a ele.
     if (p.procedimento === PROCEDIMENTO_DO_PEDIDO) {

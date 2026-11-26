@@ -24,7 +24,10 @@ describe('as notícias do ramo no Mister', () => {
   const antes = process.env.MISTER_NOTICIAS_RAMO;
   const antesDosLinks = process.env.MISTER_LINKS;
   const antesDasTelas = process.env.MISTER_LER_TELAS;
+  const antesDasTarefas = process.env.MISTER_FAZER_TAREFAS;
   afterEach(() => {
+    if (antesDasTarefas === undefined) delete process.env.MISTER_FAZER_TAREFAS;
+    else process.env.MISTER_FAZER_TAREFAS = antesDasTarefas;
     if (antesDasTelas === undefined) delete process.env.MISTER_LER_TELAS;
     else process.env.MISTER_LER_TELAS = antesDasTelas;
     if (antes === undefined) delete process.env.MISTER_NOTICIAS_RAMO;
@@ -37,6 +40,7 @@ describe('as notícias do ramo no Mister', () => {
     delete process.env.MISTER_NOTICIAS_RAMO;
     process.env.MISTER_LINKS = '1';
     process.env.MISTER_LER_TELAS = '1';
+    process.env.MISTER_FAZER_TAREFAS = '1';
     expect(noticiasNoMister()).toBe(false);
     expect(ferramentasDaConversa().map((f) => f.name)).not.toContain('noticias_do_ramo');
     expect(FERRAMENTAS.map((f) => f.name)).toContain('noticias_do_ramo');
