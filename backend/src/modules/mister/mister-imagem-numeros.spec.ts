@@ -72,6 +72,32 @@ describe('C10a · dado pessoal no pedido da imagem', () => {
   });
 });
 
+// O teste do dono (26/11, 10 imagens): 3 pedidos com números pequenos ("21 vendidos", "4" pedidos, a nota "5") passaram sem
+// conferência, porque a regra tratava número até 31 como apresentação. Agora conta o texto exato (entre aspas), de qualquer tamanho.
+describe('C10a · o texto exato entre aspas, com número pequeno', () => {
+  const MAIS_VENDIDOS =
+    'Infográfico dos 3 lanches mais vendidos da semana. Título: "Os mais vendidos da semana". Subtítulo: "23/11 a 26/11". Três linhas: "1º Numero 07 — 21 vendidos", "2º TRIO 09 — 20 vendidos", "3º TRIO 08 — 14 vendidos".';
+  const RANKING = { itens: [{ nome: 'Numero 07', quantidade: 21 }, { nome: 'TRIO 09', quantidade: 20 }, { nome: 'TRIO 08', quantidade: 14 }] };
+  it('conta todo número do texto exato, sem data, ordinal nem o "3" da instrução fora das aspas', () => {
+    expect(numerosParaConferir(MAIS_VENDIDOS)).toEqual(['07', '21', '09', '20', '08', '14']);
+    expect(numerosParaConferir('Cartaz. Número em destaque: "4". Abaixo: "pedidos de delivery".')).toEqual(['4']);
+    expect(numerosParaConferir('Nota média: "5". Selo: "1 avaliação".')).toEqual(['5', '1']);
+  });
+  it('a origem do número pequeno e do número no nome do item ("TRIO 09"); o trocado não passa', () => {
+    expect(numerosSemOrigem(MAIS_VENDIDOS, { resultados: [RANKING], falas: [] })).toEqual([]);
+    expect(numerosSemOrigem(MAIS_VENDIDOS, { resultados: [{ itens: [{ nome: 'Numero 07', quantidade: 21 }, { nome: 'TRIO 09', quantidade: 20 }, { nome: 'TRIO 08', quantidade: 12 }] }], falas: [] })).toEqual(['14']);
+    // O número de negócio FORA das aspas continua precisando de origem.
+    expect(numerosSemOrigem('Cartaz "Hoje" com 61% em destaque.', { resultados: [], falas: [] })).toEqual(['61%']);
+    // O ano do texto não precisa de origem.
+    expect(numerosSemOrigem('Texto exato: "Melhor mês de 2026".', { resultados: [], falas: [] })).toEqual([]);
+  });
+  it('a imagem com um número pequeno trocado não passa', () => {
+    const lida = { numeros: ['1º', 'Numero 07', '21 vendidos', '2º', 'TRIO 09', '20 vendidos', '3º', 'TRIO 08', '41 vendidos', '23/11 a 26/11'], ilegivel: false };
+    expect(conferirNumeros(MAIS_VENDIDOS, lida)).toEqual({ situacao: 'errou', faltaram: ['14'], sobraram: [] });
+    expect(conferirNumeros(MAIS_VENDIDOS, { ...lida, numeros: lida.numeros.map((n) => (n === '41 vendidos' ? '14 vendidos' : n)) }).situacao).toBe('bateu');
+  });
+});
+
 describe('C10a · a conferência da imagem gerada', () => {
   const pedido = 'Cartaz quadrado. Texto exato: "Novembro, o melhor mês do ano!" e "R$ 98.400 · 3.120 pedidos".';
   it('bate com o número desenhado sem o "R$", e o ano e a data a mais não atrapalham', () => {
