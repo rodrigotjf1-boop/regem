@@ -47,6 +47,8 @@ function perguntaDaNota(d: DocumentoEmAndamento): string | null {
   // L2b: o que a leitura não garantiu. A resposta vem como texto, ou numa foto melhor.
   if (tipo === 'total') return 'não deu para ler o total: a pessoa diz o valor ou manda outra foto';
   if (tipo === 'soma') return 'os itens não somam o total: a pessoa manda outra foto, diz o item que faltou (ex.: 2 cx tomate 60,00) ou toca em "Lançar assim"';
+  // Versão 10, C1b: as diferenças entre o pedido e a nota (documento_em_andamento ver mostra quais).
+  if (tipo === 'diferencas') return 'o que aconteceu com o que veio diferente do pedido (veio menos, não veio, veio a mais): a pessoa conta, e você grava pela acao pedido';
   const it = d.nota?.itens?.[Number(i)];
   if (!it) return null;
   const item = limpo(it.descricao);

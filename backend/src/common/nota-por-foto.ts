@@ -379,6 +379,16 @@ export interface PedidoDaNota {
   resposta: 'receber' | 'nao' | null;
   /** PR-8: o pedido NASCEU da nota (não havia pedido aberto que batesse) e foi recebido no lançamento. */
   criadoPelaNota?: boolean;
+  /**
+   * Versão 10, C1b: os itens do pedido no momento em que ele bateu (a quantidade na unidade do estoque), para comparar com a
+   * nota sem ler o banco a cada passo. Sem eles (documento antigo), não há conversa das diferenças.
+   */
+  itensDoPedido?: Array<{ compraItemId: string; itemId: string; nome: string; quantidade: number }>;
+  /** Versão 10, C1b: o que a pessoa decidiu, pela conversa, sobre o que veio menos e o que veio a mais (pelo insumo). */
+  decisoes?: {
+    faltas: Record<string, { decisao: 'chega_depois' | 'cancelado'; para: string | null }>;
+    aMais: Record<string, 'no_pedido' | 'avulso'>;
+  };
 }
 
 /** Versão 9, O2: até quantas mudanças a linha do modelo mostra. */

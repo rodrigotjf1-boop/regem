@@ -39,6 +39,7 @@ import { FinanceiroService } from '../financeiro/financeiro.service';
 import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { RecebimentoService } from '../recebimento/recebimento.service';
 import { DOCUMENTO_ABERTO_H, acharInsumo, corrigirLinha, fraseDoFeito, lerAlteracoes, lerExtrasDaNota, limpo, linhasParaOAgente, temExtras, type AlteracaoDoDocumento } from './mister-documento-conversa';
+import { diferencasDoPedido, diferencasParaAIa, diferencasSemDecisao, lerDecisoesDoPedido, linhasDoPedidoNoResumo, textoDasDiferencas } from './mister-nota-diferencas';
 import { QuemMandou, QuemTocou } from './mister-entrada.service';
 import { MisterFerramentasService, type EscopoDoMister, type ResultadoDaFerramenta } from './mister-ferramentas.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
@@ -65,6 +66,7 @@ import {
   pedidoQueBate,
   recebePedido,
   type CandidatoDoPedido,
+  type ResumoDoPedidoRecebido,
 } from './mister-nota-pedido';
 import type { PedidoDaNota } from '../../common/nota-por-foto';
 import { Resposta } from './mister.regras';
@@ -159,6 +161,53 @@ export class MisterNotasService implements OnModuleInit {
       ?.registrar({ tenantId: e.tenantId, atorId: e.colaboradorId, atorPerfil: e.nivel, tipo: 'mister', acao: 'mister_documento_esquecido', entidadeTipo: 'mister_documento', entidadeId: null, origem: 'whatsapp', detalhe: { quantos: r.length } } as any)
       .catch(() => undefined);
     return { ok: true, dados: { esquecidos: r.map((x) => String(x.quando)), gravado: true, onde: 'Ficam em Mister › Documentos como "não lançado". Nada tinha sido lançado neles.' } };
+  }
+
+  /**
+   * Versão 10, C1b: a decisão sobre as diferenças entre o pedido e a nota (`documento_em_andamento`, `acao: pedido`), dita na
+   * conversa e entendida pela IA. Conferida inteira, gravada no documento travado, e a próxima fala (outra diferença ainda sem
+   * decisão, ou o resumo com "Lançar") sai depois da resposta. Nada é lançado aqui: o lançamento faz o que foi decidido.
+   */
+  private async decidirDiferencas(e: EscopoDoMister, en: Record<string, unknown>, aberto: ReturnType<typeof sql>, semDocumento: string): Promise<ResultadoDaFerramenta> {
+    const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
+    const r = await this.db.transaction(async (tx: any): Promise<{ erro: string } | { id: string; nota: NotaNoMister; motivo: string; feito: string[] }> => {
+      const [d] = linhas(await tx.execute(sql`select id::text as id, dados from mister_documento where ${aberto} order by atualizado_em desc limit 1 for update`));
+      const nota: NotaNoMister | undefined = d?.dados?.nota;
+      if (!d || !nota?.itens) return { erro: semDocumento };
+      if (!recebePedido(nota) || !nota.pedido?.itensDoPedido?.length) return { erro: 'Este documento não está recebendo um pedido: não há diferenças para decidir.' };
+      if (!lancaEstoque(nota)) return { erro: 'O pedido vai só como recebido, sem mexer no estoque: não há diferenças para decidir.' };
+      const dif = diferencasDoPedido(nota);
+      if (!dif.pronto) return { erro: 'Ainda há linhas sem ligar ao estoque: resolva as linhas antes das diferenças (acao ver mostra quais).' };
+      if (!dif.faltas.length && !dif.aMais.length) return { erro: 'Veio tudo como pedido: não há diferenças para decidir.' };
+      const lidas = lerDecisoesDoPedido(en, dif, nota.pedido.decisoes, hojeISO());
+      if ('erro' in lidas) return lidas;
+      nota.pedido.decisoes = lidas.decisoes;
+      const prox = this.proximoPasso(nota);
+      await tx.execute(sql`
+        update mister_documento
+           set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), situacao = ${prox.situacao}, motivo = ${prox.motivo}, atualizado_em = clock_timestamp()
+         where id = ${d.id}::uuid`);
+      return { id: d.id, nota, motivo: prox.motivo, feito: lidas.feito };
+    });
+    if ('erro' in r) return recusa(r.erro);
+    await this.auditoria
+      ?.registrar({ tenantId: e.tenantId, atorId: e.colaboradorId, atorPerfil: e.nivel, tipo: 'mister', acao: 'mister_documento_diferencas', entidadeTipo: 'mister_documento', entidadeId: r.id, detalhe: { decisoes: r.nota.pedido?.decisoes ?? null } } as any)
+      .catch(() => undefined);
+    const proxima = this.respostaDoPasso(r.id, r.nota, r.motivo);
+    const faltam = diferencasSemDecisao(r.nota.pedido, diferencasDoPedido(r.nota));
+    return {
+      ok: true,
+      dados: {
+        gravado: true,
+        feito: r.feito,
+        faltamDecidir: faltam,
+        lancado: false,
+        siga: faltam
+          ? 'Diga em uma frase o que foi gravado e pergunte o que falta decidir, do jeito da conversa. Nada foi lançado.'
+          : 'Diga em uma frase o que foi gravado. O resumo com o botão "Lançar" (o que vai acontecer com o pedido) sai sozinho logo depois: não repita. Nada foi lançado.',
+      },
+      ...(faltam ? {} : { mensagens: [{ texto: proxima.texto, ...(proxima.botoes ? { botoes: proxima.botoes } : {}), chave: `documento:${r.id}` }] }),
+    };
   }
 
   /** ERR-594: o agente vê e corrige o documento aberto (o mesmo jeito da lista de compras). */
@@ -456,7 +505,12 @@ export class MisterNotasService implements OnModuleInit {
         await this.db.execute(sql`
           select c.id::text as "listaId", c.nome, c.fornecedor_id::text as "fornecedorId", f.nome as fornecedor,
                  to_char(c.created_at at time zone ${FUSO_SQL}, 'DD/MM') as criado,
-                 array(select i.item_id::text from compra_item i where i.lista_id = c.id and i.tenant_id = c.tenant_id) as "itemIds"
+                 array(select i.item_id::text from compra_item i where i.lista_id = c.id and i.tenant_id = c.tenant_id) as "itemIds",
+                 -- C1b: o retrato dos itens (a quantidade na unidade do estoque), para a conversa das diferenças.
+                 coalesce((select json_agg(json_build_object('compraItemId', i.id::text, 'itemId', i.item_id::text, 'quantidade', i.quantidade::float8,
+                                                             'nome', coalesce(ie.nome_comercial, ie.nome, 'item')) order by i.id)
+                             from compra_item i left join item_estoque ie on ie.id = i.item_id and ie.tenant_id = i.tenant_id
+                            where i.lista_id = c.id and i.tenant_id = c.tenant_id), '[]'::json) as "itensDoPedido"
             from compra_lista c
             left join fornecedor f on f.id = c.fornecedor_id and f.tenant_id = c.tenant_id
            where c.tenant_id = ${tenantId}::uuid and c.deleted_at is null and c.status <> 'recebida' and c.recebida_em is null
@@ -464,12 +518,18 @@ export class MisterNotasService implements OnModuleInit {
              ${unidadeId ? sql`and (c.unidade_id is null or c.unidade_id = ${unidadeId}::uuid)` : sql``}
            order by c.created_at desc
            limit 30`),
-      ) as CandidatoDoPedido[];
-      return pedidoQueBate(
+      ) as Array<CandidatoDoPedido & { itensDoPedido?: unknown }>;
+      const bateu = pedidoQueBate(
         candidatos.map((c) => ({ ...c, itemIds: Array.isArray(c.itemIds) ? c.itemIds.map(String) : [] })),
         insumos,
         fornecedorId,
       );
+      if (!bateu) return null;
+      const itens = candidatos.find((c) => c.listaId === bateu.listaId)?.itensDoPedido;
+      return {
+        ...bateu,
+        itensDoPedido: (Array.isArray(itens) ? itens : []).map((i: any) => ({ compraItemId: String(i.compraItemId), itemId: String(i.itemId), nome: String(i.nome), quantidade: Number(i.quantidade) })),
+      };
     } catch (e: any) {
       this.logger.warn(`a busca do pedido que bate com a nota falhou — ${e?.message ?? e}`);
       return null;
@@ -488,7 +548,7 @@ export class MisterNotasService implements OnModuleInit {
     pedido: PedidoDaNota,
     daNota: T[],
     notaRef: string | null,
-  ): Promise<{ aMais: T[]; resumo: { entraram: number; faltaram: string[]; naoVieram: string[]; pendentes: string[]; aMais: number } }> {
+  ): Promise<{ aMais: T[]; resumo: ResumoDoPedidoRecebido }> {
     if (!this.compras) throw new Error('o serviço de compras não está neste servidor');
     const doPedido = linhas(
       await this.db.execute(sql`
@@ -508,7 +568,7 @@ export class MisterNotasService implements OnModuleInit {
       porInsumo.set(x.itemId, a);
     }
     const usados = new Set<string>();
-    const resumo = { entraram: 0, faltaram: [] as string[], naoVieram: [] as string[], pendentes: [] as string[], aMais: 0 };
+    const resumo: ResumoDoPedidoRecebido = { entraram: 0, faltaram: [] as string[], naoVieram: [] as string[], pendentes: [] as string[], aMais: 0 };
     const num = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
     const itens = doPedido.map((l) => {
       const n = porInsumo.get(l.itemId);
@@ -579,7 +639,14 @@ export class MisterNotasService implements OnModuleInit {
     if (recebePedido(nota) && !nota.comoLancar) return { situacao: 'falta', motivo: 'pedido_estoque' };
     if (nota.especie === 'cupom' && !nota.comoLancar) return { situacao: 'falta', motivo: 'como_lancar' };
     const pend = lancaEstoque(nota) ? proximaPendencia(nota) : null;
-    return pend ? { situacao: 'falta', motivo: `${pend.tipo}:${pend.indice}` } : { situacao: 'confirmar', motivo: lancaEstoque(nota) ? 'itens_ligados' : 'so_despesa' };
+    if (pend) return { situacao: 'falta', motivo: `${pend.tipo}:${pend.indice}` };
+    // Versão 10, C1b: com o pedido recebido no estoque e as linhas resolvidas, as diferenças (veio menos, não veio, veio a
+    // mais) esperam a decisão da pessoa, pela conversa, antes do "Lançar".
+    if (recebePedido(nota) && lancaEstoque(nota)) {
+      const d = diferencasDoPedido(nota);
+      if (d.pronto && diferencasSemDecisao(nota.pedido, d) > 0) return { situacao: 'falta', motivo: 'diferencas' };
+    }
+    return { situacao: 'confirmar', motivo: lancaEstoque(nota) ? 'itens_ligados' : 'so_despesa' };
   }
 
   private respostaDaLeitura(id: string, nota: NotaNoMister, motivo: string): Resposta {
@@ -598,6 +665,8 @@ export class MisterNotasService implements OnModuleInit {
     if (motivo === 'como_lancar') return { texto: FRASES_DA_NOTA.comoLancar(nota), botoes: botoesDoComoLancar(id) };
     if (motivo === 'pedido' && nota.pedido) return { texto: FRASES_DO_PEDIDO_DA_NOTA.bate(nota, nota.pedido), botoes: botoesDoPedidoDaNota(id) };
     if (motivo === 'pedido_estoque' && nota.pedido) return { texto: FRASES_DO_PEDIDO_DA_NOTA.estoque(nota, nota.pedido), botoes: botoesDoEstoqueDoPedido(id) };
+    // C1b: sem botões — a pessoa conta do jeito dela, e a IA grava (`documento_em_andamento`, `acao: pedido`).
+    if (motivo === 'diferencas' && nota.pedido) return { texto: textoDasDiferencas(nota.pedido, diferencasDoPedido(nota), nota.especie) };
     return this.respostaDeSeguir(id, nota);
   }
 
@@ -805,6 +874,10 @@ export class MisterNotasService implements OnModuleInit {
           ...(e.verValores ? { total: nota.valorTotalCentavos / 100 } : {}),
           situacao: d.situacao === 'confirmar' ? 'pronto, esperando o toque em "Lançar"' : 'faltam respostas',
           linhas: linhasParaOAgente(nota, e.verValores),
+          // C1b: o que veio diferente do pedido e o que já foi decidido.
+          ...(recebePedido(nota) && nota.pedido?.itensDoPedido?.length && lancaEstoque(nota)
+            ? { pedido: nota.pedido.nome, diferencasDoPedido: diferencasParaAIa(diferencasDoPedido(nota), nota.pedido.decisoes) }
+            : {}),
           ...(outros.length
             ? {
                 outrosEmAberto: outros,
@@ -815,7 +888,8 @@ export class MisterNotasService implements OnModuleInit {
         },
       };
     }
-    if (acao !== 'alterar') return recusa('acao precisa ser ver, alterar, informar ou esquecer.');
+    if (acao === 'pedido') return this.decidirDiferencas(e, en, aberto, SEM_DOCUMENTO);
+    if (acao !== 'alterar') return recusa('acao precisa ser ver, alterar, informar, pedido ou esquecer.');
     // Versão 10, C1a: o total, os itens que a leitura não pegou e o "lançar mesmo com a soma diferente" (antes, leitores de
     // código liam a resposta antes da IA). Só eles, sem linhas, também vale.
     const lidosExtras = lerExtrasDaNota(en);
@@ -960,7 +1034,7 @@ export class MisterNotasService implements OnModuleInit {
     const comEstoque = lancaEstoque(nota);
     // P4: o pedido de compra recebido com esta nota (com "Receber o pedido").
     const pedido = recebePedido(nota) ? (nota.pedido as PedidoDaNota) : null;
-    let doPedido: { entraram: number; faltaram: string[]; naoVieram: string[]; pendentes: string[]; aMais: number } | null = null;
+    let doPedido: ResumoDoPedidoRecebido | null = null;
     let pedidoFeito = false;
     // PR-8: a nota sem pedido que dá entrada vira um pedido já recebido (sem o serviço de compras, a nota de sempre).
     let pedidoCriado: PedidoDaNota | null = null;
@@ -988,9 +1062,23 @@ export class MisterNotasService implements OnModuleInit {
       if (pedido) {
         if (!this.compras) throw new Error('o serviço de compras não está neste servidor');
         if (comEstoque) {
+          // Versão 10, C1b: o que a pessoa decidiu sobre as diferenças. O que veio a mais e é do pedido entra nele antes do
+          // recebimento; depois de receber, o que ainda chega vira um pedido novo só com esses itens (o cancelado, não).
+          const dif = pedido.itensDoPedido?.length ? diferencasDoPedido(nota) : null;
+          const dec = pedido.decisoes;
+          const noPedido = dif ? dif.aMais.filter((a) => dec?.aMais?.[a.itemId] === 'no_pedido') : [];
+          if (noPedido.length) await this.compras.adicionarAoPedido(tenantId, pedido.listaId, noPedido.map((a) => ({ itemId: a.itemId, quantidade: a.veio })), loja, colaboradorId);
           const r = await this.receberOPedido(tenantId, colaboradorId, loja, pedido, itens, nota.numero ?? null);
           itens = r.aMais;
           doPedido = r.resumo;
+          const depois = dif ? dif.faltas.filter((f) => dec?.faltas?.[f.itemId]?.decisao === 'chega_depois') : [];
+          const cancelados = dif ? dif.faltas.filter((f) => dec?.faltas?.[f.itemId]?.decisao === 'cancelado').map((f) => f.nome) : [];
+          if (depois.length) {
+            const para = depois.map((f) => dec!.faltas[f.itemId].para).filter((x): x is string => !!x).sort()[0] ?? null;
+            const novo = await this.compras.gerarListaDoQueFaltou(tenantId, pedido.listaId, para ? { dataRecebimento: para } : undefined, loja, colaboradorId, { apenasItens: depois.map((f) => f.itemId) });
+            doPedido.chegaDepois = { nome: novo.nome, itens: depois.map((f) => f.nome), para };
+          }
+          if (cancelados.length) doPedido.cancelados = cancelados;
         } else {
           await this.compras.marcarRecebidoSemEstoque(tenantId, pedido.listaId, loja, colaboradorId, nota.numero ?? null);
         }
@@ -1177,10 +1265,12 @@ export class MisterNotasService implements OnModuleInit {
     if (!pend) {
       const base =
         nota.especie === 'cupom' ? FRASES_DA_NOTA.resumoDoCupom(nota) : lancaEstoque(nota) ? FRASES_DA_NOTA.resumo(nota) : FRASES_DO_PEDIDO_DA_NOTA.soDespesaDaNota(nota);
+      // C1b: o que a pessoa decidiu sobre as diferenças entra no resumo ("Vou fazer"), montado pelo Regem.
+      const decididas = recebePedido(nota) && nota.pedido && lancaEstoque(nota) ? linhasDoPedidoNoResumo(diferencasDoPedido(nota), nota.pedido.decisoes) : [];
       return {
         texto:
           recebePedido(nota) && nota.pedido
-            ? `${FRASES_DO_PEDIDO_DA_NOTA.noResumo(nota, nota.pedido)}\n\n${base}`
+            ? `${FRASES_DO_PEDIDO_DA_NOTA.noResumo(nota, nota.pedido)}${decididas.length ? `\n${decididas.join('\n')}` : ''}\n\n${base}`
             : lancaEstoque(nota) && this.compras
               ? `${FRASES_DO_PEDIDO_DA_NOTA.semPedidoNoResumo(nota)}\n\n${base}`
               : base,

@@ -17,6 +17,7 @@ import type { FimDaPergunta } from './mister-laco';
 import { GUIA_DE_USO, buscarNoGuia, quemAbre } from './mister-guia-de-uso';
 import { conferirMemoria } from './mister-memoria';
 import { lerAlteracoes, lerExtrasDaNota, lerInformado, temExtras } from './mister-documento-conversa';
+import { diferencasParaAIa, diferencasSemDecisao, lerDecisoesDoPedido, type DiferencasDoPedido } from './mister-nota-diferencas';
 import { lerAlteracoesDaLista } from './mister-lista-ia';
 import { canalDito, conferirTextoDoLembrete, lerQuando, quandoNaConversa } from './mister-vigia';
 import { AVISOS_QUE_NAO_SE_CALAM, Regra, conferirRegra, descreverRegra, fraseDoQueDeixaDeChegar } from './mister-regra';
@@ -49,6 +50,16 @@ import type { BoletimDoRamo, NoticiaDoBoletim } from '../pulso/pulso.regras';
 export const AGORA_DA_AVALIACAO = 'sexta-feira, 13/11/2026, 20:15';
 /** O mesmo "agora", como instante (20:15 da loja = 23:15 UTC): o lembrete da avaliação confere a hora contra ele. */
 const AGORA_DA_AVALIACAO_INSTANTE = new Date('2026-11-13T23:15:00Z');
+/** Versão 10, C1b: as diferenças do pedido da nota de teste (o cupom da Distribuidora Sul recebe "Compras da semana"). */
+const DIFERENCAS_DA_AVALIACAO: DiferencasDoPedido = {
+  pronto: true,
+  iguais: 6,
+  faltas: [
+    { itemId: 'i-batata', nome: 'Batata 7 mm', pedida: 30, veio: 25 },
+    { itemId: 'i-cebola', nome: 'Cebola', pedida: 10, veio: 0 },
+  ],
+  aMais: [{ itemId: 'i-nugget', nome: 'Nugget 1 kg', veio: 1 }],
+};
 const EMPRESA = 'Empresa de Teste da Avaliação';
 const LOJA = 'Loja Centro';
 const SEM_VALORES = 'O perfil desta pessoa no Regem não mostra valores em reais: os valores vêm vazios.';
@@ -473,6 +484,19 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       // ERR-594: a mesma conferência da de verdade; na avaliação nada é gravado.
       if (perfil.nivel !== 'presidente') return recusa('Mexer em nota por foto, por enquanto, é só com o presidente.');
       const brl = (c: number) => `R$ ${(c / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+      // Versão 10, C1b: a decisão sobre as diferenças do pedido (a mesma leitura da de verdade; nada é gravado).
+      if (en.acao === 'pedido') {
+        const p = lerDecisoesDoPedido(en, DIFERENCAS_DA_AVALIACAO, undefined, AGORA_DA_AVALIACAO_INSTANTE.toISOString().slice(0, 10));
+        if ('erro' in p) return recusa(p.erro);
+        const faltam = diferencasSemDecisao({ decisoes: p.decisoes }, DIFERENCAS_DA_AVALIACAO);
+        return ok({
+          gravado: true,
+          feito: p.feito,
+          faltamDecidir: faltam,
+          lancado: false,
+          siga: faltam ? 'Diga em uma frase o que foi gravado e pergunte o que falta decidir, do jeito da conversa. Nada foi lançado.' : 'Diga em uma frase o que foi gravado. O resumo com o botão "Lançar" sai sozinho logo depois: não repita. Nada foi lançado.',
+        });
+      }
       // Versão 10, C1a: o valor e o vencimento do boleto que espera (a mesma conferência da de verdade).
       if (en.acao === 'informar') {
         const i = lerInformado(en, AGORA_DA_AVALIACAO_INSTANTE.toISOString().slice(0, 10));
@@ -511,6 +535,9 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
           { linha: 1, produto: 'BATATA 7MM 2250gx8', quantidade: 35, unidade: 'UN', ...(perfil.verValores ? { valorTotal: 7277.2 } : {}), situacao: 'Caixa de batata 7mm (1 UN = 1 caixa)' },
           { linha: 5, produto: 'QUEIJO CHEDDAR FATIADO', quantidade: 3, unidade: 'UN', ...(perfil.verValores ? { valorTotal: 2219.76 } : {}), situacao: 'falta dizer qual insumo é' },
         ],
+        // Versão 10, C1b: a nota recebe o pedido "Compras da semana", com diferenças a decidir.
+        pedido: 'Compras da semana',
+        diferencasDoPedido: diferencasParaAIa(DIFERENCAS_DA_AVALIACAO, undefined),
       });
     }
     case 'escrever_recado':
@@ -1477,6 +1504,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 10, C1a (25/11): a resposta à dúvida do documento vai à IA (antes, um leitor de código lia antes dela).
   { id: 'c121', pergunta: 'Na nota que mandei, o total que não deu para ler é R$ 9.496,96.', consultas: ['documento_em_andamento'], contem: ['9.496,96'] },
   { id: 'c122', pergunta: 'O boleto da Light que mandei é de 480 reais e vence dia 10/12.', consultas: ['documento_em_andamento'], contem: ['480', '10/12'] },
+  // Versão 10, C1b (25/11): as diferenças do pedido na nota, contadas do jeito da pessoa ("amanhã" = 14/11 na loja de teste).
+  { id: 'c123', pergunta: 'Sobre o cupom: o resto da batata chega amanhã e a cebola eu cancelei.', consultas: ['documento_em_andamento'], contem: ['14/11'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

@@ -4175,6 +4175,8 @@ export function testesDoMisterComPostgres(): void {
         // C1a: o total da nota e o valor e o vencimento do boleto, ditos na conversa, pela ferramenta do documento.
         c121: { acao: 'alterar', total: 9496.96 },
         c122: { acao: 'informar', valor: 480, vencimento: '2026-12-10' },
+        // C1b: as diferenças do pedido, decididas na conversa.
+        c123: { acao: 'pedido', faltas: [{ produto: 'batata', decisao: 'chega_depois', para: '2026-11-14' }, { produto: 'cebola', decisao: 'cancelado' }] },
         c110: { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' },
         c111: { acao: 'repetir_campanha', campanhaDaConversa: 'a última' },
         c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },
@@ -7526,7 +7528,7 @@ export function testesDoMisterComPostgres(): void {
           expect(ver.dados.sobreOsOutros).toContain('esquecer');
           // Esquecer pede a hora ou "todos menos o mais novo"; ação desconhecida diz as três.
           expect((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'esquecer' })).dados.erro).toContain('Diga qual documento esquecer');
-          expect((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'apagar' })).dados.erro).toBe('acao precisa ser ver, alterar, informar ou esquecer.');
+          expect((await notas.ferramentaDoDocumento(escopoDe(), { acao: 'apagar' })).dados.erro).toBe('acao precisa ser ver, alterar, informar, pedido ou esquecer.');
           const r: any = await notas.ferramentaDoDocumento(escopoDe(), { acao: 'esquecer', todosMenosOMaisNovo: true });
           expect(r).toMatchObject({ ok: true, dados: { gravado: true } });
           expect(r.dados.esquecidos).toHaveLength(2);
@@ -9052,17 +9054,47 @@ export function testesDoMisterComPostgres(): void {
           numero.pedidos.length = 0;
           expect(await tocar(telAna, `doc:pd:${c1.id}:r`)).toBe('respondeu_proposta');
           expect(textos()).toEqual(['Esta pergunta já foi respondida.']);
-          // "Lançar no estoque": os itens já ligados vão direto ao resumo, com a linha do pedido
+          // "Lançar no estoque": com as linhas ligadas, as diferenças do pedido (versão 10, C1b) esperam a decisão — sem botões.
           numero.pedidos.length = 0;
           expect(await tocar(telAna, `doc:pd:${c1.id}:e`)).toBe('respondeu_proposta');
+          expect(await ultimo()).toMatchObject({ situacao: 'falta', motivo: 'diferencas' });
+          const pergunta = numero.enviadas.at(-1)!;
+          expect(pergunta.texto).toContain('Conferi o cupom com o pedido "Mercado P4"');
+          expect(pergunta.texto).toContain('✓ 1 item veio como pedido');
+          expect(pergunta.texto).toContain('! Óleo P4: pedidos 10, vieram 8');
+          expect(pergunta.texto).toContain('! Tomate P4: não veio');
+          expect(pergunta.texto).toContain('+ Detergente P4: 2 que não estava no pedido');
+          expect(pergunta.botoes ?? []).toEqual([]);
+          // A resposta vai à IA (nenhum leitor de código antes): nada muda sozinho.
+          expect(await mandar(telAna, 'o resto do óleo chega amanhã, o tomate cancelei e o detergente põe no pedido')).toBe('pergunta');
+          expect((await ultimo()).motivo).toBe('diferencas');
+          // A IA grava aos poucos: o óleo primeiro; o que falta decidir ela pergunta (sem mensagem pronta).
+          const amanha = somarDias(hojeISO(), 1);
+          const dm = `${amanha.slice(8, 10)}/${amanha.slice(5, 7)}`;
+          const dec1: any = await pelaIa({ acao: 'pedido', faltas: [{ produto: 'óleo', decisao: 'chega_depois', para: amanha }] });
+          expect(dec1).toMatchObject({ ok: true, dados: { gravado: true, faltamDecidir: 2, lancado: false, feito: [`Óleo P4: 2 continua no pedido, para ${dm}.`] } });
+          expect(dec1.mensagens).toBeUndefined();
+          // O produto que não está nas diferenças volta para ela perguntar; o gerente não decide.
+          expect((await pelaIa({ acao: 'pedido', faltas: [{ produto: 'sal', decisao: 'cancelado' }] })).dados.erro).toContain('não está nas diferenças');
+          expect((await pelaIa({ acao: 'pedido', faltas: [{ produto: 'tomate', decisao: 'cancelado' }] }, { nivel: 'gerente' })).dados.erro).toBe('Mexer em nota por foto, por enquanto, é só com o presidente.');
+          // O resto: o resumo com "Lançar" (o "Vou fazer", montado pelo Regem) sai depois, com cada decisão.
+          const dec2: any = await pelaIa({ acao: 'pedido', faltas: [{ produto: 'tomate', decisao: 'cancelado' }], a_mais: [{ produto: 'detergente', decisao: 'no_pedido' }] });
+          expect(dec2.dados.faltamDecidir).toBe(0);
           expect(await ultimo()).toMatchObject({ situacao: 'confirmar', motivo: 'itens_ligados' });
-          expect(numero.enviadas.at(-1)!.texto).toMatch(/^📦 O pedido "Mercado P4" é recebido com este cupom: a entrada no estoque sai pelo pedido\.\n\n🧾 Cupom/);
+          expect(dec2.mensagens[0].texto).toMatch(/^📦 O pedido "Mercado P4" é recebido com este cupom: a entrada no estoque sai pelo pedido\.\n/);
+          expect(dec2.mensagens[0].texto).toContain(`• Óleo P4: 2 continua num pedido novo, para ${dm}.`);
+          expect(dec2.mensagens[0].texto).toContain('• Tomate P4: sai do pedido (cancelado).');
+          expect(dec2.mensagens[0].texto).toContain('• Detergente P4: entra no pedido.');
+          expect(dec2.mensagens[0].botoes.map((b: any) => b.titulo)).toEqual(['Lançar', 'Cancelar']);
           numero.pedidos.length = 0;
           expect(await tocar(telAna, `doc:lancar:${c1.id}`)).toBe('respondeu_proposta');
           expect(numero.enviadas.at(-1)!.texto).toMatch(
-            /^📦 Recebi o pedido "Mercado P4" em Estoque › Pedidos: 2 itens entraram no estoque \(e 1 item a mais, pelo recebimento avulso\)\. Veio menos: Óleo P4: 8 de 10\. Não veio \(fica como falta no pedido\): Tomate P4\.\n\n/,
+            new RegExp(
+              `^📦 Recebi o pedido "Mercado P4" em Estoque › Pedidos: 3 itens entraram no estoque\\. Veio menos: Óleo P4: 8 de 10\\. O que ainda chega \\(Óleo P4\\) está no pedido "Faltou de: Mercado P4", para ${dm}\\. Cancelado: Tomate P4 \\(não volta a ser pedido\\)\\.\\n\\n`,
+            ),
           );
-          // O pedido recebido pela quantidade e pelo valor do cupom; o tomate como falta; sem a conta do pedido (a despesa é a do cupom).
+          // O pedido recebido pela quantidade e pelo valor do cupom, com o detergente DENTRO dele; o tomate como falta; sem a
+          // conta do pedido (a despesa é a do cupom).
           expect(await q(`select status from compra_lista where id = $1`, [p1])).toEqual([{ status: 'recebida' }]);
           expect(
             await q(
@@ -9072,18 +9104,25 @@ export function testesDoMisterComPostgres(): void {
           ).toEqual([
             { nome: 'Sal P4', q: 10, c: 3, d: 'ok' },
             { nome: 'Óleo P4', q: 8, c: 7.5, d: 'parcial' },
+            { nome: 'Detergente P4', q: 2, c: 5, d: 'ok' },
             { nome: 'Tomate P4', q: 0, c: null, d: 'nao_veio' },
           ]);
+          expect(auditados.filter((a) => a.acao === 'adicionou_ao_pedido' && a.entidadeId === p1)).toHaveLength(1);
+          // O que ainda chega: um pedido novo só com o óleo (o tomate cancelado não volta), para amanhã.
+          const novos = await q(`select id::text as id, nome, data_recebimento::text as para from compra_lista where origem_lista_id = $1`, [p1]);
+          expect(novos.map((x: any) => ({ nome: x.nome, para: x.para }))).toEqual([{ nome: 'Faltou de: Mercado P4', para: amanha }]);
+          listas.push(novos[0].id);
+          expect(await q(`select ie.nome, ci.quantidade::float8 as q from compra_item ci join item_estoque ie on ie.id = ci.item_id where ci.lista_id = $1`, [novos[0].id])).toEqual([{ nome: 'Óleo P4', q: 2 }]);
           expect(await q(`select descricao, valor::float8 as v, status from titulo_financeiro where tenant_id = $1 and (origem_id = $2 or descricao like 'Cupom 7001%')`, [A, p1])).toEqual([
             { descricao: 'Cupom 7001 · Atacadão P4', v: 100, status: 'pago' },
           ]);
-          // As entradas: o óleo e o sal pelo pedido, o detergente (a mais) pelo recebimento avulso — cada um uma vez.
+          // As entradas: o óleo, o sal e o detergente pelo pedido — cada um uma vez, e nada pelo recebimento avulso.
           expect(await q(`select ie.nome, sum(m.quantidade)::float8 as q from movimento_estoque m join item_estoque ie on ie.id = m.item_id where m.item_id = any($1::uuid[]) group by ie.nome order by sum(m.quantidade)`, [itens])).toEqual([
             { nome: 'Detergente P4', q: 2 },
             { nome: 'Óleo P4', q: 8 },
             { nome: 'Sal P4', q: 10 },
           ]);
-          expect(await q(`select ri.item_id::text as i from recebimento_item ri join recebimento r on r.id = ri.recebimento_id where r.tenant_id = $1 and ri.item_id = any($2::uuid[])`, [A, itens])).toEqual([{ i: detergente }]);
+          expect(await q(`select ri.item_id::text as i from recebimento_item ri join recebimento r on r.id = ri.recebimento_id where r.tenant_id = $1 and ri.item_id = any($2::uuid[])`, [A, itens])).toEqual([]);
 
           // ── 2) Bate e "Só marcar recebido": o pedido recebido sem mexer no estoque; só a despesa ──
           const p2 = await pedido('Mercado P4 dois', [{ itemId: oleo, quantidade: 8 }, { itemId: sal, quantidade: 10 }]);

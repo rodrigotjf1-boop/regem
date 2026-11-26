@@ -739,6 +739,57 @@ export class ComprasService {
     return { ok: true, validade, validadeIndefinida: indefinida };
   }
 
+  /**
+   * Versão 10, C1b (o Mister): o item que veio a mais na entrega e que a pessoa disse que é do pedido entra NELE antes do
+   * recebimento (sem isto ia pelo recebimento avulso, fora do pedido). Só no pedido ainda aberto, com o insumo desta empresa;
+   * o insumo que já está no pedido não entra de novo. A linha nova é conferida no recebimento como as outras.
+   */
+  async adicionarAoPedido(
+    tenantId: string,
+    id: string,
+    itens: Array<{ itemId: string; quantidade: number }>,
+    atual: string | null = null,
+    atorId?: string | null,
+  ): Promise<{ adicionados: number }> {
+    const validos = itens.filter((i) => i.itemId && Number.isFinite(i.quantidade) && i.quantidade > 0);
+    if (!validos.length) return { adicionados: 0 };
+    const r = await this.db.transaction(async (tx) => {
+      const [lista] = await tx
+        .select({ id: compraLista.id, status: compraLista.status })
+        .from(compraLista)
+        .where(and(eq(compraLista.id, id), eq(compraLista.tenantId, tenantId), isNull(compraLista.deletedAt), condUnidadeOuRede(compraLista.unidadeId, atual)))
+        .for('update');
+      if (!lista) throw new NotFoundException('Pedido não encontrado');
+      if (lista.status === 'recebida') throw new BadRequestException('Compra já recebida.');
+      const daEmpresa = new Set(
+        (
+          await tx
+            .select({ id: itemEstoque.id })
+            .from(itemEstoque)
+            .where(and(eq(itemEstoque.tenantId, tenantId), isNull(itemEstoque.deletedAt), inArray(itemEstoque.id, validos.map((i) => i.itemId))))
+        ).map((x) => x.id),
+      );
+      const ja = new Set(
+        (await tx.select({ itemId: compraItem.itemId }).from(compraItem).where(and(eq(compraItem.listaId, id), eq(compraItem.tenantId, tenantId)))).map((x) => x.itemId),
+      );
+      const novos = validos.filter((i) => daEmpresa.has(i.itemId) && !ja.has(i.itemId));
+      if (novos.length) await tx.insert(compraItem).values(novos.map((i) => ({ tenantId, listaId: id, itemId: i.itemId, quantidade: String(Math.round(i.quantidade * 10000) / 10000) })));
+      return novos;
+    });
+    if (r.length)
+      await this.auditoria.registrar({
+        tenantId,
+        atorId: atorId ?? null,
+        atorPerfil: '',
+        tipo: 'estoque',
+        acao: 'adicionou_ao_pedido',
+        entidadeTipo: 'compra_lista',
+        entidadeId: id,
+        detalhe: { itens: r.map((i) => ({ itemId: i.itemId, quantidade: i.quantidade })), pelo: 'mister' },
+      });
+    return { adicionados: r.length };
+  }
+
   // "Gerar lista com o que faltou" (decisão do dono, 09/10/2026). A lista recebida fecha como
   // está; o que não veio — a linha inteira ou só uma parte — vira uma lista NOVA, com o mesmo
   // fornecedor, o mesmo responsável e as mesmas marcas (1ª e 2ª opção). Uma só por lista de
@@ -750,6 +801,9 @@ export class ComprasService {
     dto: GerarFaltanteDto | undefined,
     atual: string | null = null,
     atorId?: string | null,
+    // Versão 10, C1b (o Mister): só os itens que a pessoa disse que ainda chegam — o que foi cancelado não volta a ser pedido.
+    // A tela não manda: o pedido do que faltou continua com tudo o que faltou.
+    opcoes: { apenasItens?: string[] } = {},
   ) {
     const r = await this.db.transaction(async (tx) => {
       const [origem] = await tx
@@ -790,7 +844,8 @@ export class ComprasService {
         .from(compraItem)
         .leftJoin(itemEstoque, eq(compraItem.itemId, itemEstoque.id))
         .where(and(eq(compraItem.listaId, id), eq(compraItem.tenantId, tenantId)));
-      const faltas = linhas.filter((l) => Number(l.falta) > 0);
+      const escolhidos = opcoes.apenasItens ? new Set(opcoes.apenasItens) : null;
+      const faltas = linhas.filter((l) => Number(l.falta) > 0 && (!escolhidos || escolhidos.has(l.itemId)));
       if (!faltas.length)
         throw new BadRequestException('Não faltou nada neste pedido: tudo o que foi pedido chegou.');
       // Produto excluído do estoque depois da compra não volta para uma lista nova.
