@@ -2679,7 +2679,7 @@ PIN. Por isso a pessoa liga para si sabendo do risco, o Mister pede para apagar 
      `select detalhe->>'situacao', count(*) from audit_log where acao = 'mister_imagem_conferida' group by 1`.
   Custo: cerca de R$ 3,50 e 10 da franquia de imagem (30 por mês na Steakhouse, dividida com o Liame).
 
-### C1a — a resposta ao documento vai à IA (25/11/2026; SEM migration; só na nuvem)
+### C1a — a resposta ao documento vai à IA (25/11/2026, #1349, NO AR; SEM migration; só na nuvem)
 
 A C1 foi dividida em duas. A C1a tira os leitores de código da frente da IA. A C1b é o pedido que bate (a P4c): a conversa sobre
 o que veio e o "Vou fazer" montado pelo Regem.
@@ -2713,3 +2713,39 @@ o que veio e o "Vou fazer" montado pelo Regem.
   (o valor e o vencimento do boleto). São 122 perguntas.
 - **O que ainda é fixo** (fica para a C1b e a C9): a próxima pergunta do documento depois de cada gravação, as perguntas com
   botões do pedido que bate ("Receber o pedido", "Lançar no estoque?") e o "Como deseja lançar?" do cupom.
+
+### C1b-1 — as diferenças entre o pedido e a nota, pela conversa (26/11/2026; SEM migration; só na nuvem)
+
+Era a P4c de "Pedidos e recebimento" (PR-9), a conversa "O documento conversado" do protótipo da versão 10. A C1b foi
+dividida em duas partes:
+- **C1b-1:** o que faltou e o que veio a mais.
+- **C1b-2:** "veio de outro lugar" (o fornecedor, o valor e a conta paga) e "é de outro pedido".
+
+- **O retrato do pedido:** quando a nota bate com um pedido, ele guarda os itens daquele momento (`PedidoDaNota.itensDoPedido`:
+  o item, o insumo, o nome e a quantidade na unidade do estoque). Documento antigo, sem o retrato, segue o caminho de antes.
+- **As diferenças** (`mister-nota-diferencas.ts`, puro): a comparação é por insumo, na unidade do estoque (a quantidade da nota
+  × a conversão), como o recebimento. Saem "veio menos", "não veio" e "veio a mais". Só comparam com todas as linhas da nota
+  resolvidas (ligadas ou fora).
+- **O passo novo** `diferencas` (depois das linhas e antes do "Lançar", só com o pedido recebido no estoque): a pergunta sai
+  sem botões. Ela mostra quantos itens vieram como pedido, o que veio diferente, e "Nada foi lançado ainda". O bloco do trabalho
+  em andamento também mostra o passo à IA.
+- **A IA grava** pela `documento_em_andamento`, ação nova `pedido`:
+  - `faltas`: produto mais `chega_depois` (com `para`, AAAA-MM-DD, de hoje até 60 dias) ou `cancelado`;
+  - `a_mais`: produto mais `no_pedido` ou `avulso`.
+  O produto é achado pelo nome das diferenças (o igual, ou o único que contém); o código nunca escolhe entre parecidos. Dá para
+  responder aos poucos: com diferença ainda sem decisão, a IA pergunta do jeito dela e nenhuma mensagem pronta sai. Tudo
+  decidido, sai o resumo com "Lançar" (o "Vou fazer"), montado pelo Regem com uma linha por decisão. `ver` traz
+  `diferencasDoPedido` com o que já foi decidido.
+- **No lançamento:**
+  - o a mais "no pedido" entra nele antes do recebimento, pela `ComprasService.adicionarAoPedido`, que é nova: pedido travado,
+    ainda aberto, insumo desta empresa, sem repetir o que já está nele, com auditoria `adicionou_ao_pedido`;
+  - depois do recebimento, o que "chega depois" vira o pedido novo "Faltou de: …" só com esses itens: `gerarListaDoQueFaltou`
+    ganhou `apenasItens`, e a tela continua com tudo o que faltou. A data é a mais cedo das ditas;
+  - o cancelado não volta a ser pedido;
+  - o "Recebi o pedido" diz o que ainda chega (o pedido e a data) e o que foi cancelado, sem repetir esses como "fica como falta".
+- **Avaliação:** c123 ("o resto da batata chega amanhã e a cebola eu cancelei", com "amanhã" = 14/11 na loja de teste). O `ver`
+  do dublê traz diferenças de teste. São 123 perguntas.
+- **Diferenças do protótipo:**
+  - o "Receber o pedido?" e o "Lançar no estoque?" continuam com botões antes das diferenças (viram conversa com a C9);
+  - "veio de outro lugar", o fornecedor novo e a conta paga ficam para a C1b-2;
+  - o botão do resumo continua "Lançar" e "Cancelar" (o protótipo mostra "Confirmar" e "Mudar").

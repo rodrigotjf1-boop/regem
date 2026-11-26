@@ -59,6 +59,19 @@ const cabecalho = (n: NotaNoMister) => (n.especie === 'cupom' ? FRASES_DA_NOTA.c
 const itens = (k: number) => (k === 1 ? '1 item' : `${k} itens`);
 const reais = (c: number) => (c / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/** O que o recebimento do pedido pela nota fez (P4), com as decisões das diferenças (versão 10, C1b). */
+export interface ResumoDoPedidoRecebido {
+  entraram: number;
+  faltaram: string[];
+  naoVieram: string[];
+  pendentes: string[];
+  aMais: number;
+  /** C1b: o pedido novo com o que ainda chega. */
+  chegaDepois?: { nome: string; itens: string[]; para: string | null };
+  /** C1b: o que foi cancelado (não volta a ser pedido). */
+  cancelados?: string[];
+}
+
 export const FRASES_DO_PEDIDO_DA_NOTA = {
   /** A nota lida que bate com um pedido aberto (o protótipo: "Temos a lista de pedido … que bate com este cupom"). */
   bate: (n: NotaNoMister, p: PedidoDaNota): string => {
@@ -91,12 +104,21 @@ export const FRASES_DO_PEDIDO_DA_NOTA = {
     return `${FRASES_DA_NOTA.cabecalho(n)}\n\nLanço a conta a pagar de R$ ${reais(n.valorTotalCentavos)}${parcelas}? O estoque não muda.`;
   },
   /** O que o lançamento fez com o pedido (vai antes da mensagem de sempre do lançamento). */
-  recebido: (p: PedidoDaNota, r: { entraram: number; faltaram: string[]; naoVieram: string[]; pendentes: string[]; aMais: number }): string =>
+  recebido: (p: PedidoDaNota, r: ResumoDoPedidoRecebido): string => {
+    // C1b: o que já tem destino (cancelado, ou num pedido novo) não aparece de novo como "fica como falta no pedido".
+    const decididos = new Set([...(r.cancelados ?? []), ...(r.chegaDepois?.itens ?? [])]);
+    const naoVieram = r.naoVieram.filter((n) => !decididos.has(n));
+    return (
     `📦 Recebi o pedido "${p.nome}" em Estoque › Pedidos: ${itens(r.entraram)} ${r.entraram === 1 ? 'entrou' : 'entraram'} no estoque` +
     `${r.aMais ? ` (e ${itens(r.aMais)} a mais, pelo recebimento avulso)` : ''}.` +
     `${r.faltaram.length ? ` Veio menos: ${r.faltaram.join('; ')}.` : ''}` +
-    `${r.naoVieram.length ? ` Não ${r.naoVieram.length === 1 ? 'veio' : 'vieram'} (fica como falta no pedido): ${r.naoVieram.join(', ')}.` : ''}` +
-    `${r.pendentes.length ? ` A validade de ${r.pendentes.join(', ')} ficou pendente: responda a data quando souber.` : ''}`,
+    `${naoVieram.length ? ` Não ${naoVieram.length === 1 ? 'veio' : 'vieram'} (fica como falta no pedido): ${naoVieram.join(', ')}.` : ''}` +
+    // Versão 10, C1b: o que a pessoa decidiu sobre as diferenças.
+    `${r.chegaDepois ? ` O que ainda chega (${r.chegaDepois.itens.join(', ')}) está no pedido "${r.chegaDepois.nome}"${r.chegaDepois.para ? `, para ${r.chegaDepois.para.slice(8, 10)}/${r.chegaDepois.para.slice(5, 7)}` : ''}.` : ''}` +
+    `${r.cancelados?.length ? ` ${r.cancelados.length === 1 ? 'Cancelado' : 'Cancelados'}: ${r.cancelados.join(', ')} (não ${r.cancelados.length === 1 ? 'volta' : 'voltam'} a ser pedido).` : ''}` +
+    `${r.pendentes.length ? ` A validade de ${r.pendentes.join(', ')} ficou pendente: responda a data quando souber.` : ''}`
+    );
+  },
   semEstoque: (p: PedidoDaNota): string => `📦 Marquei o pedido "${p.nome}" como recebido em Estoque › Pedidos, sem mexer no estoque.`,
   /** PR-8: a nota sem pedido virou um pedido já recebido. */
   criado: (p: PedidoDaNota, pendentes: string[]): string =>
