@@ -1472,6 +1472,17 @@ try {
   }
 } catch { Diga "(aviso) nao registrei o backup agendado: $($_.Exception.Message)" }
 
+# HORA CERTA (ERR-618, 1.30.16): o servidor decide conflito pela hora e a loja piloto rodava com o relogio do CMOS, 9 s
+# atrasado e sem nunca sincronizar. Liga a sincronizacao pela internet (a.ntp.br, b.ntp.br) e sincroniza agora.
+# Best-effort, como a afinacao do Postgres: sem internet no momento, o servico tenta de novo sozinho.
+try {
+  $horaCerta = Join-Path $root 'edge\hora-certa.ps1'
+  if (Test-Path $horaCerta) {
+    $saidaHora = (& powershell -ExecutionPolicy Bypass -NoProfile -File $horaCerta | Out-String).Trim()
+    Diga ("Hora certa ligada (a.ntp.br, b.ntp.br, de hora em hora). " + (($saidaHora -split "`n") | Select-Object -Last 1))
+  }
+} catch { Diga "(aviso) nao consegui ligar a hora certa: $($_.Exception.Message)" }
+
 # Os dados da loja chegaram? So entao a instalacao esta pronta para uso: a tela de entrada do
 # servidor procura a loja e os usuarios no banco local (ERR-132 - em 30/09 o instalador disse
 # "concluida" com o banco vazio e ninguem entrava). Nao chegaram em 5 min: a instalacao fica
