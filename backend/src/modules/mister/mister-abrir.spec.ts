@@ -145,7 +145,10 @@ describe('o link para abrir no Regem — na resposta', () => {
 describe('o link para abrir no Regem — nasce desligado', () => {
   const antes = process.env.MISTER_LINKS;
   const antesDasNoticias = process.env.MISTER_NOTICIAS_RAMO;
+  const antesDasTelas = process.env.MISTER_LER_TELAS;
   afterEach(() => {
+    if (antesDasTelas === undefined) delete process.env.MISTER_LER_TELAS;
+    else process.env.MISTER_LER_TELAS = antesDasTelas;
     if (antes === undefined) delete process.env.MISTER_LINKS;
     else process.env.MISTER_LINKS = antes;
     if (antesDasNoticias === undefined) delete process.env.MISTER_NOTICIAS_RAMO;
@@ -154,6 +157,7 @@ describe('o link para abrir no Regem — nasce desligado', () => {
 
   it('fora da conversa até MISTER_LINKS=1; a avaliação enxerga sempre', () => {
     process.env.MISTER_NOTICIAS_RAMO = '1';
+    process.env.MISTER_LER_TELAS = '1';
     delete process.env.MISTER_LINKS;
     expect(linksNoMister()).toBe(false);
     expect(ferramentasDaConversa().map((f) => f.name)).not.toContain('abrir_no_regem');

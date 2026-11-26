@@ -3,6 +3,7 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { rotaDaCaixaDaLoja, rotaDaFilaDeImpressao, rotaDaPonteDoChat, rotaDaTelaDeSenhas, tokenJaValidado } from './dispositivo-limite';
 import { credencialDaChamada, rotaDaIntegracao, tokenIntegracaoJaValidado } from './integracao-limite';
 import { baldeDoRobo } from './robo-limite';
+import { cabecalhoDoBilhete, espiarBilhete } from '../auth/bilhete-do-mister';
 
 /**
  * Rate limit contando pelo IP REAL do cliente quando a nuvem está atrás da
@@ -58,6 +59,10 @@ export class CfThrottlerGuard extends ThrottlerGuard {
     // O robô (n8n) chama de um IP só para todas as lojas: com a senha dele, conta por LOJA (common/robo-limite.ts).
     const robo = baldeDoRobo(req);
     if (robo) return robo;
+    // Mister, versão 10, C3: a leitura pelo bilhete chega de 127.0.0.1 para todas as empresas — conta pela EMPRESA do
+    // bilhete (sem gastá-lo: o guarda, que roda depois, é quem gasta). Bilhete falso ou vencido segue no balde do IP.
+    const bilhete = espiarBilhete(cabecalhoDoBilhete(req));
+    if (bilhete) return `mister:${bilhete.tenantId}`;
     if (process.env.TRUST_CLOUDFLARE === 'true') {
       const cf = req?.headers?.['cf-connecting-ip'];
       if (typeof cf === 'string' && cf.trim()) return cf.trim();

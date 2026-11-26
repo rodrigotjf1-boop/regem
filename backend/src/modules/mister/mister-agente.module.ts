@@ -26,6 +26,7 @@ import { MisterDocumentosController } from './mister-documentos.controller';
 import { MisterDocumentosService } from './mister-documentos.service';
 import { MisterNotasService } from './mister-notas.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
+import { MisterTelasService } from './mister-telas.service';
 import { MisterLinkController } from './mister-link.controller';
 import { MisterLinkPublicoController } from './mister-link-publico.controller';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
@@ -113,6 +114,8 @@ import { MisterModule } from './mister.module';
   // fornecedor, pelo recebimento do Estoque.
   providers: [
     MisterFerramentasService,
+    // Versão 10, C3: procurar no mapa e ler a tela como a pessoa (o bilhete de uma chamada, pela própria API).
+    MisterTelasService,
     MisterAgenteService,
     MisterAvisosService,
     MisterRelatoriosService,

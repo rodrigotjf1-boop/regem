@@ -23,7 +23,10 @@ const P = { assunto: null, de: '2026-11-17', ate: '2026-11-23' };
 describe('as notícias do ramo no Mister', () => {
   const antes = process.env.MISTER_NOTICIAS_RAMO;
   const antesDosLinks = process.env.MISTER_LINKS;
+  const antesDasTelas = process.env.MISTER_LER_TELAS;
   afterEach(() => {
+    if (antesDasTelas === undefined) delete process.env.MISTER_LER_TELAS;
+    else process.env.MISTER_LER_TELAS = antesDasTelas;
     if (antes === undefined) delete process.env.MISTER_NOTICIAS_RAMO;
     else process.env.MISTER_NOTICIAS_RAMO = antes;
     if (antesDosLinks === undefined) delete process.env.MISTER_LINKS;
@@ -33,6 +36,7 @@ describe('as notícias do ramo no Mister', () => {
   it('nasce desligada: fora da conversa, mas a avaliação a enxerga; ligada, entra', () => {
     delete process.env.MISTER_NOTICIAS_RAMO;
     process.env.MISTER_LINKS = '1';
+    process.env.MISTER_LER_TELAS = '1';
     expect(noticiasNoMister()).toBe(false);
     expect(ferramentasDaConversa().map((f) => f.name)).not.toContain('noticias_do_ramo');
     expect(FERRAMENTAS.map((f) => f.name)).toContain('noticias_do_ramo');
