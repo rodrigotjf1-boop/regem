@@ -58,6 +58,7 @@ import { apresentacaoDaPromocao } from './mister-acoes-cardapio';
 import { apresentacaoDaCampanha } from './mister-acoes-campanha';
 import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDaBaixa, apresentacaoDoHorario, apresentacaoDoPreco, ehAcaoDoMister, ehDadoInformado } from './mister-acoes';
 import { PROCEDIMENTO_DO_PLANO, RESULTADO_DO_PLANO_TROCADO, TEXTOS_DO_PLANO } from './mister-plano';
+import { PROCEDIMENTO_DO_PEDIDO, TEXTOS_DO_PEDIDO, quemPediu, resumoGuardado } from './mister-pedido';
 import { IaEmpresaService } from '../ia/ia-empresa.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { linhasDoJeito } from './mister-agente.regras';
@@ -159,6 +160,13 @@ export class MisterPropostasService implements OnModuleInit {
   registrarPlano(f: (id: string) => Promise<void>): void {
     this.plano = f;
   }
+  // Versão 10, C6b: o pedido do gerente ao presidente mora no `MisterAcoesService` (ele confere a ação como o presidente, grava a
+  // proposta para ele e a manda ao WhatsApp dele). Aqui passa o toque do gerente em "Pedir ao presidente".
+  private pedido: ((p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>) | null = null;
+  registrarPedido(f: (p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>): void {
+    this.pedido = f;
+  }
+
   /** Um passo do plano terminou (feito, não deu, recusado ou vencido): o plano segue. Não segura quem chamou. */
   private planoAndou(planoId: unknown): void {
     if (typeof planoId !== 'string' || !this.plano) return;
@@ -361,7 +369,9 @@ export class MisterPropostasService implements OnModuleInit {
     // a permissão do perfil, conferida ao propor e de novo ao executar). As outras propostas seguem só do presidente.
     // V7c: o plano é, como a ação, de quem pediu.
     const plano = p.procedimento === PROCEDIMENTO_DO_PLANO;
-    const acao = ehAcaoDoMister(p.procedimento) || plano;
+    // Versão 10, C6b: o "Pedir ao presidente" também é de quem pediu (o gerente).
+    const doPedido = p.procedimento === PROCEDIMENTO_DO_PEDIDO;
+    const acao = ehAcaoDoMister(p.procedimento) || plano || doPedido;
     if (acao && v.colaboradorId !== String(p.parametros?.colaboradorId ?? '')) {
       await this.falar(quem.telefone, TEXTOS_DAS_ACOES.naoDisponivel);
       return true;
@@ -394,7 +404,13 @@ export class MisterPropostasService implements OnModuleInit {
       return true;
     }
     await this.auditar(p.tenantId, v.colaboradorId, b.autorizar ? 'mister_proposta_autorizada' : 'mister_proposta_recusada', p.id, { procedimento: p.procedimento, final }, 'whatsapp', v.nivel);
-    const resposta = plano
+    // C6b: o presidente não autorizou o pedido do gerente — o gerente fica sabendo.
+    if (!b.autorizar) await this.avisarQuemPediu(p.tenantId, p.parametros, (nome) => TEXTOS_DO_PEDIDO.presidenteRecusou(nome, resumoGuardado(p.parametros)), v.colaboradorId);
+    const resposta = doPedido
+      ? b.autorizar
+        ? TEXTOS_DO_PEDIDO.pedindo
+        : TEXTOS_DO_PEDIDO.naoPediu
+      : plano
       ? b.autorizar
         ? TEXTOS_DO_PLANO.autorizado
         : TEXTOS_DO_PLANO.mudar
@@ -455,6 +471,17 @@ export class MisterPropostasService implements OnModuleInit {
       if (!this.plano) return this.concluir(p, false, 'os planos não estão disponíveis agora. Nada foi feito.');
       await this.plano(p.id);
       return 'executando';
+    }
+    // Versão 10, C6b: o toque do gerente em "Pedir ao presidente" — a proposta da ação nasce para o presidente e vai a ele.
+    if (p.procedimento === PROCEDIMENTO_DO_PEDIDO) {
+      if (!this.pedido) return this.concluir(p, false, 'o pedido ao presidente não está disponível agora. Nada foi pedido.');
+      try {
+        const r = await this.pedido(p);
+        return this.concluir(p, r.feita, r.texto);
+      } catch (e: any) {
+        this.logger.error(`o pedido da proposta ${p.id} falhou — ${e?.message ?? e}`, e?.stack);
+        return this.concluir(p, false, TEXTOS_DO_PEDIDO.pedidoNaoSaiu);
+      }
     }
     if (ehAcaoDoMister(p.procedimento)) {
       // M6j: pelo serviço da tela, com a permissão conferida de novo; a frase diz o que foi FEITO (o efeito conferido).
@@ -656,6 +683,8 @@ export class MisterPropostasService implements OnModuleInit {
         )
       : [];
     if (quem?.telefone) await this.falar(quem.telefone, await this.escreverDesfecho(p.tenantId, textoDoDesfecho(feita, resultado, horaNoFuso(new Date(fechou.concluidaEm)))));
+    // C6b: a ação era um pedido do gerente — ele recebe o desfecho também.
+    await this.avisarQuemPediu(p.tenantId, p.parametros, (nome) => (feita ? TEXTOS_DO_PEDIDO.presidenteFez(nome, resultado) : TEXTOS_DO_PEDIDO.presidenteNaoDeu(nome, resultado)), p.autorizadaPor);
     return situacao;
   }
 
@@ -705,6 +734,8 @@ export class MisterPropostasService implements OnModuleInit {
     for (const v of vencidas) {
       // V7c: o PIN de um passo venceu: o plano fecha dizendo o que entrou.
       this.planoAndou(v.parametros?.planoId);
+      // C6b: o pedido do gerente venceu sem resposta do presidente — o gerente fica sabendo.
+      await this.avisarQuemPediu(v.tenantId, v.parametros, () => TEXTOS_DO_PEDIDO.presidenteNaoRespondeu(resumoGuardado(v.parametros)), null);
       if (v.nivel !== 'pin' || !v.linkPara) continue;
       const [quem] = linhas(
         await this.db.execute(sql`
@@ -899,6 +930,7 @@ export class MisterPropostasService implements OnModuleInit {
         await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_bloqueada', p.id, { procedimento: p.procedimento }, 'link', p.paraNivel);
         await this.falar(p.telefone, TEXTOS_DO_LINK.bloqueada);
         this.planoAndou(p.parametros?.planoId);
+        await this.avisarQuemPediu(p.tenantId, p.parametros, (nome) => TEXTOS_DO_PEDIDO.presidenteRecusou(nome, resumoGuardado(p.parametros)), p.linkPara);
       }
       return this.vistaDoLink(await this.linhaDoLink(codigo));
     }
@@ -935,8 +967,29 @@ export class MisterPropostasService implements OnModuleInit {
       await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_recusada', p.id, { procedimento: p.procedimento, final }, 'link', p.paraNivel);
       await this.falar(p.telefone, TEXTOS_DO_LINK.recusada);
       this.planoAndou(p.parametros?.planoId);
+      await this.avisarQuemPediu(p.tenantId, p.parametros, (nome) => TEXTOS_DO_PEDIDO.presidenteRecusou(nome, resumoGuardado(p.parametros)), p.linkPara);
     }
     return this.vistaDoLink(await this.linhaDoLink(codigo));
+  }
+
+  /**
+   * C6b: quem pediu (o gerente) recebe o que aconteceu com o pedido — pelo WhatsApp ligado dele. A proposta que não é um pedido
+   * não faz nada. `presidenteId` dá o nome de quem respondeu (null: ninguém respondeu). Nunca lança.
+   */
+  private async avisarQuemPediu(tenantId: string, parametros: unknown, texto: (nomeDoPresidente: string) => string, presidenteId: string | null): Promise<void> {
+    const qp = quemPediu(parametros);
+    if (!qp) return;
+    try {
+      const [l] = linhas(
+        await this.db.execute(sql`
+          select g.telefone, (select nome from colaborador where id = ${presidenteId}::uuid and tenant_id = ${tenantId}::uuid) as presidente
+            from mister_vinculo g
+           where g.tenant_id = ${tenantId}::uuid and g.colaborador_id = ${qp.pedidaPor}::uuid and g.ligado_em is not null and g.telefone is not null`),
+      );
+      if (l?.telefone) await this.falar(l.telefone, texto(String(l.presidente ?? 'o presidente')));
+    } catch (e: any) {
+      this.logger.warn(`o aviso a quem pediu não saiu — ${e?.message ?? e}`);
+    }
   }
 
   // ───────────────────────────── apoio ─────────────────────────────

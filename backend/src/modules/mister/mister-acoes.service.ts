@@ -94,7 +94,12 @@ import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from 
 import { FornecedorService } from '../fornecedor/fornecedor.service';
 import { ComprasService } from '../compras/compras.service';
 import { FUSO_SQL } from '../../common/fuso-sql';
-import { MisterNumeroService } from './mister-numero.service';
+import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
+import { MisterEntradaService, type QuemTocou } from './mister-entrada.service';
+import { dentroDaJanelaDoWhatsapp } from './mister-avisos.regras';
+import { MODELO_DO_AVISO, parametrosDoAviso } from './mister-modelos';
+import { pessoaVale } from './mister-vinculo.service';
+import { BOTOES_DO_PEDIDO, PRAZO_DO_PEDIDO_MIN, PRAZO_DO_PRESIDENTE_MIN, PROCEDIMENTO_DO_PEDIDO, TEXTOS_DO_PEDIDO, pedirAoPresidenteLigado, quemPediu, resumoGuardado } from './mister-pedido';
 import { botoesDaProposta } from './mister-procedimentos';
 import { MisterPropostasService, type PropostaPendente } from './mister-propostas.service';
 import { GraphImagemService } from '../graph/graph-imagem.service';
@@ -184,11 +189,16 @@ export class MisterAcoesService implements OnModuleInit {
     @Optional() private readonly escala?: EscalaService,
     // Versão 10, C10a: a IA da empresa lê a imagem gerada para conferir os números antes de ela ir à conversa.
     @Optional() private readonly ia?: IaEmpresaService,
+    // Versão 10, C6b: o toque do presidente no modelo do pedido (fora das 24 horas) chega pela entrada do WhatsApp.
+    @Optional() private readonly entrada?: MisterEntradaService,
   ) {}
 
   onModuleInit(): void {
     this.ferramentas.registrarAcoes((e, en, loja) => this.propor(e, en, loja));
     this.propostas.registrarAcao((p) => this.executar(p));
+    // Versão 10, C6b: o toque do gerente em "Pedir ao presidente" e o toque do presidente no modelo do pedido.
+    this.propostas.registrarPedido((p) => this.encaminharPedido(p));
+    this.entrada?.registrarToque('pedido', (id, quem) => this.mostrarPedidoPeloToque(id, quem));
   }
 
   // ───────────────────────────── propor ─────────────────────────────
@@ -197,7 +207,18 @@ export class MisterAcoesService implements OnModuleInit {
   async propor(e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }): Promise<ResultadoDaFerramenta> {
     try {
       const pronta = await this.preparar(e, en, loja);
-      if ('erro' in pronta) return pronta.motivo ? comMotivo(pronta.erro, pronta.motivo) : recusa(pronta.erro);
+      if ('erro' in pronta) {
+        // Versão 10, C6b: o gerente pediu o que o perfil dele não faz — se a MESMA ação passa como o presidente, o pedido a ele
+        // vai junto da recusa ("Pedir ao presidente" e "Agora não", depois da resposta). Nasce desligado.
+        if (pronta.motivo?.motivo === 'perfil' && e.nivel === 'gerente' && pedirAoPresidenteLigado()) {
+          const oferta = await this.ofertaDoPedido(e, en, loja).catch((err: any) => {
+            this.logger.warn(`o pedido ao presidente não foi oferecido — ${String(err?.message ?? err).slice(0, 200)}`);
+            return null;
+          });
+          if (oferta) return { ...comMotivo(pronta.erro, { ...pronta.motivo, caminhos: [TEXTOS_DO_PEDIDO.caminho(oferta.presidente), ...pronta.motivo.caminhos] }), mensagens: [oferta.mensagem] };
+        }
+        return pronta.motivo ? comMotivo(pronta.erro, pronta.motivo) : recusa(pronta.erro);
+      }
       const { acao, def, unidadeId, parametros, resumo, alvo } = pronta;
       const p = await this.gravar(e, acao, unidadeId, parametros, alvo);
       if (!p) return recusa('Essa mesma ação já foi autorizada e está em andamento; o resultado chega na conversa.');
@@ -1705,10 +1726,27 @@ export class MisterAcoesService implements OnModuleInit {
   private async gravar(e: EscopoDoMister, acao: AcaoDoMister, unidadeId: string | null, parametros: Record<string, unknown>, alvo: string): Promise<{ id: string; venceEm: string | Date } | null> {
     const def = ACOES[acao];
     const avisoId = uuidDeChave('mister:acao:', e.tenantId, ':', e.colaboradorId, ':', acao, ':', alvo);
+    return this.gravarProposta(e.tenantId, unidadeId, avisoId, acao, def.nivel, parametros, def.prazoMin);
+  }
+
+  /**
+   * A gravação de qualquer proposta da conversa (a ação, o pedido ao presidente — C6b): uma por "aviso" (a chave) e
+   * procedimento, renovando a que acabou; a autorizada e a executando não renovam (null).
+   */
+  private async gravarProposta(
+    tenantId: string,
+    unidadeId: string | null,
+    avisoId: string,
+    procedimento: string,
+    nivel: 'botao' | 'pin',
+    parametros: Record<string, unknown>,
+    prazoMin: number,
+  ): Promise<{ id: string; venceEm: string | Date } | null> {
+    const acao = procedimento;
     await this.db.execute(sql`
       insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em)
-      values (${e.tenantId}::uuid, ${unidadeId}::uuid, ${avisoId}::uuid, ${acao}, ${JSON.stringify(parametros)}::jsonb, ${def.nivel},
-              clock_timestamp() + make_interval(mins => ${def.prazoMin}::int))
+      values (${tenantId}::uuid, ${unidadeId}::uuid, ${avisoId}::uuid, ${acao}, ${JSON.stringify(parametros)}::jsonb, ${nivel},
+              clock_timestamp() + make_interval(mins => ${prazoMin}::int))
       on conflict (aviso_id, procedimento) do update
         set situacao = 'proposta', criada_em = clock_timestamp(), vence_em = excluded.vence_em, parametros = excluded.parametros,
             unidade_id = excluded.unidade_id, respondida_em = null, autorizada_por = null, telefone_final = null, executada_em = null,
@@ -1721,6 +1759,163 @@ export class MisterAcoesService implements OnModuleInit {
          where aviso_id = ${avisoId}::uuid and procedimento = ${acao} and situacao = 'proposta' and vence_em > now()`),
     );
     return p ? { id: p.id, venceEm: p.venceEm } : null;
+  }
+
+  // ───────────────────────────── C6b: pedir ao presidente ─────────────────────────────
+
+  /** A mensagem da proposta de botão, com os botões de cada tipo (a mesma do `propor`). */
+  private mensagemDaProposta(acao: AcaoDoMister, id: string, resumo: string, prazoMin: number): { texto: string; botoes: { id: string; titulo: string }[] } {
+    return acao === 'criar_imagem'
+      ? { texto: TEXTOS_DAS_ACOES.perguntaDaImagem(resumo, prazoMin), botoes: botoesDaProposta(id, BOTOES_DA_IMAGEM) }
+      : ehDadoInformado(acao)
+        ? { texto: TEXTOS_DAS_ACOES.perguntaDoDado(resumo, prazoMin), botoes: botoesDaProposta(id, BOTOES_DO_DADO) }
+        : { texto: TEXTOS_DAS_ACOES.pergunta(resumo, prazoMin), botoes: botoesDaProposta(id) };
+  }
+
+  /** O presidente que recebe os pedidos: o primeiro (pela ligação) com o WhatsApp ligado ao Mister nesta empresa, sem "parar avisos". */
+  private async presidenteDoPedido(tenantId: string, colaboradorId?: string): Promise<{ id: string; nome: string; telefone: string; ultimaEntrada: Date | null; empresa: string } | null> {
+    const [l] = linhas(
+      await this.db.execute(sql`
+        select c.id::text as id, c.nome, g.telefone, g.ultima_entrada_em as "ultimaEntrada", emp.nome as empresa
+          from mister_vinculo g
+          join colaborador c on c.id = g.colaborador_id and c.tenant_id = g.tenant_id
+          left join funcao f on f.id = c.funcao_id
+          left join perfil_acesso p on p.id = c.perfil_acesso_id
+          join empresa emp on emp.id = g.tenant_id
+         where g.tenant_id = ${tenantId}::uuid and g.ligado_em is not null and g.telefone is not null and g.pausado_em is null
+           and coalesce(p.nivel, f.categoria::text) = 'presidente' and ${pessoaVale()}
+           ${colaboradorId ? sql`and c.id = ${colaboradorId}::uuid` : sql``}
+         order by g.ligado_em, c.id
+         limit 1`),
+    );
+    return l ? { id: l.id, nome: String(l.nome ?? ''), telefone: String(l.telefone), ultimaEntrada: l.ultimaEntrada ? new Date(l.ultimaEntrada) : null, empresa: String(l.empresa ?? '') } : null;
+  }
+
+  /**
+   * C6b: o gerente recebeu a recusa do perfil — a MESMA ação passa na conferência do presidente? Então a proposta do pedido
+   * (do gerente, "Pedir ao presidente" e "Agora não") e a mensagem que vai depois da resposta. Sem presidente ligado, sem botão
+   * (conexão por QR Code) ou com a ação recusada também para ele, null (a recusa fica como está).
+   */
+  private async ofertaDoPedido(
+    e: EscopoDoMister,
+    en: Record<string, unknown>,
+    loja: { atual: string | null; nome: string },
+  ): Promise<{ presidente: string; mensagem: { texto: string; botoes: { id: string; titulo: string }[] } } | null> {
+    if (this.numero && (await this.numero.ler()).provedor === 'evolution') return null;
+    const pres = await this.presidenteDoPedido(e.tenantId);
+    if (!pres || pres.id === e.colaboradorId) return null;
+    const ep = await this.ferramentas.escopoDaTela(e.tenantId, pres.id);
+    if (!ep || ep.nivel !== 'presidente') return null;
+    const lojaDoPedido = { atual: loja.atual ?? e.presa ?? null, nome: loja.nome };
+    const pronta = await this.preparar(ep, en, lojaDoPedido);
+    if ('erro' in pronta) return null;
+    // A entrada da ação, sem o que o laço põe (`__origem`): é o que a conferência do presidente lê de novo no toque.
+    const entrada = Object.fromEntries(Object.entries(en).filter(([k]) => !k.startsWith('__')));
+    if (JSON.stringify(entrada).length > 4000) return null;
+    const avisoId = uuidDeChave('mister:pedido:', e.tenantId, ':', e.colaboradorId, ':', pronta.acao, ':', pronta.alvo);
+    const p = await this.gravarProposta(
+      e.tenantId,
+      pronta.unidadeId,
+      avisoId,
+      PROCEDIMENTO_DO_PEDIDO,
+      'botao',
+      { colaboradorId: e.colaboradorId, nivel: e.nivel, para: pres.id, entrada, loja: lojaDoPedido.atual, lojaNome: lojaDoPedido.nome, acao: pronta.acao, resumoDoPedido: pronta.resumo },
+      PRAZO_DO_PEDIDO_MIN,
+    );
+    if (!p) return null;
+    return { presidente: pres.nome, mensagem: { texto: TEXTOS_DO_PEDIDO.perguntaAoGerente(pres.nome, pronta.resumo), botoes: botoesDaProposta(p.id, BOTOES_DO_PEDIDO) } };
+  }
+
+  /**
+   * C6b: o toque do gerente em "Pedir ao presidente". Confere a ação de novo como o presidente (o perfil, o alvo e o valor
+   * podem ter mudado), grava a proposta da ação PARA ELE (só ele autoriza, com o botão ou o PIN de sempre; quem pediu fica nos
+   * parâmetros) e a manda ao WhatsApp dele — fora da janela de 24 horas, pelo modelo do aviso (o toque traz o pedido).
+   */
+  async encaminharPedido(p: { id: string; tenantId: string; procedimento: string; parametros: any; autorizadaPor: string | null }): Promise<{ feita: boolean; texto: string }> {
+    const par = (p.parametros ?? {}) as Record<string, any>;
+    const gerenteId = String(par.colaboradorId ?? '');
+    if (!p.autorizadaPor || p.autorizadaPor !== gerenteId) return { feita: false, texto: 'o pedido só vale com o toque de quem pediu. Nada foi pedido.' };
+    const pres = await this.presidenteDoPedido(p.tenantId, String(par.para ?? ''));
+    const ep = pres ? await this.ferramentas.escopoDaTela(p.tenantId, pres.id) : null;
+    if (!pres || !ep || ep.nivel !== 'presidente') return { feita: false, texto: TEXTOS_DO_PEDIDO.pedidoSemPresidente };
+    const pronta = await this.preparar(ep, (par.entrada ?? {}) as Record<string, unknown>, { atual: par.loja ?? null, nome: String(par.lojaNome ?? '') });
+    if ('erro' in pronta) return { feita: false, texto: TEXTOS_DO_PEDIDO.pedidoRecusadoNaConferencia(pronta.erro) };
+    const [g] = linhas(await this.db.execute(sql`select nome from colaborador where id = ${gerenteId}::uuid and tenant_id = ${p.tenantId}::uuid`));
+    const gerenteNome = String(g?.nome ?? 'o gerente');
+    const avisoId = uuidDeChave('mister:acao:', p.tenantId, ':', pres.id, ':', pronta.acao, ':', pronta.alvo, ':pedido:', gerenteId);
+    const prop = await this.gravarProposta(
+      p.tenantId,
+      pronta.unidadeId,
+      avisoId,
+      pronta.acao,
+      pronta.def.nivel,
+      { ...pronta.parametros, pedidaPor: gerenteId, pedidaPorNome: gerenteNome, resumoDoPedido: pronta.resumo },
+      PRAZO_DO_PRESIDENTE_MIN,
+    );
+    if (!prop) return { feita: false, texto: 'esse mesmo pedido já foi autorizado pelo presidente e está em andamento; o resultado chega aqui.' };
+    const saiu = await this.mandarPedidoAoPresidente(prop.id, pronta.acao, pronta.resumo, prop.venceEm, gerenteNome, pres);
+    if (!saiu) {
+      // O pedido não chegou: a proposta do presidente fecha (ninguém autoriza o que não recebeu).
+      await this.db.execute(sql`
+        update mister_proposta set situacao = 'vencida', concluida_em = now(), resultado = 'o pedido não chegou ao presidente'
+         where id = ${prop.id}::uuid and situacao = 'proposta'`);
+      return { feita: false, texto: TEXTOS_DO_PEDIDO.pedidoNaoSaiu };
+    }
+    await this.auditoria
+      ?.registrar({ tenantId: p.tenantId, atorId: gerenteId, atorPerfil: 'gerente', tipo: 'mister', acao: 'mister_pedido_ao_presidente', entidadeTipo: 'mister_proposta', entidadeId: prop.id, detalhe: { acao: pronta.acao, para: pres.id }, origem: 'whatsapp' } as any)
+      .catch(() => undefined);
+    return { feita: true, texto: TEXTOS_DO_PEDIDO.pedido(pres.nome) };
+  }
+
+  /** Manda o pedido ao presidente: dentro da janela (ou pela conexão por QR Code), o pedido inteiro; fora, o modelo do aviso. */
+  private async mandarPedidoAoPresidente(
+    id: string,
+    acao: AcaoDoMister,
+    resumo: string,
+    venceEm: string | Date,
+    gerenteNome: string,
+    pres: { id: string; telefone: string; ultimaEntrada: Date | null; empresa: string },
+  ): Promise<boolean> {
+    if (!this.numero) return false;
+    try {
+      const semJanela = await this.numero.semJanela();
+      if (!semJanela && !dentroDaJanelaDoWhatsapp(pres.ultimaEntrada, Date.now())) {
+        await this.numero.enviarModelo(pres.telefone, MODELO_DO_AVISO, parametrosDoAviso(TEXTOS_DO_PEDIDO.tituloDoModelo(gerenteNome), pres.empresa), { tipo: 'pedido', id });
+        return true;
+      }
+      return await this.mostrarPedido(id, acao, resumo, venceEm, gerenteNome, pres.id, pres.telefone);
+    } catch (err: any) {
+      this.logger.warn(`o pedido ${id} não saiu ao presidente — ${err instanceof FalhaDoEnvioDoMister ? err.motivo : (err?.message ?? err)}`);
+      return false;
+    }
+  }
+
+  /** O pedido inteiro ao presidente: a de PIN com o link (o PIN é o dele), a de botão com os botões de sempre. */
+  private async mostrarPedido(id: string, acao: AcaoDoMister, resumo: string, venceEm: string | Date, gerenteNome: string, presId: string, telefone: string): Promise<boolean> {
+    const cabeca = TEXTOS_DO_PEDIDO.aoPresidente(gerenteNome);
+    if (ACOES[acao].nivel === 'pin') return !!(await this.propostas.enviarLink(id, presId, telefone, `${cabeca}\n${TEXTOS_DAS_ACOES.linkDaAcao(resumo, horaNoFuso(new Date(venceEm)))}`));
+    const m = this.mensagemDaProposta(acao, id, resumo, PRAZO_DO_PRESIDENTE_MIN);
+    await this.numero!.enviar(telefone, { texto: `${cabeca}\n${m.texto}`, botoes: m.botoes });
+    return true;
+  }
+
+  /** O toque do presidente em "Ver o que fazer" no modelo do pedido (fora das 24 horas): o pedido inteiro, se ainda espera. */
+  async mostrarPedidoPeloToque(id: string, quem: QuemTocou): Promise<boolean> {
+    const [p] = linhas(
+      await this.db.execute(sql`
+        select id::text as id, tenant_id::text as "tenantId", procedimento, parametros, situacao, vence_em as "venceEm"
+          from mister_proposta where id = ${id}::uuid`),
+    );
+    const qp = p ? quemPediu(p.parametros) : null;
+    if (!p || !qp || !ehAcaoDoMister(p.procedimento)) return false;
+    const v = quem.vinculos.find((x) => x.tenantId === p.tenantId && x.colaboradorId === String(p.parametros?.colaboradorId ?? ''));
+    if (!v) return false;
+    if (p.situacao !== 'proposta' || new Date(p.venceEm).getTime() <= Date.now()) {
+      await this.numero?.enviar(quem.telefone, { texto: 'Esse pedido já foi respondido ou venceu.' }).catch(() => undefined);
+      return true;
+    }
+    await this.mostrarPedido(p.id, p.procedimento as AcaoDoMister, resumoGuardado(p.parametros), p.venceEm, qp.pedidaPorNome, v.colaboradorId, quem.telefone);
+    return true;
   }
 
   /**

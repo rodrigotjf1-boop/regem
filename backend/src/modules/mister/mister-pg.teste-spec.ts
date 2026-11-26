@@ -110,6 +110,7 @@ import { TarefaInstanciaService } from '../tarefa/tarefa-instancia.service';
 import { TarefaDefService } from '../tarefa/tarefa-def.service';
 import { ProdutoService } from '../produto/produto.service';
 import { TEXTOS_DAS_ACOES } from './mister-acoes';
+import { PROCEDIMENTO_DO_PEDIDO, TEXTOS_DO_PEDIDO } from './mister-pedido';
 import { mesesCompletos, ultimosDiasDaSemana } from './mister-analises';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -13852,6 +13853,91 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from compra_lista where id = any($1::uuid[])`, [listas]);
           await q(`delete from item_estoque where id = any($1::uuid[])`, [itens]);
           await q(`delete from fornecedor where id = any($1::uuid[])`, [forns]);
+        }
+      });
+
+      it('C6b: o gerente pede ao presidente — a oferta com o motivo, o pedido no toque, só o presidente autoriza, o gerente fica sabendo', async () => {
+        const tel = telefone();
+        const telCarlos = telefone();
+        await ligar('ana', tel);
+        await ligar('carlos', telCarlos, A, 'gerente');
+        await modulo(A, true);
+        const [antes] = await q(`select id from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
+        if (!antes) await q(`insert into cardapio_config (tenant_id, token, ativo) values ($1, $2, true)`, [A, `tok-${randomUUID()}`]);
+        const antesDaFlag = process.env.MISTER_PEDIR_AO_PRESIDENTE;
+        try {
+          // O Carlos sem o Delivery no perfil (a recusa do perfil).
+          const g = (await ferramentas.escopo(A, pessoa.carlos, telCarlos))!;
+          const eC = { ...g, permissoes: { ...g.permissoes, delivery: false } as any };
+          const en = { acao: 'pausar_canal', canais: ['cardapio'], motivo: 'pedidos', minutos: 30 };
+          // Desligado: só a recusa com o motivo, sem a oferta.
+          delete process.env.MISTER_PEDIR_AO_PRESIDENTE;
+          const sem = await ferramentas.executar(eC, 'propor_acao', en);
+          expect(sem).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissao, motivo: 'perfil' } });
+          expect(sem.mensagens).toBeUndefined();
+
+          // Ligado: a recusa com o caminho "pedir ao presidente" e os botões do pedido, depois da resposta.
+          process.env.MISTER_PEDIR_AO_PRESIDENTE = '1';
+          const r = await ferramentas.executar(eC, 'propor_acao', en);
+          expect(r).toMatchObject({ ok: false, dados: { motivo: 'perfil' } });
+          expect((r.dados.caminhos as string[])[0]).toBe(TEXTOS_DO_PEDIDO.caminho('Ana'));
+          expect(r.mensagens![0].botoes!.map((b) => b.titulo)).toEqual(['Pedir ao presidente', 'Agora não']);
+          const idPedido = idDaProposta(r);
+          expect((await q(`select procedimento, parametros->>'colaboradorId' as quem, parametros->>'para' as para from mister_proposta where id = $1`, [idPedido]))[0]).toEqual({
+            procedimento: PROCEDIMENTO_DO_PEDIDO,
+            quem: pessoa.carlos,
+            para: pessoa.ana,
+          });
+          // A Ana não toca no pedido do Carlos; nada foi ao presidente ainda.
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${idPedido}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DAS_ACOES.naoDisponivel]);
+
+          // O toque do Carlos: o pedido vai à Ana com quem pediu e os botões de sempre; o Carlos recebe "pedi".
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${idPedido}:sim`, quem(telCarlos, 'carlos', 'gerente'));
+          expect(await esperarFim(idPedido)).toMatchObject({ situacao: 'feita' });
+          await esperarMensagens(3);
+          const paraAna = numero.enviadas.find((m) => m.para === tel)!;
+          expect(paraAna.texto.startsWith(TEXTOS_DO_PEDIDO.aoPresidente('Carlos'))).toBe(true);
+          expect(paraAna.botoes.map((b) => b.titulo)).toEqual(['Autorizar', 'Não agora']);
+          expect(numero.enviadas.filter((m) => m.para === telCarlos).map((m) => m.texto).join(' ')).toContain('pedi a Ana');
+          const idDaAna = /^prop:([0-9a-f-]{36}):sim$/.exec(paraAna.botoes[0].id)![1];
+          expect((await q(`select procedimento, parametros->>'colaboradorId' as quem, parametros->>'pedidaPor' as pediu from mister_proposta where id = $1`, [idDaAna]))[0]).toEqual({
+            procedimento: 'pausar_canal',
+            quem: pessoa.ana,
+            pediu: pessoa.carlos,
+          });
+          expect(await q(`select 1 from pausa_canal where tenant_id = $1 and canal = 'cardapio' and ate > now()`, [A])).toEqual([]);
+          // O Carlos não autoriza a ação que agora é da Ana.
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${idDaAna}:sim`, quem(telCarlos, 'carlos', 'gerente'));
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DAS_ACOES.naoDisponivel]);
+
+          // A Ana autoriza: a pausa pelo serviço da tela; a Ana recebe o "feito" e o Carlos, o desfecho do pedido.
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${idDaAna}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(idDaAna)).toMatchObject({ situacao: 'feita' });
+          await esperarMensagens(3);
+          expect(await q(`select motivo from pausa_canal where tenant_id = $1 and canal = 'cardapio' and ate > now()`, [A])).toEqual([{ motivo: 'pedidos' }]);
+          expect(numero.enviadas.filter((m) => m.para === telCarlos).map((m) => m.texto).join(' ')).toContain('✅ Ana autorizou o seu pedido');
+
+          // De novo, e a Ana não autoriza: o Carlos fica sabendo.
+          await q(`delete from pausa_canal where tenant_id = $1 and canal = 'cardapio'`, [A]);
+          const r2 = await ferramentas.executar(eC, 'propor_acao', { ...en, minutos: 60 });
+          const idPedido2 = idDaProposta(r2);
+          await propostasDasAcoes.responder(`prop:${idPedido2}:sim`, quem(telCarlos, 'carlos', 'gerente'));
+          expect(await esperarFim(idPedido2)).toMatchObject({ situacao: 'feita' });
+          const idDaAna2 = (await q(`select id::text as id from mister_proposta where tenant_id = $1 and parametros->>'pedidaPor' = $2 and situacao = 'proposta'`, [A, pessoa.carlos]))[0].id;
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${idDaAna2}:nao`, quem(tel, 'ana', 'presidente'));
+          await esperarMensagens(2);
+          expect(numero.enviadas.filter((m) => m.para === telCarlos).map((m) => m.texto).join(' ')).toContain('Ana não autorizou o seu pedido');
+          expect(await q(`select 1 from pausa_canal where tenant_id = $1 and canal = 'cardapio' and ate > now()`, [A])).toEqual([]);
+        } finally {
+          if (antesDaFlag === undefined) delete process.env.MISTER_PEDIR_AO_PRESIDENTE;
+          else process.env.MISTER_PEDIR_AO_PRESIDENTE = antesDaFlag;
+          await q(`delete from pausa_canal where tenant_id = $1 and canal = 'cardapio'`, [A]);
         }
       });
 

@@ -106,7 +106,7 @@ export function parametrosDoResumo(tipo: TipoDeRelatorio, d: RelatorioDevido, em
 // ───────────────────────────── o botão ─────────────────────────────
 
 /** `vigia` (versão 4, M4d, mig 452): o lembrete ou a mudança do "fica de olho" que saiu fora das 24 horas. */
-export type ToqueNoModelo = { tipo: 'aviso' | 'resumo' | 'vigia' | 'regra'; id: string };
+export type ToqueNoModelo = { tipo: 'aviso' | 'resumo' | 'vigia' | 'regra' | 'pedido'; id: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -116,7 +116,8 @@ export const codigoDoBotao = (t: ToqueNoModelo): string => `mister:${t.tipo}:${t
 /** O toque num botão de modelo do Mister — ou null (outro botão, código malformado, id que não é uuid). */
 export function toqueNoModelo(codigo: unknown): ToqueNoModelo | null {
   // `regra` (versão 6, M6e, mig 472): o aviso de uma regra da pessoa que saiu fora das 24 horas.
-  const m = /^mister:(aviso|resumo|vigia|regra):(.+)$/.exec(String(codigo ?? '').trim());
+  // `pedido` (versão 10, C6b): o pedido do gerente ao presidente que saiu fora das 24 horas (o id é o da proposta).
+  const m = /^mister:(aviso|resumo|vigia|regra|pedido):(.+)$/.exec(String(codigo ?? '').trim());
   if (!m) return null;
   const id = m[2].toLowerCase();
   return UUID.test(id) ? { tipo: m[1] as ToqueNoModelo['tipo'], id } : null;

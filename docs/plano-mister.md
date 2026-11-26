@@ -2930,7 +2930,44 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
     telefone e o contato não chegam à IA) e o gerente sem valores no fechamento do caixa.
 - **Para ligar:** rodar a avaliação real com `MISTER_LER_TELAS=1` e, com ela boa, pôr a variável na API.
 
-### C6a — quando não dá: o motivo e os caminhos (26/11/2026; SEM migration; só na nuvem)
+### C6b — pedir ao presidente (26/11/2026; SEM migration; só na nuvem; nasce DESLIGADO, `MISTER_PEDIR_AO_PRESIDENTE=1`)
+
+- **O caso** (protótipo, "O seu perfil não pode"): o gerente pede o que o perfil dele não faz (guardar o saldo, pagar o
+  entregador, mexer num canal sem o Delivery). O Regem confere a MESMA ação como se o presidente pedisse (`preparar` com o
+  escopo dele).
+  - **Passando:** a recusa leva, como primeiro caminho, "pedir ao presidente". O gerente recebe, depois da resposta, "Pedir ao
+    presidente" e "Agora não". Isso é uma proposta do gerente, procedimento `pedir_ao_presidente`, que vale 30 min.
+  - **Não passando:** sem presidente ligado, pela conexão por QR Code (sem botão) ou com a ação recusada também para ele, a
+    recusa fica só com o motivo da C6a.
+- **No toque do gerente** (`MisterAcoesService.encaminharPedido`):
+  - a ação é conferida DE NOVO como o presidente (o perfil, o alvo e o valor podem ter mudado);
+  - a proposta da ação nasce PARA ELE: só ele autoriza, com o botão ou o PIN de sempre, e ela vale 2 horas. Quem pediu
+    (`pedidaPor`, `pedidaPorNome`) e o resumo ficam nos parâmetros;
+  - a proposta vai ao WhatsApp dele com "📨 Pedido de Carlos (gerente). Só você autoriza:". Fora da janela de 24 horas, vai o
+    modelo do aviso com o toque novo `pedido`, e o toque traz o pedido inteiro (`mostrarPedidoPeloToque`);
+  - se não sair, a proposta do presidente fecha ("o pedido não chegou") e o gerente sabe que nada foi pedido;
+  - a auditoria grava `mister_pedido_ao_presidente`.
+- **O gerente fica sabendo** (`MisterPropostasService.avisarQuemPediu`): o "feito" e o "não deu" do presidente, o "não
+  autorizou" (pelo botão, pela página do PIN ou o link bloqueado) e o pedido que venceu sem resposta.
+- **O presidente que recebe:** o primeiro com o WhatsApp ligado ao Mister (pela data da ligação), sem "parar avisos". Escolher
+  entre vários presidentes fica para depois.
+- **Diferença do protótipo:** o segundo botão é "Agora não", não "Deixar no resumo". O resumo diário ainda não lê pedidos; se
+  for preciso, entra depois.
+- **Sem migration:** quem pediu fica nos parâmetros da proposta (jsonb), como quem autoriza já fica. O plano previa 1 migration
+  para "o pedido a quem pode"; não foi preciso.
+- **Os testes:**
+  - `mister-pedido.spec.ts`: a parte pura e o toque no modelo;
+  - de ponta a ponta com Postgres:
+    - desligado, sem oferta;
+    - ligado, a oferta com o caminho e os botões;
+    - o presidente não toca no pedido do gerente;
+    - o toque do gerente leva o pedido ao presidente, com quem pediu;
+    - o gerente não autoriza a ação que agora é do presidente;
+    - o presidente autoriza, a pausa entra pelo serviço da tela e o gerente recebe "✅ Ana autorizou";
+    - o presidente não autoriza, e o gerente fica sabendo.
+- **Para ligar:** `MISTER_PEDIR_AO_PRESIDENTE=1` na API.
+
+### C6a — quando não dá: o motivo e os caminhos (26/11/2026, #1360, NO AR; SEM migration; só na nuvem)
 
 - **A C6 virou duas entregas.**
   - **C6a (esta):** cada recusa volta com o motivo e os caminhos.
