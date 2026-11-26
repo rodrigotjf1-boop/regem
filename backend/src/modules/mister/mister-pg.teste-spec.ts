@@ -1883,7 +1883,7 @@ export function testesDoMisterComPostgres(): void {
         expect((g.dados.itensRemovidosDeComandas as any).aviso).toContain('não dá acesso');
         // Quem não abre nenhuma das três telas não recebe nada.
         const semNada = { ...gerente, permissoes: { dashboard: true } as any };
-        expect(await ferramentas.executar(semNada, 'cancelamentos', {})).toEqual({ ok: false, dados: { erro: expect.stringContaining('não dá acesso') } });
+        expect(await ferramentas.executar(semNada, 'cancelamentos', {})).toMatchObject({ ok: false, dados: { erro: expect.stringContaining('não dá acesso'), motivo: 'perfil' } });
       } finally {
         await q(`delete from pedido_externo where tenant_id = any($1::uuid[])`, [[A, B]]);
         await q(`delete from comanda where tenant_id = $1`, [A]);
@@ -11964,7 +11964,7 @@ export function testesDoMisterComPostgres(): void {
         try {
           // Nasce desligada: nem a pergunta sai.
           delete process.env.MISTER_CRIAR_IMAGEM;
-          expect(await ferramentas.executar(e, 'propor_acao', en)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.imagemDesligada } });
+          expect(await ferramentas.executar(e, 'propor_acao', en)).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.imagemDesligada } });
           process.env.MISTER_CRIAR_IMAGEM = '1';
 
           // O pedido inteiro antes, com "Gerar" e "Mudar"; nada foi ao Graph.
@@ -12179,7 +12179,7 @@ export function testesDoMisterComPostgres(): void {
           await ligar('carlos', telC, A, 'gerente');
           const c = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
           const soVer = { ...c, permissoes: { ...c.permissoes, estoque: { ver: true, criar: false, editar: false, excluir: false } } } as any;
-          expect(await ferramentas.executar(soVer, 'propor_acao', { acao: 'movimentar_estoque', item: 'bacon', tipo: 'saida', quantidade: 1 })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
+          expect(await ferramentas.executar(soVer, 'propor_acao', { acao: 'movimentar_estoque', item: 'bacon', tipo: 'saida', quantidade: 1 })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
         } finally {
           delete (acoes as any).estoque;
           await q(`delete from movimento_estoque where item_id = $1`, [item]);
@@ -12250,8 +12250,8 @@ export function testesDoMisterComPostgres(): void {
           await ligar('carlos', telC, A, 'gerente');
           const c = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
           const soEditar = { ...c, permissoes: { ...c.permissoes, estoque: { ver: true, criar: false, editar: true, excluir: false } } } as any;
-          expect(await ferramentas.executar(soEditar, 'propor_acao', { acao: 'cadastrar_insumo', nome: 'Outro O3', medidaDoEstoque: 'kg' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
-          expect(await ferramentas.executar(soEditar, 'propor_acao', { acao: 'excluir_pedido_compra', pedidoDeCompra: 'Pedido recebido O3' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
+          expect(await ferramentas.executar(soEditar, 'propor_acao', { acao: 'cadastrar_insumo', nome: 'Outro O3', medidaDoEstoque: 'kg' })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
+          expect(await ferramentas.executar(soEditar, 'propor_acao', { acao: 'excluir_pedido_compra', pedidoDeCompra: 'Pedido recebido O3' })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
         } finally {
           delete (acoes as any).estoque;
           delete (acoes as any).fornecedores;
@@ -12328,7 +12328,7 @@ export function testesDoMisterComPostgres(): void {
           // Sem "Ver valores em R$", o gerente não muda preço; o valor de hoje também não sai.
           const c = (await ferramentas.escopo(A, pessoa.carlos, telCarlos))!;
           const semValores = { ...c, verValores: false, permissoes: { ...c.permissoes, loja: true, ver_financeiro: false } } as any;
-          expect(await ferramentas.executar(semValores, 'propor_acao', { ...en, precoNovo: 45 })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoPreco } });
+          expect(await ferramentas.executar(semValores, 'propor_acao', { ...en, precoNovo: 45 })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoPreco } });
           // O gerente com a permissão autoriza a DELE, com o PIN dele; com o PIN da sessão vencido, o preço de hoje não aparece.
           await q(`update colaborador set perfil_acesso_id = $2 where id = $1`, [pessoa.carlos, perfilDoPreco]);
           const g = (await ferramentas.escopo(A, pessoa.carlos, telCarlos))!;
@@ -12441,7 +12441,7 @@ export function testesDoMisterComPostgres(): void {
           await ligar('carlos', telC, A, 'gerente');
           const g = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
           const semLoja = { ...g, permissoes: { ...g.permissoes, loja: false } } as any;
-          expect(await ferramentas.executar(semLoja, 'propor_acao', en)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoHorario } });
+          expect(await ferramentas.executar(semLoja, 'propor_acao', en)).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoHorario } });
         } finally {
           for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
           if (criada) await q(`delete from cardapio_config where id = $1`, [criada]);
@@ -12536,8 +12536,8 @@ export function testesDoMisterComPostgres(): void {
           const g = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
           const enG = { ...en, venceEm: '10/01' };
           for (const perm of [{ financeiro: false, ver_financeiro: true }, { financeiro: true, ver_financeiro: false }])
-            expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, ...perm } } as any, 'propor_acao', enG)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoConta } });
-          expect(await ferramentas.executar({ ...e, verValores: false } as any, 'propor_acao', enG)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.contaPedePin } });
+            expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, ...perm } } as any, 'propor_acao', enG)).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoConta } });
+          expect(await ferramentas.executar({ ...e, verValores: false } as any, 'propor_acao', enG)).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.contaPedePin } });
         } finally {
           delete (acoes as any).financeiro;
           for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
@@ -12614,11 +12614,11 @@ export function testesDoMisterComPostgres(): void {
           const telC = telefone();
           await ligar('carlos', telC, A, 'gerente');
           const g = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
-          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, cupons: false } } as any, 'propor_acao', { acao: 'criar_cupom', codigoDoCupom: 'O5G', valorDoDesconto: 5 })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCupons } });
-          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, cupons: false } } as any, 'propor_acao', { acao: 'remover_cupom', codigoDoCupom: 'O5FRETE' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCupons } });
+          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, cupons: false } } as any, 'propor_acao', { acao: 'criar_cupom', codigoDoCupom: 'O5G', valorDoDesconto: 5 })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCupons } });
+          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, cupons: false } } as any, 'propor_acao', { acao: 'remover_cupom', codigoDoCupom: 'O5FRETE' })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCupons } });
           const enConta = { acao: 'lancar_conta', descricaoDaConta: 'O5 Gás', valorDaConta: 90, vencimentoDaConta: '2099-12-10' };
           for (const perm of [{ financeiro: false, ver_financeiro: true }, { financeiro: true, ver_financeiro: false }])
-            expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, ...perm } } as any, 'propor_acao', enConta)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoLancarConta } });
+            expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, ...perm } } as any, 'propor_acao', enConta)).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoLancarConta } });
         } finally {
           delete (acoes as any).cuponsDeTeste;
           delete (acoes as any).financeiro;
@@ -12707,9 +12707,9 @@ export function testesDoMisterComPostgres(): void {
           const telC = telefone();
           await ligar('carlos', telC, A, 'gerente');
           const g = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
-          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, escalas: { ver: true, criar: true, editar: false, excluir: false } } } as any, 'propor_acao', { acao: 'folga_na_escala', quemSai: 'Bruna O5b', diaDaEscala: dia })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEscalas } });
-          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, cadastros: false } } as any, 'propor_acao', { acao: 'mudar_fornecedor', fornecedor: 'Felipão O5b', contato: 'Zé' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCadastros } });
-          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, cadastros: false } } as any, 'propor_acao', { acao: 'cadastrar_fornecedor', nome: 'Novo O5b' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCadastros } });
+          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, escalas: { ver: true, criar: true, editar: false, excluir: false } } } as any, 'propor_acao', { acao: 'folga_na_escala', quemSai: 'Bruna O5b', diaDaEscala: dia })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEscalas } });
+          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, cadastros: false } } as any, 'propor_acao', { acao: 'mudar_fornecedor', fornecedor: 'Felipão O5b', contato: 'Zé' })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCadastros } });
+          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, cadastros: false } } as any, 'propor_acao', { acao: 'cadastrar_fornecedor', nome: 'Novo O5b' })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCadastros } });
         } finally {
           Object.assign(acoes as any, antes);
           if (criados.aloc) await q(`delete from escala_alocacao where id = $1`, [criados.aloc]);
@@ -12766,7 +12766,7 @@ export function testesDoMisterComPostgres(): void {
           const telC = telefone();
           await ligar('carlos', telC, A, 'gerente');
           const g = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
-          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, financeiro: true, ver_financeiro: true }, verValores: true } as any, 'propor_acao', en)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.bancoSoPresidente } });
+          expect(await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, financeiro: true, ver_financeiro: true }, verValores: true } as any, 'propor_acao', en)).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.bancoSoPresidente } });
           expect((await ferramentas.executar(e, 'propor_acao', { ...en, valorDoLancamento: 7777 })).dados.erro).toContain('Não achei lançamento de R$ 7.777,00');
           // Dois com o mesmo dia e valor (entrada e saída): pede um pedaço da descrição; com ele, acha um.
           const dois = await ferramentas.executar(e, 'propor_acao', { ...en, diaDoLancamento: d2, valorDoLancamento: 50, tipoDoLancamento: 'imposto', lembrarNosProximos: false });
@@ -12855,7 +12855,7 @@ export function testesDoMisterComPostgres(): void {
           const g = (await ferramentas.escopo(A, pessoa.carlos, telC))!;
           expect(
             await ferramentas.executar({ ...g, permissoes: { ...g.permissoes, estoque: { ver: true, criar: false, editar: false, excluir: false } } } as any, 'propor_acao', { acao: 'contar_estoque', listaDeContagem: 'semanal', contados: [bacon12] }),
-          ).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
+          ).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
         } finally {
           delete (acoes as any).contagemDeTeste;
           const listas = [ids.semanal, ids.mensal].filter(Boolean);
@@ -12913,7 +12913,7 @@ export function testesDoMisterComPostgres(): void {
 
           // 2) O caixa: nenhum aberto.
           const fecharSem = { acao: 'fechar_caixa', caixaDaLoja: 'balcão', semContagem: true };
-          expect(await ferramentas.executar(e, 'propor_acao', fecharSem)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semCaixaAberto('do balcão') } });
+          expect(await ferramentas.executar(e, 'propor_acao', fecharSem)).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semCaixaAberto('do balcão') } });
           // Dois caixas do balcão: um de cada terminal, abertos ontem por pessoas diferentes.
           for (const [n, por] of [['1', pessoa.ana], ['2', pessoa.carlos]] as const) {
             const [{ id: eq }] = await q(`insert into equipamento (tenant_id, unidade_id, tipo, nome, token) values ($1, $2, 'pdv', $3, $4) returning id::text as id`, [A, lojaDeA, `PDV E1 ${n}`, `pdv-${MARCA}-e1-${n}`]);
@@ -12928,8 +12928,8 @@ export function testesDoMisterComPostgres(): void {
           const dois = await ferramentas.executar(e, 'propor_acao', fecharSem);
           expect(dois.dados.erro).toBe(TEXTOS_DAS_ACOES.caixasDemais('PDV E1 1 (de Ana Souza), PDV E1 2 (de Carlos Lima)'));
           // Só gerente e presidente; sem o PDV, nem a supervisão chega lá.
-          expect(await ferramentas.executar({ ...e, nivel: 'supervisao', permissoes: { pdv: true } } as any, 'propor_acao', fecharSem)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.soGestor } });
-          expect(await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true } } } as any, 'propor_acao', fecharSem)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCaixa } });
+          expect(await ferramentas.executar({ ...e, nivel: 'supervisao', permissoes: { pdv: true } } as any, 'propor_acao', fecharSem)).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.soGestor } });
+          expect(await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true } } } as any, 'propor_acao', fecharSem)).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoCaixa } });
 
           // 3) A sangria no caixa do Carlos (pelo nome dele): a página do PIN com o valor; o lançamento pelo serviço do PDV.
           const r = await ferramentas.executar(e, 'propor_acao', { acao: 'sangria', caixaDaLoja: 'balcão', operadorDoCaixa: 'carlos', valorDaSangria: 50, motivoDoCaixa: 'pagar o gás' });
@@ -12974,7 +12974,7 @@ export function testesDoMisterComPostgres(): void {
           const pendentes = (await pendenciasDoTurno(db as any, A, null, 'delivery')).total;
           expect(pendentes).toBeGreaterThanOrEqual(1);
           const fecharDelivery = { acao: 'fechar_caixa', caixaDaLoja: 'delivery', semContagem: true };
-          expect(await ferramentas.executar(e, 'propor_acao', fecharDelivery)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.pendenciasSemMotivo(pendentes) } });
+          expect(await ferramentas.executar(e, 'propor_acao', fecharDelivery)).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.pendenciasSemMotivo(pendentes) } });
           const fd = await ferramentas.executar(e, 'propor_acao', { ...fecharDelivery, motivoDoCaixa: 'pedido preso no teste E1' });
           expect(fd.dados.oQueVouFazer).toContain(`fecha mesmo assim, com o motivo "pedido preso no teste E1" na auditoria`);
           const pd = await pin(fd);
@@ -13334,10 +13334,10 @@ export function testesDoMisterComPostgres(): void {
           // A permissão: incluir pede ponto.criar; desconsiderar, ponto.editar.
           expect(
             await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { ponto: { ver: true, criar: false, editar: true, excluir: false } } } as any, 'propor_acao', { ...base, horaDaMarcacao: '20:10' }),
-          ).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoPonto } });
+          ).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoPonto } });
           expect(
             await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { ponto: { ver: true, criar: true, editar: false, excluir: false } } } as any, 'propor_acao', { ...desc, horaDaMarcacao: '18:02' }),
-          ).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoPonto } });
+          ).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoPonto } });
         } finally {
           delete (acoes as any).pontoDeTeste;
           for (const x of pinsAntes) await q(`update colaborador set pin_hash = $2 where id = $1`, [x.id, x.pin_hash]);
@@ -13390,7 +13390,7 @@ export function testesDoMisterComPostgres(): void {
           // A permissão: sem "criar" no Estoque, não sai.
           expect(
             await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true, criar: false, editar: true, excluir: false } } } as any, 'propor_acao', { acao: 'pedido_enviado', pedidoDeCompra: 'Semanal E6', canalDoEnvio: 'email' }),
-          ).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
+          ).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
           // A exclusão continua achando o pedido pela mesma busca.
           expect((await ferramentas.executar(e, 'propor_acao', { acao: 'excluir_pedido_compra', pedidoDeCompra: 'Semanal E6' })).dados.oQueVouFazer).toMatch(/^Excluir o pedido "Semanal E6 \(Felipão E6\), criado em/);
         } finally {
@@ -13753,7 +13753,7 @@ export function testesDoMisterComPostgres(): void {
           );
           expect(
             await ferramentas.executar({ ...e, nivel: 'gerente', permissoes: { estoque: { ver: true, criar: true, editar: false, excluir: false } } } as any, 'propor_acao', { acao: 'informar_validade', insumoDaValidade: 'carne p1b', pedidoDaValidade: 'extra', validadeInformada: '2026-12-02' }),
-          ).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
+          ).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.semPermissaoEstoque } });
         } finally {
           (acoes as any).compras = comprasAntes;
           await q(`delete from titulo_financeiro where origem = 'compra' and origem_id = any($1::uuid[])`, [listas]).catch(() => undefined);
@@ -13926,12 +13926,12 @@ export function testesDoMisterComPostgres(): void {
           const de = await ferramentas.executar(e, 'propor_acao', { acao: 'despachar_pedido', numero: 'M6J-1' });
           await propostasDasAcoes.responder(`prop:${idDaProposta(de)}:sim`, quem(tel, 'ana', 'presidente'));
           expect(await esperarFim(idDaProposta(de))).toMatchObject({ situacao: 'feita', resultado: 'O pedido #777 · iFood M6J-1 saiu para a entrega.' });
-          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'aceitar_pedido', numero: '999999' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.naoAchado } });
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'aceitar_pedido', numero: '999999' })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.naoAchado } });
 
           // 3) O gerente: com o Delivery no perfil, propõe e autoriza a dele; sem ele, não propõe; e quem perdeu a permissão
           //    depois da pergunta não executa (a régua é conferida de novo na hora).
           const eCarlos = (await ferramentas.escopo(A, pessoa.carlos, telCarlos))!;
-          expect(await ferramentas.executar({ ...eCarlos, permissoes: { delivery: false } as any }, 'propor_acao', { acao: 'reabrir_canal', canais: ['cardapio'] })).toEqual({
+          expect(await ferramentas.executar({ ...eCarlos, permissoes: { delivery: false } as any }, 'propor_acao', { acao: 'reabrir_canal', canais: ['cardapio'] })).toMatchObject({
             ok: false,
             dados: { erro: TEXTOS_DAS_ACOES.semPermissao },
           });
@@ -14005,9 +14005,9 @@ export function testesDoMisterComPostgres(): void {
           // Com a foto exigida na conclusão (a política da empresa), "feita" é recusada já na pergunta.
           // o id pela chave, como em todo insert do `entitlement` (V42; a `config-linha-unica.spec` varre o código)
           await q(`insert into entitlement (id, tenant_id, modulo, ativo) values ($1, $2, 'tarefa_foto_conclusao', true)`, [idEntitlement(A, 'tarefa_foto_conclusao'), A]);
-          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'concluir_tarefa', tarefa: 'Limpar a coifa' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.tarefaPedeFoto } });
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'concluir_tarefa', tarefa: 'Limpar a coifa' })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.tarefaPedeFoto } });
           await q(`delete from entitlement where tenant_id = $1 and modulo = 'tarefa_foto_conclusao'`, [A]);
-          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'concluir_tarefa', tarefa: 'tarefa que não existe' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.tarefaNaoAchada } });
+          expect(await ferramentas.executar(e, 'propor_acao', { acao: 'concluir_tarefa', tarefa: 'tarefa que não existe' })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.tarefaNaoAchada } });
 
           // O produto: sem canal dito, no Regem e no iFood (ele está no iFood, não na 99), pela pausa por canal da tela.
           const p = await ferramentas.executar(e, 'propor_acao', { acao: 'pausar_produto', produto: 'x-bacon' });
@@ -14436,7 +14436,7 @@ export function testesDoMisterComPostgres(): void {
         expect(chuva.dados.ainda === true || chuva.dados.semDados === true).toBe(true);
         expect((await ferramentas.executar(e, 'clima_e_eventos', { comparar: 'lua_cheia' })).ok).toBe(false);
         const gerenteSemRelatorios = { ...(await ferramentas.escopoDaTela(A, pessoa.carlos))!, permissoes: {} as any };
-        expect(await ferramentas.executar(gerenteSemRelatorios, 'clima_e_eventos', { comparar: 'feriado' })).toEqual({ ok: false, dados: { erro: expect.stringContaining('não dá acesso') } });
+        expect(await ferramentas.executar(gerenteSemRelatorios, 'clima_e_eventos', { comparar: 'feriado' })).toMatchObject({ ok: false, dados: { erro: expect.stringContaining('não dá acesso'), motivo: 'perfil' } });
       });
 
       // ───────────── versão 7, V7f: os indicadores financeiros (a conta oficial, o custo, as permissões e o dado informado) ─────────────
@@ -14766,8 +14766,8 @@ export function testesDoMisterComPostgres(): void {
           expect(numero.enviadas.some((m: any) => String(m.texto ?? m).includes(TEXTOS_DAS_ACOES.dadoCorrigir))).toBe(true);
 
           const gerente = gerenteCom(e, { financeiro: true, ver_financeiro: true }, true);
-          expect(await ferramentas.executar(gerente, 'propor_acao', { acao: 'informar_saldo', valorInformado: 100 })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.dadoSoPresidente } });
-          expect(await ferramentas.executar({ ...e, verValores: false, pinPendente: true }, 'propor_acao', { acao: 'informar_saldo', valorInformado: 100 })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.dadoPedePin } });
+          expect(await ferramentas.executar(gerente, 'propor_acao', { acao: 'informar_saldo', valorInformado: 100 })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.dadoSoPresidente } });
+          expect(await ferramentas.executar({ ...e, verValores: false, pinPendente: true }, 'propor_acao', { acao: 'informar_saldo', valorInformado: 100 })).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_ACOES.dadoPedePin } });
           for (const v of [0, -10, '500', 1e12]) expect((await ferramentas.executar(e, 'propor_acao', { acao: 'informar_saldo', valorInformado: v })).ok).toBe(false);
         });
 

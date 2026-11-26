@@ -129,6 +129,7 @@ import { FRANQUIA_DO_ATENDIMENTO, FRASE_DO_ESTIMADO, LinhaSomada, mesesAntes, pr
 import { ASSUNTOS_DO_LINK, AssuntoDoLink, TELA_DO_ASSUNTO, acharPessoa, enderecoDoApp, mensagemDoLink, resumoDaContagem } from './link-de-conferencia';
 import { MisterPropostasService, PropostaPendente } from './mister-propostas.service';
 import { MisterTelasService } from './mister-telas.service';
+import { MOTIVO_NAO_TEM, SIGA_DO_QUE_FALTA, comMotivo, motivoDoPerfil } from './mister-motivo';
 import { PROCEDIMENTOS, propostaDoAviso } from './mister-procedimentos';
 import {
   PROCEDIMENTOS_QUE_A_IA_PROPOE,
@@ -323,7 +324,8 @@ const diaDaLinha = (v: unknown): string => {
   const t = String(v ?? '').slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(t) ? diaMes(t) : t;
 };
-const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
+// Versão 10, C6: a consulta que o perfil não abre volta com o motivo e os caminhos (`mister-motivo.ts`).
+const recusa = (erro: string): ResultadoDaFerramenta => (erro === SEM_PERMISSAO ? comMotivo(erro, motivoDoPerfil('o presidente, ou quem tem essa tela no perfil')) : { ok: false, dados: { erro } });
 
 // ─── versão 5, M5d.2: o gráfico na conversa ───
 const TIPOS_DE_GRAFICO = ['vendas_por_dia', 'vendas_por_hora', 'canais', 'mais_vendidos'];
@@ -573,7 +575,8 @@ export class MisterFerramentasService {
     // O link para abrir uma tela também não depende de loja (a notícia é da empresa, pelo ramo).
     if (nome === FERRAMENTA_DE_ABRIR) return this.abrirNoRegem(e, entrada);
     // A anotação do que falta (F5.2) também não lê dado: o tema fica na trilha da pergunta (quem grava é o agente).
-    if (nome === FERRAMENTA_DO_QUE_FALTA) return { ok: true, dados: { anotado: true, siga: 'Responda agora: diga que você ainda não tem acesso a essa informação e, em uma frase, o que você consegue responder hoje.' } };
+    // Versão 10, C6: o motivo é "o Regem ainda não tem"; o caminho, o mais parecido que existe hoje e o pedido anotado.
+    if (nome === FERRAMENTA_DO_QUE_FALTA) return { ok: true, dados: { anotado: true, motivo: MOTIVO_NAO_TEM.motivo, siga: SIGA_DO_QUE_FALTA } };
     // Versão 4: as conversas anteriores são da própria pessoa, não de uma loja — respondem também a quem está sem loja.
     if (nome === 'conversas_anteriores') return this.conversasAnteriores(e, entrada);
     // Versão 4, M4b: a memória também não depende de loja.

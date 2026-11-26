@@ -317,7 +317,7 @@ describe('Mister — a consulta "como usar o Regem"', () => {
     for (const e of [escopo('gerente', {}, true), escopo('presidente')]) {
       const r = await ferramentas.executar(e, 'anotar_o_que_falta', { tema: 'estoque' });
       expect(r.ok).toBe(true);
-      expect(r.dados).toEqual({ anotado: true, siga: expect.stringContaining('ainda não tem acesso') });
+      expect(r.dados).toEqual({ anotado: true, motivo: 'nao_tem', siga: expect.stringContaining('o Regem ainda não tem') });
     }
   });
 

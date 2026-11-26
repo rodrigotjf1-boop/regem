@@ -5,6 +5,7 @@ import { semDadoPessoal } from '../graph/graph.regras';
 import { funcaoDoMapa, LEITURAS_DO_MISTER, parametrosDoCaminho, procurarNoMapa } from './mapa/busca-no-mapa';
 import { limparLeitura } from './mapa/leitura-limpa';
 import type { FuncaoDoMapa } from './mapa/mapa-do-regem';
+import { MOTIVO_DO_DADO_DE_PESSOA, MOTIVO_DO_PIN, MOTIVO_NAO_TEM, MOTIVO_SO_NA_TELA, comMotivo, motivoDoPerfil, type MotivoDaFerramenta } from './mister-motivo';
 import type { EscopoDoMister, ResultadoDaFerramenta } from './mister-ferramentas.service';
 
 // LER QUALQUER TELA (Mister, versão 10, fase C3; `docs/plano-mister.md` § "C3"). Duas ferramentas:
@@ -37,7 +38,20 @@ export const TEXTOS_DAS_TELAS = {
   esperaOPin: 'As telas do Regem esperam o PIN: o link para confirmar vai logo depois desta resposta. Diga isso em uma frase.',
 } as const;
 
-const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
+/** Versão 10, C6: o motivo e os caminhos de cada recusa das telas (o resto volta só com a frase). */
+const MOTIVO_DO_TEXTO = new Map<string, MotivoDaFerramenta>([
+  [TEXTOS_DAS_TELAS.semPermissao, motivoDoPerfil('o presidente, ou quem tem essa tela no perfil')],
+  [TEXTOS_DAS_TELAS.pessoal, MOTIVO_DO_DADO_DE_PESSOA],
+  [TEXTOS_DAS_TELAS.naoELeitura, MOTIVO_SO_NA_TELA],
+  [TEXTOS_DAS_TELAS.naoEJson, MOTIVO_SO_NA_TELA],
+  [TEXTOS_DAS_TELAS.esperaOPin, MOTIVO_DO_PIN],
+]);
+/** A recusa das telas (a avaliação usa a MESMA): com o motivo, quando o texto tem um. */
+export const recusaDaTela = (erro: string): ResultadoDaFerramenta => {
+  const m = MOTIVO_DO_TEXTO.get(erro);
+  return m ? comMotivo(erro, m) : { ok: false, dados: { erro } };
+};
+const recusa = recusaDaTela;
 
 /** `procurar_no_regem` (a avaliação usa a MESMA): as leituras do mapa que mais combinam com o que a IA descreveu. */
 export function procurarTelas(entrada: unknown): ResultadoDaFerramenta {
@@ -45,7 +59,10 @@ export function procurarTelas(entrada: unknown): ResultadoDaFerramenta {
   const busca = String(en.busca ?? '').slice(0, 200).trim();
   if (!busca) return recusa(TEXTOS_DAS_TELAS.semBusca);
   const r = procurarNoMapa(busca);
-  if (!r.achadas.length) return { ok: true, dados: { achadas: [], siga: r.comDadoDePessoa ? TEXTOS_DAS_TELAS.soComDadoDePessoa : TEXTOS_DAS_TELAS.nadaAchado } };
+  if (!r.achadas.length) {
+    const m = r.comDadoDePessoa ? MOTIVO_DO_DADO_DE_PESSOA : MOTIVO_NAO_TEM;
+    return { ok: true, dados: { achadas: [], siga: r.comDadoDePessoa ? TEXTOS_DAS_TELAS.soComDadoDePessoa : TEXTOS_DAS_TELAS.nadaAchado, motivo: m.motivo, caminhos: m.caminhos } };
+  }
   return {
     ok: true,
     dados: {
