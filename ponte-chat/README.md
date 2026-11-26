@@ -166,6 +166,25 @@ chega e a busca do programa funciona no portal de verdade.
   por ele não mostra o que o cliente e o usuário principal trocaram. As mensagens do cliente só chegam à ponte se ela usar
   a conta que conversa com o cliente (a principal) — ou se a 99 tiver uma permissão de chat para o usuário extra.
 
+## O que a versão 0.7.9 muda (25/11 — a ponte mais leve no PC da loja)
+
+- **O que se mediu:** no servidor da loja (um i5 650 de 2010, 4 núcleos lógicos, 8 GB), às 23:44 de 25/11, a ponte era o
+  programa que mais pesava: 15% da CPU da máquina inteira (o PC todo em 22%) e 1,15 GB de memória, em 7 processos — a
+  página do Gestor (7% e 414 MB), o processo de vídeo (6,4%) e a página da 99 (1,5% e 204 MB).
+- **O diagnóstico da tela parou de varrer a página a cada 3 s.** Ele anota onde ficam o campo e o botão do chat (só a
+  estrutura) e, para isso, mede a posição de CADA elemento da página do Gestor — duas vezes, a cada 3 s, com a janela
+  escondida também. Agora a cada 30 s (`REGEM_PONTE_DIAG_TELA_MS`) e só com a janela do Gestor aparecendo. O envio não
+  depende dele: lê a tela por conta própria na hora de mandar.
+- **A escuta da rede com limite.** Sem limite, ligar a escuta faz o Chromium guardar o corpo de TODA resposta da página
+  (scripts, imagens, as chamadas do Gestor a cada poucos segundos). A ponte só lê as respostas JSON do histórico do chat e
+  do diagnóstico, de até 2 MB: agora 3 MB por resposta e 16 MB no total (`src/limites-da-escuta.js`), nas duas janelas.
+- **O peso no arquivo do estado.** A cada 30 s a ponte soma os processos dela (`app.getAppMetrics()`) e grava no
+  `estado-da-ponte.json` (`peso`: CPU em % da máquina, memória em MB, por tipo de processo) — dá para acompanhar o turno
+  inteiro sem depender de uma amostra do Gerenciador de Tarefas. A janela "Estado da ponte" não mudou.
+- **O que fica igual:** as janelas seguem sem o freio de fundo (`backgroundThrottling: false`) — é o que deixa a fila de
+  saída enviar com a janela escondida. Se o peso medido continuar alto, o próximo passo é medir com a aceleração de vídeo
+  desligada (o i5 650 não tem placa que o Chromium aceite).
+
 ## O que a versão 0.7.8 muda (16/11 — o iFood sem login chama quem está no PC)
 
 - **O que aconteceu:** em 16/11, na loja, o Gestor do iFood dentro da ponte caiu para a tela de login às 18:37 e ficou

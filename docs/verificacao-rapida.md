@@ -8,7 +8,7 @@
 > `node backend/scripts/exportar-verificacao-rapida.mjs` (o script recusa CPF, CNPJ, telefone, e-mail, IP, valor,
 > chave e caminho de usuário). Lido pelo vigia de código na nuvem a cada PR que entra na `main`.
 
-119 regras (V1–V119).
+120 regras (V1–V120).
 
 | # | Pergunta | Se sim… | Erros |
 |---|---|---|---|
@@ -131,3 +131,4 @@
 | V117 | Um indicador lê um valor agregado que pode ser ZERO de verdade (fechamento de estoque, saldo, total)? Uma rotina decide "já fiz hoje" por empresa? Um cadastro muda a unidade ou a escala de algo que já tem histórico? Uma conferência de cadastro (a ficha rende na unidade do produto) é usada por outra operação? | Leia também a CONTAGEM de linhas e decida "não existe" por ela — zero é um valor. O "já fiz" confere TODAS as partes (cada loja), nunca "existe uma linha". Mudança de unidade/escala com histórico (movimento, lote) é recusada (409), ou é uma operação própria de conversão; grafia da mesma unidade passa. A conferência do cadastro vale também na operação (ordem de produção, conclusão). | ERR-613 |
 | V118 | Uma operação tem mais de um efeito gravado (reserva do pedido + venda + vínculo; desconto no pedido + consumo do benefício) ou o sincronismo recebe uma recusa do outro lado? | Os efeitos de UMA operação entram na mesma transação (`venderExterno(..., reservarPedido)`); se não der, o passo seguinte confere o anterior e desfaz o todo (o pedido com benefício entra sem aceite, o consumo conferido decide). Consumo de benefício DIZ se consumiu (prêmio pelo `returning`, cashback com o saldo travado e débito de id fixo). Recusa transitória (23503, falta o pai) volta como `pendentes` e o servidor da loja reenvia (`sync_fila` 'reenvio'), nunca anda o cursor por cima. | ERR-614 |
 | V119 | Um texto que vem de COMPRA (planilha de estoque de outro sistema, nota, cupom, lista, pedido, resposta do fornecedor) vai achar o produto do estoque? | Casa pelo `nome_comercial` E pelo `nome` — nunca só pelo `nome`, que é o da ficha técnica e foi renomeado na loja ("Carne 56gr" = "Caixa hamburguer aurora 56gr"). O nome vence se o comercial de um for o nome de outro; comercial em branco não conta. Mostrar na compra o comercial (`nomeDeCompra`). Regra do dono, 25/11/2026. | ERR-615 |
+| V120 | Vai mexer num programa que roda no PC da loja e lê página de terceiro (a ponte do chat, Electron)? | Nada de varrer a página inteira (`body *`, posição de cada elemento) em intervalo curto — leitura que só ANOTA roda com a janela aparecendo e em intervalo longo; `Network.enable` sempre com os limites de buffer (`limites-da-escuta.js`); antes do `.exe`, medir o peso no PC da loja (o `peso` do `estado-da-ponte.json`, ou CPU por processo em 6 s pelo SSH) — o servidor é um i5 650. | ERR-619 |
