@@ -21,9 +21,18 @@
 
 export const MARCA_DA_RESPOSTA_SEGURADA =
   '[o cliente mandou mais mensagens enquanto você preparava a resposta — a sua resposta anterior NÃO foi enviada a ele. Responda considerando tudo o que ele escreveu abaixo:]';
-/** Quantas vezes seguidas a resposta é segurada antes de sair mesmo assim (o cliente que não para de escrever). */
-export const MAX_SEGURADAS = 2;
-const PRAZO_PADRAO_MS = 40_000;
+/**
+ * Quantas vezes seguidas a resposta é segurada antes de sair mesmo assim (o cliente que não para de escrever). Era 2 até
+ * 26/11/2026: cada segurada soma uma rodada inteira do robô (30 a 60 s medidos), e três textos seguidos chegaram a 94 s
+ * sem resposta. Com 1, o cliente espera no máximo duas rodadas; o que ele escrever depois vai em seguida.
+ */
+export const MAX_SEGURADAS = 1;
+/**
+ * Prazo padrão para a resposta chegar (era 40 s até 26/11/2026). Medido na loja piloto de 19 a 26/11: mediana 34 s, p90 50 s
+ * e até 90 s com áudio. Com 40 s, a resposta lenta vencia o prazo, o Regem mandava tudo de novo ao robô EM PARALELO e as
+ * duas respostas saíam (a velha também). 90 s cobre o áudio; `ROBO_SEGURAR_MS` continua mudando sem deploy.
+ */
+const PRAZO_PADRAO_MS = 90_000;
 const PRAZO_MAXIMO_MS = 120_000;
 
 type Entregar = (m: any) => Promise<any>;

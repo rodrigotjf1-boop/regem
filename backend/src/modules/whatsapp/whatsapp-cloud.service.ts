@@ -8,6 +8,7 @@ import { assinarConversa, ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, eh
 import { ecoDeAvisoAutomatico } from '../../common/avisos-automaticos';
 import { estadoDaPausa, pausaDaConversa, pausarPeloAtendente, pausasDaLojaOuVazio } from './robo-pausa';
 import { entregarJuntando } from './juntar-mensagens';
+import { renovarDigitando } from './digitando-renovado';
 import { conversaRecenteOficial, portaoDoRoboDoOutroLado } from './robo-do-outro-lado';
 import { portaoDaRespostaAoSemContato, registrarConfirmacao } from './resposta-ao-sem-contato';
 import { portaoDaConferencia } from './conferir-entrega';
@@ -46,6 +47,13 @@ import { decidirSincronizacao, papelDoModelo, STATUS_DA_META, type PapelDoNumero
 //   N8N_BOT_CLOUD_WEBHOOK_URL  — webhook do workflow "Bot Regem (Cloud)" no n8n.
 //                                Vazio = recebimento fica só no log (modo inerte).
 const GRAPH = 'https://graph.facebook.com/v25.0';
+/**
+ * PRAZO das chamadas à Meta no caminho da conversa (26/11/2026, análise do atendente que levou mais de 2 min): sem prazo,
+ * um `fetch` pendurado segura a resposta do robô até o limite do Node (~5 min). Mensagem e reação: 20 s; subir/baixar
+ * arquivo (voz, PDF, a mídia que o cliente mandou): 30 s. Estourou = falha como "sem resposta" (o caminho que já existia).
+ */
+const PRAZO_DA_META_MS = 20_000;
+const PRAZO_DE_ARQUIVO_MS = 30_000;
 /** A recusa dos envios do robô para a conversa de TESTE do atendente (mig 382): no teste nada sai pelo WhatsApp. */
 export const RECUSA_NO_TESTE = 'Conversa de teste do atendente: nada é enviado pelo WhatsApp (a resposta vai por publico/bot/responder).';
 /** A recusa dos envios pelo WhatsApp para a fala do chat do iFood e da 99 (F5, mig 383): a resposta é no chat da plataforma. */
@@ -1086,7 +1094,10 @@ export class WhatsappCloudService {
   // Junta as mensagens seguidas da conversa e entrega assinada, com limite de tempo — mesma entrega da Evolution
   // (juntar-mensagens.ts, entregar-ao-robo.ts).
   private async encaminhar(msg: MsgNormalizada): Promise<void> {
-    this.mostrarDigitando(String(msg.phoneNumberId ?? ''), String(msg.mensagemId ?? ''));
+    const mostrar = () => this.mostrarDigitando(String(msg.phoneNumberId ?? ''), String(msg.mensagemId ?? ''));
+    mostrar();
+    // A Meta tira o "digitando" em 25 s e a resposta leva mais (34 s na mediana): renova até o `responder` parar (26/11).
+    renovarDigitando(msg.tenantId, msg.de, mostrar);
     await entregarJuntando(msg);
   }
 
@@ -1186,6 +1197,7 @@ export class WhatsappCloudService {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.token()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(corpoDaReacao(para, id, e)),
+      signal: AbortSignal.timeout(PRAZO_DA_META_MS),
     }).catch(() => null);
     if (!res || !res.ok) {
       const corpo = res ? await res.text().catch(() => '') : '';
@@ -1380,6 +1392,7 @@ export class WhatsappCloudService {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.token()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ messaging_product: 'whatsapp', ...corpo }),
+      signal: AbortSignal.timeout(PRAZO_DA_META_MS),
     }).catch(() => null);
     if (!res || !res.ok) {
       const texto = res ? await res.text().catch(() => '') : '';
@@ -1509,6 +1522,7 @@ export class WhatsappCloudService {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.token()}` },
       body: form,
+      signal: AbortSignal.timeout(PRAZO_DE_ARQUIVO_MS),
     }).catch(() => null);
     if (!up || !up.ok) {
       const texto = up ? await up.text().catch(() => '') : '';
@@ -1622,7 +1636,7 @@ export class WhatsappCloudService {
     const auth = { Authorization: `Bearer ${this.token()}` };
 
     // 1) Metadados: a Meta devolve uma URL temporária, não o arquivo.
-    const metaRes = await fetch(`${GRAPH}/${id}`, { headers: auth }).catch(() => null);
+    const metaRes = await fetch(`${GRAPH}/${id}`, { headers: auth, signal: AbortSignal.timeout(PRAZO_DA_META_MS) }).catch(() => null);
     if (!metaRes || !metaRes.ok) {
       const corpo = metaRes ? await metaRes.text().catch(() => '') : '';
       throw new BadRequestException(
@@ -1648,7 +1662,7 @@ export class WhatsappCloudService {
 
     // 2) O binário. A URL temporária TAMBÉM exige o Bearer — é o tropeço clássico
     // de quem tenta baixar a mídia direto pelo link.
-    const binRes = await fetch(url, { headers: auth }).catch(() => null);
+    const binRes = await fetch(url, { headers: auth, signal: AbortSignal.timeout(PRAZO_DE_ARQUIVO_MS) }).catch(() => null);
     if (!binRes || !binRes.ok)
       throw new BadRequestException(`Falha ao baixar a mídia (${binRes?.status ?? 'sem resposta'}).`);
 

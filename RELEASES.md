@@ -15,6 +15,8 @@
 - _(o #1360, Mister C6a, entrou na `main` logo depois do corte da 1.30.16 e não está no `.exe`; é só da nuvem; o #1362, C6b, também)_
 - _(Atendente — o Pix pela conversa, instruções .f35 (26/11): SEM migration e só da nuvem — a conversa do robô, o registro e a
   cobrança do Pix rodam na nuvem. Não pede `.zip` nem `.exe`.)_
+- _(Atendente — menos espera e o "digitando…" renovado (26/11): SEM migration e só da nuvem — a entrada do WhatsApp e a resposta
+  do robô não passam pelo servidor da loja. Não pede `.zip` nem `.exe`.)_
 - **Mister C4a — fazer uma tarefa pelo mapa (26/11; SEM migration; o efeito é só na nuvem).** O bilhete do Mister
   (`auth/bilhete-do-mister.ts`) passa a guardar o método e o resumo do corpo, e o `JwtAuthGuard` confere os dois na escrita. Vai
   no próximo `.zip` só por ser código comum: no servidor da loja nenhum bilhete é emitido, o cabeçalho dá 401 e o resto não

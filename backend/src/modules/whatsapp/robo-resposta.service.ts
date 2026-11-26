@@ -25,6 +25,7 @@ import { WhatsappCloudService, cabeEmBotoes, opcoesValidas } from './whatsapp-cl
 import { EstadoPausa, estadoDaPausa } from './robo-pausa';
 import { idDoEnvio, marcarDoRobo } from './mensagens-do-robo';
 import { fimDaResposta } from './resposta-em-andamento';
+import { pararDigitando } from './digitando-renovado';
 import { linkDoCardapioDaLoja, separarLinkDoCardapio, soLinksDaLoja } from './links-do-robo';
 import {
   escolherProduto,
@@ -226,16 +227,21 @@ export class RoboRespostaService {
     // caminho de saída. A que não sai (vazia, robô desligado, conversa com uma pessoa) solta o que o cliente mandou
     // enquanto ela era preparada; a que sairia, mas ficou velha (o cliente escreveu depois que ela começou), é descartada e
     // tudo vai de novo ao robô — o cliente recebe UMA resposta, que considera tudo.
+    // O "digitando…" renovado (`digitando-renovado.ts`, 26/11) para em todo caminho em que esta resposta encerra a vez do robô
+    // — menos no descarte: ali o robô começa outra rodada e o cliente continua vendo "digitando".
     if (!texto && !opcoes.length && !audio && !reacao) {
+      pararDigitando(loja.tenantId, para);
       fimDaResposta(loja.tenantId, para, false);
       throw new BadRequestException('Nada para enviar (texto, opções ou áudio).');
     }
 
     if (!cfg.roboAtivo || !cfg.ativo) {
+      pararDigitando(loja.tenantId, para);
       fimDaResposta(loja.tenantId, para, false);
       return { ok: true, enviado: false, motivo: 'robo_desligado' };
     }
     if (await this.pausada(cfg, para)) {
+      pararDigitando(loja.tenantId, para);
       fimDaResposta(loja.tenantId, para, false);
       this.logger.log(`resposta do robô segurada: conversa pausada (${via}) de=***${para.slice(-4)}`);
       return { ok: true, enviado: false, motivo: 'conversa_pausada' };
@@ -244,6 +250,7 @@ export class RoboRespostaService {
       this.logger.log(`resposta do robô descartada: o cliente escreveu enquanto ela era preparada (${via}) de=***${para.slice(-4)} — vai de novo ao robô com tudo`);
       return { ok: true, enviado: false, motivo: 'resposta_superada' };
     }
+    pararDigitando(loja.tenantId, para);
 
     const enviados: string[] = [];
     // O id de cada mensagem que SAIU (o wamid na API oficial, o `key.id` na Evolution): a marca da fala do robô, para a
