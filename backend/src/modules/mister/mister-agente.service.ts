@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
 import { IaEmpresaService } from '../ia/ia-empresa.service';
-import { MotivoSemResposta, TETOS, TEXTOS_DO_AGENTE, blocoDaConversa, filtrarSaida, fraseDoMotivo, TrocaDaMemoria, juntarPerguntas } from './mister-agente.regras';
+import { MotivoSemResposta, TETOS, TEXTOS_DO_AGENTE, blocoDaConversa, filtrarSaida, fraseDoMotivo, TrocaDaMemoria, juntarPerguntas, semValoresNoTexto } from './mister-agente.regras';
 import { EscopoDoMister, MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService, PerguntaNaFila, Trilha } from './mister-fila.service';
 import { FimDaPergunta, Vagas, modeloDasAnalises, modeloDasPerguntas, responderComFerramentas } from './mister-laco';
@@ -23,6 +23,8 @@ import { LINKS_PARA_ABRIR_MAX, LinkParaAbrir, linhasParaAbrir } from './mister-a
 import { linhaDaMidia, veioDeAudio } from './mister-midia.regras';
 import { MisterMidiaService } from './mister-midia.service';
 import { MisterAprendizadoService } from './mister-aprendizado.service';
+import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
+import { linhasDasIdeias } from './mister-relatorios.regras';
 
 /** M3c.2: o balão da resposta leva o botão "PDF" só quando cabe no corpo de uma mensagem com botões (1024 na Meta). */
 const CABE_COM_BOTAO = 1000;
@@ -74,7 +76,15 @@ export class MisterAgenteService implements OnModuleInit {
     @Optional() private readonly midia?: MisterMidiaService,
     // Versão 10, C7: os exemplos aprendidos pela tarefa feita. Sem o serviço (ou sem a migration), sem exemplos.
     @Optional() private readonly aprendizado?: MisterAprendizadoService,
+    // Versão 10, C8: as ideias da semana que saíram há pouco (o "faz a 2"). Sem o serviço, a conversa segue sem elas.
+    @Optional() private readonly relatorios?: MisterRelatoriosConfigService,
   ) {}
+
+  /** As linhas das ideias da semana recentes desta pessoa (C8). Nunca lança: sem ideias ou com erro, nada. */
+  private async ideiasDaConversa(escopo: EscopoDoMister): Promise<string[]> {
+    const r = await this.relatorios?.ideiasRecentes(escopo.tenantId, escopo.colaboradorId).catch(() => null);
+    return r ? linhasDasIdeias(r.texto, r.em, escopo.verValores && !escopo.pinPendente, semValoresNoTexto) : [];
+  }
 
   /** O perfil e o jeito da empresa para o bloco da conversa. A leitura que falha não segura a resposta: vai sem eles. */
   private async jeitoDaEmpresa(tenantId: string): Promise<{ perfil: string | null; jeito: string | null; analisesProfundas: boolean; iaForteNasTarefas: boolean }> {
@@ -399,6 +409,8 @@ export class MisterAgenteService implements OnModuleInit {
           // Versão 10, C7: até 3 exemplos de tarefas parecidas que a empresa confirmou (com "Aprender pela tarefa feita" ligado).
           // Não no relatório (não é pergunta de alguém).
           exemplos: this.aprendizado && !opcoes.recurso ? await this.aprendizado.exemplosParaAConversa(escopo.tenantId, pergunta, escopo.verValores && !escopo.pinPendente) : [],
+          // Versão 10, C8: as ideias da semana dos últimos 3 dias, para o "faz a 2". Não no relatório.
+          ideias: this.relatorios && !opcoes.recurso ? await this.ideiasDaConversa(escopo) : [],
         }),
         pedir: (p) => this.ia.pedir(escopo.tenantId, p),
         executar: (nome, entrada) => this.vagas.com(() => this.ferramentas.executar(escopo, nome, entrada)),

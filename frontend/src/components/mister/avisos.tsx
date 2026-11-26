@@ -479,7 +479,7 @@ export function AvisosDoMister() {
       titulo: 'Relatórios',
       nota: (
         <span className={`text-sm ${texto2}`}>
-          O resumo do dia e o da semana usam a IA: cada um soma no &quot;Uso da IA&quot;. O de fichas novas e o boletim do ramo não usam a IA. O resumo chega pelo
+          O resumo do dia, o da semana e as ideias da semana usam a IA: cada um soma no &quot;Uso da IA&quot;. O de fichas novas e o boletim do ramo não usam a IA. O resumo chega pelo
           WhatsApp a quem ligou o próprio número em Pessoas. Quem não falou com o Mister nas últimas 24 horas recebe antes um convite pelo modelo de mensagem
           aprovado pela Meta, e o resumo é feito quando a pessoa toca em &quot;Ver resumo&quot;. No boletim do ramo, esse convite é opcional.
         </span>
@@ -495,6 +495,11 @@ export function AvisosDoMister() {
             {rel.vaiPara && (
               <span className="mt-1 block text-xs" data-relatorio-vai-para>
                 Vai para: {rel.vaiPara}.
+              </span>
+            )}
+            {rel.tipo === 'ideias_semana' && (
+              <span className="mt-1 block text-xs font-semibold" data-ideias-custo>
+                Cerca de R$ 0,45 por semana (uns R$ 2 por mês), na chave de IA da empresa. Fora das 24 horas, antes vai o convite pelo WhatsApp (cerca de R$ 0,035).
               </span>
             )}
             {rel.tipo === 'boletim_ramo' && deValorDoRelatorio(valores[REL + rel.tipo]).ligado && (
@@ -533,7 +538,7 @@ export function AvisosDoMister() {
           const atual = deValorDoRelatorio(v);
           return (
             <span className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
-              {rel.tipo === 'resumo_semana' && (
+              {(rel.tipo === 'resumo_semana' || rel.tipo === 'ideias_semana') && (
                 <label className="flex items-center gap-1 text-sm">
                   <span className="sr-only">Dia do {rel.titulo.toLowerCase()}</span>
                   <select

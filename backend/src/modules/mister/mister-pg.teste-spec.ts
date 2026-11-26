@@ -83,7 +83,7 @@ import { MisterFilaService } from './mister-fila.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterResumoArquivoService, TEXTOS_DO_RESUMO_EM_ARQUIVO } from './mister-resumo-arquivo.service';
 import { lerBotaoDoGrafico } from './grafico/plano-do-resumo';
-import { MisterRelatoriosService } from './mister-relatorios.service';
+import { MisterRelatoriosService, agoraNaOperacao } from './mister-relatorios.service';
 import { MisterQualidadeService } from './mister-qualidade.service';
 import { MisterAvaliacaoService } from './mister-avaliacao.service';
 import { MisterSegurancaService } from './mister-seguranca.service';
@@ -6924,6 +6924,8 @@ export function testesDoMisterComPostgres(): void {
       expect(tela.relatorios.map((r) => [r.tipo, r.regra, r.ultimo])).toEqual([
         ['resumo_dia', { ligado: false, hora: '23:30', diaSemana: null }, null],
         ['resumo_semana', { ligado: false, hora: '09:00', diaSemana: 1 }, null],
+        // Versão 10, C8: as ideias da semana, semanais como o resumo da semana.
+        ['ideias_semana', { ligado: false, hora: '09:00', diaSemana: 1 }, null],
         ['fichas_novas', { ligado: false, hora: '09:00', diaSemana: null }, null],
         ['boletim_ramo', { ligado: false, hora: '08:30', diaSemana: null, convidarFora: false }, null],
         ['vespera', { ligado: false, hora: '18:00', diaSemana: null, convidarFora: false }, null],
@@ -6932,6 +6934,7 @@ export function testesDoMisterComPostgres(): void {
       expect(tela.relatorios.map((r) => [r.tipo, r.usaIa, !!r.vaiPara])).toEqual([
         ['resumo_dia', true, false],
         ['resumo_semana', true, false],
+        ['ideias_semana', true, true],
         ['fichas_novas', false, true],
         ['boletim_ramo', false, true],
         ['vespera', false, true],
@@ -6946,6 +6949,51 @@ export function testesDoMisterComPostgres(): void {
       // A rotina vê só o que está ligado; a outra empresa segue no padrão.
       expect((await relatoriosConfig.ligadas()).filter((l) => [A, B].includes(l.tenantId))).toEqual([{ tenantId: A, tipo: 'resumo_dia', regra: { ligado: true, hora: '22:00', diaSemana: null } }]);
       expect((await relatoriosConfig.daTela(B)).relatorios[0].regra.ligado).toBe(false);
+    });
+
+    it('C8: as ideias da semana — só ao presidente, só por escrito, com o recurso próprio; a conversa dele as recebe por 3 dias', async () => {
+      const relatoriosConfig = new MisterRelatoriosConfigService(db, auditoria);
+      const pedidos: any[] = [];
+      const trilha = { modelo: 'claude-haiku-5-5', chamadas: 1, tokensEntrada: 10, tokensSaida: 5, ferramentas: [] };
+      const texto = '*Ideias da semana, 09/11 a 15/11*\n1) A terça vendeu menos: um combo na terça.\n2) Os cancelamentos subiram: rever o tempo da chapa.\nPara fazer uma, é só me dizer: "faz a 1", "a 2" ou "a 3".';
+      const agenteDeTeste = {
+        responder: async (escopo: any, _memoria: any, pergunta: string, opcoes: any) => {
+          pedidos.push({ quem: escopo.colaboradorId, nivel: escopo.nivel, pergunta, opcoes });
+          return { texto, motivo: null, trilha, resultados: [] };
+        },
+      } as any;
+      // As ideias não têm PDF nem gráficos: o serviço do arquivo não pode ser chamado.
+      const arquivoDeTeste = {
+        entregar: async () => {
+          throw new Error('as ideias da semana não têm arquivo');
+        },
+      } as any;
+      const relatorios = new MisterRelatoriosService(db, relatoriosConfig, agenteDeTeste, ferramentas, numero, entrada, undefined, arquivoDeTeste);
+      await modulo(A, true);
+      await numeroConectado(true);
+      const telAna = telefone();
+      const telCarlos = telefone();
+      await ligar('ana', telAna);
+      await ligar('carlos', telCarlos, A, 'gerente');
+      const agora = new Date();
+      const antes = new Date(agora.getTime() - 10 * 60_000);
+      await relatoriosConfig.salvar(usuario('ana'), { relatorios: [{ tipo: 'ideias_semana', ligado: true, hora: horaNoFuso(antes), diaSemana: agoraNaOperacao(antes).diaSemana }] });
+      numero.pedidos.length = 0;
+      try {
+        // Só a Ana (presidente): o Carlos (gerente) recebe os resumos, não as ideias — e nem fica linha para ele.
+        expect(await relatorios.volta(agora, [A])).toEqual({ devidos: 1, feitos: 1, enviados: 1, naoEnviados: 0, convites: 0 });
+        expect(pedidos).toEqual([{ quem: pessoa.ana, nivel: 'presidente', pergunta: expect.stringContaining('*Ideias da semana,'), opcoes: { recurso: 'mister_ideias_semana' } }]);
+        expect(numero.enviadas).toEqual([{ para: telAna, texto, botoes: [] }]);
+        expect(await q(`select colaborador_id, situacao from mister_relatorio where tenant_id = $1 and tipo = 'ideias_semana'`, [A])).toEqual([{ colaborador_id: pessoa.ana, situacao: 'enviado' }]);
+        // A conversa da Ana recebe as ideias (o "faz a 2"); a do Carlos, não; depois de 3 dias, saem.
+        expect(await relatoriosConfig.ideiasRecentes(A, pessoa.ana)).toMatchObject({ texto });
+        expect(await relatoriosConfig.ideiasRecentes(A, pessoa.carlos)).toBeNull();
+        await q(`update mister_relatorio set concluido_em = now() - interval '4 days' where tenant_id = $1 and tipo = 'ideias_semana'`, [A]);
+        expect(await relatoriosConfig.ideiasRecentes(A, pessoa.ana)).toBeNull();
+      } finally {
+        await q(`delete from mister_relatorio where tenant_id = $1 and tipo = 'ideias_semana'`, [A]);
+        await q(`delete from mister_relatorio_regra where tenant_id = $1 and tipo = 'ideias_semana'`, [A]);
+      }
     });
 
     it('a volta dos relatórios: um resumo por pessoa no escopo dela, uma vez, fora da janela o convite pelo modelo (a IA só no toque), e os motivos', async () => {
