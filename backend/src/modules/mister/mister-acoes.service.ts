@@ -103,6 +103,7 @@ import { pessoaVale } from './mister-vinculo.service';
 import { BOTOES_DO_PEDIDO, PRAZO_DO_PEDIDO_MIN, PRAZO_DO_PRESIDENTE_MIN, PROCEDIMENTO_DO_PEDIDO, TEXTOS_DO_PEDIDO, pedirAoPresidenteLigado, quemPediu, resumoGuardado } from './mister-pedido';
 import { botoesDaProposta } from './mister-procedimentos';
 import { MisterPropostasService, type PropostaPendente } from './mister-propostas.service';
+import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { GraphImagemService } from '../graph/graph-imagem.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { FinanceiroService } from '../financeiro/financeiro.service';
@@ -192,6 +193,8 @@ export class MisterAcoesService implements OnModuleInit {
     @Optional() private readonly ia?: IaEmpresaService,
     // Versão 10, C6b: o toque do presidente no modelo do pedido (fora das 24 horas) chega pela entrada do WhatsApp.
     @Optional() private readonly entrada?: MisterEntradaService,
+    // Versão 10, C10c (mig 509): o ajuste "Imagem na conversa" de cada empresa.
+    @Optional() private readonly conversa?: MisterConversaConfigService,
   ) {}
 
   onModuleInit(): void {
@@ -268,6 +271,8 @@ export class MisterAcoesService implements OnModuleInit {
       const pelo = recusaPeloPerfil(e, c.parametros.acao);
       if (pelo) return pelo;
       if (c.parametros.acao === 'criar_imagem' && !imagemLigada()) return recusa(TEXTOS_DAS_ACOES.imagemDesligada);
+      // Versão 10, C10c: com a instalação ligada, a imagem é da empresa que ligou "Imagem na conversa" (nasce desligado).
+      if (c.parametros.acao === 'criar_imagem' && !(await this.imagemNaEmpresa(e.tenantId))) return recusa(TEXTOS_DAS_ACOES.imagemDesligadaNaEmpresa);
       // A de PIN vai pelo link, que também sai pela conexão por QR Code (escrito na mensagem).
       if (def.nivel === 'botao' && this.numero && (await this.numero.ler()).provedor === 'evolution')
         return { erro: ehDadoInformado(def.id) ? TEXTOS_DAS_ACOES.dadoSemBotao : TEXTOS_DAS_ACOES.semBotao, motivo: MOTIVO_DO_QR };
@@ -2263,6 +2268,12 @@ export class MisterAcoesService implements OnModuleInit {
     return Math.round(Number(s?.saldo ?? 0) * 1000) / 1000;
   }
 
+  /** Versão 10, C10c (mig 509): o ajuste "Imagem na conversa" da empresa. Sem o serviço, desligado (nasce desligado). */
+  private async imagemNaEmpresa(tenantId: string): Promise<boolean> {
+    if (!this.conversa) return false;
+    return (await this.conversa.daEmpresa(tenantId)).imagemNaConversa === true;
+  }
+
   /**
    * M6l: a imagem pelo DMS Graph (a porta única do Regem, `GraphImagemService`, que nunca lança). A chave é a proposta: repetir
    * não paga de novo. Só é "feito" com a imagem ENTREGUE na conversa de quem pediu.
@@ -2272,6 +2283,8 @@ export class MisterAcoesService implements OnModuleInit {
     a: { pedido: string; proporcao: ProporcaoDaImagem; numeros?: unknown; nivel?: unknown },
   ): Promise<{ feita: boolean; texto: string }> {
     if (!imagemLigada() || !this.imagens || !this.numero) return { feita: false, texto: 'a criação de imagem não está ligada. Nada foi gerado.' };
+    // Versão 10, C10c: o pedido vale 30 minutos — se o presidente desligou o ajuste nesse meio-tempo, nada vai ao Graph (V83).
+    if (!(await this.imagemNaEmpresa(p.tenantId))) return { feita: false, texto: TEXTOS_DAS_ACOES.imagemDesligadaAoGerar };
     // C10a: a chave leva a hora em que a proposta foi (re)feita. O "Gerar" tocado duas vezes é a mesma chave e não paga de
     // novo; o mesmo pedido proposto outra vez (o "gera de novo" depois de um número errado) gera OUTRA imagem — com a chave
     // só da proposta, o Graph devolvia a mesma imagem errada.

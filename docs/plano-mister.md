@@ -2834,14 +2834,37 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
 - 7 tiveram os números conferidos, e todos bateram.
 - 3 saíram sem conferência (ERR-620, corrigido no #1356): os mais vendidos ("21 vendidos"), os pedidos de delivery do dia ("4")
   e a nota média ("5"). A regra tratava número até 31 como apresentação; agora contam todos os números do texto exato.
-- Falta o dono confirmar no celular que essas 3 estavam certas e que as 10 ficaram legíveis. Com isso o teste passa (V10-12), e
-  a C10c (o ajuste por empresa, com o preço) fica liberada.
+- Depois da correção, mais uma imagem no fim da tarde de 26/11 (17h10), conferida e certa. Na auditoria: 8 conferências, todas
+  "bateu", nenhuma "errou".
+- **O teste passou (V10-12).** Em 26/11, à noite, o dono mandou concluir a versão 10, o que vale como a confirmação de que as
+  imagens chegaram certas e legíveis. Com isso entrou a C10c.
 
-**A situação da versão 10 em 26/11/2026:** no ar C10a, C1 (C1a, C1b-1, C1b-2), C9, C10b, C2, C3, C6 (C6a, C6b), C4a, C5, C7 e C8
-(#1348–#1366). Falta só a C10c, que espera a confirmação do teste da imagem. As fases novas nascem desligadas: as variáveis
-`MISTER_LER_TELAS`, `MISTER_PEDIR_AO_PRESIDENTE`, `MISTER_FAZER_TAREFAS` e `MISTER_PIN_FALADO` (este depois do teste com 20 áudios)
-e, por empresa, os ajustes "Aprender pela tarefa feita" e "Ideias da semana". A C4 abriu só a primeira área (C4a): as outras
-áreas esperam a revisão das marcas de escrita (botão × PIN) pela DMS.
+**A situação da versão 10 em 26/11/2026: COMPLETA.** No ar C10a, C1 (C1a, C1b-1, C1b-2), C9, C10b, C2, C3, C6 (C6a, C6b), C4a,
+C5, C7, C8 e C10c (#1348–#1366 e o PR da C10c). As fases novas nascem desligadas: as variáveis `MISTER_LER_TELAS`,
+`MISTER_PEDIR_AO_PRESIDENTE`, `MISTER_FAZER_TAREFAS` e `MISTER_PIN_FALADO` (este depois do teste com 20 áudios), que o dono ligou
+em 26/11, e, por empresa, os ajustes "Aprender pela tarefa feita", "Ideias da semana" e "Imagem na conversa". A C4 abriu só a
+primeira área (C4a): as outras áreas esperam a revisão das marcas de escrita (botão × PIN) pela DMS.
+
+### C10c — a imagem para todos (26/11/2026; mig 509; só na nuvem; nasce DESLIGADO, o ajuste "Imagem na conversa")
+
+- **O ajuste** `mister_conversa_config.imagem_na_conversa` (mig 509) fica em Mister › Avisos e relatórios › Conversa ›
+  "Imagem na conversa", com o preço: cerca de R$ 0,35 por imagem (R$ 0,19 do DMS Graph e R$ 0,15 da conferência); com 10 no
+  mês, uns R$ 3,50. Ligar pede o "Ligar e salvar?" com o preço, como os outros ajustes pagos. Só o presidente muda, e a mudança
+  vai para a auditoria (`mister_conversa_alterada`).
+- **As duas chaves:** `MISTER_CRIAR_IMAGEM=1` continua sendo a da instalação (a DMS liga), e o ajuste é o da empresa. A tela
+  diz "ainda não ligada no Regem" quando a instalação está desligada (`disponivel.imagem` do `GET /mister/conversa`).
+- **Ao propor** (`preparar` no `MisterAcoesService`): com a empresa desligada, o `propor_acao` da imagem recusa antes de
+  qualquer pergunta, dizendo quem liga (o presidente), onde, o preço e que dá para fazer o gráfico desenhado pelo Regem, sem
+  custo, no lugar.
+- **Ao gerar** (`gerarImagem`): o pedido vale 30 minutos. Se o presidente desligar o ajuste nesse meio-tempo, nada vai ao DMS
+  Graph e o "Não deu" diz por quê (V83: o portão é lido de novo na hora do efeito).
+- **Quem já usava continua:** a mig 509, ao criar a coluna, liga o ajuste da empresa que já gerou imagem pelo Mister (até
+  26/11, só a do dono, com 11 imagens), para a imagem não parar no meio do uso. As outras nascem desligadas. A ligação roda só
+  quando a coluna nasce: aplicar o arquivo de novo não religa o que o presidente desligou.
+- **Testes:** `mister-imagem-na-conversa.spec.ts` (o padrão, a conferência do valor e o texto da recusa) e, com Postgres, os
+  testes da imagem (M6l e C10a) com o ajuste: desligado recusa; ligado propõe e gera; desligado entre o pedido e o "Gerar", nada
+  vai ao Graph.
+- **Diferenças do protótipo:** nenhuma no ajuste. O texto "Só entra se o teste passar" do protótipo saiu, porque o teste passou.
 
 ### C2 — o mapa do Regem (26/11/2026, #1357, NO AR; SEM migration)
 

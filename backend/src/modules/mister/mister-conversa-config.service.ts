@@ -6,6 +6,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PERFIS_DO_ATENDENTE, PerfilDoAtendente } from '../cardapio/perfis-do-atendente';
 import { midiaNaInstalacao } from './mister-midia.regras';
+import { imagemLigada } from './mister-acoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -86,6 +87,12 @@ export interface ConversaDoMister {
   respostasEscritas: boolean;
   /** Versão 10, C7 (mig 508): "Aprender pela tarefa feita" — a tarefa confirmada vira exemplo da empresa. Sem custo; nasce desligado. */
   aprenderTarefas: boolean;
+  /**
+   * Versão 10, C10c (mig 509): "Imagem na conversa" — a imagem pedida na conversa pelo DMS Graph, com os números do Regem
+   * conferidos nela antes de sair (cerca de R$ 0,35 por imagem). `MISTER_CRIAR_IMAGEM=1` é a chave da instalação; este, o da
+   * empresa. Nasce desligado; só o presidente muda.
+   */
+  imagemNaConversa: boolean;
 }
 /** As horas que o PIN da sessão vale (a escolha do presidente). */
 export const HORAS_DO_PIN = [6, 12, 24] as const;
@@ -110,6 +117,7 @@ export const CONVERSA_PADRAO: ConversaDoMister = {
   aprenderModelos: false,
   respostasEscritas: false,
   aprenderTarefas: false,
+  imagemNaConversa: false,
 };
 
 /** O jeito como vai ao banco e às instruções: uma linha, espaços apertados; vazio vira null. */
@@ -199,6 +207,11 @@ export function conferirConversa(dto: unknown): Partial<ConversaDoMister> | { er
     if (typeof d.aprenderTarefas !== 'boolean') return { erro: 'Aprender pela tarefa feita: diga se fica ligado ou desligado.' };
     fora.aprenderTarefas = d.aprenderTarefas;
   }
+  if (d.imagemNaConversa !== undefined) {
+    // V15: liga/desliga só com booleano de verdade.
+    if (typeof d.imagemNaConversa !== 'boolean') return { erro: 'Imagem na conversa: diga se fica ligada ou desligada.' };
+    fora.imagemNaConversa = d.imagemNaConversa;
+  }
   if (!Object.keys(fora).length) return { erro: 'Nada para salvar.' };
   return fora;
 }
@@ -223,6 +236,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
   aprenderModelos: { coluna: 'aprender_modelos', valor: (v) => sql`${v}::boolean` },
   respostasEscritas: { coluna: 'respostas_escritas', valor: (v) => sql`${v}::boolean` },
   aprenderTarefas: { coluna: 'aprender_tarefas', valor: (v) => sql`${v}::boolean` },
+  imagemNaConversa: { coluna: 'imagem_na_conversa', valor: (v) => sql`${v}::boolean` },
 };
 
 /**
@@ -230,6 +244,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
  * lê as da anterior. Nunca devolver o padrão de um campo que está salvo (o "perguntar" dos documentos, o perfil).
  */
 const LEITURAS = [
+  sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao", ligar_pela_ia as "ligarPelaIa", ia_forte_nas_tarefas as "iaForteNasTarefas", aprender_modelos as "aprenderModelos", respostas_escritas as "respostasEscritas", aprender_tarefas as "aprenderTarefas", imagem_na_conversa as "imagemNaConversa"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao", ligar_pela_ia as "ligarPelaIa", ia_forte_nas_tarefas as "iaForteNasTarefas", aprender_modelos as "aprenderModelos", respostas_escritas as "respostasEscritas", aprender_tarefas as "aprenderTarefas"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao", ligar_pela_ia as "ligarPelaIa", ia_forte_nas_tarefas as "iaForteNasTarefas", aprender_modelos as "aprenderModelos", respostas_escritas as "respostasEscritas"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao", ligar_pela_ia as "ligarPelaIa", ia_forte_nas_tarefas as "iaForteNasTarefas", aprender_modelos as "aprenderModelos"`,
@@ -284,6 +299,7 @@ export class MisterConversaConfigService {
         aprenderModelos: l.aprenderModelos === true,
         respostasEscritas: l.respostasEscritas === true,
         aprenderTarefas: l.aprenderTarefas === true,
+        imagemNaConversa: l.imagemNaConversa === true,
       };
     } catch (e: any) {
       // Sem a 440 (a migration ainda não entrou, ou o servidor da loja): o padrão, que não muda nada.
@@ -296,8 +312,8 @@ export class MisterConversaConfigService {
    * O que a tela mostra: os ajustes da empresa e se a função está ligada NESTA instalação (a variável que o dono liga —
    * a mesma regra que os serviços usam). A tela Resumo diz "em breve" quando ela ainda não está ligada.
    */
-  async daTela(tenantId: string): Promise<{ conversa: ConversaDoMister; disponivel: { documentos: boolean; notas: boolean; resumoEmArquivo: boolean } }> {
-    return { conversa: await this.daEmpresa(tenantId), disponivel: { documentos: documentosNaInstalacao(), notas: notasNaInstalacao(), resumoEmArquivo: midiaNaInstalacao() } };
+  async daTela(tenantId: string): Promise<{ conversa: ConversaDoMister; disponivel: { documentos: boolean; notas: boolean; resumoEmArquivo: boolean; imagem: boolean } }> {
+    return { conversa: await this.daEmpresa(tenantId), disponivel: { documentos: documentosNaInstalacao(), notas: notasNaInstalacao(), resumoEmArquivo: midiaNaInstalacao(), imagem: imagemLigada() } };
   }
 
   /**
@@ -330,6 +346,6 @@ export class MisterConversaConfigService {
       detalhe: { antes, depois },
     });
     // O mesmo formato da leitura (`daTela`), sem ler de novo: o salvo e o que está ligado nesta instalação.
-    return { conversa: depois, disponivel: { documentos: documentosNaInstalacao(), notas: notasNaInstalacao(), resumoEmArquivo: midiaNaInstalacao() } };
+    return { conversa: depois, disponivel: { documentos: documentosNaInstalacao(), notas: notasNaInstalacao(), resumoEmArquivo: midiaNaInstalacao(), imagem: imagemLigada() } };
   }
 }
