@@ -6015,8 +6015,13 @@ export function testesDoMisterComPostgres(): void {
         // Ligar: a proposta de PIN "ligar o PIN falado"; o PIN pela página liga.
         const r = await comPropostas.executar(e, 'pin_falado', { acao: 'ligar' });
         expect(r).toMatchObject({ ok: true, dados: { siga: TEXTOS_DO_PIN_FALADO.sigaDoLigar }, proposta: { procedimento: 'ligar_pin_falado', nivel: 'pin' } });
+        numero.pedidos.length = 0;
         await links.autorizarPeloLink(codigoDe(await links.enviarLink(r.proposta!.id, pessoa.ana, tel, r.proposta!.pergunta)), '2580');
         expect(await esperar(`select pin_falado_em as x from mister_vinculo where tenant_id = $1 and colaborador_id = $2`)).not.toBeNull();
+        // O "✅ Feito" sai em segundo plano DEPOIS de a coluna gravar: espera ele chegar, senão cai no meio das mensagens que o
+        // teste confere a seguir (o CI pegou: a 1ª mensagem do link era o "Feito" atrasado).
+        for (let i = 0; i < 150 && !numero.enviadas.some((m) => m.texto.includes('o PIN falado está ligado')); i++) await new Promise((res) => setTimeout(res, 30));
+        expect(numero.enviadas.some((m) => m.texto.includes('o PIN falado está ligado'))).toBe(true);
         expect(await comPropostas.executar(e, 'pin_falado', { acao: 'ligar' })).toMatchObject({ ok: true, dados: { jaLigado: true } });
 
         // Sem proposta de PIN esperando, o áudio é uma pergunta qualquer.
