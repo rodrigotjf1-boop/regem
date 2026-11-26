@@ -54,7 +54,7 @@ type RelatorioNaTela = {
 type ModoDoBoleto = 'sozinho' | 'perguntar';
 /** Versão 5, M5e (mig 462): "Como mandar o resumo" — a mesma lista do servidor (`FORMAS_DE_ENTREGA_DO_RESUMO`). */
 type FormaDoResumo = 'botoes' | 'pdf' | 'link' | 'texto';
-type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean; analisesProfundas?: boolean; vozComEmocao?: boolean; ligarPelaIa?: boolean; iaForteNasTarefas?: boolean; aprenderModelos?: boolean; aprenderTarefas?: boolean };
+type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean; analisesProfundas?: boolean; vozComEmocao?: boolean; ligarPelaIa?: boolean; iaForteNasTarefas?: boolean; aprenderModelos?: boolean; aprenderTarefas?: boolean; imagemNaConversa?: boolean };
 const CONV = 'conversa:documentos';
 const CONV_RESUMO = 'conversa:resumo';
 const CONV_VOZ = 'conversa:voz';
@@ -69,6 +69,9 @@ const CONV_FORTE = 'conversa:forte';
 const CONV_MODELOS = 'conversa:modelos';
 /** Versão 10, C7 (mig 508): "Aprender pela tarefa feita" — sem custo; nasce desligado (recurso novo). */
 const CONV_TAREFAS = 'conversa:tarefas';
+/** Versão 10, C10c (mig 509): "Imagem na conversa" — nasce desligada, com o preço ao lado (o do protótipo). */
+const CONV_IMAGEM = 'conversa:imagem';
+const PRECO_DA_IMAGEM = 'Cerca de R$ 0,35 por imagem (R$ 0,19 do DMS Graph e R$ 0,15 da conferência); com 10 no mês, uns R$ 3,50';
 const PRECO_DA_IA_FORTE = 'De cerca de R$ 0,01 para cerca de R$ 0,20 por resposta, só enquanto há um cupom, uma nota ou uma lista em andamento';
 const FORMAS_DO_RESUMO: { v: FormaDoResumo; rotulo: string }[] = [
   { v: 'botoes', rotulo: 'texto com os botões PDF e link' },
@@ -289,6 +292,8 @@ export function AvisosDoMister() {
   const [conversa, setConversa] = useState<Conversa | null>(null);
   // M5e: a versão 5 está ligada nesta instalação? (Desligada, o resumo segue só por escrito; o ajuste diz isso.)
   const [resumoLigado, setResumoLigado] = useState<boolean | null>(null);
+  // C10c: a imagem está ligada nesta instalação? (Desligada, o ajuste da empresa não basta; o item diz isso.)
+  const [imagemNaInstalacao, setImagemNaInstalacao] = useState<boolean | null>(null);
   // V7e: a gaveta "Ver como funciona" das análises mais profundas.
   const [vendoAnalises, setVendoAnalises] = useState(false);
   // V7d: a gaveta "Ver como funciona" da voz com emoção.
@@ -312,11 +317,12 @@ export function AvisosDoMister() {
     setSalvos((s) => ({ ...s, ...v }));
     setValores((x) => ({ ...x, ...v }));
   }, []);
-  const aplicarConversa = useCallback((c: Conversa, disponivel?: { resumoEmArquivo?: boolean }) => {
+  const aplicarConversa = useCallback((c: Conversa, disponivel?: { resumoEmArquivo?: boolean; imagem?: boolean }) => {
     const v = paraValorDaConversa(c);
     const r = formaDoResumo(c.resumoEntrega);
     setConversa(c);
     if (disponivel) setResumoLigado(disponivel.resumoEmArquivo === true);
+    if (disponivel) setImagemNaInstalacao(disponivel.imagem === true);
     const voz = c.responderAudio === true ? '1' : '0';
     const analises = c.analisesProfundas === true ? '1' : '0';
     const emocao = c.vozComEmocao === true ? '1' : '0';
@@ -324,8 +330,9 @@ export function AvisosDoMister() {
     const forte = c.iaForteNasTarefas === true ? '1' : '0';
     const modelos = c.aprenderModelos === true ? '1' : '0';
     const tarefas = c.aprenderTarefas === true ? '1' : '0';
-    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar, [CONV_FORTE]: forte, [CONV_MODELOS]: modelos, [CONV_TAREFAS]: tarefas }));
-    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar, [CONV_FORTE]: forte, [CONV_MODELOS]: modelos, [CONV_TAREFAS]: tarefas }));
+    const imagem = c.imagemNaConversa === true ? '1' : '0';
+    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar, [CONV_FORTE]: forte, [CONV_MODELOS]: modelos, [CONV_TAREFAS]: tarefas, [CONV_IMAGEM]: imagem }));
+    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar, [CONV_FORTE]: forte, [CONV_MODELOS]: modelos, [CONV_TAREFAS]: tarefas, [CONV_IMAGEM]: imagem }));
   }, []);
 
   const ler = useCallback(async () => {
@@ -339,7 +346,7 @@ export function AvisosDoMister() {
       ]);
       aplicar(d as DaTela);
       aplicarRelatorios(((r as { relatorios?: RelatorioNaTela[] })?.relatorios ?? []) as RelatorioNaTela[]);
-      const lida = c as { conversa?: Conversa; disponivel?: { resumoEmArquivo?: boolean } } | null;
+      const lida = c as { conversa?: Conversa; disponivel?: { resumoEmArquivo?: boolean; imagem?: boolean } } | null;
       if (lida?.conversa) aplicarConversa(lida.conversa, lida.disponivel);
     } catch {
       setErroLeitura(true);
@@ -731,6 +738,35 @@ export function AvisosDoMister() {
                 </span>
               ),
             },
+            // Versão 10, C10c (mig 509): "Imagem na conversa" — nasce desligada, com o preço ao lado; ligar pede o "Ligar e salvar?".
+            {
+              id: CONV_IMAGEM,
+              rotulo: 'Imagem na conversa',
+              tipo: 'livre' as const,
+              palavras: 'imagem cartaz infográfico representação dms graph franquia números conferidos gráfico',
+              ajuda: (
+                <>
+                  <span className="block">
+                    Quando alguém pede uma imagem (cartaz, representação, infográfico), a IA monta o pedido com os números do Regem, o DMS Graph gera a imagem e o Regem
+                    confere os números nela antes de mandar. Usa a franquia de imagem do DMS Graph. Gráfico desenhado pelo Regem não usa franquia nem custa.
+                  </span>
+                  <span className="mt-1 block text-xs font-semibold" data-preco-da-imagem>
+                    {PRECO_DA_IMAGEM}
+                  </span>
+                  {imagemNaInstalacao === false && (
+                    <span className="mt-1 block" data-imagem-desligada-na-instalacao>
+                      <Selo tom="info">ainda não ligada no Regem: a imagem não sai, mesmo com o ajuste ligado</Selo>
+                    </span>
+                  )}
+                </>
+              ),
+              desenhar: (v: Valor, mudar: (x: Valor) => void) => (
+                <span className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                  <span className={`text-sm ${texto2}`}>{v === '1' ? 'Ligada' : 'Desligada'}</span>
+                  <Chave ligada={v === '1'} comTexto={false} rotulo="Imagem na conversa" aoMudar={(l) => mudar(l ? '1' : '0')} />
+                </span>
+              ),
+            },
           ],
         };
     // Versão 7, V7e (V7-7, mig 490): "Análises mais profundas" — nasce desligada, com o preço ao lado.
@@ -894,7 +930,7 @@ export function AvisosDoMister() {
       ...(daConversa ? [daConversa] : []),
       ...(dasAnalises ? [dasAnalises] : []),
     ];
-  }, [dados, valores, nomes, relatorios, conversa, resumoLigado]);
+  }, [dados, valores, nomes, relatorios, conversa, resumoLigado, imagemNaInstalacao]);
 
   const salvar = async () => {
     if (!dados) return;
@@ -918,12 +954,13 @@ export function AvisosDoMister() {
         ...(conversa && valores[CONV_FORTE] !== salvos[CONV_FORTE] ? { iaForteNasTarefas: valores[CONV_FORTE] === '1' } : {}),
         ...(conversa && valores[CONV_MODELOS] !== salvos[CONV_MODELOS] ? { aprenderModelos: valores[CONV_MODELOS] === '1' } : {}),
         ...(conversa && valores[CONV_TAREFAS] !== salvos[CONV_TAREFAS] ? { aprenderTarefas: valores[CONV_TAREFAS] === '1' } : {}),
+        ...(conversa && valores[CONV_IMAGEM] !== salvos[CONV_IMAGEM] ? { imagemNaConversa: valores[CONV_IMAGEM] === '1' } : {}),
       };
       const conv = Object.keys(partesDaConversa).length ? partesDaConversa : null;
       if (regras.length) aplicar((await api.patch('/mister/avisos', { regras })) as DaTela);
       if (rels.length) aplicarRelatorios(((await api.patch('/mister/relatorios', { relatorios: rels })) as { relatorios: RelatorioNaTela[] }).relatorios);
       if (conv) {
-        const r = (await api.patch('/mister/conversa', conv)) as { conversa: Conversa; disponivel?: { resumoEmArquivo?: boolean } };
+        const r = (await api.patch('/mister/conversa', conv)) as { conversa: Conversa; disponivel?: { resumoEmArquivo?: boolean; imagem?: boolean } };
         aplicarConversa(r.conversa, r.disponivel);
       }
       toast.success(
@@ -941,6 +978,7 @@ export function AvisosDoMister() {
   const ligandoVoz = !!conversa && valores[CONV_EMOCAO] === '1' && salvos[CONV_EMOCAO] !== '1';
   const ligandoLigacao = !!conversa && valores[CONV_LIGAR] === '1' && salvos[CONV_LIGAR] !== '1';
   const ligandoForte = !!conversa && valores[CONV_FORTE] === '1' && salvos[CONV_FORTE] !== '1';
+  const ligandoImagem = !!conversa && valores[CONV_IMAGEM] === '1' && salvos[CONV_IMAGEM] !== '1';
 
   if (erroLeitura)
     return (
@@ -963,7 +1001,7 @@ export function AvisosDoMister() {
         salvos={salvos}
         aoMudar={(k: string, v: Valor) => setValores((x) => ({ ...x, [k]: v }))}
         aoSalvar={() => {
-          if (ligandoAnalises || ligandoVoz || ligandoLigacao || ligandoForte) setConfirmandoCusto(true);
+          if (ligandoAnalises || ligandoVoz || ligandoLigacao || ligandoForte || ligandoImagem) setConfirmandoCusto(true);
           else void salvar();
         }}
         aoDescartar={() => {
@@ -1023,6 +1061,12 @@ export function AvisosDoMister() {
           {ligandoVoz && (
             <p className={`text-sm ${ligandoAnalises ? 'mt-3' : ''}`}>
               <b>Voz com emoção:</b> {PRECO_DA_VOZ.charAt(0).toLowerCase() + PRECO_DA_VOZ.slice(1)}. Não gasta a chave de IA da empresa: sai pelo DMS Graph e conta na franquia de fotos e áudios.
+            </p>
+          )}
+          {ligandoImagem && (
+            <p className={`text-sm ${ligandoAnalises || ligandoLigacao || ligandoForte || ligandoVoz ? 'mt-3' : ''}`} data-confirmar-imagem>
+              <b>Imagem na conversa:</b> {PRECO_DA_IMAGEM.charAt(0).toLowerCase() + PRECO_DA_IMAGEM.slice(1)}. A imagem conta na franquia de imagem do DMS Graph, e a
+              conferência dos números gasta a chave de IA da empresa.
             </p>
           )}
           <p className={`mt-2 text-xs ${texto2}`}>Você pode desligar quando quiser, aqui mesmo. A mudança fica na auditoria.</p>
