@@ -2714,7 +2714,7 @@ o que veio e o "Vou fazer" montado pelo Regem.
 - **O que ainda é fixo** (fica para a C1b e a C9): a próxima pergunta do documento depois de cada gravação, as perguntas com
   botões do pedido que bate ("Receber o pedido", "Lançar no estoque?") e o "Como deseja lançar?" do cupom.
 
-### C1b-1 — as diferenças entre o pedido e a nota, pela conversa (26/11/2026; SEM migration; só na nuvem)
+### C1b-1 — as diferenças entre o pedido e a nota, pela conversa (26/11/2026, #1350, NO AR; SEM migration; só na nuvem)
 
 Era a P4c de "Pedidos e recebimento" (PR-9), a conversa "O documento conversado" do protótipo da versão 10. A C1b foi
 dividida em duas partes:
@@ -2749,3 +2749,28 @@ dividida em duas partes:
   - o "Receber o pedido?" e o "Lançar no estoque?" continuam com botões antes das diferenças (viram conversa com a C9);
   - "veio de outro lugar", o fornecedor novo e a conta paga ficam para a C1b-2;
   - o botão do resumo continua "Lançar" e "Cancelar" (o protótipo mostra "Confirmar" e "Mudar").
+
+### C1b-2 — "veio de outro lugar" e "é de outro pedido" (26/11/2026; SEM migration; só na nuvem)
+
+Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma ação `pedido` da `documento_em_andamento`.
+
+- **`outro_lugar`** é a terceira decisão para o que faltou: o item foi comprado em outro lugar. A IA manda o fornecedor, o
+  valor em reais e, se a pessoa disser, a quantidade (sem ela, vale o que faltou) e a forma (pix, dinheiro ou cartão).
+  - O fornecedor é achado pelo nome no cadastro: o igual (sem caixa e sem acento) ou o único parecido. Com vários parecidos, a
+    IA pergunta qual. Sem nenhum, ele é novo: o resumo diz "(fornecedor novo)", e o cadastro sai no lançamento, pelo
+    `FornecedorService`, depois de procurar o nome de novo.
+  - **No lançamento,** a linha do pedido entra com a quantidade e o custo de lá, somados aos da nota se ela trouxe parte do
+    item. O fornecedor de lá vai para a linha ("de onde veio", P2) quando a nota não trouxe nada do item. A conta de cada
+    compra à parte entra já paga, pelo `FinanceiroService` (`criar` + `pagar`, como o cupom): descrição "<item> · <fornecedor>",
+    vencimento e pagamento hoje. Se a conta falhar, o recebimento segue e a resposta diz para lançar à mão.
+- **`outro_pedido`**: a pessoa diz que a nota é de outro pedido aberto. Ele é achado pelo nome (o igual, ou o único que
+  contém; com vários, a IA pergunta qual). A nota passa a recebê-lo, com o retrato dos itens, e as decisões recomeçam. O passo
+  seguinte ("Lançar no estoque?", ou as diferenças do pedido novo) sai pronto.
+- **A próxima fala** sai pronta, menos no meio das decisões: aí a IA pergunta o que falta do jeito dela.
+- **Avaliação:** c124 ("a cebola que não veio eu comprei no Mercado do Zé, deu 48 reais no pix"). São 124 perguntas.
+- **Teste com Postgres** (o caso 1b da P4):
+  - o pedido dito de forma ambígua é recusado com as opções;
+  - a troca de pedido leva ao "Lançar no estoque?";
+  - o tomate vem do hortifruti novo e o detergente vai avulso;
+  - o fornecedor é cadastrado só no lançamento;
+  - a linha fica com o fornecedor e o custo de lá, a conta entra paga, e o outro pedido continua aberto.

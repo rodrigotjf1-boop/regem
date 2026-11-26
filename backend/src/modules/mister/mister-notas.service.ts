@@ -57,6 +57,7 @@ import {
 } from './mister-ligacao';
 import { MisterNumeroService } from './mister-numero.service';
 import { ComprasService } from '../compras/compras.service';
+import { FornecedorService } from '../fornecedor/fornecedor.service';
 import {
   FRASES_DO_PEDIDO_DA_NOTA,
   botoesDoEstoqueDoPedido,
@@ -130,6 +131,8 @@ export class MisterNotasService implements OnModuleInit {
     @Optional() private readonly modelos?: MisterCompraModelosService,
     // P4 de "Pedidos e recebimento": o pedido aberto recebido pela nota, pelo MESMO serviço de Estoque › Pedidos.
     @Optional() private readonly compras?: ComprasService,
+    // Versão 10, C1b-2: o fornecedor novo do "veio de outro lugar", pelo MESMO serviço de Cadastros › Fornecedores.
+    @Optional() private readonly fornecedores?: FornecedorService,
   ) {}
 
   /**
@@ -170,10 +173,22 @@ export class MisterNotasService implements OnModuleInit {
    */
   private async decidirDiferencas(e: EscopoDoMister, en: Record<string, unknown>, aberto: ReturnType<typeof sql>, semDocumento: string): Promise<ResultadoDaFerramenta> {
     const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
-    const r = await this.db.transaction(async (tx: any): Promise<{ erro: string } | { id: string; nota: NotaNoMister; motivo: string; feito: string[] }> => {
+    const r = await this.db.transaction(async (tx: any): Promise<{ erro: string } | { id: string; nota: NotaNoMister; motivo: string; feito: string[]; trocou?: boolean }> => {
       const [d] = linhas(await tx.execute(sql`select id::text as id, dados from mister_documento where ${aberto} order by atualizado_em desc limit 1 for update`));
       const nota: NotaNoMister | undefined = d?.dados?.nota;
       if (!d || !nota?.itens) return { erro: semDocumento };
+      // C1b-2: "é de outro pedido" — a nota passa a receber o pedido aberto com esse nome (as decisões recomeçam).
+      if (en.outro_pedido !== undefined && en.outro_pedido !== null && String(en.outro_pedido).trim()) {
+        const outro = await this.pedidoPeloNome(tx, e.tenantId, String(en.outro_pedido), nota);
+        if ('erro' in outro) return outro;
+        nota.pedido = outro;
+        const prox = this.proximoPasso(nota);
+        await tx.execute(sql`
+          update mister_documento
+             set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), situacao = ${prox.situacao}, motivo = ${prox.motivo}, atualizado_em = clock_timestamp()
+           where id = ${d.id}::uuid`);
+        return { id: d.id, nota, motivo: prox.motivo, trocou: true, feito: [`Agora ${nota.especie === 'cupom' ? 'o cupom' : 'a nota'} recebe o pedido "${outro.nome}" (${outro.criado}): ${outro.batem} dos ${outro.itens} itens estão ${nota.especie === 'cupom' ? 'nele' : 'nela'}.`] };
+      }
       if (!recebePedido(nota) || !nota.pedido?.itensDoPedido?.length) return { erro: 'Este documento não está recebendo um pedido: não há diferenças para decidir.' };
       if (!lancaEstoque(nota)) return { erro: 'O pedido vai só como recebido, sem mexer no estoque: não há diferenças para decidir.' };
       const dif = diferencasDoPedido(nota);
@@ -181,6 +196,14 @@ export class MisterNotasService implements OnModuleInit {
       if (!dif.faltas.length && !dif.aMais.length) return { erro: 'Veio tudo como pedido: não há diferenças para decidir.' };
       const lidas = lerDecisoesDoPedido(en, dif, nota.pedido.decisoes, hojeISO());
       if ('erro' in lidas) return lidas;
+      // C1b-2: o fornecedor do "veio de outro lugar" pelo cadastro — o igual, ou o único parecido; sem nenhum, é novo (cadastrado
+      // no lançamento); com vários parecidos, a IA pergunta qual.
+      for (const x of Object.values(lidas.decisoes.faltas)) {
+        if (x.decisao !== 'outro_lugar' || !x.fornecedor || x.fornecedor.id) continue;
+        const achado = await this.fornecedorPeloNome(tx, e.tenantId, x.fornecedor.nome);
+        if ('erro' in achado) return achado;
+        x.fornecedor = achado;
+      }
       nota.pedido.decisoes = lidas.decisoes;
       const prox = this.proximoPasso(nota);
       await tx.execute(sql`
@@ -194,7 +217,10 @@ export class MisterNotasService implements OnModuleInit {
       ?.registrar({ tenantId: e.tenantId, atorId: e.colaboradorId, atorPerfil: e.nivel, tipo: 'mister', acao: 'mister_documento_diferencas', entidadeTipo: 'mister_documento', entidadeId: r.id, detalhe: { decisoes: r.nota.pedido?.decisoes ?? null } } as any)
       .catch(() => undefined);
     const proxima = this.respostaDoPasso(r.id, r.nota, r.motivo);
-    const faltam = diferencasSemDecisao(r.nota.pedido, diferencasDoPedido(r.nota));
+    const faltam = r.motivo === 'diferencas' ? diferencasSemDecisao(r.nota.pedido, diferencasDoPedido(r.nota)) : 0;
+    // A próxima fala sai pronta, menos no meio das decisões (aí a IA pergunta o que falta do jeito dela). Depois de trocar de
+    // pedido ela sai sempre: é o passo seguinte ("Lançar no estoque?") ou as diferenças do pedido novo.
+    const vaiMensagem = r.trocou || r.motivo !== 'diferencas';
     return {
       ok: true,
       dados: {
@@ -202,12 +228,67 @@ export class MisterNotasService implements OnModuleInit {
         feito: r.feito,
         faltamDecidir: faltam,
         lancado: false,
-        siga: faltam
-          ? 'Diga em uma frase o que foi gravado e pergunte o que falta decidir, do jeito da conversa. Nada foi lançado.'
-          : 'Diga em uma frase o que foi gravado. O resumo com o botão "Lançar" (o que vai acontecer com o pedido) sai sozinho logo depois: não repita. Nada foi lançado.',
+        siga: vaiMensagem
+          ? 'Diga em uma frase o que foi gravado. A próxima pergunta do documento, ou o resumo com o botão "Lançar", sai sozinha logo depois: não repita nem pergunte. Nada foi lançado.'
+          : 'Diga em uma frase o que foi gravado e pergunte o que falta decidir, do jeito da conversa. Nada foi lançado.',
       },
-      ...(faltam ? {} : { mensagens: [{ texto: proxima.texto, ...(proxima.botoes ? { botoes: proxima.botoes } : {}), chave: `documento:${r.id}` }] }),
+      ...(vaiMensagem ? { mensagens: [{ texto: proxima.texto, ...(proxima.botoes ? { botoes: proxima.botoes } : {}), chave: `documento:${r.id}` }] } : {}),
     };
+  }
+
+  /** C1b-2: o pedido de compra ABERTO pelo nome que a pessoa disse ("é do pedido da semana"), com o retrato dos itens. */
+  private async pedidoPeloNome(tx: any, tenantId: string, dito: string, nota: NotaNoMister): Promise<PedidoDaNota | { erro: string }> {
+    const achados = linhas(
+      await tx.execute(sql`
+        select c.id::text as "listaId", c.nome, f.nome as fornecedor, to_char(c.created_at at time zone ${FUSO_SQL}, 'DD/MM') as criado,
+               coalesce((select json_agg(json_build_object('compraItemId', i.id::text, 'itemId', i.item_id::text, 'quantidade', i.quantidade::float8,
+                                                           'nome', coalesce(ie.nome_comercial, ie.nome, 'item')) order by i.id)
+                           from compra_item i left join item_estoque ie on ie.id = i.item_id and ie.tenant_id = i.tenant_id
+                          where i.lista_id = c.id and i.tenant_id = c.tenant_id), '[]'::json) as "itensDoPedido"
+          from compra_lista c
+          left join fornecedor f on f.id = c.fornecedor_id and f.tenant_id = c.tenant_id
+         where c.tenant_id = ${tenantId}::uuid and c.deleted_at is null and c.status <> 'recebida' and c.recebida_em is null
+           and c.nome ilike ${`%${dito.replace(/[%_\\]/g, ' ').trim()}%`}
+         order by c.created_at desc
+         limit 6`),
+    );
+    const n = (t: unknown) => String(t ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+    const iguais = achados.filter((a) => n(a.nome) === n(dito));
+    const escolhido = iguais.length === 1 ? iguais[0] : achados.length === 1 ? achados[0] : null;
+    if (!escolhido)
+      return {
+        erro: achados.length
+          ? `Achei mais de um pedido aberto: ${achados.map((a) => `"${a.nome}" (${a.criado})`).join('; ')}. Pergunte qual.`
+          : `Não achei pedido aberto com "${dito}" em Estoque › Pedidos. Pergunte o nome como está lá.`,
+      };
+    const itensDoPedido = (Array.isArray(escolhido.itensDoPedido) ? escolhido.itensDoPedido : []).map((i: any) => ({ compraItemId: String(i.compraItemId), itemId: String(i.itemId), nome: String(i.nome), quantidade: Number(i.quantidade) }));
+    const daNota = new Set(nota.itens.filter((it) => it.insumoId).map((it) => it.insumoId as string));
+    return {
+      listaId: String(escolhido.listaId),
+      nome: String(escolhido.nome),
+      fornecedor: escolhido.fornecedor ?? null,
+      criado: String(escolhido.criado),
+      itens: itensDoPedido.length,
+      batem: itensDoPedido.filter((i) => daNota.has(i.itemId)).length,
+      resposta: 'receber',
+      itensDoPedido,
+    };
+  }
+
+  /** C1b-2: o fornecedor pelo nome dito — o igual (sem caixa e sem acento), ou o único parecido; nenhum = novo. */
+  private async fornecedorPeloNome(tx: any, tenantId: string, dito: string): Promise<{ id: string | null; nome: string } | { erro: string }> {
+    const achados = linhas(
+      await tx.execute(sql`
+        select id::text as id, nome from fornecedor
+         where tenant_id = ${tenantId}::uuid and deleted_at is null and nome ilike ${`%${dito.replace(/[%_\\]/g, ' ').trim()}%`}
+         order by nome limit 6`),
+    );
+    const n = (t: unknown) => String(t ?? '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
+    const igual = achados.filter((a) => n(a.nome) === n(dito));
+    if (igual.length === 1) return { id: String(igual[0].id), nome: String(igual[0].nome) };
+    if (achados.length === 1) return { id: String(achados[0].id), nome: String(achados[0].nome) };
+    if (achados.length > 1) return { erro: `Achei mais de um fornecedor com "${dito}": ${achados.map((a) => a.nome).join('; ')}. Pergunte qual.` };
+    return { id: null, nome: dito };
   }
 
   /** ERR-594: o agente vê e corrige o documento aberto (o mesmo jeito da lista de compras). */
@@ -548,6 +629,9 @@ export class MisterNotasService implements OnModuleInit {
     pedido: PedidoDaNota,
     daNota: T[],
     notaRef: string | null,
+    // Versão 10, C1b-2: o que faltou e veio de outro lugar (o mercado): entra na mesma linha do pedido, com o custo e, se a nota
+    // não trouxe nada do item, o fornecedor de lá ("de onde veio", P2).
+    outroLugar: Map<string, { quantidade: number; valorCentavos: number; fornecedorId: string }> = new Map(),
   ): Promise<{ aMais: T[]; resumo: ResumoDoPedidoRecebido }> {
     if (!this.compras) throw new Error('o serviço de compras não está neste servidor');
     const doPedido = linhas(
@@ -571,21 +655,27 @@ export class MisterNotasService implements OnModuleInit {
     const resumo: ResumoDoPedidoRecebido = { entraram: 0, faltaram: [] as string[], naoVieram: [] as string[], pendentes: [] as string[], aMais: 0 };
     const num = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
     const itens = doPedido.map((l) => {
-      const n = porInsumo.get(l.itemId);
-      if (!n || usados.has(l.itemId) || !(n.qtd > 0)) {
+      const n = usados.has(l.itemId) ? undefined : porInsumo.get(l.itemId);
+      const o = usados.has(l.itemId) ? undefined : outroLugar.get(l.itemId);
+      const qNota = n && n.qtd > 0 ? n.qtd : 0;
+      if (!qNota && !o) {
         resumo.naoVieram.push(String(l.nome));
         return { compraItemId: l.id, qtdRecebida: 0 };
       }
       usados.add(l.itemId);
-      const qtd = Math.round(n.qtd * 10000) / 10000;
+      const qtd = Math.round((qNota + (o?.quantidade ?? 0)) * 10000) / 10000;
       resumo.entraram++;
       if (qtd < Number(l.quantidade)) resumo.faltaram.push(`${l.nome}: ${num(qtd)} de ${num(Number(l.quantidade))}`);
       if (l.obrigatoria) resumo.pendentes.push(String(l.nome));
+      // O custo: o da nota (se ela trouxe o valor) somado ao de outro lugar.
+      const totalDaNota = qNota ? (n!.comValor ? n!.total : null) : 0;
+      const total = totalDaNota === null ? null : totalDaNota + (o ? o.valorCentavos / 100 : 0);
       return {
         compraItemId: l.id,
         qtdRecebida: qtd,
-        custoUnitario: n.comValor && n.total > 0 ? Math.round((n.total / qtd) * 10000) / 10000 : undefined,
+        custoUnitario: total !== null && total > 0 ? Math.round((total / qtd) * 10000) / 10000 : undefined,
         validadePendente: true,
+        ...(o && !qNota ? { fornecedorId: o.fornecedorId } : {}),
       };
     });
     await this.compras.receber(tenantId, pedido.listaId, colaboradorId, { itens, notaRef: notaRef ?? undefined } as any, loja, { semConta: true });
@@ -1068,9 +1158,48 @@ export class MisterNotasService implements OnModuleInit {
           const dec = pedido.decisoes;
           const noPedido = dif ? dif.aMais.filter((a) => dec?.aMais?.[a.itemId] === 'no_pedido') : [];
           if (noPedido.length) await this.compras.adicionarAoPedido(tenantId, pedido.listaId, noPedido.map((a) => ({ itemId: a.itemId, quantidade: a.veio })), loja, colaboradorId);
-          const r = await this.receberOPedido(tenantId, colaboradorId, loja, pedido, itens, nota.numero ?? null);
+          // C1b-2: o que faltou e veio de outro lugar. O fornecedor novo é cadastrado agora (de novo pelo nome antes: alguém pode
+          // ter cadastrado no meio), pelo MESMO serviço de Cadastros › Fornecedores.
+          const outroLugar = new Map<string, { quantidade: number; valorCentavos: number; fornecedorId: string }>();
+          const contasDeOutroLugar: Array<{ item: string; fornecedorId: string; fornecedor: string; valorCentavos: number; forma: 'pix' | 'dinheiro' | 'cartao' | null }> = [];
+          for (const f of dif ? dif.faltas.filter((x) => dec?.faltas?.[x.itemId]?.decisao === 'outro_lugar') : []) {
+            const x = dec!.faltas[f.itemId];
+            let fornecedorId = x.fornecedor?.id ?? null;
+            if (!fornecedorId) {
+              const achado = await this.fornecedorPeloNome(this.db, tenantId, x.fornecedor?.nome ?? '');
+              if ('erro' in achado) throw new Error(achado.erro);
+              if (achado.id) fornecedorId = achado.id;
+              else {
+                if (!this.fornecedores) throw new Error('o cadastro de fornecedores não está neste servidor');
+                fornecedorId = String(((await this.fornecedores.create(tenantId, { nome: x.fornecedor?.nome } as any)) as any).id);
+              }
+            }
+            outroLugar.set(f.itemId, { quantidade: x.quantidade ?? f.pedida - f.veio, valorCentavos: x.valorCentavos ?? 0, fornecedorId });
+            contasDeOutroLugar.push({ item: f.nome, fornecedorId, fornecedor: x.fornecedor?.nome ?? 'outro fornecedor', valorCentavos: x.valorCentavos ?? 0, forma: x.forma ?? null });
+          }
+          const r = await this.receberOPedido(tenantId, colaboradorId, loja, pedido, itens, nota.numero ?? null, outroLugar);
           itens = r.aMais;
           doPedido = r.resumo;
+          // A conta de cada compra à parte entra já paga (foi paga lá), pelo MESMO serviço de Financeiro › Contas a pagar. Falhou:
+          // o recebimento segue, e a resposta diz qual conta lançar à mão.
+          for (const c of contasDeOutroLugar) {
+            let pagoLa = false;
+            try {
+              const t: any = await this.financeiro.criar(
+                tenantId,
+                colaboradorId,
+                'presidente',
+                { tipo: 'pagar', descricao: `${c.item} · ${c.fornecedor}`.slice(0, 200), valor: c.valorCentavos / 100, vencimento: hojeISO(), fornecedorId: c.fornecedorId, categoria: 'fornecedor' } as any,
+                loja,
+                { origem: 'mister' },
+              );
+              await this.financeiro.pagar(tenantId, colaboradorId, 'presidente', t.id, { data: hojeISO(), ...(c.forma ? { forma: c.forma } : {}) } as any, loja);
+              pagoLa = true;
+            } catch (err: any) {
+              this.logger.warn(`nota ${documentoId}: a conta de ${c.item} (${c.fornecedor}) não entrou — ${err?.message ?? err}`);
+            }
+            (doPedido.deOutroLugar ??= []).push({ item: c.item, fornecedor: c.fornecedor, valorCentavos: c.valorCentavos, pago: pagoLa });
+          }
           const depois = dif ? dif.faltas.filter((f) => dec?.faltas?.[f.itemId]?.decisao === 'chega_depois') : [];
           const cancelados = dif ? dif.faltas.filter((f) => dec?.faltas?.[f.itemId]?.decisao === 'cancelado').map((f) => f.nome) : [];
           if (depois.length) {

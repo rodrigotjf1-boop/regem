@@ -168,7 +168,7 @@ O TRABALHO EM ANDAMENTO
 - Cupom, nota, boleto, lista por foto ou PDF e toque em botão seguem por outro caminho e NÃO aparecem nas perguntas anteriores. O bloco "TRABALHO EM ANDAMENTO", em "Esta conversa", mostra o que o Regem já recebeu desta pessoa, onde parou e o que falta.
 - Nunca diga que não recebeu um documento que está nesse bloco. Se a pessoa voltar ao assunto, diga o que foi recebido, onde parou e faça a pergunta em aberto, uma só.
 - Tudo o que a pessoa disser sobre o cupom ou a nota em aberto (o produto certo de uma linha, a quantidade, o valor, qual insumo é, quantas vêm na caixa, "não entra no estoque", "registra o vínculo", o total da nota, o item que faltou, "lança assim mesmo") vai pela ferramenta documento_em_andamento, acao alterar, com o número da linha do bloco. O valor e o vencimento do boleto ou da conta que esperam vão pela acao informar. Várias coisas numa frase vão na mesma chamada. Sem certeza da linha, chame acao ver. Ninguém lê a resposta antes de você: se ela não deu para entender (dois números possíveis, "tem 12 unidades" sem dizer quanto vira no estoque), pergunte de novo do seu jeito, sem gravar. Quando a conversão não veio como número direto ("pacote e kg são a mesma coisa", "1 KG tem 2 pacotes"), diga a conta que entendeu ("então 1 KG = 2 pacotes") e grave só depois do "sim" — a conversão fica guardada para as próximas notas do fornecedor.
-- Quando a nota ou o cupom recebe um pedido, o Regem mostra as diferenças (o que veio menos, o que não veio, o que veio a mais) e pergunta o que aconteceu. A resposta é sua: grave pela documento_em_andamento, acao pedido — faltas com chega_depois (o resto ainda vem; com o dia em para, se a pessoa disser) ou cancelado, e a_mais com no_pedido ou avulso. A pessoa pode responder tudo numa frase ou aos poucos; o que ela não disse, pergunte do seu jeito. Nunca decida uma diferença sozinho. O resumo com "Lançar" só sai quando todas estiverem decididas.
+- Quando a nota ou o cupom recebe um pedido, o Regem mostra as diferenças (o que veio menos, o que não veio, o que veio a mais) e pergunta o que aconteceu. A resposta é sua: grave pela documento_em_andamento, acao pedido — faltas com chega_depois (o resto ainda vem; com o dia em para, se a pessoa disser), cancelado, ou outro_lugar (comprou em outro lugar: fornecedor, valor e, se dito, quantidade e forma; a conta entra já paga), e a_mais com no_pedido ou avulso. Se ela disser que a nota é de outro pedido aberto, mande outro_pedido com o nome dele. A pessoa pode responder tudo numa frase ou aos poucos; o que ela não disse, pergunte do seu jeito. Nunca decida uma diferença sozinho. O resumo com "Lançar" só sai quando todas estiverem decididas.
 - Na lista de compras em aberto, a resposta à pergunta da linha (quantos kg tem 1 caixa, a marca escrita) também é sua: grave pela lista_de_compras, acao alterar (conversao, marca), com a mesma conferência da conta antes do "sim".
 - Quando a pessoa mandou a mesma nota mais de uma vez, "ver" traz os outros em aberto: ofereça esquecer os antigos e, com o "sim", chame documento_em_andamento com acao esquecer (todosMenosOMaisNovo, ou a hora de cada um). Nunca diga que não consegue apagar: esquecer é por aqui.
 - Se uma ferramenta recusar, diga o motivo como ela devolveu. Nunca diga que algo "não está disponível neste servidor" se a ferramenta não disse isso.
@@ -1321,13 +1321,22 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
             type: 'object',
             properties: {
               produto: { type: 'string', description: 'O produto como aparece nas diferenças do pedido.' },
-              decisao: { type: 'string', enum: ['chega_depois', 'cancelado'], description: 'chega_depois = o resto ainda vem (fica num pedido novo); cancelado = não vem mais.' },
+              decisao: {
+                type: 'string',
+                enum: ['chega_depois', 'cancelado', 'outro_lugar'],
+                description: 'chega_depois = o resto ainda vem (fica num pedido novo); cancelado = não vem mais; outro_lugar = foi comprado em outro lugar (entra no estoque e a conta entra já paga).',
+              },
               para: { type: 'string', description: 'chega_depois: o dia que chega, AAAA-MM-DD, se a pessoa disse ("amanhã" = o dia seguinte).' },
+              fornecedor: { type: 'string', description: 'outro_lugar: de onde veio (o fornecedor ou o mercado), como a pessoa disse.' },
+              valor: { type: 'number', description: 'outro_lugar: quanto custou, em reais.' },
+              quantidade: { type: 'number', description: 'outro_lugar: quanto veio de lá, se a pessoa disser (sem isso, o que faltou).' },
+              forma: { type: 'string', enum: ['pix', 'dinheiro', 'cartao'], description: 'outro_lugar: como foi pago, se a pessoa disser.' },
             },
             required: ['produto', 'decisao'],
             additionalProperties: false,
           },
         },
+        outro_pedido: { type: 'string', description: 'pedido: quando a pessoa diz que a nota é de OUTRO pedido aberto, o nome dele (as diferenças recomeçam com ele).' },
         a_mais: {
           type: 'array',
           description: 'pedido: o que veio e não estava no pedido.',

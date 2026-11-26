@@ -4177,6 +4177,7 @@ export function testesDoMisterComPostgres(): void {
         c122: { acao: 'informar', valor: 480, vencimento: '2026-12-10' },
         // C1b: as diferenças do pedido, decididas na conversa.
         c123: { acao: 'pedido', faltas: [{ produto: 'batata', decisao: 'chega_depois', para: '2026-11-14' }, { produto: 'cebola', decisao: 'cancelado' }] },
+        c124: { acao: 'pedido', faltas: [{ produto: 'cebola', decisao: 'outro_lugar', fornecedor: 'Mercado do Zé', valor: 48, forma: 'pix' }] },
         c110: { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' },
         c111: { acao: 'repetir_campanha', campanhaDaConversa: 'a última' },
         c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },
@@ -9123,6 +9124,45 @@ export function testesDoMisterComPostgres(): void {
             { nome: 'Sal P4', q: 10 },
           ]);
           expect(await q(`select ri.item_id::text as i from recebimento_item ri join recebimento r on r.id = ri.recebimento_id where r.tenant_id = $1 and ri.item_id = any($2::uuid[])`, [A, itens])).toEqual([]);
+
+          // ── 1b) Versão 10, C1b-2: "é de outro pedido" e "veio de outro lugar" (o fornecedor novo e a conta paga) ──
+          (notas as any).fornecedores = new FornecedorService(db);
+          const p4a = await pedido('Mercado P4 quatro', [{ itemId: oleo, quantidade: 8 }, { itemId: sal, quantidade: 10 }]);
+          const p4b = await pedido('Pedido da semana P4', [{ itemId: oleo, quantidade: 8 }, { itemId: sal, quantidade: 10 }, { itemId: tomate, quantidade: 5 }]);
+          ia.roteiro = [leitura({ tipo: 'nota' }), doCupom('7004')];
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          const c4 = await ultimo();
+          expect(c4.dados.nota.pedido).toMatchObject({ listaId: p4a, resposta: null });
+          // "É do pedido da semana": a nota passa a receber o outro pedido, e o passo seguinte (o "Lançar no estoque?") sai pronto.
+          expect((await pelaIa({ acao: 'pedido', outro_pedido: 'P4' })).dados.erro).toContain('Achei mais de um pedido aberto');
+          const troca: any = await pelaIa({ acao: 'pedido', outro_pedido: 'Pedido da semana P4' });
+          expect(troca.dados.feito).toEqual(['Agora o cupom recebe o pedido "Pedido da semana P4" (' + c4.dados.nota.pedido.criado + '): 2 dos 3 itens estão nele.']);
+          expect(await ultimo()).toMatchObject({ situacao: 'falta', motivo: 'pedido_estoque' });
+          expect((await ultimo()).dados.nota.pedido).toMatchObject({ listaId: p4b, resposta: 'receber', itens: 3, batem: 2 });
+          expect(troca.mensagens[0].botoes).toEqual(botoesDoEstoqueDoPedido(c4.id));
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:pd:${c4.id}:e`)).toBe('respondeu_proposta');
+          expect(await ultimo()).toMatchObject({ situacao: 'falta', motivo: 'diferencas' });
+          expect(numero.enviadas.at(-1)!.texto).toContain('! Tomate P4: não veio');
+          // O tomate veio do hortifruti (novo no cadastro), pago em dinheiro; o detergente fica fora do pedido.
+          const dec4: any = await pelaIa({ acao: 'pedido', faltas: [{ produto: 'tomate', decisao: 'outro_lugar', fornecedor: 'Hortifruti Novo P4', valor: 25, forma: 'dinheiro' }], a_mais: [{ produto: 'detergente', decisao: 'avulso' }] });
+          expect(dec4.dados.feito).toEqual(['Tomate P4: 5 veio de Hortifruti Novo P4, R$ 25,00, conta paga.', 'Detergente P4: entra pelo recebimento avulso, fora do pedido.']);
+          expect(dec4.mensagens[0].texto).toContain('• Tomate P4: 5 entra pelo Hortifruti Novo P4 (fornecedor novo), R$ 25,00, conta paga.');
+          expect(await q(`select count(*)::int as n from fornecedor where tenant_id = $1 and nome = 'Hortifruti Novo P4'`, [A])).toEqual([{ n: 0 }]);
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:lancar:${c4.id}`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.at(-1)!.texto).toContain('Tomate P4 veio de Hortifruti Novo P4, R$ 25,00: a conta entrou já paga.');
+          // O fornecedor novo cadastrado; a linha do tomate recebida com ele e o custo de lá; a conta paga; o outro pedido intacto.
+          const [hort] = await q(`select id::text as id from fornecedor where tenant_id = $1 and nome = 'Hortifruti Novo P4'`, [A]);
+          expect(hort).toBeTruthy();
+          expect(await q(`select ci.qtd_recebida::float8 as q, ci.custo_unitario::float8 as c, ci.fornecedor_id::text as f from compra_item ci where ci.lista_id = $1 and ci.item_id = $2`, [p4b, tomate])).toEqual([{ q: 5, c: 5, f: hort.id }]);
+          expect(await q(`select valor::float8 as v, status, fornecedor_id::text as f from titulo_financeiro where tenant_id = $1 and descricao = 'Tomate P4 · Hortifruti Novo P4'`, [A])).toEqual([{ v: 25, status: 'pago', f: hort.id }]);
+          expect(await q(`select status from compra_lista where id = any($1::uuid[]) order by nome`, [[p4a, p4b]])).toEqual([{ status: 'aberta' }, { status: 'recebida' }]);
+          await q(`delete from lancamento_caixa where tenant_id = $1 and titulo_id in (select id from titulo_financeiro where tenant_id = $1 and descricao = 'Tomate P4 · Hortifruti Novo P4')`, [A]).catch(() => undefined);
+          await q(`delete from titulo_financeiro where tenant_id = $1 and descricao = 'Tomate P4 · Hortifruti Novo P4'`, [A]);
+          await q(`update compra_lista set deleted_at = now() where id = $1`, [p4a]);
+          await q(`update fornecedor set deleted_at = now() where id = $1`, [hort.id]);
+          delete (notas as any).fornecedores;
 
           // ── 2) Bate e "Só marcar recebido": o pedido recebido sem mexer no estoque; só a despesa ──
           const p2 = await pedido('Mercado P4 dois', [{ itemId: oleo, quantidade: 8 }, { itemId: sal, quantidade: 10 }]);
