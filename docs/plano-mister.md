@@ -2750,7 +2750,7 @@ dividida em duas partes:
   - "veio de outro lugar", o fornecedor novo e a conta paga ficam para a C1b-2;
   - o botão do resumo continua "Lançar" e "Cancelar" (o protótipo mostra "Confirmar" e "Mudar").
 
-### C1b-2 — "veio de outro lugar" e "é de outro pedido" (26/11/2026; SEM migration; só na nuvem)
+### C1b-2 — "veio de outro lugar" e "é de outro pedido" (26/11/2026, #1351, NO AR; SEM migration; só na nuvem)
 
 Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma ação `pedido` da `documento_em_andamento`.
 
@@ -2774,3 +2774,30 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
   - o tomate vem do hortifruti novo e o detergente vai avulso;
   - o fornecedor é cadastrado só no lançamento;
   - a linha fica com o fornecedor e o custo de lá, a conta entra paga, e o outro pedido continua aberto.
+
+### C9 — o "feito" e o "não deu" escritos pela IA (26/11/2026; mig 506; só na nuvem)
+
+- **O ajuste "A IA escreve as respostas"** fica em Mister › Jeito e memória › Avisos. É a coluna nova
+  `mister_conversa_config.respostas_escritas` (mig 506). Nasce desligado e só o presidente muda (a rota `PATCH conversa`).
+- **O que muda:** depois de cada botão, o "feito" e o "não deu" (`MisterPropostasService.escreverDesfecho`, no `concluir`)
+  saem escritos pela IA (Haiku, recurso `mister_resposta_escrita`, 5 segundos), no jeito da empresa e variando as palavras. Isso
+  vale para o desfecho de toda ação, inclusive a da imagem (C10a) e a de PIN.
+- **A conferência** (`mister-resposta-escrita.ts`, mais apertada que a da M4c): todo número da frase do Regem tem de estar no
+  texto, do jeito que está escrito ("1.240,00" não vira "1240,00"), e nenhum número novo pode aparecer. O caminho do menu
+  ("Estoque › Produtos") e o que está entre aspas ficam iguais, e não entra link que o Regem não mandou. Desligado, sem IA, mais
+  de 5 segundos ou fora da conferência: vai a frase fixa, e a IA nem é chamada quando o ajuste está desligado.
+- **Por que uma coluna própria:** a restrição da mig 447 em `avisos_escritos` só aceita os 4 grupos de aviso. Mudá-la pediria
+  apagar e recriar a restrição, o que pelo MCP volta recusado (LIC-171). Pelo mesmo motivo, os avisos de "Documentos e
+  dinheiro" continuam no texto fixo; "Pessoas e ponto" também, porque leva nome de colaborador, que não vai à IA (V10-4).
+- **O que ainda é fixo** (fica para depois):
+  - as perguntas dos documentos (a ordem e os botões);
+  - o lembrete e o desfecho dos avisos;
+  - os avisos de "Documentos e dinheiro";
+  - os textos da entrada (código de ligar, telefone não ligado);
+  - o modelo da Meta fora das 24 horas;
+  - o "Vou fazer".
+- **Teste com Postgres:**
+  - desligado: a frase fixa, e a IA nem é chamada;
+  - ligado: o texto da IA, com a frase do Regem e os 5 segundos no pedido;
+  - número que sumiu ou que apareceu: a frase fixa;
+  - IA sem crédito: a frase fixa.

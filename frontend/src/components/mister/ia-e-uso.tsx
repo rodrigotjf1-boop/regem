@@ -58,6 +58,8 @@ const RECURSO: Record<string, string> = {
   mister_foto: 'Mister · fotos (reserva do DMS Graph)',
   // A conferência dos números da imagem gerada pelo DMS Graph (versão 10, C10a; `RECURSO_DA_CONFERENCIA_DA_IMAGEM`).
   mister_imagem_conferida: 'Mister · conferência das imagens',
+  // O "feito" e o "não deu" das ações escritos pela IA (versão 10, C9; `RECURSO_DA_RESPOSTA_ESCRITA`).
+  mister_resposta_escrita: 'Mister · respostas escritas',
 };
 const MODELO: Record<string, string> = {
   'claude-haiku-5-5': 'Claude Haiku 5.5',

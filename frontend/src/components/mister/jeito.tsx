@@ -41,13 +41,15 @@ const comoTexto = (lista: unknown): string =>
     .join(',');
 const comoLista = (v: Valor | undefined): string[] => String(v ?? '').split(',').filter(Boolean);
 
-type Conversa = { perfil?: string; jeito?: string | null; avisosEscritos?: string[]; ficaDeOlho?: boolean };
+type Conversa = { perfil?: string; jeito?: string | null; avisosEscritos?: string[]; ficaDeOlho?: boolean; respostasEscritas?: boolean };
 const doServidor = (c: Conversa | undefined): Valores => ({
   perfil: c?.perfil ?? 'hoje',
   jeito: c?.jeito ?? '',
   avisosEscritos: comoTexto(c?.avisosEscritos),
   // M4d (mig 452): nasce desligado; o servidor antigo (sem o campo) também é "desligado".
   ficaDeOlho: c?.ficaDeOlho === true,
+  // Versão 10, C9 (mig 506): nasce desligado; o servidor antigo (sem o campo) também é "desligado".
+  respostasEscritas: c?.respostasEscritas === true,
 });
 
 /** As marcas dos grupos (decisão 7 do protótipo: um por grupo, nascendo desligado). */
@@ -149,6 +151,15 @@ export function JeitoDoMister() {
             palavras: 'fica de olho lembrete lembrar avisar pedido',
             ajuda: 'Pela conversa: "me avisa quando o #284 sair", "me lembra amanhã às 10h de pagar o gás". Até 3 "fica de olho" e 10 lembretes por pessoa.',
           },
+          {
+            // Versão 10, C9 (mig 506; protótipo `mockups/regem-mister-v10.html`, "Na loja" › "A IA escreve as respostas").
+            id: 'respostasEscritas',
+            rotulo: 'A IA escreve as respostas',
+            tipo: 'chave',
+            palavras: 'ia escreve respostas feito nao deu variar palavras robo frase fixa',
+            ajuda:
+              'O "feito" e o "não deu" depois de cada botão saem escritos pela IA, no jeito da empresa, variando as palavras. Os números são os que o Regem gravou: se ela passar de 5 segundos ou mudar um número, vai a frase de hoje. O que você confirma ("Vou fazer") continua montado pelo Regem. Cerca de R$ 0,002 por resposta; com 600 no mês, uns R$ 1, na chave da empresa.',
+          },
         ],
       },
     ],
@@ -170,6 +181,7 @@ export function JeitoDoMister() {
     if (mudou.includes('jeito')) corpo.jeito = String(valores.jeito ?? '').trim() || null;
     if (mudou.includes('avisosEscritos')) corpo.avisosEscritos = comoLista(valores.avisosEscritos);
     if (mudou.includes('ficaDeOlho')) corpo.ficaDeOlho = valores.ficaDeOlho === true;
+    if (mudou.includes('respostasEscritas')) corpo.respostasEscritas = valores.respostasEscritas === true;
     setSalvando(true);
     setErro(undefined);
     try {
