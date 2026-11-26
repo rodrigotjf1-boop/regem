@@ -140,6 +140,16 @@ function infraBadges(l: any) {
       `${Math.round(pct)}% do limite de transações do Postgres${pct > 80 ? ' — crítico, o banco pode parar de aceitar escrita' : ' — acompanhar'}`, 'tx'));
   }
 
+  // A internet da loja (1.30.16): as conexões que o próprio sync abriu para a nuvem nos últimos 30 min — os MESMOS limites
+  // da regra rede_instavel do vigia (`vigia.regras.ts`). Só com movimento que dê conta (20 aberturas ou mais).
+  const rede = s.conexoesNuvem;
+  const aberturas = Number(rede?.aberturas);
+  const falhasPct = Number(rede?.falhasPct);
+  if (Number.isFinite(aberturas) && aberturas >= 20 && falhasPct > 5) {
+    itens.push(selo('alerta', `rede ${Math.round(falhasPct)}%`,
+      `internet da loja perdendo conexões: ${falhasPct}% das ${aberturas} conexões com a nuvem não abriram nos últimos ${rede.janelaMin ?? 30} min — o roteador ou o modem podem precisar de reinício`, 'rede'));
+  }
+
   if (!itens.length) return <span className="text-xs text-slate-600">—</span>;
   return <div className="flex flex-wrap gap-1">{itens}</div>;
 }

@@ -166,6 +166,21 @@ chega e a busca do programa funciona no portal de verdade.
   por ele não mostra o que o cliente e o usuário principal trocaram. As mensagens do cliente só chegam à ponte se ela usar
   a conta que conversa com o cliente (a principal) — ou se a 99 tiver uma permissão de chat para o usuário extra.
 
+## O que a versão 0.8.0 muda (26/11 — a fila de mensagens sobrevive a um reinício)
+
+- **A fila em disco, cifrada.** O que a ponte leu no chat e ainda não chegou à nuvem ficava só na memória (até 1.000
+  mensagens): um reinício do PC ou da ponte no meio de uma queda de internet perdia mensagem de cliente. Agora a fila vai
+  para `fila-de-entrada.bin` na pasta de dados da ponte a cada mudança e é relida ao abrir (`src/fila-em-disco.js`). É
+  conversa de cliente: o arquivo é cifrado pelo Windows para o usuário do PC (o mesmo cofre do segredo da ponte); sem a
+  cifra, nada é gravado em texto aberto. Fila vazia = arquivo apagado. A nuvem não grava a mesma mensagem duas vezes
+  (canal + id), então reenviar o que voltou do disco é seguro.
+- **As reconexões para 117.51.x (análise de rede de 25–26/11).** No pico, a ponte foi o processo com mais conexões
+  presas tentando abrir: 619 amostras para 117.51.x:443. Conferido no código: a ponte abre cada portal UMA vez (página em
+  branco, a escuta, depois o portal), reaproveita a janela que existe (`abrirGestor`/`abrir99` não abrem outra) e não
+  recarrega página. As aberturas vêm da própria página da 99, que pergunta ao servidor dela de tempos em tempos
+  (`lion.didiglobal.com/im/polling`) — com o roteador da loja perdendo conexões novas, cada uma ficava presa. Não há o
+  que espaçar no programa; o defeito da rede sumiu com o reinício do roteador (26/11 01:12).
+
 ## O que a versão 0.7.9 muda (25/11 — a ponte mais leve no PC da loja)
 
 - **O que se mediu:** no servidor da loja (um i5 650 de 2010, 4 núcleos lógicos, 8 GB), às 23:44 de 25/11, a ponte era o

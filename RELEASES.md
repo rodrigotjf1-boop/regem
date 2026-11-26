@@ -17,6 +17,19 @@
   uma leitura (`x-regem-bilhete`, `auth/bilhete-do-mister.ts`), e o limite de chamadas conta o bilhete pela empresa. Vai no
   próximo `.zip` só por ser código comum: no servidor da loja nenhum bilhete é emitido, então o cabeçalho dá 401 e o resto não
   muda. Não pede `.exe`.
+- **A rede do servidor da loja (26/11; análise de rede de 25–26/11; ERR-616, 617, 618, 621; SEM migration) → `.exe` (mexe
+  no daemon e no instalador; o `.zip` leva o daemon e o `undici`, não a ponte nem a hora certa).**
+  - Sync: um agente do undici 7.30.2 (dependência nova, pinada) — keep-alive de 60 s, abertura de 3 s, nova tentativa na hora.
+  - Batida com a rede: `saude.conexoesNuvem` (as conexões que o PRÓPRIO sync abriu para a nuvem em 30 min — aberturas, falhas
+    de abertura, novas tentativas) decide o vigia `rede_instavel` e o selo "rede" do console (acima de 5% de falhas com 20+
+    aberturas); `saude.tcp` (contadores do Windows, com a rede local junto) vai só como informação. Vale com o deploy da
+    nuvem; a medida só chega com o daemon novo.
+  - Pull: adoção do id da nuvem na chave de negócio (`item_fornecedor`) + reparo de cursor uma vez; o descartado fica em
+    `sync_fila` (`descartado`) com telemetria.
+  - Instalador: hora certa pelo NTP.br (`edge/hora-certa.ps1`, modo Servidor).
+  - Ponte 0.8.0: a fila de mensagens em disco, cifrada (só no `.exe`).
+  - Depois de instalar: conferir `w32tm /query /source` (a.ntp.br), o `saude.conexoesNuvem` na batida, os 4 vínculos produto ×
+    fornecedor na loja e o `peso` da ponte com a loja em serviço.
 
 ## Última release: `1.30.15` — gerada em 26/11/2026 da `origin/main` `8df7de83`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 222.738.140 bytes, SHA-256 `b98d802f95e5a0780d64f97e422da6004cc164397d33d0062b967e0c1e48338b`), pelo `build-release.ps1` (preflight OK; o único aviso = o carimbo do `.iss`; Node 24.22.1; ponte 0.7.9) e Inno 7 (802 s); entregue ao dono em `Documentos\Regem - release 1.30.15 (26-11)` com o `LEIA-ME.txt` (instalar por cima no servidor, com a loja fechada); **sem `.zip`** e nada publicado no console — a loja que só atualiza pelo ícone segue na 1.30.14 até um `.zip`
 

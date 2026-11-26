@@ -54,6 +54,15 @@ import { reiniciarServicoDeImpressao } from './comando-reiniciar-impressao.mjs';
 import {
   ehTempoEsgotado, motivoDoAdiamento, loteDepoisDoTempoEsgotado, loteDepoisDoSucesso, adiamentoViraFalha,
 } from './sync-push-ritmo.mjs';
+// A conexão com a nuvem (1.30.16): UM agente do undici para todas as chamadas — keep-alive de 60 s e abertura de 3 s
+// com nova tentativa na hora. As regras ficam em rede-regras.mjs (testadas); o fetch do pacote usa o agente explícito.
+import { Agent as AgenteDoUndici, fetch as fetchDoUndici, buildConnector as conectorDoUndici } from 'undici';
+import { opcoesDoAgente, ehFalhaDeAbertura, pausaAntesDeTentarDeNovo, resumoDaJanela } from './rede-regras.mjs';
+// ERR-616 (1.30.16): na tabela com chave de negócio, a loja adota o id da nuvem em vez de pular a linha (23505).
+import { sqlAdotarIdDaNuvem } from './pull-chave-de-negocio.mjs';
+// Os contadores TCP do Windows (1.30.16): vão na batida só como INFORMAÇÃO — são do PC inteiro (a rede local entra junto);
+// o alerta de rede usa o que o próprio sync viu da nuvem (conexoesNuvem, contado no agente).
+import { contadoresTcp, taxasTcp } from './tcp-taxas.mjs';
 import {
   PEDIDOS_INTERVALO_MS as PEDIDOS_INTERVALO_PADRAO_MS, PAUSA_SEM_ROTA_MS, LIMITE_POR_ID,
   proximaConferencia, motivoParaEsperar, avisarFalha, listaDaNuvem,
@@ -120,13 +129,29 @@ function ehTransitorio(e) {
 // DUPLO-APPLY, então NÃO re-tenta aqui — o ciclo re-tenta no próximo tick e a nuvem
 // deduplica por seq. Na última tentativa devolve a resposta 5xx (o chamador loga o corpo).
 const GATEWAY_5XX = new Set([502, 503, 504]);
+// O agente ÚNICO (1.30.16): o mesmo para pull, envio, restore, snapshot, conferência dos pedidos e o resto — a conexão
+// aberta num serve ao seguinte. Ver rede-regras.mjs. O conector CONTA cada conexão que abriu para a nuvem e as que falharam
+// ao abrir (prazo, recusa, rede, TLS); o fetchT conta as novas tentativas — é a medida de rede da batida (conexoesNuvem).
+const contagemNuvem = { aberturas: 0, falhas: 0, novasTentativas: 0 };
+const OPCOES_NUVEM = opcoesDoAgente(process.env);
+const conectarNaNuvem = conectorDoUndici(OPCOES_NUVEM.connect);
+const AGENTE_NUVEM = new AgenteDoUndici({
+  ...OPCOES_NUVEM,
+  connect: (opcoes, pronto) => {
+    contagemNuvem.aberturas += 1;
+    conectarNaNuvem(opcoes, (erro, socket) => {
+      if (erro) contagemNuvem.falhas += 1;
+      pronto(erro, socket);
+    });
+  },
+});
 async function fetchT(url, opts = {}, ms = FETCH_TIMEOUT_MS) {
   const metodo = (opts.method || 'GET').toUpperCase();
   const idempotente = metodo === 'GET' || metodo === 'HEAD';
   let ultimo;
   for (let tent = 1; tent <= FETCH_TENTATIVAS; tent++) {
     try {
-      const res = await fetch(url, { ...opts, signal: AbortSignal.timeout(ms) });
+      const res = await fetchDoUndici(url, { ...opts, dispatcher: AGENTE_NUVEM, signal: AbortSignal.timeout(ms) });
       if (idempotente && GATEWAY_5XX.has(res.status) && tent < FETCH_TENTATIVAS) {
         ultimo = new Error(`HTTP ${res.status} (gateway)`);
         await new Promise((r) => setTimeout(r, 600 * tent));
@@ -135,11 +160,16 @@ async function fetchT(url, opts = {}, ms = FETCH_TIMEOUT_MS) {
       return res;
     } catch (e) {
       ultimo = e;
+      const causa = causaErro(e);
+      // A ABERTURA da conexão falhou (1.30.16): o pedido nem saiu — tenta de novo NA HORA, inclusive o envio (POST).
+      const abertura = ehFalhaDeAbertura(causa);
       // Envio (POST) que passou do tempo NÃO se repete: a nuvem provavelmente recebeu e ainda está aplicando — repetir só
       // batia na trava dele (429) e o ciclo inteiro falhava (ERR-278). O lote volta no próximo ciclo.
-      if (!idempotente && ehTempoEsgotado(causaErro(e))) break;
-      if (!ehTransitorio(e) || tent === FETCH_TENTATIVAS) break;
-      await new Promise((r) => setTimeout(r, 600 * tent)); // backoff curto p/ pegar socket novo
+      if (!abertura && !idempotente && ehTempoEsgotado(causa)) break;
+      if ((!abertura && !ehTransitorio(e)) || tent === FETCH_TENTATIVAS) break;
+      contagemNuvem.novasTentativas += 1;
+      const pausa = pausaAntesDeTentarDeNovo(causa, tent); // 0 na abertura; 0,6 s × n no resto (socket novo)
+      if (pausa) await new Promise((r) => setTimeout(r, pausa));
     }
   }
   // Propaga a mensagem JÁ com a causa real (a telemetria/log param de esconder o motivo).
@@ -661,7 +691,13 @@ async function upsertLote(tabela, rows, exec = pool) {
 // ficou de fora. A janela foi removida na nuvem, mas o cursor gravado aqui aponta para
 // "60 dias atrás" e o histórico anterior nunca viria. Rebobinamos uma vez; o catch-up é
 // paginado (1000 linhas/ciclo) e some sozinho quando alcança o presente.
-const REPAROS_CURSOR = [{ marca: 'reparo_ledger_completo_v1', tabelas: ['movimento_estoque'] }];
+// reparo_item_fornecedor_chave_v1 (ERR-616, 1.30.16): os vínculos produto × fornecedor recusados por 23505 foram pulados
+// e o cursor andou. Com a adoção do id da nuvem, a tabela desce de novo uma vez (está em TABELAS_DESDE_ZERO: sem cursor,
+// a nuvem recomeça do zero) — o que já está aqui é regravado igual e os que faltavam entram.
+const REPAROS_CURSOR = [
+  { marca: 'reparo_ledger_completo_v1', tabelas: ['movimento_estoque'] },
+  { marca: 'reparo_item_fornecedor_chave_v1', tabelas: ['item_fornecedor'] },
+];
 
 async function repararCursores(cursores) {
   let mudou = false;
@@ -935,6 +971,26 @@ async function aplicarPull(data, cursores, cli) {
     await upsertLocal(tabela, row, cli);
     await recon.aplicarLinha(fila, tabela, row, cli);
   };
+  // ERR-616 (1.30.16): a linha recusada por 23505 numa tabela com chave de negócio — a mesma chave aqui com outro id —
+  // entra adotando o id da nuvem (tira a cópia local, grava a da nuvem) num ponto de salvamento NOVO (o que falhou já foi
+  // desfeito). true = entrou; false = não era o caso (ou falhou de novo: segue como erro duro, com o erro original).
+  let adotadas = 0;
+  const entrarPelaChave = async (tabela, row, e) => {
+    if (e?.code !== '23505') return false;
+    const adotar = sqlAdotarIdDaNuvem(tabela, row);
+    if (!adotar) return false;
+    try {
+      await tx.tentar(async () => {
+        await cli.query(adotar.text, adotar.values);
+        await aplicar(tabela, row);
+      });
+    } catch (e2) {
+      if (ehErroDeRecurso(e2)) throw e2;
+      return false;
+    }
+    adotadas++;
+    return true;
+  };
   // O que a nuvem mandou e este servidor não tem (tabela → null, ou → colunas).
   const ausentes = {};
   for (const [tabela, rows] of Object.entries(data.tabelas)) {
@@ -982,6 +1038,7 @@ async function aplicarPull(data, cursores, cli) {
       } catch (e) {
         if (ehErroDeRecurso(e)) throw e;
         if (e.code === '23503') pendentes.push([tabela, row]);
+        else if (await entrarPelaChave(tabela, row, e)) aplicadas++;
         else falhas.push([tabela, row, e]);
       }
     };
@@ -1026,6 +1083,7 @@ async function aplicarPull(data, cursores, cli) {
       } catch (e) {
         if (ehErroDeRecurso(e)) throw e;
         if (e.code === '23503') resta.push([tabela, row]);
+        else if (await entrarPelaChave(tabela, row, e)) aplicadas++;
         else falhas.push([tabela, row, e]);
       }
       await tx.aliviar();
@@ -1059,14 +1117,34 @@ async function aplicarPull(data, cursores, cli) {
   // impede a velha de sobrescrevê-la.
   const LIMITE_CICLOS = 20;
   const guardar = [];
-  let descartados = 0;
+  const descartar = [];
   const vistos = new Set();
   for (const [tabela, row] of pendentes) {
     if (vistos.has(row.id)) continue;
     vistos.add(row.id);
     const n = (tentativas.get(row.id) ?? 0) + 1;
-    if (n > LIMITE_CICLOS) descartados++;
+    if (n > LIMITE_CICLOS) descartar.push({ tabela, row, n });
     else guardar.push({ tabela, row, n });
+  }
+  const descartados = descartar.length;
+  // ERR-617 (1.30.16): a linha que não entrou em 20 ciclos não some mais calada — em 23/11 foram 16 estornos de caixa
+  // (o lançamento original, de antes da janela de 60 dias, a loja nunca teve). Fica guardada em `sync_fila` como
+  // 'descartado' (a linha inteira, para conferir e decidir) e a distribuição recebe os ids na telemetria. Não volta a
+  // ser tentada sozinha: a decisão é de quem confere.
+  if (descartados) {
+    for (const d of descartar.slice(0, 5000)) {
+      try {
+        await pool.query(
+          `insert into sync_fila (tipo, tabela, registro_id, conteudo, tentativas)
+           values ('descartado', $1, $2, $3, $4) on conflict (tipo, tabela, registro_id) do nothing`,
+          [d.tabela, d.row.id, JSON.stringify(d.row), d.n],
+        );
+      } catch { /* best-effort: o aviso abaixo sai mesmo assim */ }
+    }
+    const ids = descartar.slice(0, 20).map((d) => `${d.tabela}:${d.row.id}`).join(', ');
+    try {
+      await reportarTelemetria('sync', 'pull_linha_descartada', `${descartados} linha(s) sem o pai em ${LIMITE_CICLOS} ciclos (guardadas em sync_fila 'descartado'): ${ids}`);
+    } catch { /* best-effort */ }
   }
   if (guardar.length || orfaosAntes.length) {
     const manter = guardar.slice(0, 5000);
@@ -1082,7 +1160,8 @@ async function aplicarPull(data, cursores, cli) {
     }
   }
   if (guardar.length) console.warn(`  ${guardar.length} linha(s) aguardando o pai (FK) — nova tentativa no próximo ciclo`);
-  if (descartados) console.warn(`  ${descartados} linha(s) descartada(s): o pai não chegou em ${LIMITE_CICLOS} ciclos (fora da janela ou ausente na nuvem)`);
+  if (descartados) console.warn(`  ${descartados} linha(s) descartada(s): o pai não chegou em ${LIMITE_CICLOS} ciclos (fora da janela ou ausente na nuvem) — guardadas em sync_fila 'descartado' e avisadas na telemetria`);
+  if (adotadas) console.log(`  ${adotadas} linha(s) com a chave de negócio repetida entraram com o id da nuvem (ERR-616)`);
   // Exclusões feitas na nuvem (mig 262): apaga a mesma linha aqui, DEPOIS de aplicar as linhas
   // desta resposta. A sessão do daemon é marcada como sync, então não gera registro de volta.
   try {
@@ -1615,7 +1694,8 @@ async function statusServicosEDisco() {
   try {
     const { stdout } = await pExecFile('powershell', [
       '-NoProfile', '-NonInteractive', '-Command',
-      "$s=Get-Service RegemEdgeApi,RegemEdgeWeb,RegemEdgeSync,RegemEdgeImpressao,RegemEdgePg -EA SilentlyContinue|ForEach-Object{$_.Name+'='+$_.Status};$d=[int]((Get-PSDrive C -EA SilentlyContinue).Free/1MB);@{servicos=@($s);discoLivreMb=$d}|ConvertTo-Json -Compress",
+      // + os contadores TCP do Windows (1.30.16 — análise de rede): brutos, somados desde que o Windows ligou, IPv4 + IPv6
+      "$s=Get-Service RegemEdgeApi,RegemEdgeWeb,RegemEdgeSync,RegemEdgeImpressao,RegemEdgePg -EA SilentlyContinue|ForEach-Object{$_.Name+'='+$_.Status};$d=[int]((Get-PSDrive C -EA SilentlyContinue).Free/1MB);$t=@(Get-CimInstance Win32_PerfRawData_Tcpip_TCPv4 -EA SilentlyContinue)+@(Get-CimInstance Win32_PerfRawData_Tcpip_TCPv6 -EA SilentlyContinue);$tcp=@{abertas=($t|Measure-Object ConnectionsActive -Sum).Sum;falhas=($t|Measure-Object ConnectionFailures -Sum).Sum;enviados=($t|Measure-Object SegmentsSentPersec -Sum).Sum;retransmitidos=($t|Measure-Object SegmentsRetransmittedPersec -Sum).Sum};@{servicos=@($s);discoLivreMb=$d;tcp=$tcp}|ConvertTo-Json -Compress",
     ], { timeout: 8000, windowsHide: true, encoding: 'utf8', maxBuffer: 1 << 20 });
     const o = JSON.parse(stdout);
     const servicos = {};
@@ -1624,9 +1704,14 @@ async function statusServicosEDisco() {
       if (nome) servicos[nome.replace(/^RegemEdge/i, '').toLowerCase()] = (est || '').trim();
     }
     for (const s of ['api', 'web', 'sync', 'impressao', 'pg']) if (!(s in servicos)) servicos[s] = 'ausente';
-    return { servicos, discoLivreMb: Number.isFinite(o.discoLivreMb) ? o.discoLivreMb : null };
-  } catch { return { servicos: null, discoLivreMb: null }; }
+    return { servicos, discoLivreMb: Number.isFinite(o.discoLivreMb) ? o.discoLivreMb : null, tcp: contadoresTcp(o.tcp) };
+  } catch { return { servicos: null, discoLivreMb: null, tcp: null }; }
 }
+
+// A leitura anterior dos contadores TCP (na memória: a taxa é a diferença entre duas batidas — tcp-taxas.mjs).
+let tcpAnterior = null;
+// As contagens das conexões com a nuvem por batida (a janela de 30 min do resumoDaJanela).
+const historicoNuvem = [];
 
 // Saúde rica — só no heartbeat de FIM de ciclo. Cada coleta é best-effort; nada pode
 // derrubar o heartbeat (já best-effort).
@@ -1642,6 +1727,25 @@ async function coletarSaude() {
   try {
     const d = await getState('relogio_desvio_s', '');
     if (d !== '') saude.relogioDesvioS = Number(d); // + adiantado, − atrasado (segundos)
+  } catch { /* */ }
+  // A rede (1.30.16). (1) conexoesNuvem — o que o PRÓPRIO sync viu da nuvem nos últimos 30 min (aberturas, falhas de
+  // abertura e novas tentativas, contadas no agente): é o que o vigia usa (regra rede_instavel) e o selo "rede" do console.
+  // (2) tcp — os contadores TCP do Windows, só como INFORMAÇÃO: são do PC inteiro e a rede local entra junto (rede-regras.mjs).
+  try {
+    const agora = Date.now();
+    historicoNuvem.push({ em: agora, ...contagemNuvem });
+    contagemNuvem.aberturas = 0;
+    contagemNuvem.falhas = 0;
+    contagemNuvem.novasTentativas = 0;
+    while (historicoNuvem.length > 120) historicoNuvem.shift();
+    saude.conexoesNuvem = resumoDaJanela(historicoNuvem, agora);
+  } catch { /* */ }
+  try {
+    if (sd.tcp) {
+      const agora = Date.now();
+      saude.tcp = taxasTcp(tcpAnterior?.contadores, sd.tcp, tcpAnterior ? agora - tcpAnterior.em : 0);
+      tcpAnterior = { contadores: sd.tcp, em: agora };
+    }
   } catch { /* */ }
   // Conferência rápida dos pedidos (ERR-280): quando deu certo pela última vez e as falhas seguidas — o console vê se ela
   // parou (o pedido então desce só pelo ciclo).

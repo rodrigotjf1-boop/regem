@@ -63,7 +63,8 @@ describe('ritmo do envio do servidor da loja (edge/sync-push-ritmo.mjs)', () => 
   it('o daemon usa o ritmo: importa o módulo, não repete o POST que passou do tempo e o --descarregar não apaga o banco', () => {
     const daemon = readFileSync(join(__dirname, '..', '..', '..', 'edge', 'sync-daemon.mjs'), 'utf8');
     expect(daemon).toMatch(/from '\.\/sync-push-ritmo\.mjs'/);
-    expect(daemon).toMatch(/if \(!idempotente && ehTempoEsgotado\(causaErro\(e\)\)\) break;/);
+    // 1.30.16: a exceção é a falha de ABERTURA (o pedido nem saiu — rede-regras.mjs), que tenta de novo na hora.
+    expect(daemon).toMatch(/if \(!abertura && !idempotente && ehTempoEsgotado\(causa\)\) break;/);
     expect(daemon).toMatch(/if \(envioAdiado\) \{\s*\/\/[^\n]*\n\s*console\.error\(\s*`descarregar: \$\{n\} linha\(s\) enviadas, mas o envio de/);
   });
 });

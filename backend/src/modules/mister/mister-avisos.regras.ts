@@ -380,6 +380,7 @@ export const TIPO_DA_REGRA_DO_VIGIA: Record<string, TipoDeAviso> = {
   banco_em_risco: 'servidor_tecnico',
   relogio_desviado: 'servidor_tecnico',
   sync_falhando: 'servidor_tecnico',
+  rede_instavel: 'servidor_tecnico',
 };
 
 const PROBLEMA_TECNICO: Record<string, string> = {
@@ -389,6 +390,7 @@ const PROBLEMA_TECNICO: Record<string, string> = {
   banco_em_risco: 'o banco de dados do servidor pede manutenção',
   relogio_desviado: 'o relógio do servidor está errado',
   sync_falhando: 'a sincronização com a nuvem está falhando',
+  rede_instavel: 'a internet da loja está perdendo conexões',
 };
 
 /** Uma situação vista agora: vira episódio aberto (ou continua o que já estava). */

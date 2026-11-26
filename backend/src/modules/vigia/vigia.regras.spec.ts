@@ -26,6 +26,9 @@ const saudeBoa = () => ({
   syncFalhandoDesde: null,
   impressorasSemResponder: [],
   impressorasComAviso: [],
+  conexoesNuvem: { aberturas: 120, falhas: 0, falhasPct: 0, novasTentativas: 0, janelaMin: 30 },
+  // os contadores do Windows da loja com a internet SÃ (26/11 03:28): a rede local dava isto — não pode abrir alerta
+  tcp: { aberturas: 105, falhas: 43, falhasPct: 41, enviados: 4403, retransmitidos: 285, retransmissaoPct: 6.5, janelaS: 120 },
 });
 const servidor = (o: Partial<ServidorVigiado> = {}, saude: any = {}): ServidorVigiado => ({
   equipamentoId: E,
@@ -169,6 +172,26 @@ describe('o vigia do servidor da loja — as regras', () => {
     expect(console_).toContain(`> ${LIMITES_DO_VIGIA.relogioMaximoS} &&`);
     expect(console_).toContain(`pct > ${LIMITES_DO_VIGIA.transacoesAtencaoPct}`);
     expect(console_).toContain(`pct > ${LIMITES_DO_VIGIA.transacoesCriticoPct}`);
+    // o selo "rede" (1.30.16)
+    expect(console_).toContain(`aberturas >= ${LIMITES_DO_VIGIA.redeAberturasMin}`);
+    expect(console_).toContain(`falhasPct > ${LIMITES_DO_VIGIA.redeFalhasPct}`);
+  });
+
+  it('rede_instavel (1.30.16): pelas conexões que o PRÓPRIO sync abriu para a nuvem em 30 min — nunca pelos contadores do Windows', () => {
+    const nuvem = (o: any) => ({ conexoesNuvem: { ...saudeBoa().conexoesNuvem, ...o } });
+    // a saúde boa já traz os contadores do Windows da loja com a internet sã (41% e 6,5%, da rede local): nada
+    expect(regras(servidor())).toEqual([]);
+    // a rede ruim de 25/11: 34–53% das aberturas sem resposta
+    expect(regras(servidor({}, nuvem({ aberturas: 60, falhas: 25, falhasPct: 41.7 })))).toEqual(['rede_instavel']);
+    expect(regras(servidor({}, nuvem({ falhasPct: LIMITES_DO_VIGIA.redeFalhasPct })))).toEqual([]);
+    expect(regras(servidor({}, nuvem({ falhasPct: LIMITES_DO_VIGIA.redeFalhasPct + 0.1 })))).toEqual(['rede_instavel']);
+    // pouca abertura na janela não diz nada (o keep-alive longo abre poucas): 3 de 5 falhando
+    expect(regras(servidor({}, nuvem({ aberturas: LIMITES_DO_VIGIA.redeAberturasMin - 1, falhasPct: 60 })))).toEqual([]);
+    // sem a medida (servidor antigo ou primeira batida): nada
+    expect(regras(servidor({}, { conexoesNuvem: null }))).toEqual([]);
+    const [a] = acharProblemas(servidor({}, nuvem({ aberturas: 60, falhas: 25, falhasPct: 41.7, novasTentativas: 31 })), AGORA);
+    expect(a).toMatchObject({ regra: 'rede_instavel', gravidade: 'atencao', publico: 'distribuicao' });
+    expect(a.evidencia).toEqual({ falhasPct: 41.7, aberturas: 60, falhas: 25, novasTentativas: 31, janelaMin: 30, maximoFalhasPct: 5 });
   });
 });
 
