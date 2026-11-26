@@ -169,6 +169,12 @@ export class MisterPropostasService implements OnModuleInit {
     this.pedido = f;
   }
 
+  // Versão 10, C7: aprender pela tarefa feita mora no `MisterAprendizadoService`; aqui passa a proposta que terminou "feita".
+  private aprender: ((p: { tenantId: string; procedimento?: string; parametros?: any; autorizadaPor: string | null }) => Promise<void>) | null = null;
+  registrarAprender(f: (p: { tenantId: string; procedimento?: string; parametros?: any; autorizadaPor: string | null }) => Promise<void>): void {
+    this.aprender = f;
+  }
+
   // Versão 10, C4: a tarefa pelo mapa (`fazer_no_regem`) mora no `MisterTarefasService`; aqui passa o "Autorizar" de quem pediu.
   private tarefa: ((p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>) | null = null;
   registrarTarefa(f: (p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>): void {
@@ -727,7 +733,7 @@ export class MisterPropostasService implements OnModuleInit {
    * Fecha a proposta que está executando (condicional: uma vez só) e avisa quem autorizou. Devolve a situação final, ou
    * null quando outra volta já fechou.
    */
-  private async concluir(p: { id: string; tenantId: string; autorizadaPor: string | null; parametros?: any }, feita: boolean, resultado: string): Promise<string | null> {
+  private async concluir(p: { id: string; tenantId: string; autorizadaPor: string | null; parametros?: any; procedimento?: string }, feita: boolean, resultado: string): Promise<string | null> {
     const situacao = feita ? 'feita' : 'nao_deu';
     const [fechou] = linhas(
       await this.db.execute(sql`
@@ -737,6 +743,8 @@ export class MisterPropostasService implements OnModuleInit {
     );
     if (!fechou) return null;
     await this.auditar(p.tenantId, p.autorizadaPor, feita ? 'mister_proposta_feita' : 'mister_proposta_nao_deu', p.id, { resultado: resultado.slice(0, 200) }, 'whatsapp', perfilDe(p));
+    // Versão 10, C7: a tarefa que deu certo pode virar exemplo da empresa (com o ajuste ligado). Não segura a resposta e não lança.
+    if (feita && this.aprender) void this.aprender(p).catch((e) => this.logger.warn(`o aprendizado da proposta ${p.id} não foi gravado — ${e?.message ?? e}`));
     // V7c: o passo de um plano não fala sozinho: o plano diz tudo numa mensagem só, no fim.
     if (p.parametros?.planoId) {
       this.planoAndou(p.parametros.planoId);

@@ -54,7 +54,7 @@ type RelatorioNaTela = {
 type ModoDoBoleto = 'sozinho' | 'perguntar';
 /** Versão 5, M5e (mig 462): "Como mandar o resumo" — a mesma lista do servidor (`FORMAS_DE_ENTREGA_DO_RESUMO`). */
 type FormaDoResumo = 'botoes' | 'pdf' | 'link' | 'texto';
-type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean; analisesProfundas?: boolean; vozComEmocao?: boolean; ligarPelaIa?: boolean; iaForteNasTarefas?: boolean; aprenderModelos?: boolean };
+type Conversa = { documentosLigado: boolean; documentosModo: ModoDoBoleto; resumoEntrega?: FormaDoResumo; responderAudio?: boolean; analisesProfundas?: boolean; vozComEmocao?: boolean; ligarPelaIa?: boolean; iaForteNasTarefas?: boolean; aprenderModelos?: boolean; aprenderTarefas?: boolean };
 const CONV = 'conversa:documentos';
 const CONV_RESUMO = 'conversa:resumo';
 const CONV_VOZ = 'conversa:voz';
@@ -67,6 +67,8 @@ const PRECO_DA_LIGACAO = 'Cerca de R$ 0,20 por cupom, nota ou lista, na chave de
 const CONV_FORTE = 'conversa:forte';
 /** Versão 9, O2 (mig 503): "Aprender o modelo de cada fornecedor" — sem custo; nasce desligado (recurso novo). */
 const CONV_MODELOS = 'conversa:modelos';
+/** Versão 10, C7 (mig 508): "Aprender pela tarefa feita" — sem custo; nasce desligado (recurso novo). */
+const CONV_TAREFAS = 'conversa:tarefas';
 const PRECO_DA_IA_FORTE = 'De cerca de R$ 0,01 para cerca de R$ 0,20 por resposta, só enquanto há um cupom, uma nota ou uma lista em andamento';
 const FORMAS_DO_RESUMO: { v: FormaDoResumo; rotulo: string }[] = [
   { v: 'botoes', rotulo: 'texto com os botões PDF e link' },
@@ -321,8 +323,9 @@ export function AvisosDoMister() {
     const ligar = c.ligarPelaIa === true ? '1' : '0';
     const forte = c.iaForteNasTarefas === true ? '1' : '0';
     const modelos = c.aprenderModelos === true ? '1' : '0';
-    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar, [CONV_FORTE]: forte, [CONV_MODELOS]: modelos }));
-    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar, [CONV_FORTE]: forte, [CONV_MODELOS]: modelos }));
+    const tarefas = c.aprenderTarefas === true ? '1' : '0';
+    setSalvos((s) => ({ ...s, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar, [CONV_FORTE]: forte, [CONV_MODELOS]: modelos, [CONV_TAREFAS]: tarefas }));
+    setValores((x) => ({ ...x, [CONV]: v, [CONV_RESUMO]: r, [CONV_VOZ]: voz, [CONV_EMOCAO]: emocao, [CONV_ANALISES]: analises, [CONV_LIGAR]: ligar, [CONV_FORTE]: forte, [CONV_MODELOS]: modelos, [CONV_TAREFAS]: tarefas }));
   }, []);
 
   const ler = useCallback(async () => {
@@ -819,6 +822,26 @@ export function AvisosDoMister() {
                 </span>
               ),
             },
+            {
+              id: CONV_TAREFAS,
+              rotulo: 'Aprender pela tarefa feita',
+              tipo: 'livre' as const,
+              palavras: 'aprender tarefa feita exemplo jeito parecida repetir aprendi esquecer',
+              ajuda: (
+                <>
+                  <span className="block">
+                    A tarefa que alguém confirmou pelo Mister e deu certo vira exemplo para a próxima parecida: ele segue o mesmo jeito e continua pedindo a confirmação a cada vez. Sem dado de cliente. Você vê e esquece em Mister › O que aprendi.
+                  </span>
+                  <span className="mt-1 block text-xs font-semibold">Sem custo.</span>
+                </>
+              ),
+              desenhar: (v: Valor, mudar: (x: Valor) => void) => (
+                <span className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                  <span className={`text-sm ${texto2}`}>{v === '1' ? 'Ligado' : 'Desligado'}</span>
+                  <Chave ligada={v === '1'} comTexto={false} rotulo="Aprender pela tarefa feita" aoMudar={(l) => mudar(l ? '1' : '0')} />
+                </span>
+              ),
+            },
           ],
         };
     // Versão 8, E3: o aviso da véspera sai do grupo Relatórios e fica em "Clima e eventos", com a linha "Amanhã" do resumo.
@@ -889,6 +912,7 @@ export function AvisosDoMister() {
         ...(conversa && valores[CONV_LIGAR] !== salvos[CONV_LIGAR] ? { ligarPelaIa: valores[CONV_LIGAR] === '1' } : {}),
         ...(conversa && valores[CONV_FORTE] !== salvos[CONV_FORTE] ? { iaForteNasTarefas: valores[CONV_FORTE] === '1' } : {}),
         ...(conversa && valores[CONV_MODELOS] !== salvos[CONV_MODELOS] ? { aprenderModelos: valores[CONV_MODELOS] === '1' } : {}),
+        ...(conversa && valores[CONV_TAREFAS] !== salvos[CONV_TAREFAS] ? { aprenderTarefas: valores[CONV_TAREFAS] === '1' } : {}),
       };
       const conv = Object.keys(partesDaConversa).length ? partesDaConversa : null;
       if (regras.length) aplicar((await api.patch('/mister/avisos', { regras })) as DaTela);

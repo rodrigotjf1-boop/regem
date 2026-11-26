@@ -84,6 +84,8 @@ export interface ConversaDoMister {
    * empresa, com os números do Regem (a frase fixa de reserva). Nasce desligado (custo, regra do dono de 20/11); só o presidente muda.
    */
   respostasEscritas: boolean;
+  /** Versão 10, C7 (mig 508): "Aprender pela tarefa feita" — a tarefa confirmada vira exemplo da empresa. Sem custo; nasce desligado. */
+  aprenderTarefas: boolean;
 }
 /** As horas que o PIN da sessão vale (a escolha do presidente). */
 export const HORAS_DO_PIN = [6, 12, 24] as const;
@@ -107,6 +109,7 @@ export const CONVERSA_PADRAO: ConversaDoMister = {
   iaForteNasTarefas: false,
   aprenderModelos: false,
   respostasEscritas: false,
+  aprenderTarefas: false,
 };
 
 /** O jeito como vai ao banco e às instruções: uma linha, espaços apertados; vazio vira null. */
@@ -191,6 +194,11 @@ export function conferirConversa(dto: unknown): Partial<ConversaDoMister> | { er
     if (typeof d.respostasEscritas !== 'boolean') return { erro: 'A IA escreve as respostas: diga se fica ligado ou desligado.' };
     fora.respostasEscritas = d.respostasEscritas;
   }
+  if (d.aprenderTarefas !== undefined) {
+    // V15: liga/desliga só com booleano de verdade.
+    if (typeof d.aprenderTarefas !== 'boolean') return { erro: 'Aprender pela tarefa feita: diga se fica ligado ou desligado.' };
+    fora.aprenderTarefas = d.aprenderTarefas;
+  }
   if (!Object.keys(fora).length) return { erro: 'Nada para salvar.' };
   return fora;
 }
@@ -214,6 +222,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
   iaForteNasTarefas: { coluna: 'ia_forte_nas_tarefas', valor: (v) => sql`${v}::boolean` },
   aprenderModelos: { coluna: 'aprender_modelos', valor: (v) => sql`${v}::boolean` },
   respostasEscritas: { coluna: 'respostas_escritas', valor: (v) => sql`${v}::boolean` },
+  aprenderTarefas: { coluna: 'aprender_tarefas', valor: (v) => sql`${v}::boolean` },
 };
 
 /**
@@ -221,6 +230,7 @@ const COLUNA: Record<keyof ConversaDoMister, { coluna: string; valor: (v: any) =
  * lê as da anterior. Nunca devolver o padrão de um campo que está salvo (o "perguntar" dos documentos, o perfil).
  */
 const LEITURAS = [
+  sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao", ligar_pela_ia as "ligarPelaIa", ia_forte_nas_tarefas as "iaForteNasTarefas", aprender_modelos as "aprenderModelos", respostas_escritas as "respostasEscritas", aprender_tarefas as "aprenderTarefas"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao", ligar_pela_ia as "ligarPelaIa", ia_forte_nas_tarefas as "iaForteNasTarefas", aprender_modelos as "aprenderModelos", respostas_escritas as "respostasEscritas"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao", ligar_pela_ia as "ligarPelaIa", ia_forte_nas_tarefas as "iaForteNasTarefas", aprender_modelos as "aprenderModelos"`,
   sql`documentos_ligado as "documentosLigado", documentos_modo as "documentosModo", perfil, jeito, avisos_escritos as "avisosEscritos", fica_de_olho as "ficaDeOlho", resumo_entrega as "resumoEntrega", responder_audio as "responderAudio", pin_a_cada_h as "pinACadaH", analises_profundas as "analisesProfundas", voz_com_emocao as "vozComEmocao", ligar_pela_ia as "ligarPelaIa", ia_forte_nas_tarefas as "iaForteNasTarefas"`,
@@ -273,6 +283,7 @@ export class MisterConversaConfigService {
         iaForteNasTarefas: l.iaForteNasTarefas === true,
         aprenderModelos: l.aprenderModelos === true,
         respostasEscritas: l.respostasEscritas === true,
+        aprenderTarefas: l.aprenderTarefas === true,
       };
     } catch (e: any) {
       // Sem a 440 (a migration ainda não entrou, ou o servidor da loja): o padrão, que não muda nada.

@@ -13,6 +13,7 @@ import { botoesDaProposta } from './mister-procedimentos';
 import { MisterPropostasService } from './mister-propostas.service';
 import { PRAZO_DA_TAREFA_MIN, PROCEDIMENTO_DA_TAREFA, TEXTOS_DAS_TAREFAS, pedidoDaTarefa, tarefasNoMister } from './mister-tarefas';
 import { MisterTelasService } from './mister-telas.service';
+import { PEDIDO_MAX, textoAprendido } from './mister-aprendizado';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -62,7 +63,8 @@ export class MisterTarefasService implements OnModuleInit {
         avisoId,
         PROCEDIMENTO_DA_TAREFA,
         'botao',
-        { colaboradorId: e.colaboradorId, nivel: e.nivel, rota: p.f.rota, metodo: p.metodo, caminho: p.caminho, corpo: p.corpo, loja: unidadeId, frase: p.f.frase, resumo: p.resumo },
+        // C7: o pedido nas palavras da pessoa vai junto (vira exemplo, se a tarefa der certo).
+        { colaboradorId: e.colaboradorId, nivel: e.nivel, rota: p.f.rota, metodo: p.metodo, caminho: p.caminho, corpo: p.corpo, loja: unidadeId, frase: p.f.frase, resumo: p.resumo, ...(origemDe(en.__origem).falas[0] ? { pedidoDaPessoa: textoAprendido(origemDe(en.__origem).falas[0], PEDIDO_MAX) } : {}) },
         PRAZO_DA_TAREFA_MIN,
       );
       if (!prop) return recusa('Essa mesma tarefa já foi autorizada e está em andamento; o resultado chega na conversa.');

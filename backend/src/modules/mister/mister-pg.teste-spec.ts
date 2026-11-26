@@ -47,6 +47,7 @@ import { IfoodService } from '../integracoes/ifood/ifood.service';
 import { IbptService } from '../fiscal/ibpt/ibpt.service';
 import { MisterEntradaService } from './mister-entrada.service';
 import { MisterDocumentosService } from './mister-documentos.service';
+import { MisterAprendizadoService } from './mister-aprendizado.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { MisterMemoriaService } from './mister-memoria.service';
 import { RECUSAS_DA_MEMORIA } from './mister-memoria';
@@ -528,7 +529,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '501_mister_ligar_pela_ia.sql', '502_mister_ia_forte_nas_tarefas.sql', '503_mister_modelos_de_compra.sql', '506_mister_respostas_escritas.sql', '507_mister_pin_falado.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '501_mister_ligar_pela_ia.sql', '502_mister_ia_forte_nas_tarefas.sql', '503_mister_modelos_de_compra.sql', '506_mister_respostas_escritas.sql', '507_mister_pin_falado.sql', '508_mister_aprendizado.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -8087,7 +8088,7 @@ export function testesDoMisterComPostgres(): void {
 
       it('o ajuste da empresa: "pergunta antes" segura o boleto que lançaria sozinho; desligado, a foto segue como antes; o salvar confere', async () => {
         // Versão 4 (mig 447): o jeito vem junto, no padrão (nada muda). M4d (mig 452): o "fica de olho" nasce desligado.
-        const SEM_JEITO = { analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, respostasEscritas: false, perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null };
+        const SEM_JEITO = { analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, respostasEscritas: false, aprenderTarefas: false, perfil: 'hoje', jeito: null, avisosEscritos: [], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null };
         expect(await conversa.daEmpresa(A)).toEqual({ documentosLigado: true, documentosModo: 'sozinho', ...SEM_JEITO });
         await expect(conversa.salvar(usuario('ana'), { documentosModo: 'sempre' })).rejects.toBeInstanceOf(BadRequestException);
         await expect(conversa.salvar(usuario('ana'), { documentosLigado: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
@@ -8141,12 +8142,12 @@ export function testesDoMisterComPostgres(): void {
         await expect(conversa.salvar(usuario('ana'), { avisosEscritos: 'loja' })).rejects.toBeInstanceOf(BadRequestException);
         // O jeito vira uma linha só, com os espaços apertados; os grupos saem na ordem da tela, sem repetir.
         const r = await conversa.salvar(usuario('ana'), { perfil: 'descontraido', jeito: '  Fale como sócio,\n sem formalidade.  ', avisosEscritos: ['fiscal', 'loja', 'loja'] });
-        expect(r.conversa).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, respostasEscritas: false, documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
+        expect(r.conversa).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, respostasEscritas: false, aprenderTarefas: false, documentosLigado: true, documentosModo: 'sozinho', perfil: 'descontraido', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         expect(auditados.filter((a) => a.acao === 'mister_conversa_alterada').at(-1)).toMatchObject({ detalhe: { antes: { perfil: 'hoje', jeito: null }, depois: { perfil: 'descontraido' } } });
         // Salvar só o perfil não apaga o jeito, os grupos nem o ajuste dos documentos.
         await conversa.salvar(usuario('ana'), { documentosModo: 'perguntar' });
         await conversa.salvar(usuario('ana'), { perfil: 'objetivo' });
-        expect(await conversa.daEmpresa(A)).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, respostasEscritas: false, documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
+        expect(await conversa.daEmpresa(A)).toEqual({ analisesProfundas: false, vozComEmocao: false, ligarPelaIa: false, iaForteNasTarefas: false, aprenderModelos: false, respostasEscritas: false, aprenderTarefas: false, documentosLigado: true, documentosModo: 'perguntar', perfil: 'objetivo', jeito: 'Fale como sócio, sem formalidade.', avisosEscritos: ['loja', 'fiscal'], ficaDeOlho: false, resumoEntrega: 'botoes', responderAudio: false, pinACadaH: null });
         // M4d (mig 452): o "fica de olho" liga e desliga só com booleano (V15), sem mexer no resto.
         await expect(conversa.salvar(usuario('ana'), { ficaDeOlho: 'sim' })).rejects.toBeInstanceOf(BadRequestException);
         expect((await conversa.salvar(usuario('ana'), { ficaDeOlho: true })).conversa).toMatchObject({ ficaDeOlho: true, perfil: 'objetivo', avisosEscritos: ['loja', 'fiscal'] });
@@ -14003,6 +14004,90 @@ export function testesDoMisterComPostgres(): void {
         } finally {
           if (antes === undefined) delete process.env.MISTER_FAZER_TAREFAS;
           else process.env.MISTER_FAZER_TAREFAS = antes;
+        }
+      });
+
+      it('C7: aprender pela tarefa feita — desligado não aprende; ligado, a tarefa feita vira exemplo sem dado pessoal, a parecida recebe, o presidente lista e esquece', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        await modulo(A, true);
+        const [antes] = await q(`select id from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
+        if (!antes) await q(`insert into cardapio_config (tenant_id, token, ativo) values ($1, $2, true)`, [A, `tok-${randomUUID()}`]);
+        const conversaCfg = new MisterConversaConfigService(db, auditoria);
+        const aprendizado = new MisterAprendizadoService(db, propostasDasAcoes, conversaCfg, auditoria);
+        aprendizado.onModuleInit();
+        const aprendidos = () => q(`select procedimento, pedido, feito, colaborador_id::text as quem, usado_vezes as usado from mister_aprendizado where tenant_id = $1`, [A]);
+        const esperarAprendido = async (n: number) => {
+          for (let i = 0; i < 50 && (await aprendidos()).length < n; i++) await new Promise((r) => setTimeout(r, 40));
+          return aprendidos();
+        };
+        const fala = 'pausa o cardápio por meia hora que a cozinha travou, qualquer coisa ana.dona@exemplo.com.br';
+        const pausar = async () => {
+          await q(`delete from pausa_canal where tenant_id = $1 and canal = 'cardapio'`, [A]);
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          const r = await ferramentas.executar(e, 'propor_acao', { acao: 'pausar_canal', canais: ['cardapio'], motivo: 'cozinha', minutos: 30, __origem: { resultados: [], falas: [fala] } });
+          expect(r.ok).toBe(true);
+          await propostasDasAcoes.responder(`prop:${idDaProposta(r)}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(idDaProposta(r))).toMatchObject({ situacao: 'feita' });
+          return String(r.dados.oQueVouFazer);
+        };
+        await q(`delete from mister_aprendizado where tenant_id = $1`, [A]);
+        await q(`insert into mister_conversa_config (tenant_id, aprender_tarefas) values ($1, false) on conflict (tenant_id) do update set aprender_tarefas = false`, [A]);
+        try {
+          // Desligado (o padrão): a tarefa feita não vira exemplo, e a conversa não recebe nada.
+          await pausar();
+          await new Promise((r) => setTimeout(r, 300));
+          expect(await aprendidos()).toEqual([]);
+          expect(await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio meia hora', true)).toEqual([]);
+
+          // Ligado: o pedido nas palavras da Ana (sem o e-mail) e o "Vou fazer" do Regem.
+          await q(`update mister_conversa_config set aprender_tarefas = true where tenant_id = $1`, [A]);
+          const vouFazer = await pausar();
+          const [linha] = await esperarAprendido(1);
+          expect(linha).toMatchObject({ procedimento: 'pausar_canal', feito: vouFazer, quem: pessoa.ana, usado: 0 });
+          expect(linha.pedido).toContain('pausa o cardápio por meia hora');
+          expect(linha.pedido).not.toContain('exemplo.com.br');
+          // A mesma tarefa pedida do mesmo jeito atualiza a linha (não duplica).
+          await pausar();
+          await new Promise((r) => setTimeout(r, 300));
+          expect(await aprendidos()).toHaveLength(1);
+
+          // A parecida recebe o exemplo (e conta o uso); a que não tem nada a ver, não.
+          const linhas = await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio uns 20 minutos, a cozinha está cheia', true);
+          expect(linhas).toHaveLength(2);
+          expect(linhas[1]).toContain(`→ Feito: ${vouFazer}`);
+          expect((await aprendidos())[0].usado).toBe(1);
+          expect(await aprendizado.exemplosParaAConversa(A, 'quanto vendi ontem?', true)).toEqual([]);
+
+          // O passo de um plano e o saldo informado não viram exemplo.
+          await aprendizado.aprender({ tenantId: A, procedimento: 'pausar_canal', parametros: { planoId: randomUUID(), pedidoDaPessoa: 'pausa o balcão agora', resumoDaAcao: 'Pausar o balcão.' }, autorizadaPor: pessoa.ana });
+          await aprendizado.aprender({ tenantId: A, procedimento: 'informar_saldo', parametros: { pedidoDaPessoa: 'o saldo hoje é tanto', resumoDaAcao: 'Guardar o saldo.' }, autorizadaPor: pessoa.ana });
+          expect(await aprendidos()).toHaveLength(1);
+
+          // A parte "O que aprendi": só o presidente; "com você" para quem ensinou.
+          const l = await aprendizado.listar(usuario('ana'));
+          expect(l).toMatchObject({ ligado: true, total: 1, usadas: 1, paradas: 0 });
+          expect(l.aprendidos[0]).toMatchObject({ feito: vouFazer, quem: 'Ana Souza', souEu: true, usadoVezes: 1, parada: false, diasSemUso: 0 });
+          await expect(aprendizado.listar(usuario('carlos', A, 'gerente'))).rejects.toThrow('Só o presidente');
+          // Parado há mais de 30 dias: a mesma régua na contagem e na linha.
+          await q(`update mister_aprendizado set usado_em = now() - interval '35 days', atualizado_em = now() - interval '40 days' where tenant_id = $1`, [A]);
+          expect(await aprendizado.listar(usuario('ana'))).toMatchObject({ usadas: 0, paradas: 1, aprendidos: [{ parada: true, diasSemUso: 35 }] });
+
+          // Esquecer: o presidente de outra empresa não apaga; a Ana apaga, auditado.
+          const id = l.aprendidos[0].id;
+          expect(await aprendizado.esquecer(usuario('anaB', B), id)).toEqual({ esquecido: false });
+          await expect(aprendizado.esquecer(usuario('ana'), 'nao-e-id')).rejects.toThrow('Exemplo inválido');
+          auditados.length = 0;
+          expect(await aprendizado.esquecer(usuario('ana'), id)).toEqual({ esquecido: true });
+          expect(await aprendidos()).toEqual([]);
+          expect(auditados).toContainEqual(expect.objectContaining({ acao: 'mister_aprendizado_esquecido', entidadeId: id, atorId: pessoa.ana }));
+        } finally {
+          await q(`update mister_conversa_config set aprender_tarefas = false where tenant_id = $1`, [A]);
+          await q(`delete from mister_aprendizado where tenant_id = $1`, [A]);
+          await q(`delete from mister_proposta where tenant_id = $1 and procedimento = 'pausar_canal'`, [A]);
+          await q(`delete from pausa_canal where tenant_id = $1`, [A]);
+          if (!antes) await q(`delete from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
+          (propostasDasAcoes as any).aprender = null;
         }
       });
 

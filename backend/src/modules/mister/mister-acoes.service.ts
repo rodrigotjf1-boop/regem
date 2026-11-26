@@ -8,6 +8,7 @@ import { pausaVigenteDoCanal, type CanalDaPausa } from '../../common/pausa-do-ca
 import type { AuthUser } from '../../auth/auth-user';
 import { podeFazer, recusaPeloPerfil } from './mister-acoes-perfil';
 import { MOTIVO_DO_QR, comMotivo, motivoDoPerfil, type MotivoDaFerramenta } from './mister-motivo';
+import { FEITO_MAX, PEDIDO_MAX, textoAprendido } from './mister-aprendizado';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { IaEmpresaService } from '../ia/ia-empresa.service';
 import {
@@ -219,7 +220,10 @@ export class MisterAcoesService implements OnModuleInit {
         }
         return pronta.motivo ? comMotivo(pronta.erro, pronta.motivo) : recusa(pronta.erro);
       }
-      const { acao, def, unidadeId, parametros, resumo, alvo } = pronta;
+      const { acao, def, unidadeId, parametros: conferidos, resumo, alvo } = pronta;
+      // Versão 10, C7: o pedido nas palavras da pessoa e o "Vou fazer" ficam na proposta — é o que vira exemplo, se ela der certo.
+      const fala = origemDe(en.__origem).falas[0];
+      const parametros = { ...conferidos, ...(fala ? { pedidoDaPessoa: textoAprendido(fala, PEDIDO_MAX) } : {}), resumoDaAcao: textoAprendido(resumo, FEITO_MAX) };
       const p = await this.gravar(e, acao, unidadeId, parametros, alvo);
       if (!p) return recusa('Essa mesma ação já foi autorizada e está em andamento; o resultado chega na conversa.');
       if (def.nivel === 'pin') {

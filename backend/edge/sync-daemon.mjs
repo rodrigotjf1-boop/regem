@@ -2753,6 +2753,9 @@ const SO_NUVEM = new Set([
   // O que o presidente informa na conversa (versão 7, V7f, mig 492, @cloud-only): saldo, folha e custo de campanha. Quem conversa
   // e guarda é a nuvem — a loja não tem esta tabela.
   'mister_dado_informado',
+  // O que o Mister aprendeu pela tarefa feita (versão 10, C7, mig 508, @cloud-only): os exemplos da empresa. Quem conversa e
+  // aprende é a nuvem — a loja não tem esta tabela.
+  'mister_aprendizado',
   // O gasto do WhatsApp oficial (mig 445, @cloud-only): o que a Meta informa por dia e por modelo, e a situação da
   // leitura de cada conta. Quem lê a Meta é a nuvem — a loja não tem estas tabelas.
   'whatsapp_gasto',

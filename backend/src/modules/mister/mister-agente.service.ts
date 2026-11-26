@@ -22,6 +22,7 @@ import { linhaDoLinkNaConversa } from './mister-link-publico';
 import { LINKS_PARA_ABRIR_MAX, LinkParaAbrir, linhasParaAbrir } from './mister-abrir';
 import { linhaDaMidia, veioDeAudio } from './mister-midia.regras';
 import { MisterMidiaService } from './mister-midia.service';
+import { MisterAprendizadoService } from './mister-aprendizado.service';
 
 /** M3c.2: o balão da resposta leva o botão "PDF" só quando cabe no corpo de uma mensagem com botões (1024 na Meta). */
 const CABE_COM_BOTAO = 1000;
@@ -71,6 +72,8 @@ export class MisterAgenteService implements OnModuleInit {
     @Optional() private readonly memoria?: MisterMemoriaService,
     // Versão 5, M5c: a resposta em áudio (a nota de voz pelo DMS Graph). Sem o serviço, só o texto, como antes.
     @Optional() private readonly midia?: MisterMidiaService,
+    // Versão 10, C7: os exemplos aprendidos pela tarefa feita. Sem o serviço (ou sem a migration), sem exemplos.
+    @Optional() private readonly aprendizado?: MisterAprendizadoService,
   ) {}
 
   /** O perfil e o jeito da empresa para o bloco da conversa. A leitura que falha não segura a resposta: vai sem eles. */
@@ -388,7 +391,15 @@ export class MisterAgenteService implements OnModuleInit {
         modeloDaTarefa: iaForteNasTarefas && tarefaAberta && !opcoes.recurso ? modeloDasAnalises() : null,
         instrucoes,
         recurso: opcoes.recurso,
-        conversa: blocoDaConversa({ ...this.ferramentas.conversa(escopo), ...jeito, ...(await this.memoriaDaConversa(escopo)), ...andamento }),
+        conversa: blocoDaConversa({
+          ...this.ferramentas.conversa(escopo),
+          ...jeito,
+          ...(await this.memoriaDaConversa(escopo)),
+          ...andamento,
+          // Versão 10, C7: até 3 exemplos de tarefas parecidas que a empresa confirmou (com "Aprender pela tarefa feita" ligado).
+          // Não no relatório (não é pergunta de alguém).
+          exemplos: this.aprendizado && !opcoes.recurso ? await this.aprendizado.exemplosParaAConversa(escopo.tenantId, pergunta, escopo.verValores && !escopo.pinPendente) : [],
+        }),
         pedir: (p) => this.ia.pedir(escopo.tenantId, p),
         executar: (nome, entrada) => this.vagas.com(() => this.ferramentas.executar(escopo, nome, entrada)),
         // Na ordem do pedido (as consultas juntas terminam em qualquer ordem): os anexos e as imagens saem na ordem pedida.
