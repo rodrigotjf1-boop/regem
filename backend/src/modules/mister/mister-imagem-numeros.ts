@@ -54,9 +54,40 @@ export function ehNumeroDoNegocio(n: NumeroDoTexto): boolean {
   return !(n.redondo && /^\d{4}$/.test(n.bruto) && v >= 1900 && v <= 2100);
 }
 
+/** O que está entre aspas no pedido: o "texto exato" que a imagem tem de mostrar (a instrução pede assim). */
+export function textosEntreAspas(pedido: string): string[] {
+  return [...String(pedido ?? '').matchAll(/["“”]([^"“”]{1,400})["“”]/g)].map((m) => m[1]);
+}
+
+const ehAno = (n: NumeroDoTexto) => n.tipo === 'num' && n.redondo && /^\d{4}$/.test(n.bruto) && n.centavos >= 190000 && n.centavos <= 210000;
+
+/**
+ * Os números do pedido que contam (conferidos na imagem e com origem exigida). Com texto entre aspas — o texto exato que a IA
+ * manda desenhar —, TODOS os números dele, de qualquer tamanho: o teste do dono (26/11) achou "21 vendidos", "4 pedidos" e a nota
+ * "5" passando sem conferência, porque a regra antiga tratava número até 31 como apresentação. Sem aspas, a regra antiga (o
+ * número do negócio em qualquer lugar do pedido). Data, hora, proporção e ordinal nunca contam.
+ */
+export function numerosDoPedido(pedido: string): NumeroDoTexto[] {
+  const aspas = textosEntreAspas(pedido);
+  return aspas.length ? numerosDoTexto(aspas.join(' | ')) : numerosDoTexto(pedido).filter(ehNumeroDoNegocio);
+}
+
 /** Os números do pedido da imagem que serão conferidos nela (o bruto, na ordem, sem repetir). */
 export function numerosParaConferir(pedido: string): string[] {
-  return [...new Set(numerosDoTexto(pedido).filter(ehNumeroDoNegocio).map((n) => n.bruto))];
+  return [...new Set(numerosDoPedido(pedido).map((n) => n.bruto))];
+}
+
+/** Os números que aparecem dentro dos textos das consultas ("TRIO 09", "Carne 120gr", "2026-11-26"). */
+function numerosNosTextos(resultados: unknown[]): number[] {
+  const achados: number[] = [];
+  const andar = (v: unknown, fundo: number): void => {
+    if (fundo > 8 || v === null || v === undefined) return;
+    if (typeof v === 'string') for (const n of numerosDoTexto(v.replace(/-/g, ' '))) achados.push(n.centavos);
+    else if (Array.isArray(v)) for (const i of v) andar(i, fundo + 1);
+    else if (typeof v === 'object') for (const i of Object.values(v as Record<string, unknown>)) andar(i, fundo + 1);
+  };
+  for (const r of resultados) andar(r, 0);
+  return achados;
 }
 
 /** A origem dos números: o que as consultas desta pergunta trouxeram e o que a pessoa escreveu (esta pergunta e as anteriores). */
@@ -96,11 +127,17 @@ export function numerosSemOrigem(pedido: string, origem: OrigemDosNumeros): stri
   const daFala = origem.falas.flatMap((f) => numerosDoTexto(f).map((n) => n.centavos / 100));
   const base = [...origem.resultados, { numerosDaFala: daFala }];
   const conhecidos = numerosDosResultados(base);
+  // O número que está no nome de um item da consulta ("TRIO 09") também tem origem.
+  for (const c of numerosNosTextos(origem.resultados)) conhecidos.add(c);
   for (const v of [...conhecidos]) conhecidos.add(Math.abs(v));
   const lista = [...conhecidos];
   const reaisSemOrigem = new Set(valoresSemConta(pedido, base));
   const sem: string[] = [];
-  for (const n of numerosDoTexto(pedido).filter(ehNumeroDoNegocio)) {
+  // A origem vale para o pedido inteiro: os números do texto exato (de qualquer tamanho) e os do negócio fora dele.
+  const exigidos = [...numerosDoPedido(pedido), ...numerosDoTexto(pedido).filter(ehNumeroDoNegocio)];
+  for (const n of exigidos) {
+    // O ano no texto ("melhor mês de 2026") não precisa de origem; na imagem ele é conferido como os outros.
+    if (ehAno(n)) continue;
     const ok =
       n.tipo === 'reais'
         ? !reaisSemOrigem.has(n.centavos)
@@ -175,7 +212,7 @@ export interface ConferenciaDaImagem {
 
 /** Compara os números do pedido com os lidos na imagem. "R$ 98.400" no pedido aceita "98.400" desenhado sem o "R$". */
 export function conferirNumeros(pedido: string, leitura: LeituraDaImagem): ConferenciaDaImagem {
-  const pedidos = numerosDoTexto(pedido).filter(ehNumeroDoNegocio);
+  const pedidos = numerosDoPedido(pedido);
   const vistos = leitura.numeros.flatMap((t) => numerosDoTexto(t));
   const casa = (a: NumeroDoTexto, b: NumeroDoTexto) => a.centavos === b.centavos && (a.tipo === 'pct') === (b.tipo === 'pct');
   const faltaram = [...new Set(pedidos.filter((p) => !vistos.some((v) => casa(p, v))).map((p) => p.bruto))];
