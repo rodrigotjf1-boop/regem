@@ -23,6 +23,7 @@ export const REGRAS_DO_VIGIA = [
   'relogio_desviado',
   'sync_falhando',
   'impressora_parada',
+  'rede_instavel',
 ] as const;
 export type RegraDoVigia = (typeof REGRAS_DO_VIGIA)[number];
 export type Gravidade = 'critico' | 'atencao';
@@ -43,6 +44,14 @@ export const LIMITES_DO_VIGIA = {
   relogioMaximoS: 120,
   /** Sync falhando sem parar há mais que isto. */
   syncFalhandoMin: 15,
+  /**
+   * A rede da loja (1.30.16, análise de rede de 25–26/11/2026 — o selo "rede" do console): aberturas de conexão que
+   * falharam acima disto, ou retransmissão TCP acima disto, na janela da batida. No pico do defeito: 41% e 3,7%; com a
+   * rede boa, 0%. Só com movimento que dê conta: menos aberturas que o mínimo na janela não dizem nada.
+   */
+  redeFalhasPct: 10,
+  redeRetransmissaoPct: 3,
+  redeAberturasMin: 20,
 } as const;
 export type LimitesDoVigia = { [K in keyof typeof LIMITES_DO_VIGIA]: number };
 
@@ -176,6 +185,20 @@ export function acharProblemas(s: ServidorVigiado, agora: Date, limites: Limites
       gravidade: 'atencao',
       publico: 'distribuicao',
       evidencia: { desvioS: Math.round(desvio), maximoS: limites.relogioMaximoS },
+    });
+
+  // A rede da loja perdendo conexões (1.30.16): taxas da janela da batida (saude.tcp, dos contadores TCP do Windows).
+  const tcp = saude.tcp && typeof saude.tcp === 'object' ? saude.tcp : null;
+  const aberturas = num(tcp?.aberturas) ?? 0;
+  const falhasPct = num(tcp?.falhasPct) ?? 0;
+  const retransmissaoPct = num(tcp?.retransmissaoPct) ?? 0;
+  if (tcp && aberturas >= limites.redeAberturasMin && (falhasPct > limites.redeFalhasPct || retransmissaoPct > limites.redeRetransmissaoPct))
+    achados.push({
+      regra: 'rede_instavel',
+      chave: chaveDoServidor(s.equipamentoId),
+      gravidade: 'atencao',
+      publico: 'distribuicao',
+      evidencia: { falhasPct, retransmissaoPct, aberturas, janelaS: num(tcp.janelaS), maximoFalhasPct: limites.redeFalhasPct, maximoRetransmissaoPct: limites.redeRetransmissaoPct },
     });
 
   // Sync falhando sem parar (o servidor bate, mas não sincroniza).

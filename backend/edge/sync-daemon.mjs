@@ -60,6 +60,8 @@ import { Agent as AgenteDoUndici, fetch as fetchDoUndici } from 'undici';
 import { opcoesDoAgente, ehFalhaDeAbertura, pausaAntesDeTentarDeNovo } from './rede-regras.mjs';
 // ERR-616 (1.30.16): na tabela com chave de negócio, a loja adota o id da nuvem em vez de pular a linha (23505).
 import { sqlAdotarIdDaNuvem } from './pull-chave-de-negocio.mjs';
+// A rede na batida (1.30.16): as taxas de aberturas que falharam e de retransmissão, pelos contadores TCP do Windows.
+import { contadoresTcp, taxasTcp } from './tcp-taxas.mjs';
 import {
   PEDIDOS_INTERVALO_MS as PEDIDOS_INTERVALO_PADRAO_MS, PAUSA_SEM_ROTA_MS, LIMITE_POR_ID,
   proximaConferencia, motivoParaEsperar, avisarFalha, listaDaNuvem,
@@ -1677,7 +1679,8 @@ async function statusServicosEDisco() {
   try {
     const { stdout } = await pExecFile('powershell', [
       '-NoProfile', '-NonInteractive', '-Command',
-      "$s=Get-Service RegemEdgeApi,RegemEdgeWeb,RegemEdgeSync,RegemEdgeImpressao,RegemEdgePg -EA SilentlyContinue|ForEach-Object{$_.Name+'='+$_.Status};$d=[int]((Get-PSDrive C -EA SilentlyContinue).Free/1MB);@{servicos=@($s);discoLivreMb=$d}|ConvertTo-Json -Compress",
+      // + os contadores TCP do Windows (1.30.16 — análise de rede): brutos, somados desde que o Windows ligou, IPv4 + IPv6
+      "$s=Get-Service RegemEdgeApi,RegemEdgeWeb,RegemEdgeSync,RegemEdgeImpressao,RegemEdgePg -EA SilentlyContinue|ForEach-Object{$_.Name+'='+$_.Status};$d=[int]((Get-PSDrive C -EA SilentlyContinue).Free/1MB);$t=@(Get-CimInstance Win32_PerfRawData_Tcpip_TCPv4 -EA SilentlyContinue)+@(Get-CimInstance Win32_PerfRawData_Tcpip_TCPv6 -EA SilentlyContinue);$tcp=@{abertas=($t|Measure-Object ConnectionsActive -Sum).Sum;falhas=($t|Measure-Object ConnectionFailures -Sum).Sum;enviados=($t|Measure-Object SegmentsSentPersec -Sum).Sum;retransmitidos=($t|Measure-Object SegmentsRetransmittedPersec -Sum).Sum};@{servicos=@($s);discoLivreMb=$d;tcp=$tcp}|ConvertTo-Json -Compress",
     ], { timeout: 8000, windowsHide: true, encoding: 'utf8', maxBuffer: 1 << 20 });
     const o = JSON.parse(stdout);
     const servicos = {};
@@ -1686,9 +1689,12 @@ async function statusServicosEDisco() {
       if (nome) servicos[nome.replace(/^RegemEdge/i, '').toLowerCase()] = (est || '').trim();
     }
     for (const s of ['api', 'web', 'sync', 'impressao', 'pg']) if (!(s in servicos)) servicos[s] = 'ausente';
-    return { servicos, discoLivreMb: Number.isFinite(o.discoLivreMb) ? o.discoLivreMb : null };
-  } catch { return { servicos: null, discoLivreMb: null }; }
+    return { servicos, discoLivreMb: Number.isFinite(o.discoLivreMb) ? o.discoLivreMb : null, tcp: contadoresTcp(o.tcp) };
+  } catch { return { servicos: null, discoLivreMb: null, tcp: null }; }
 }
+
+// A leitura anterior dos contadores TCP (na memória: a taxa é a diferença entre duas batidas — tcp-taxas.mjs).
+let tcpAnterior = null;
 
 // Saúde rica — só no heartbeat de FIM de ciclo. Cada coleta é best-effort; nada pode
 // derrubar o heartbeat (já best-effort).
@@ -1704,6 +1710,15 @@ async function coletarSaude() {
   try {
     const d = await getState('relogio_desvio_s', '');
     if (d !== '') saude.relogioDesvioS = Number(d); // + adiantado, − atrasado (segundos)
+  } catch { /* */ }
+  // A rede (1.30.16): aberturas de conexão que falharam e retransmissão, na janela desde a batida anterior. O vigia da
+  // nuvem alerta (regra rede_instavel) e o console mostra o selo "rede".
+  try {
+    if (sd.tcp) {
+      const agora = Date.now();
+      saude.tcp = taxasTcp(tcpAnterior?.contadores, sd.tcp, tcpAnterior ? agora - tcpAnterior.em : 0);
+      tcpAnterior = { contadores: sd.tcp, em: agora };
+    }
   } catch { /* */ }
   // Conferência rápida dos pedidos (ERR-280): quando deu certo pela última vez e as falhas seguidas — o console vê se ela
   // parou (o pedido então desce só pelo ciclo).

@@ -396,6 +396,7 @@ const PROBLEMA_DO_VIGIA: Record<string, string> = {
   relogio_desviado: 'relógio do servidor desviado',
   sync_falhando: 'sincronização com a nuvem falhando',
   impressora_parada: 'impressora parada',
+  rede_instavel: 'internet da loja perdendo conexões',
 };
 
 @Injectable()
