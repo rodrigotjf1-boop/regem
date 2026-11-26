@@ -2837,6 +2837,12 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
 - Falta o dono confirmar no celular que essas 3 estavam certas e que as 10 ficaram legíveis. Com isso o teste passa (V10-12), e
   a C10c (o ajuste por empresa, com o preço) fica liberada.
 
+**A situação da versão 10 em 26/11/2026:** no ar C10a, C1 (C1a, C1b-1, C1b-2), C9, C10b, C2, C3, C6 (C6a, C6b), C4a, C5, C7 e C8
+(#1348–#1366). Falta só a C10c, que espera a confirmação do teste da imagem. As fases novas nascem desligadas: as variáveis
+`MISTER_LER_TELAS`, `MISTER_PEDIR_AO_PRESIDENTE`, `MISTER_FAZER_TAREFAS` e `MISTER_PIN_FALADO` (este depois do teste com 20 áudios)
+e, por empresa, os ajustes "Aprender pela tarefa feita" e "Ideias da semana". A C4 abriu só a primeira área (C4a): as outras
+áreas esperam a revisão das marcas de escrita (botão × PIN) pela DMS.
+
 ### C2 — o mapa do Regem (26/11/2026, #1357, NO AR; SEM migration)
 
 - **O mapa** (`backend/src/modules/mister/mapa/mapa-do-regem.ts`) tem cada função da API do Regem: a rota ("METODO
@@ -2930,7 +2936,7 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
     telefone e o contato não chegam à IA) e o gerente sem valores no fechamento do caixa.
 - **Para ligar:** rodar a avaliação real com `MISTER_LER_TELAS=1` e, com ela boa, pôr a variável na API.
 
-### C5 — falar o PIN (26/11/2026; mig 507; só na nuvem; nasce DESLIGADO, `MISTER_PIN_FALADO=1`)
+### C5 — falar o PIN (26/11/2026, #1364, NO AR; mig 507 aplicada na nuvem em 26/11; só na nuvem; nasce DESLIGADO, `MISTER_PIN_FALADO=1`)
 
 - **A decisão V10-5:**
   - cada pessoa liga para SI;
@@ -2972,7 +2978,7 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
   - **a regra de quem desliga** em Pessoas.
 - **Antes de ligar:** o teste com 20 áudios reais (o plano), para ver se a transcrição entende bem os números falados.
 
-### C7 — aprender pela tarefa feita (26/11/2026; mig 508; só na nuvem; nasce DESLIGADO, o ajuste "Aprender pela tarefa feita")
+### C7 — aprender pela tarefa feita (26/11/2026, #1365, NO AR; mig 508 aplicada na nuvem em 26/11; só na nuvem; nasce DESLIGADO, o ajuste "Aprender pela tarefa feita")
 
 - **A decisão V10-7:** a tarefa que alguém confirmou e DEU CERTO vira exemplo da empresa. A próxima pergunta parecida leva até 3
   exemplos; a IA segue o mesmo jeito, mas propõe de novo e a pessoa confirma de novo. Nada é feito sozinho. Sem custo.
@@ -2999,7 +3005,7 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
   duplica; a parecida recebe e conta o uso; o plano e o saldo não viram exemplo; a lista (só o presidente, "com você", parada
   há mais de 30 dias) e o esquecer (outra empresa não apaga; auditado).
 
-### C8 — as ideias da semana (26/11/2026; SEM migration; só na nuvem; nasce DESLIGADO, em Mister › Avisos e relatórios › Relatórios)
+### C8 — as ideias da semana (26/11/2026, #1366, NO AR; SEM migration; só na nuvem; nasce DESLIGADO, em Mister › Avisos e relatórios › Relatórios)
 
 - **A decisão V10-6:** toda semana a IA olha os números da loja e manda até 3 ideias ao PRESIDENTE, cada uma com o número que a
   sustenta e o que faria no Regem. Para fazer uma, a pessoa responde "faz a 2": o Mister propõe pelo caminho de sempre (o "Vou
