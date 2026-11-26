@@ -2802,7 +2802,7 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
   - número que sumiu ou que apareceu: a frase fixa;
   - IA sem crédito: a frase fixa.
 
-### C10b — qualquer gráfico, desenhado pelo Regem (26/11/2026; SEM migration; só na nuvem)
+### C10b — qualquer gráfico, desenhado pelo Regem (26/11/2026, #1354, NO AR; SEM migration; só na nuvem)
 
 - **A ferramenta nova `grafico_livre`** desenha o gráfico de QUALQUER consulta desta pergunta: as contas por categoria, o estoque
   em alerta, as faltas, os canais, o cashback. É para quando nenhum dos 8 tipos do `mostrar_grafico` serve. Ela não conta como
@@ -2828,3 +2828,45 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
 - **Diferenças do protótipo:**
   - não há a forma "pizza": a participação é a pizza do desenho de sempre;
   - o botão "Fazer em gráfico" da C10a não entrou: a pessoa pede em texto.
+
+**O teste da imagem (C10a), feito pelo dono em 26/11, das 00h09 às 00h32:**
+- 10 pedidos, as 10 imagens geradas, e a franquia ficou em 14 de 30.
+- 7 tiveram os números conferidos, e todos bateram.
+- 3 saíram sem conferência (ERR-620, corrigido no #1356): os mais vendidos ("21 vendidos"), os pedidos de delivery do dia ("4")
+  e a nota média ("5"). A regra tratava número até 31 como apresentação; agora contam todos os números do texto exato.
+- Falta o dono confirmar no celular que essas 3 estavam certas e que as 10 ficaram legíveis. Com isso o teste passa (V10-12), e
+  a C10c (o ajuste por empresa, com o preço) fica liberada.
+
+### C2 — o mapa do Regem (26/11/2026; SEM migration)
+
+- **O mapa** (`backend/src/modules/mister/mapa/mapa-do-regem.ts`) tem cada função da API do Regem: a rota ("METODO
+  /api/v1/caminho", como o contrato), a MARCA e uma frase. São 1.296 funções; o contrato de 21/11 tinha 1.275, e as 21 que
+  nasceram depois entraram.
+- **As marcas** (decisão V10-3, a marca é da DMS):
+  - `le`: só lê;
+  - `botao`: escreve e confirma no "Vou fazer";
+  - `pin`: dinheiro, nota fiscal, acesso, pessoas;
+  - `tela`: mensagem a muitos, arquivos, impressão; o Mister manda o link;
+  - `interna`: o Mister nunca usa.
+- **O rascunho** (26/11) foi gerado pelas regras do plano a partir do contrato (`npm run build && npm run openapi`, também
+  atualizado neste PR):
+  - `interna`: as áreas do público, da distribuição, dos aparelhos, das integrações, do servidor da loja, do sync, dos
+    pagamentos por gateway e do próprio Mister, mais os métodos técnicos;
+  - `le`: GET;
+  - `pin`: escrita em financeiro, vendas, fiscal, cashback e fidelidade, pessoas, perfis, empresas, lojas e módulos, ou com
+    preço, pagamento, estorno, cancelamento ou caixa na rota;
+  - `tela`: escrita com arquivo, importar, exportar ou imprimir na rota, e as áreas de campanhas, marketing, WhatsApp,
+    impressão, documentos, mural, atendimento, cardápio e catálogo;
+  - `botao`: o resto.
+  - **Resultado:** le 306 · botao 175 · pin 90 · tela 170 · interna 555. As frases saem do nome da função ("estoque: listar
+    itens") e ficam para a revisão.
+- **A trava** (`mapa-do-regem.spec.ts`): o teste monta o app inteiro (como o `app-sobe.spec.ts`), lê as rotas de verdade pelo
+  Swagger e compara com o mapa:
+  - função nova sem linha reprova o CI, com o caminho para resolver;
+  - linha de função que saiu também reprova;
+  - cada linha precisa de uma rota só, uma marca da lista e uma frase;
+  - as áreas do público, da distribuição, do servidor da loja, do sync, do Mister e da autenticação ficam sempre `interna`.
+- **O Mister ainda NÃO usa o mapa.** A C3 (ler qualquer tela) e a C4 (fazer qualquer tarefa) o usam, depois da revisão das
+  marcas. Até lá, o mapa só garante que nenhuma função nova nasce sem a decisão de como o Mister pode usá-la.
+- **A revisar pela DMS antes da C3:** as marcas de escrita (sobretudo `botao` × `pin`) e as frases das funções de leitura que a
+  C3 vai oferecer.
