@@ -10,9 +10,14 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1 -Versao X.Y.Z` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → `edge/publicar.ps1 -Versao X.Y.Z -SoAssinar -Url <url>` (assina o MESMO arquivo, v1 + v2 com validade) → cola versão, URL, SHA e as assinaturas no console de distribuição, **começando pelas lojas piloto / percentual baixo**. O console recusa release sem as duas assinaturas válidas.
 
-## Acumulado (NÃO empacotado) — próxima release (1.30.16)
+## Acumulado (NÃO empacotado) — próxima release (1.30.17)
 
-- _(o #1354, Mister C10b, entrou na `main` logo depois do corte da 1.30.15 e não está no `.exe`; é só da nuvem)_
+- _(o #1360, Mister C6a, entrou na `main` logo depois do corte da 1.30.16 e não está no `.exe`; é só da nuvem)_
+
+## Última release: `1.30.16` — gerada em 26/11/2026 da `origin/main` `d6249543`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 223.038.515 bytes, SHA-256 `0c4ad6d66a7feb8e1138e6da911ed1c0ce770a8ccfa1818c57b1d2cfa9f5bd96`), pelo `build-release.ps1` (preflight OK; o único aviso = o carimbo do `.iss`; Node 24.22.1; ponte 0.8.0; `undici` 7.30.2 no pacote) e Inno 7 (1.076 s); entregue ao dono em `Documentos\Regem - release 1.30.16 (26-11)` com o `LEIA-ME.txt` (instalar por cima no servidor com a loja fechada — de casa pela Área de Trabalho Remota pelo i7, ou na loja); **sem `.zip`** e nada publicado no console — a loja que só atualiza pelo ícone segue na 1.30.14 até um `.zip`
+
+- _(o #1354, Mister C10b, que tinha ficado fora da 1.30.15, está neste `.exe` — é só da nuvem; e também o #1356 e o #1357, do
+  Mister, só da nuvem)_
 - **Mister C3 — ler qualquer tela (26/11; SEM migration; o efeito é só na nuvem).** O `JwtAuthGuard` ganhou o ramo do bilhete de
   uma leitura (`x-regem-bilhete`, `auth/bilhete-do-mister.ts`), e o limite de chamadas conta o bilhete pela empresa. Vai no
   próximo `.zip` só por ser código comum: no servidor da loja nenhum bilhete é emitido, então o cabeçalho dá 401 e o resto não
@@ -31,7 +36,7 @@
   - Depois de instalar: conferir `w32tm /query /source` (a.ntp.br), o `saude.conexoesNuvem` na batida, os 4 vínculos produto ×
     fornecedor na loja e o `peso` da ponte com a loja em serviço.
 
-## Última release: `1.30.15` — gerada em 26/11/2026 da `origin/main` `8df7de83`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 222.738.140 bytes, SHA-256 `b98d802f95e5a0780d64f97e422da6004cc164397d33d0062b967e0c1e48338b`), pelo `build-release.ps1` (preflight OK; o único aviso = o carimbo do `.iss`; Node 24.22.1; ponte 0.7.9) e Inno 7 (802 s); entregue ao dono em `Documentos\Regem - release 1.30.15 (26-11)` com o `LEIA-ME.txt` (instalar por cima no servidor, com a loja fechada); **sem `.zip`** e nada publicado no console — a loja que só atualiza pelo ícone segue na 1.30.14 até um `.zip`
+## Release anterior: `1.30.15` — gerada em 26/11/2026 da `origin/main` `8df7de83`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 222.738.140 bytes, SHA-256 `b98d802f95e5a0780d64f97e422da6004cc164397d33d0062b967e0c1e48338b`), pelo `build-release.ps1` (preflight OK; o único aviso = o carimbo do `.iss`; Node 24.22.1; ponte 0.7.9) e Inno 7 (802 s); entregue ao dono em `Documentos\Regem - release 1.30.15 (26-11)` com o `LEIA-ME.txt` (instalar por cima no servidor, com a loja fechada); **sem `.zip`** e nada publicado no console — a loja que só atualiza pelo ícone segue na 1.30.14 até um `.zip`
 
 - **Ponte do chat 0.7.9 — mais leve no PC da loja (25/11; ERR-619; SEM migration).** O diagnóstico da tela a cada 30 s e só
   com a janela do Gestor aparecendo (era a cada 3 s, varrendo a página inteira); a escuta da rede com limite (16 MB / 3 MB);
