@@ -5,6 +5,7 @@ import {
   entregarSegurando,
   esquecerAndamentos,
   fimDaResposta,
+  prazoParaSegurar,
   trocarRelogio,
   valeSegurar,
 } from './resposta-em-andamento';
@@ -106,12 +107,35 @@ describe('a resposta em andamento (uma resposta por vez em cada conversa)', () =
       expect(fimDaResposta('t1', TEL, true)).toBe('descartar');
       await jest.advanceTimersByTimeAsync(0);
     }
-    expect(andamentoDe('t1', TEL)).toMatchObject({ seguradas: MAX_SEGURADAS, textos: ['a', 'mais 1', 'mais 2'] });
+    const textos = ['a', ...Array.from({ length: MAX_SEGURADAS }, (_, i) => `mais ${i + 1}`)];
+    expect(andamentoDe('t1', TEL)).toMatchObject({ seguradas: MAX_SEGURADAS, textos });
     agora += 1000;
     await entregarSegurando(m('e agora?'), entregar, reentregar);
     expect(fimDaResposta('t1', TEL, true)).toBe('enviar'); // passou do limite: a resposta sai
     await jest.advanceTimersByTimeAsync(0);
     expect(deNovo.at(-1).texto).toBe('e agora?'); // e o que chegou vai sozinho, sem a marca
+  });
+
+  it('26/11: o cliente espera no máximo DUAS rodadas (uma segurada) e o prazo padrão cobre a resposta com áudio (90 s)', async () => {
+    expect(MAX_SEGURADAS).toBe(1);
+    delete process.env.ROBO_SEGURAR_MS;
+    expect(prazoParaSegurar()).toBe(90_000);
+    // A resposta lenta (70 s, como a de um áudio): o que o cliente escreveu no meio ESPERA por ela — não vai em paralelo.
+    await entregarSegurando(m('oi'), entregar, reentregar);
+    agora += 5_000;
+    await entregarSegurando(m('quero um x-bacon'), entregar, reentregar);
+    agora += 65_000;
+    await jest.advanceTimersByTimeAsync(70_000);
+    expect(deNovo).toHaveLength(0);
+    expect(fimDaResposta('t1', TEL, true)).toBe('descartar');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(deNovo).toHaveLength(1);
+    // Na segunda rodada, o cliente escreve de novo: agora a resposta sai e o novo vai sozinho em seguida.
+    agora += 1_000;
+    await entregarSegurando(m('e uma coca'), entregar, reentregar);
+    expect(fimDaResposta('t1', TEL, true)).toBe('enviar');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(deNovo.at(-1).texto).toBe('e uma coca');
   });
 
   it('a resposta que não chega no prazo solta o que esperava, com tudo o que o cliente escreveu (a anterior não veio)', async () => {
