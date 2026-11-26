@@ -167,7 +167,8 @@ O QUE A PESSOA JÁ DISSE
 O TRABALHO EM ANDAMENTO
 - Cupom, nota, boleto, lista por foto ou PDF e toque em botão seguem por outro caminho e NÃO aparecem nas perguntas anteriores. O bloco "TRABALHO EM ANDAMENTO", em "Esta conversa", mostra o que o Regem já recebeu desta pessoa, onde parou e o que falta.
 - Nunca diga que não recebeu um documento que está nesse bloco. Se a pessoa voltar ao assunto, diga o que foi recebido, onde parou e faça a pergunta em aberto, uma só.
-- Tudo o que a pessoa disser sobre o cupom ou a nota em aberto (o produto certo de uma linha, a quantidade, o valor, qual insumo é, quantas vêm na caixa, "não entra no estoque", "registra o vínculo") vai pela ferramenta documento_em_andamento, acao alterar, com o número da linha do bloco. Várias linhas numa frase vão na mesma chamada. Sem certeza da linha, chame acao ver.
+- Tudo o que a pessoa disser sobre o cupom ou a nota em aberto (o produto certo de uma linha, a quantidade, o valor, qual insumo é, quantas vêm na caixa, "não entra no estoque", "registra o vínculo", o total da nota, o item que faltou, "lança assim mesmo") vai pela ferramenta documento_em_andamento, acao alterar, com o número da linha do bloco. O valor e o vencimento do boleto ou da conta que esperam vão pela acao informar. Várias coisas numa frase vão na mesma chamada. Sem certeza da linha, chame acao ver. Ninguém lê a resposta antes de você: se ela não deu para entender (dois números possíveis, "tem 12 unidades" sem dizer quanto vira no estoque), pergunte de novo do seu jeito, sem gravar. Quando a conversão não veio como número direto ("pacote e kg são a mesma coisa", "1 KG tem 2 pacotes"), diga a conta que entendeu ("então 1 KG = 2 pacotes") e grave só depois do "sim" — a conversão fica guardada para as próximas notas do fornecedor.
+- Na lista de compras em aberto, a resposta à pergunta da linha (quantos kg tem 1 caixa, a marca escrita) também é sua: grave pela lista_de_compras, acao alterar (conversao, marca), com a mesma conferência da conta antes do "sim".
 - Quando a pessoa mandou a mesma nota mais de uma vez, "ver" traz os outros em aberto: ofereça esquecer os antigos e, com o "sim", chame documento_em_andamento com acao esquecer (todosMenosOMaisNovo, ou a hora de cada um). Nunca diga que não consegue apagar: esquecer é por aqui.
 - Se uma ferramenta recusar, diga o motivo como ela devolveu. Nunca diga que algo "não está disponível neste servidor" se a ferramenta não disse isso.
 - Só diga "anotado", "registrado", "vinculei" ou "corrigi" depois que a ferramenta devolver gravado. Se ela recusar, diga o motivo ou faça a pergunta que ela pediu. A próxima pergunta do documento sai sozinha depois da sua resposta: não repita. Quem lança é o botão "Lançar", nunca você.
@@ -1287,12 +1288,31 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'documento_em_andamento',
     description:
-      'Não é consulta: VÊ, CORRIGE e ESQUECE o cupom ou a nota por foto em aberto nesta conversa. "esquecer" tira da conversa os em aberto que a pessoa mandou de novo (nada tinha sido lançado neles). "ver" traz as linhas numeradas, para onde cada uma vai e o que falta. "alterar" GRAVA o que a pessoa disse, várias linhas numa chamada: corrigir (produto, quantidade, valor_total da linha), ligar (insumo = o nome como está no estoque; "sim" a "falta confirmar: é o X?" é ligar ao X), conversao (quanto_no_estoque = quanto do estoque entra por 1 unidade da nota: se cada UN é 1 caixa e o estoque é em caixa, 1; se 1 caixa tem 36 UN soltas, 0.0278), fora (não entra no estoque) ou cadastrar (insumo novo no estoque, só quando a pessoa pedir; nome e unidade opcionais). NÃO lança: o lançamento é só no botão "Lançar", que chega quando tudo estiver resolvido.',
+      'Não é consulta: VÊ, CORRIGE e ESQUECE o cupom, a nota, o boleto ou a conta por foto em aberto nesta conversa. Toda resposta da pessoa ao documento em aberto passa por aqui (não há leitor por trás de você): "o total é 1.240" = alterar com total; "faltou 2 cx de tomate, 49,80" = alterar com incluir; "lança assim mesmo" com a soma diferente = alterar com lancar_mesmo_sem_somar; o valor e o vencimento do boleto ou da conta = informar (valor em reais, vencimento AAAA-MM-DD; dia sem mês = o próximo daquele dia). "ver" sem nota em aberto mostra o boleto ou a conta que espera. "esquecer" tira da conversa os em aberto que a pessoa mandou de novo (nada tinha sido lançado neles). "ver" traz as linhas numeradas, para onde cada uma vai e o que falta. "alterar" GRAVA o que a pessoa disse, várias linhas numa chamada: corrigir (produto, quantidade, valor_total da linha), ligar (insumo = o nome como está no estoque; "sim" a "falta confirmar: é o X?" é ligar ao X), conversao (quanto_no_estoque = quanto do estoque entra por 1 unidade da nota: se cada UN é 1 caixa e o estoque é em caixa, 1; se 1 caixa tem 36 UN soltas, 0.0278), fora (não entra no estoque) ou cadastrar (insumo novo no estoque, só quando a pessoa pedir; nome e unidade opcionais). NÃO lança: o lançamento é só no botão "Lançar", que chega quando tudo estiver resolvido.',
     input_schema: {
       type: 'object',
       properties: {
-        acao: { type: 'string', enum: ['ver', 'alterar', 'esquecer'] },
+        acao: { type: 'string', enum: ['ver', 'alterar', 'informar', 'esquecer'] },
         recebidoEm: { type: 'string', description: 'Para esquecer: a hora do documento, como "ver" mostra ("24/11 04:21" ou "04:21").' },
+        total: { type: 'number', description: 'alterar: o valor total da nota, em reais, quando a leitura não pegou ou a pessoa corrigiu.' },
+        incluir: {
+          type: 'array',
+          description: 'alterar: os itens que a leitura não pegou, como a pessoa disse.',
+          items: {
+            type: 'object',
+            properties: {
+              produto: { type: 'string', description: 'O nome do produto como está na nota.' },
+              quantidade: { type: 'number' },
+              unidade: { type: 'string', description: 'A unidade da nota (CX, KG, UN…), se dita.' },
+              valor_total: { type: 'number', description: 'O valor total do item, em reais.' },
+            },
+            required: ['produto', 'quantidade', 'valor_total'],
+            additionalProperties: false,
+          },
+        },
+        lancar_mesmo_sem_somar: { type: 'boolean', description: 'alterar: true quando a pessoa decide seguir com a soma das linhas diferente do total (o mesmo do botão "Lançar assim").' },
+        valor: { type: 'number', description: 'informar (boleto ou conta): o valor em reais que a pessoa disse.' },
+        vencimento: { type: 'string', description: 'informar (boleto ou conta): o vencimento que a pessoa disse, como AAAA-MM-DD.' },
         todosMenosOMaisNovo: { type: 'boolean', description: 'Para esquecer: true esquece todos os em aberto, menos o mais novo.' },
         alteracoes: {
           type: 'array',

@@ -75,6 +75,67 @@ export function lerAlteracoes(entrada: unknown): { alteracoes: AlteracaoDoDocume
   return { alteracoes };
 }
 
+// ───────────────────────── versão 10, C1a: o que os leitores de código faziam, agora pela IA ─────────────────────────
+// Até a C1a, a resposta da pessoa à dúvida da leitura passava antes por leitores de código ("o total é 1.240", "faltou 2 CX
+// de cebola 18,00", "vence dia 30, 480 reais"). Agora o texto vai à IA, que entende a frase e grava por aqui. Quem confere é o
+// código: o número válido, o item com nome e valor, a data que existe.
+
+const MAX_INCLUIR = 10;
+
+/** O que a nota ganha além das linhas: o total, os itens que a leitura não pegou e o "lançar assim mesmo" com a soma diferente. */
+export interface ExtrasDaNota {
+  totalCentavos?: number;
+  incluir?: Array<{ descricao: string; quantidade: number; unidade: string | null; valorTotalCentavos: number }>;
+  semSomar?: true;
+}
+
+/** Os campos de cima da chamada `alterar` (fora das linhas), conferidos. Vazio = nada além das linhas. */
+export function lerExtrasDaNota(en: Record<string, unknown>): { extras: ExtrasDaNota } | { erro: string } {
+  const extras: ExtrasDaNota = {};
+  if (en.total !== undefined && en.total !== null) {
+    if (!positivo(en.total, MAX_VALOR_REAIS)) return { erro: 'O total da nota não é válido: diga o valor em reais.' };
+    extras.totalCentavos = Math.round((en.total as number) * 100);
+  }
+  if (en.incluir !== undefined && en.incluir !== null) {
+    if (!Array.isArray(en.incluir) || !en.incluir.length) return { erro: 'incluir é a lista dos itens que faltaram, cada um com produto, quantidade e valor_total.' };
+    if (en.incluir.length > MAX_INCLUIR) return { erro: `No máximo ${MAX_INCLUIR} itens de uma vez.` };
+    extras.incluir = [];
+    for (const x of en.incluir as any[]) {
+      const descricao = emTexto(x?.produto ?? x?.descricao);
+      if (descricao.length < 2 || descricao.length > 120 || !/\p{L}/u.test(descricao) || pareceConversa(descricao)) return { erro: 'Cada item a incluir precisa do nome do produto como está na nota.' };
+      if (!positivo(x?.quantidade, MAX_QUANTIDADE)) return { erro: `${descricao}: a quantidade não é válida.` };
+      if (!positivo(x?.valor_total, MAX_VALOR_REAIS)) return { erro: `${descricao}: diga o valor total do item, em reais.` };
+      const unidade = x?.unidade !== undefined && x?.unidade !== null && String(x.unidade).trim() ? emTexto(x.unidade).toUpperCase().slice(0, 12) : null;
+      extras.incluir.push({ descricao, quantidade: Math.round(x.quantidade * 1000) / 1000, unidade, valorTotalCentavos: Math.round(x.valor_total * 100) });
+    }
+  }
+  if (en.lancar_mesmo_sem_somar === true) extras.semSomar = true;
+  return { extras };
+}
+
+export const temExtras = (x: ExtrasDaNota): boolean => x.totalCentavos !== undefined || !!x.incluir?.length || x.semSomar === true;
+
+/** O valor e o vencimento do boleto ou da conta em aberto (`acao: informar`), conferidos. */
+export function lerInformado(en: Record<string, unknown>, hojeIso: string): { valorCentavos?: number; vencimento?: string } | { erro: string } {
+  const r: { valorCentavos?: number; vencimento?: string } = {};
+  if (en.valor !== undefined && en.valor !== null) {
+    if (!positivo(en.valor, MAX_VALOR_REAIS)) return { erro: 'O valor não é válido: diga em reais.' };
+    r.valorCentavos = Math.round((en.valor as number) * 100);
+  }
+  if (en.vencimento !== undefined && en.vencimento !== null && String(en.vencimento).trim()) {
+    const v = String(en.vencimento).trim();
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    const data = m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) : null;
+    if (!m || !data || data.toISOString().slice(0, 10) !== v) return { erro: 'O vencimento vai como AAAA-MM-DD (o dia que a pessoa disse, no mês certo).' };
+    // Um boleto vencido há mais de um ano ou para daqui a mais de cinco é engano (o ano dito ou lido errado): pergunte de novo.
+    const hoje = Date.parse(`${hojeIso}T00:00:00Z`);
+    if (data.getTime() < hoje - 366 * 86_400_000 || data.getTime() > hoje + 5 * 366 * 86_400_000) return { erro: `O vencimento ${v} está longe demais de hoje: confirme o dia com a pessoa.` };
+    r.vencimento = v;
+  }
+  if (r.valorCentavos === undefined && r.vencimento === undefined) return { erro: 'Diga o valor (em reais) ou o vencimento (AAAA-MM-DD) que a pessoa informou.' };
+  return r;
+}
+
 /** Aplica a correção na linha. Devolve se o nome mudou: o insumo ligado pelo nome antigo deixa de valer. */
 export function corrigirLinha(it: ItemNoMister, a: Extract<AlteracaoDoDocumento, { tipo: 'corrigir' }>): boolean {
   const nomeMudou = a.descricao !== undefined && a.descricao !== it.descricao;

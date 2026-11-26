@@ -1,6 +1,6 @@
 import { FRASES_DA_LEITURA, pareceConversa, responderDuvidaDoItem } from '../../common/duvida-da-nota';
 import { FRASES_DA_NOTA, conferirEmbalagens, embalagemDaDescricao, fatorDaEmbalagem, sugerirInsumos, type ItemNoMister } from '../../common/nota-por-foto';
-import { acharInsumo, corrigirLinha, fraseDoFeito, lerAlteracoes, linhaCurtaDoItem, linhasParaOAgente } from './mister-documento-conversa';
+import { acharInsumo, corrigirLinha, fraseDoFeito, lerAlteracoes, lerExtrasDaNota, lerInformado, linhaCurtaDoItem, linhasParaOAgente, temExtras } from './mister-documento-conversa';
 import { linhasDoAndamento, type DocumentoEmAndamento } from './mister-andamento';
 
 // ERR-594: o cupom real de 23/11. A pessoa explicou a linha do queijo, o Mister disse "Anotado" e nada foi gravado; "Confirmado a
@@ -203,5 +203,37 @@ describe('o que o agente enxerga do documento', () => {
     expect(linhasParaOAgente(nota, true)[1]).toMatchObject({ insumosParecidos: ['Bacon'] });
     expect(fraseDoFeito({ linha: 6, tipo: 'fora' }, item(), true)).toContain('não entra no estoque');
     expect(fraseDoFeito({ linha: 5, tipo: 'corrigir', quantidade: 3 }, item({ quantidade: 3, valorTotalCentavos: 221976 }), false)).not.toContain('R$');
+  });
+});
+
+// Versão 10, C1a: o que os leitores de código faziam antes da IA, agora pela ferramenta (a IA entende a frase; o código confere).
+describe('C1a · o total, o item que faltou e o boleto pela conversa', () => {
+  it('o total e o item que faltou, conferidos; sem nada além das linhas, vazio', () => {
+    expect(lerExtrasDaNota({ total: 592.5 })).toEqual({ extras: { totalCentavos: 59250 } });
+    expect(lerExtrasDaNota({ incluir: [{ produto: 'tomate', quantidade: 2, unidade: 'cx', valor_total: 49.8 }] })).toEqual({
+      extras: { incluir: [{ descricao: 'tomate', quantidade: 2, unidade: 'CX', valorTotalCentavos: 4980 }] },
+    });
+    expect(lerExtrasDaNota({ lancar_mesmo_sem_somar: true })).toEqual({ extras: { semSomar: true } });
+    const vazio = lerExtrasDaNota({ alteracoes: [{ linha: 1, tipo: 'fora' }] });
+    expect(vazio).toEqual({ extras: {} });
+    expect(temExtras((vazio as any).extras)).toBe(false);
+    expect(temExtras({ totalCentavos: 1 })).toBe(true);
+  });
+  it('total ou item sem número válido, ou frase no lugar do nome, volta para a IA', () => {
+    expect(lerExtrasDaNota({ total: -3 })).toHaveProperty('erro');
+    expect(lerExtrasDaNota({ total: '592,50' })).toHaveProperty('erro');
+    expect(lerExtrasDaNota({ incluir: [{ produto: 'tomate', quantidade: 2 }] })).toEqual({ erro: 'tomate: diga o valor total do item, em reais.' });
+    expect(lerExtrasDaNota({ incluir: [{ produto: 'Confirmado a correção', quantidade: 2, valor_total: 10 }] })).toHaveProperty('erro');
+    expect(lerExtrasDaNota({ incluir: [] })).toHaveProperty('erro');
+  });
+  it('o valor e o vencimento do boleto: data que existe e perto de hoje', () => {
+    expect(lerInformado({ valor: 480 }, '2026-11-25')).toEqual({ valorCentavos: 48000 });
+    expect(lerInformado({ vencimento: '2026-11-30' }, '2026-11-25')).toEqual({ vencimento: '2026-11-30' });
+    expect(lerInformado({ valor: 480, vencimento: '2030-03-15' }, '2026-11-25')).toEqual({ valorCentavos: 48000, vencimento: '2030-03-15' });
+    expect(lerInformado({ vencimento: '2026-02-30' }, '2026-11-25')).toHaveProperty('erro');
+    expect(lerInformado({ vencimento: '30/11' }, '2026-11-25')).toHaveProperty('erro');
+    expect((lerInformado({ vencimento: '2062-04-10' }, '2026-11-25') as any).erro).toContain('longe demais');
+    expect((lerInformado({ vencimento: '2024-04-10' }, '2026-11-25') as any).erro).toContain('longe demais');
+    expect(lerInformado({}, '2026-11-25')).toHaveProperty('erro');
   });
 });
