@@ -109,7 +109,7 @@ COMO VOCÊ TRABALHA
 - Mudar o preço de um produto também é só PROPOR, e pede o PIN: chame propor_acao com mudar_preco, produto, canais (regem = balcão e cardápio digital, ifood, 99) e precoNovo (o preço FINAL em reais). Sem o canal ou o preço final, pergunte; se a pessoa disser "aumenta 10%" ou "2 reais a mais", pergunte o preço final, sem fazer a conta. Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN. Nunca peça o PIN na conversa.
 - Mudar o horário da SEMANA da loja também é só PROPOR, e pede o PIN: chame propor_acao com mudar_horario, dias (os dias da semana) e abre e fecha em "HH:MM", ou fechado: true. Sem o dia ou a hora, pergunte. Se a pessoa falar de um dia só ("hoje", "amanhã", "neste domingo"), pergunte se é o horário de toda semana; para fechar só hoje ou por um tempo, é a pausa do canal, não o horário. Se a resposta disser que a loja tem horário separado, pergunte se é o de entrega ou o de retirada e passe em horarioDe. Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN.
 - Marcar uma conta a pagar como paga também é só PROPOR, e pede o PIN: chame propor_acao com pagar_conta, conta (a descrição ou o fornecedor, como a pessoa disse) e formaDePagamento (dinheiro, pix, cartao ou transferencia; se faltar, pergunte). Se a pessoa disser, passe pagoEm (AAAA-MM-DD, nunca no futuro) e valorPago. Se a resposta listar mais de uma conta, pergunte qual e passe venceEm (DD/MM). Você NÃO paga nada: o Regem só registra a baixa e a saída do caixa, então nunca diga que pagou, transferiu ou fez Pix. Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN.
-- Criar uma imagem (cartaz, post, ilustração) também é só PROPOR: chame propor_acao com criar_imagem, pedidoDaImagem (o pedido completo: o objetivo, o que aparece, o texto exato entre aspas, o estilo e as cores) e proporcao (9:16 para story e cartaz vertical, 1:1 para o feed, 16:9 horizontal). Mostre o pedido como veio e diga que os botões Gerar e Mudar chegam logo abaixo. Número da loja (vendas, pedidos, contas, um destaque do mês) pode ir à imagem quando a pessoa pede um cartaz, uma representação ou um infográfico: consulte o número NESTA pergunta antes de propor, porque só vai à imagem o que as consultas desta pergunta trouxeram ou o que a pessoa disse (o Regem recusa o resto), e escreva no texto exato cada número como deve aparecer. Depois de gerar, o Regem confere os números na imagem; se algum sair errado, ela não chega e a pessoa escolhe pedir de novo ou mudar. Para uma série de números (os dias, as horas, as categorias), prefira o mostrar_grafico, desenhado pelo Regem: não erra número e não custa; a imagem é para o cartaz e a representação livre. Nunca nome, telefone ou dado de cliente. Se ela tocar em Mudar, pergunte o que trocar e chame de novo com o pedido novo.
+- Criar uma imagem (cartaz, post, ilustração) também é só PROPOR: chame propor_acao com criar_imagem, pedidoDaImagem (o pedido completo: o objetivo, o que aparece, o texto exato entre aspas, o estilo e as cores) e proporcao (9:16 para story e cartaz vertical, 1:1 para o feed, 16:9 horizontal). Mostre o pedido como veio e diga que os botões Gerar e Mudar chegam logo abaixo. Número da loja (vendas, pedidos, contas, um destaque do mês) pode ir à imagem quando a pessoa pede um cartaz, uma representação ou um infográfico: consulte o número NESTA pergunta antes de propor, porque só vai à imagem o que as consultas desta pergunta trouxeram ou o que a pessoa disse (o Regem recusa o resto), e escreva no texto exato cada número como deve aparecer. Depois de gerar, o Regem confere os números na imagem; se algum sair errado, ela não chega e a pessoa escolhe pedir de novo ou mudar. Para uma série de números (os dias, as horas, as categorias), prefira o gráfico desenhado pelo Regem — o mostrar_grafico, ou o grafico_livre para qualquer outra consulta: não erra número e não custa; a imagem é para o cartaz e a representação livre. Nunca nome, telefone ou dado de cliente. Se ela tocar em Mudar, pergunte o que trocar e chame de novo com o pedido novo.
 - A única exceção é PROPOR, nunca fazer: quando a pessoa quer que você resolva uma impressora parada (uma via de teste, ou reiniciar o serviço de impressão do servidor da loja: o Regem escolhe o que serve) ou uma nota fiscal sem resposta da SEFAZ (consultar a nota de novo), chame propor_procedimento. Se a ferramenta disser que a proposta vai em seguida, diga em uma frase o que ela propõe e que chega logo abaixo, com os botões "Autorizar" e "Não agora", e que nada é feito sem a autorização. Se ela disser que não há aviso aberto para isso, ou que só o presidente autoriza, diga isso.
 - Cancelar um pedido também é só PROPOR: quando a pessoa pede para cancelar um pedido, chame propor_procedimento com cancelar_pedido e o número do pedido como ela disse. Cancelamento mexe com dinheiro: a autorização é no Regem, com o PIN, pelo link "Abrir no Regem" que chega logo abaixo — diga isso em uma frase. Se a pessoa escrever que autoriza ("pode cancelar"), responda que por aqui você não consegue, que isso pede o PIN dela, e que é pelo "Abrir no Regem". Nunca peça nem aceite o PIN na conversa. Se a ferramenta disser que não achou o pedido, ou que achou mais de um, diga isso e peça o número como aparece no painel.
 - Mandar o link de conferência que o presidente pede também é permitido: "manda pro Carlos o link da contagem de hoje" — chame mandar_link com a pessoa como ele disse e o assunto. Diga a quem foi, o resumo que a ferramenta devolveu e que abre com o usuário da pessoa. Se ela disser que não mandou, diga o motivo como veio.
@@ -430,6 +430,8 @@ export type NomeDaFerramenta =
   | 'pedidos_de_compra'
   | 'documento_em_andamento'
   | 'refazer_grafico'
+  // Versão 10, C10b: o gráfico de qualquer consulta desta pergunta (o Regem confere cada número e desenha).
+  | 'grafico_livre'
   | 'propor_acao'
   | 'propor_plano'
   // O link para abrir uma tela do Regem ou uma notícia do boletim (`mister-abrir.ts`): o endereço sai do código.
@@ -518,6 +520,7 @@ export const FERRAMENTA_DA_LISTA = 'lista_de_compras' as const;
 export const FERRAMENTA_DO_DOCUMENTO = 'documento_em_andamento' as const;
 /** Versão 6, M6i: o "refazer" do último gráfico (os mesmos números, outra apresentação). */
 export const FERRAMENTA_DE_REFAZER = 'refazer_grafico' as const;
+export const FERRAMENTA_DO_GRAFICO_LIVRE = 'grafico_livre' as const;
 /** Versão 6, M6j: a porta das ações (pausar e reabrir canais, aceitar, pronto e despachar um pedido), pelo botão de quem pediu. */
 export const FERRAMENTA_DAS_ACOES = 'propor_acao' as const;
 /** Versão 7, V7c: várias ações num pedido, com um botão só (cada passo pelo mesmo caminho de `propor_acao`). */
@@ -543,6 +546,7 @@ export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DA_LISTA,
   FERRAMENTA_DO_DOCUMENTO,
   FERRAMENTA_DE_REFAZER,
+  FERRAMENTA_DO_GRAFICO_LIVRE,
   FERRAMENTA_DAS_ACOES,
   FERRAMENTA_DO_PLANO,
   FERRAMENTA_DE_ABRIR,
@@ -720,7 +724,7 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'mostrar_grafico',
     description:
-      'Manda um GRÁFICO (uma imagem) na conversa, desenhado pelo Regem com os números da loja: "vendas_por_dia" (cada dia do período, com o período anterior ao lado), "vendas_por_hora" (o pico do dia), "canais" (o delivery por canal: iFood, 99, cardápio), "mais_vendidos" (os 6 primeiros por quantidade); e os das análises: "pico" (por hora de um dia ou de um dia da semana, com a faixa de pico em destaque), "fases_do_mes" (a venda por dia em cada fase dos 3 últimos meses completos), "cancelamentos_por_causa" e "mercadoria_perdida". Use quando a pessoa pedir gráfico, ou quando a resposta for uma série de 4 pontos ou mais (dias, horas). A imagem vai antes da sua resposta: não descreva as barras uma a uma; diga em 2 ou 3 frases o que importa (o total, a comparação, o destaque), com os números que vierem aqui. Sem período, os últimos 7 dias (por hora: hoje; pico: ontem; perdas: 30 dias).',
+      'Manda um GRÁFICO (uma imagem) na conversa, desenhado pelo Regem com os números da loja: "vendas_por_dia" (cada dia do período, com o período anterior ao lado), "vendas_por_hora" (o pico do dia), "canais" (o delivery por canal: iFood, 99, cardápio), "mais_vendidos" (os 6 primeiros por quantidade); e os das análises: "pico" (por hora de um dia ou de um dia da semana, com a faixa de pico em destaque), "fases_do_mes" (a venda por dia em cada fase dos 3 últimos meses completos), "cancelamentos_por_causa" e "mercadoria_perdida". Use quando a pessoa pedir gráfico, ou quando a resposta for uma série de 4 pontos ou mais (dias, horas). A imagem vai antes da sua resposta: não descreva as barras uma a uma; diga em 2 ou 3 frases o que importa (o total, a comparação, o destaque), com os números que vierem aqui. Sem período, os últimos 7 dias (por hora: hoje; pico: ontem; perdas: 30 dias). Para números de qualquer outra consulta (contas, estoque, faltas, canais, cashback…), use o grafico_livre.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1389,6 +1393,36 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
         ordem: { type: 'string', enum: ['maior', 'original'] },
         mostrarValores: { type: 'boolean', description: 'false = sem os valores escritos em cima.' },
       },
+      additionalProperties: false,
+    },
+  },
+  // Versão 10, C10b: o gráfico de QUALQUER consulta desta pergunta, desenhado pelo Regem (sem custo, número exato).
+  {
+    name: 'grafico_livre',
+    description:
+      'Não é consulta: DESENHA um gráfico com números que as consultas DESTA pergunta trouxeram (ou que a pessoa disse), quando nenhum tipo do mostrar_grafico serve: as contas por categoria, o estoque em alerta, as faltas da semana, os canais de um período, o cashback, qualquer lista com valores. Consulte primeiro e mande os itens com os números EXATOS que vieram, ou a soma ou a diferença de dois deles (como "quanto falta" = mínimo − saldo); o Regem confere cada um, e número sem origem é recusado. forma: colunas (comparar poucos), linha (uma série no tempo), horizontais (ranking ou nomes longos), tabela (muitos itens ou valores exatos), participacao (a parte de cada um num total). titulo: a mensagem principal em poucas palavras, sem número que o gráfico não mostra. medida: reais, quantidade ou porcentagem. De 2 a 12 itens (para mais, os principais). A imagem vai antes da sua resposta: não descreva as barras; diga em 2 ou 3 frases o que importa. Sem a imagem ligada nesta instalação, responda com os números em texto.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        forma: { type: 'string', enum: ['colunas', 'linha', 'horizontais', 'tabela', 'participacao'] },
+        titulo: { type: 'string', description: 'A mensagem principal, de 3 a 70 letras.' },
+        medida: { type: 'string', enum: ['reais', 'quantidade', 'porcentagem'], description: 'Em que estão os valores.' },
+        itens: {
+          type: 'array',
+          description: 'De 2 a 12 itens, na ordem que devem aparecer.',
+          items: {
+            type: 'object',
+            properties: {
+              rotulo: { type: 'string', description: 'O nome do item (até 40 letras).' },
+              valor: { type: 'number', description: 'O número exato que a consulta trouxe (em reais, sem o "R$").' },
+            },
+            required: ['rotulo', 'valor'],
+            additionalProperties: false,
+          },
+        },
+        destaque: { type: 'integer', description: 'A posição do item em destaque (1 = o primeiro); sem ela, o maior.' },
+      },
+      required: ['forma', 'titulo', 'medida', 'itens'],
       additionalProperties: false,
     },
   },

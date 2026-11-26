@@ -4178,6 +4178,8 @@ export function testesDoMisterComPostgres(): void {
         // C1b: as diferenças do pedido, decididas na conversa.
         c123: { acao: 'pedido', faltas: [{ produto: 'batata', decisao: 'chega_depois', para: '2026-11-14' }, { produto: 'cebola', decisao: 'cancelado' }] },
         c124: { acao: 'pedido', faltas: [{ produto: 'cebola', decisao: 'outro_lugar', fornecedor: 'Mercado do Zé', valor: 48, forma: 'pix' }] },
+        // C10b: o gráfico livre com os números da consulta feita ANTES (o estoque em alerta da loja de teste).
+        c125: { forma: 'horizontais', titulo: 'O que falta para o mínimo', medida: 'quantidade', itens: [{ rotulo: 'Coca-Cola lata', valor: 30 }, { rotulo: 'Pão de hambúrguer', valor: 28 }, { rotulo: 'Queijo prato', valor: 1.8 }, { rotulo: 'Bacon fatiado', valor: 1.2 }] },
         c110: { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' },
         c111: { acao: 'repetir_campanha', campanhaDaConversa: 'a última' },
         c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },
@@ -4298,7 +4300,7 @@ export function testesDoMisterComPostgres(): void {
             const ultima = p.messages[p.messages.length - 1];
             const ferramentas = [...(c.consultas ?? []), ...(c.umaDasConsultas ? [c.umaDasConsultas[0]] : []), ...(c.anotar ? [FERRAMENTA_DO_QUE_FALTA] : []), ...(EXTRAS[c.id] ?? [])];
             // C10a: a imagem com número da loja consulta ANTES e propõe depois (o número só tem origem na consulta já feita).
-            const EM_VOLTAS: Record<string, string[][]> = { c120: [[c.umaDasConsultas?.[0] ?? ''], ['propor_acao']] };
+            const EM_VOLTAS: Record<string, string[][]> = { c120: [[c.umaDasConsultas?.[0] ?? ''], ['propor_acao']], c125: [['estoque_em_alerta'], ['grafico_livre']] };
             const voltas = EM_VOLTAS[c.id];
             if (voltas) {
               const feitas = p.messages.filter((m: any) => m.role === 'assistant' && Array.isArray(m.content) && m.content.some((b: any) => b?.type === 'tool_use')).length;
