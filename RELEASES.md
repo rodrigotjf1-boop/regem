@@ -10,7 +10,11 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1 -Versao X.Y.Z` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → `edge/publicar.ps1 -Versao X.Y.Z -SoAssinar -Url <url>` (assina o MESMO arquivo, v1 + v2 com validade) → cola versão, URL, SHA e as assinaturas no console de distribuição, **começando pelas lojas piloto / percentual baixo**. O console recusa release sem as duas assinaturas válidas.
 
-## Acumulado (NÃO empacotado) — próxima release (1.30.15)
+## Acumulado (NÃO empacotado) — próxima release (1.30.16)
+
+- _(nada ainda — o #1354, Mister C10b, entrou na `main` logo depois do corte da 1.30.15 e não está no `.exe`; é só da nuvem)_
+
+## Última release: `1.30.15` — gerada em 26/11/2026 da `origin/main` `8df7de83`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 222.738.140 bytes, SHA-256 `b98d802f95e5a0780d64f97e422da6004cc164397d33d0062b967e0c1e48338b`), pelo `build-release.ps1` (preflight OK; o único aviso = o carimbo do `.iss`; Node 24.22.1; ponte 0.7.9) e Inno 7 (802 s); entregue ao dono em `Documentos\Regem - release 1.30.15 (26-11)` com o `LEIA-ME.txt` (instalar por cima no servidor, com a loja fechada); **sem `.zip`** e nada publicado no console — a loja que só atualiza pelo ícone segue na 1.30.14 até um `.zip`
 
 - **Ponte do chat 0.7.9 — mais leve no PC da loja (25/11; ERR-619; SEM migration).** O diagnóstico da tela a cada 30 s e só
   com a janela do Gestor aparecendo (era a cada 3 s, varrendo a página inteira); a escuta da rede com limite (16 MB / 3 MB);
@@ -881,7 +885,7 @@
     todo socket da empresa, inclusive aparelhos e perfis sem a permissão.
   - Nenhuma tela usava esse conteúdo: todas releem pela API, que confere a loja e o perfil.
 
-## Última release: `1.30.14` — gerada em 16/11/2026 da `origin/main` `f7832ca0`, **SÓ `.zip`** (`regem-edge-1.30.14.zip`, 36.796.865 bytes, SHA-256 `d18ba769108d318b56ac65a995ae062a2fe2683d029b4554439d7c68521f7fa8`), conferido (preflight OK; o KDS pelo token do aparelho dentro do pacote) e assinado (v1 + v2, validade até 15/05/2027); entregue ao dono em `Documentos\Regem - release 1.30.14 (16-11)` com o `DADOS PARA PUBLICAR.txt`; publicação no console PENDENTE (o dono); sem `.exe`
+## Release anterior: `1.30.14` — gerada em 16/11/2026 da `origin/main` `f7832ca0`, **SÓ `.zip`** (`regem-edge-1.30.14.zip`, 36.796.865 bytes, SHA-256 `d18ba769108d318b56ac65a995ae062a2fe2683d029b4554439d7c68521f7fa8`), conferido (preflight OK; o KDS pelo token do aparelho dentro do pacote) e assinado (v1 + v2, validade até 15/05/2027); entregue ao dono em `Documentos\Regem - release 1.30.14 (16-11)` com o `DADOS PARA PUBLICAR.txt`; publicação no console PENDENTE (o dono); sem `.exe`
 
 - Pedido do dono (16/11): "pode gerar o .zip" — para a TV box da cozinha do Mister Burger mostrar os pedidos (ERR-489, #1068), que abre o servidor da loja.
 - O corte: a `main` andava a cada 10–15 min e o `build-release.ps1` completo reprovava no preflight ("1 commit atrás"); o último passo foi pelo caminho curto (trazer a `main`, conferir que o front e a ponte não mudaram desde os builds deles, rebuildar só o backend, empacotar com o web já montado) e o MESMO preflight passou.
