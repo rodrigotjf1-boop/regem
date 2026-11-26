@@ -297,6 +297,8 @@ export interface ConversaDoMister {
   andamento?: string[];
   /** Versão 10, C7 (mig 508): os exemplos de tarefas parecidas que a empresa confirmou, já prontos (`mister-aprendizado.ts` › `linhasDosExemplos`). */
   exemplos?: string[];
+  /** Versão 10, C8: as ideias da semana que saíram para esta pessoa nos últimos 3 dias, já prontas (`linhasDasIdeias`). */
+  ideias?: string[];
 }
 
 // ───────────────────────────── o jeito do Mister (versão 4, M4a) ─────────────────────────────
@@ -354,6 +356,7 @@ export function blocoDaConversa(c: ConversaDoMister): string {
     ...(c.memoria ?? []),
     ...(c.andamento ?? []),
     ...(c.exemplos ?? []),
+    ...(c.ideias ?? []),
   ].join('\n');
 }
 

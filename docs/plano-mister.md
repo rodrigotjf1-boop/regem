@@ -2999,6 +2999,29 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
   duplica; a parecida recebe e conta o uso; o plano e o saldo não viram exemplo; a lista (só o presidente, "com você", parada
   há mais de 30 dias) e o esquecer (outra empresa não apaga; auditado).
 
+### C8 — as ideias da semana (26/11/2026; SEM migration; só na nuvem; nasce DESLIGADO, em Mister › Avisos e relatórios › Relatórios)
+
+- **A decisão V10-6:** toda semana a IA olha os números da loja e manda até 3 ideias ao PRESIDENTE, cada uma com o número que a
+  sustenta e o que faria no Regem. Para fazer uma, a pessoa responde "faz a 2": o Mister propõe pelo caminho de sempre (o "Vou
+  fazer" e o botão) e ela confirma. Nada é feito sozinho.
+- **Em cima dos relatórios (mig 420), sem migration:** é o tipo `ideias_semana` na mesma tabela, semanal como o resumo da semana
+  (o dia e a hora, o padrão segunda às 9h). Vêm de graça a agenda (a volta a cada 5 minutos, a vez única por pessoa e semana),
+  o convite fora das 24 horas pelo modelo `mister_resumo_pronto` com o "Ver resumo", o medidor (o recurso
+  `mister_ideias_semana`) e o filtro de saída.
+- **Só ao presidente** (`soAoPresidente`): para o gerente que recebe os resumos não sai nada e não fica linha; no toque, quem
+  deixou de ser presidente desde o convite fica "sem acesso". **Só por escrito**: as ideias não têm PDF nem gráficos.
+- **A pergunta à IA** (`perguntaDasIdeias`): os 7 dias até a véspera contra as semanas anteriores, as consultas que ajudarem,
+  até 3 ideias numeradas, só com número que veio de uma consulta (sem base, menos ideias ou uma linha dizendo isso), nada
+  proposto agora e o fecho "faz a 1, a 2 ou a 3".
+- **O "faz a 2" de depois:** as últimas ideias que saíram para a pessoa ficam no bloco "Esta conversa" por 3 dias
+  (`ideiasRecentes` + `linhasDasIdeias`), sem valores para quem não os vê, com o caminho do botão.
+- **Diferença do protótipo:** o protótipo pôs o ajuste no grupo "Conversa" com três horários fixos (segunda 9h, domingo 20h,
+  sexta 9h). Ele ficou no grupo "Relatórios", com o dia e a hora livres, para usar a agenda, o envio e o convite que já
+  existem (sem uma segunda agenda e sem migration). O preço do protótipo (cerca de R$ 0,45 por semana) está na linha.
+- **Os testes:** `mister-ideias-semana.spec.ts` (o padrão, quando vence, a tela, a pergunta, o convite e as linhas da conversa)
+  e, com Postgres: só a presidente recebe, só por escrito, com o recurso próprio; as ideias na conversa dela e não na do gerente;
+  depois de 3 dias, saem.
+
 ### C4a — fazer uma tarefa pelo mapa: a primeira área (26/11/2026, #1363, NO AR; SEM migration; só na nuvem; nasce DESLIGADA, `MISTER_FAZER_TAREFAS=1`)
 
 - **A C4 abre por área** (o plano). A C4a é a primeira: uma lista FECHADA de tarefas (`mapa/tarefas-abertas.ts`), escolhidas e

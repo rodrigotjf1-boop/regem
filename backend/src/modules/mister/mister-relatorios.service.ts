@@ -31,6 +31,7 @@ import {
   perguntaDoRelatorio,
   regraDoRelatorioQueVale,
   relatorioDevido,
+  soAoPresidente,
   temConviteOpcional,
   textoDasFichasNovas,
   textoDoBoletim,
@@ -76,6 +77,8 @@ import { pessoaVale } from './mister-vinculo.service';
 
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const semTabela = (e: any) => e?.code === '42P01' || e?.code === '42703';
+/** Só o resumo do dia e o da semana têm o PDF e os gráficos (M5e); as ideias da semana (C8) vão só por escrito. */
+const temArquivoDoResumo = (t: TipoDeRelatorio): boolean => t === 'resumo_dia' || t === 'resumo_semana';
 
 /** O endereço da tela de Candidatos na nuvem (vai no fim do resumo das fichas). */
 export function linkDosCandidatos(): string {
@@ -230,6 +233,12 @@ export class MisterRelatoriosService implements OnModuleInit {
       }
       if (!vespera) return null;
     }
+    // Versão 10, C8: as ideias da semana são só do presidente (o gerente que recebe os resumos não recebe as ideias). Antes da
+    // vez: para o gerente não sai nada e não fica linha.
+    if (soAoPresidente(tipo)) {
+      const e = await this.ferramentas.escopo(tenantId, pessoa.colaboradorId, pessoa.telefone).catch(() => null);
+      if (!e || e.nivel !== 'presidente') return null;
+    }
     const [vez] = linhas(
       await this.db.execute(sql`
         insert into mister_relatorio (tenant_id, tipo, referencia, colaborador_id, final_do_telefone)
@@ -299,7 +308,8 @@ export class MisterRelatoriosService implements OnModuleInit {
       const trilha: Record<string, unknown> = { ...fim.trilha, conferencia: saida.notas };
       try {
         // Versão 5, M5e: o texto e o que vai junto ("Como mandar o resumo"); sem o serviço, só o texto, como antes.
-        if (this.arquivo)
+        // As ideias da semana (C8) vão só por escrito: não têm PDF nem gráficos.
+        if (this.arquivo && temArquivoDoResumo(tipo))
           trilha.entrega = await this.arquivo.entregar({ tenantId, colaboradorId: pessoa.colaboradorId, telefone: pessoa.telefone }, escopo, String(vez.id), tipo as TipoDoResumo, devido.referencia, textoFinal);
         else await this.numero.enviar(pessoa.telefone, { texto: textoFinal });
       } catch (e: any) {
@@ -427,7 +437,8 @@ export class MisterRelatoriosService implements OnModuleInit {
       const escopo = /^\d{4}-\d{2}-\d{2}$/.test(devido.referencia) && /^\d{4}-\d{2}-\d{2}$/.test(devido.ate)
         ? await this.ferramentas.escopo(vez.tenantId, vez.colaboradorId, quem.telefone)
         : null;
-      if (!escopo || escopo.semLoja) {
+      // C8: quem deixou de ser presidente desde o convite não recebe as ideias.
+      if (!escopo || escopo.semLoja || (soAoPresidente(tipo) && escopo.nivel !== 'presidente')) {
         await this.db.execute(sql`update mister_relatorio set motivo = 'sem_acesso', concluido_em = clock_timestamp() where id = ${vez.id}::uuid and motivo = ${FAZENDO_NO_TOQUE}`);
         return false;
       }
@@ -446,7 +457,7 @@ export class MisterRelatoriosService implements OnModuleInit {
       const trilha: Record<string, unknown> = { ...(vez.trilha ?? {}), ...fim.trilha, conferencia: saida.notas };
       // Versão 5, M5e: o texto e o que vai junto, como na rotina.
       let saiu: boolean;
-      if (this.arquivo) {
+      if (this.arquivo && temArquivoDoResumo(tipo)) {
         saiu = await this.arquivo
           .entregar({ tenantId: vez.tenantId, colaboradorId: vez.colaboradorId, telefone: quem.telefone }, escopo, String(vez.id), tipo as TipoDoResumo, devido.referencia, textoFinal)
           .then(

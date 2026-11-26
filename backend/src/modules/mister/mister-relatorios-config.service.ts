@@ -5,6 +5,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { RAMO_DA_EMPRESA_COM_BOLETIM } from '../pulso/pulso.regras';
 import {
+  DIAS_DAS_IDEIAS_NA_CONVERSA,
   RELATORIO_NA_TELA,
   RegraDoRelatorio,
   TIPOS_DE_RELATORIO,
@@ -146,5 +147,26 @@ export class MisterRelatoriosConfigService {
       detalhe: { mudou: r.map((x) => ({ tipo: x.tipo, antes: regraDoRelatorioQueVale(x.tipo, antes.get(x.tipo)), depois: x.regra })) },
     });
     return this.daTela(user.tenantId);
+  }
+
+  /**
+   * Versão 10, C8: as últimas ideias da semana que saíram para esta pessoa nos últimos dias (`DIAS_DAS_IDEIAS_NA_CONVERSA`), para
+   * o bloco da conversa entender o "faz a 2". Sem ideias recentes (ou sem a tabela), null. Nunca lança.
+   */
+  async ideiasRecentes(tenantId: string, colaboradorId: string): Promise<{ texto: string; em: Date } | null> {
+    try {
+      const [l] = linhas(
+        await this.db.execute(sql`
+          select texto, concluido_em as em from mister_relatorio
+           where tenant_id = ${tenantId}::uuid and colaborador_id = ${colaboradorId}::uuid and tipo = 'ideias_semana'
+             and situacao = 'enviado' and texto is not null
+             and concluido_em > clock_timestamp() - make_interval(days => ${DIAS_DAS_IDEIAS_NA_CONVERSA}::int)
+           order by concluido_em desc
+           limit 1`),
+      );
+      return l ? { texto: String(l.texto), em: new Date(l.em) } : null;
+    } catch {
+      return null;
+    }
   }
 }

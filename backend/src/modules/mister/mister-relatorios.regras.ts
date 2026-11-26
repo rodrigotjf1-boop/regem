@@ -1,4 +1,4 @@
-import { somarDias } from '../../common/data';
+import { FUSO_OPERACAO, somarDias } from '../../common/data';
 import type { BoletimDoRamo, IndicadorDoBoletim, NoticiaDoBoletim } from '../pulso/pulso.regras';
 
 // OS RELATÓRIOS DO MISTER (mig 420; protótipo `mockups/regem-mister.html`, "Avisos e relatórios" › Relatórios): o resumo do
@@ -8,20 +8,27 @@ import type { BoletimDoRamo, IndicadorDoBoletim, NoticiaDoBoletim } from '../pul
 // sem a IA; vai a quem pode ver os candidatos (presidente e quem tem a permissão Candidatos); só no dia em que chegou ficha.
 // Fase N2 das Notícias do ramo (protótipo `mockups/regem-noticias-do-ramo.html`, aprovado 22/11): o BOLETIM DO RAMO — sem a
 // IA, montado da cópia do Pulso; fora das 24 horas só vai o convite se a empresa escolher (mig 496).
+// Versão 10, C7/C8 (protótipo `mockups/regem-mister-v10.html`, "Ideias da semana", decisão V10-6): as IDEIAS DA SEMANA — a IA olha
+// os números dos 7 dias e manda até 3 ideias ao PRESIDENTE, cada uma com o que faria no Regem; "faz a 2" depois, na conversa.
+// Semanal como o resumo da semana (o dia e a hora), sem migration: a mesma tabela da mig 420.
 
-export const TIPOS_DE_RELATORIO = ['resumo_dia', 'resumo_semana', 'fichas_novas', 'boletim_ramo', 'vespera'] as const;
+export const TIPOS_DE_RELATORIO = ['resumo_dia', 'resumo_semana', 'ideias_semana', 'fichas_novas', 'boletim_ramo', 'vespera'] as const;
 export type TipoDeRelatorio = (typeof TIPOS_DE_RELATORIO)[number];
 /** Os relatórios que a IA escreve (o de fichas novas só conta, e o boletim e a véspera são texto fixo, sem a IA). */
 export type RelatorioDaIa = Exclude<TipoDeRelatorio, 'fichas_novas' | 'boletim_ramo' | 'vespera'>;
 /** Quem só manda fora das 24 horas se a empresa escolheu o convite pago (mig 496). */
 export const temConviteOpcional = (t: TipoDeRelatorio): boolean => t === 'boletim_ramo' || t === 'vespera';
 export const ehTipoDeRelatorio = (t: unknown): t is TipoDeRelatorio => TIPOS_DE_RELATORIO.includes(t as TipoDeRelatorio);
+/** Os semanais: escolhem o dia da semana e falam dos 7 dias até a véspera do envio. */
+export const ehSemanal = (t: TipoDeRelatorio): boolean => t === 'resumo_semana' || t === 'ideias_semana';
+/** Só ao presidente (as ideias falam da empresa inteira e pedem a decisão dele). */
+export const soAoPresidente = (t: TipoDeRelatorio): boolean => t === 'ideias_semana';
 
 export interface RegraDoRelatorio {
   ligado: boolean;
   /** 'HH:MM' no relógio da operação. */
   hora: string;
-  /** 1 = segunda … 7 = domingo (só o resumo da semana). */
+  /** 1 = segunda … 7 = domingo (só os semanais: o resumo e as ideias da semana). */
   diaSemana: number | null;
   /** No boletim do ramo e na véspera: fora das 24 horas, manda o convite pago pelo modelo da Meta. Nasce desligado. */
   convidarFora?: boolean;
@@ -36,6 +43,7 @@ export const HORA_MINIMA_DO_BOLETIM = '08:15';
 export const PADRAO_DO_RELATORIO: Record<TipoDeRelatorio, RegraDoRelatorio> = {
   resumo_dia: { ligado: false, hora: '23:30', diaSemana: null },
   resumo_semana: { ligado: false, hora: '09:00', diaSemana: 1 },
+  ideias_semana: { ligado: false, hora: '09:00', diaSemana: 1 },
   fichas_novas: { ligado: false, hora: '09:00', diaSemana: null },
   boletim_ramo: { ligado: false, hora: '08:30', diaSemana: null, convidarFora: false },
   vespera: { ligado: false, hora: '18:00', diaSemana: null, convidarFora: false },
@@ -44,6 +52,13 @@ export const PADRAO_DO_RELATORIO: Record<TipoDeRelatorio, RegraDoRelatorio> = {
 export const RELATORIO_NA_TELA: Record<TipoDeRelatorio, { titulo: string; descricao: string; vaiPara?: string; usaIa: boolean }> = {
   resumo_dia: { titulo: 'Resumo do dia', descricao: 'Pedidos, vendas, tempo médio, cancelamentos e o que saiu do lugar.', usaIa: true },
   resumo_semana: { titulo: 'Resumo da semana', descricao: 'Os 7 dias até a véspera contra os 7 anteriores.', usaIa: true },
+  ideias_semana: {
+    titulo: 'Ideias da semana',
+    descricao:
+      'Toda semana a IA olha os números da loja e manda até 3 ideias, cada uma com o número que a sustenta e o que ela faria no Regem. Para fazer uma, é só responder "faz a 2": o Mister propõe e você confirma.',
+    vaiPara: 'o presidente, se ligou o próprio WhatsApp em Pessoas',
+    usaIa: true,
+  },
   fichas_novas: {
     titulo: 'Fichas novas de candidatos',
     descricao:
@@ -66,7 +81,7 @@ export const RELATORIO_NA_TELA: Record<TipoDeRelatorio, { titulo: string; descri
 };
 
 /** O nome do recurso no medidor da IA ("Uso da IA"): cada relatório soma no seu. */
-export const RECURSO_DO_RELATORIO: Record<RelatorioDaIa, string> = { resumo_dia: 'mister_resumo_dia', resumo_semana: 'mister_resumo_semana' };
+export const RECURSO_DO_RELATORIO: Record<RelatorioDaIa, string> = { resumo_dia: 'mister_resumo_dia', resumo_semana: 'mister_resumo_semana', ideias_semana: 'mister_ideias_semana' };
 
 /** Passado disto depois do horário (o servidor parado, a rotina atrasada), o relatório do dia não sai mais. */
 export const ATRASO_MAXIMO_DO_RELATORIO_MIN = 180;
@@ -86,7 +101,7 @@ export function regraDoRelatorioQueVale(tipo: TipoDeRelatorio, salva?: Partial<R
   const regra: RegraDoRelatorio = {
     ligado: typeof salva.ligado === 'boolean' ? salva.ligado : p.ligado,
     hora: typeof salva.hora === 'string' && HORA.test(salva.hora) ? salva.hora : p.hora,
-    diaSemana: tipo === 'resumo_semana' ? (Number.isInteger(dia) && dia >= 1 && dia <= 7 ? dia : p.diaSemana) : null,
+    diaSemana: ehSemanal(tipo) ? (Number.isInteger(dia) && dia >= 1 && dia <= 7 ? dia : p.diaSemana) : null,
   };
   if (temConviteOpcional(tipo)) return { ...regra, convidarFora: salva.convidarFora === true };
   return tipo === 'resumo_dia' && salva.linhaAmanha === true ? { ...regra, linhaAmanha: true } : regra;
@@ -110,7 +125,7 @@ export function conferirRelatorios(dto: unknown): Array<{ tipo: TipoDeRelatorio;
     if (typeof x.ligado !== 'boolean') return { erro: `${nome}: diga se fica ligado ou desligado.` };
     if (typeof x.hora !== 'string' || !HORA.test(x.hora)) return { erro: `${nome}: escolha o horário.` };
     let diaSemana: number | null = null;
-    if (x.tipo === 'resumo_semana') {
+    if (ehSemanal(x.tipo)) {
       if (!Number.isInteger(x.diaSemana) || x.diaSemana < 1 || x.diaSemana > 7) return { erro: `${nome}: escolha o dia da semana.` };
       diaSemana = x.diaSemana;
     }
@@ -150,8 +165,8 @@ export interface RelatorioDevido {
  * O relatório que vence AGORA — ou null. Vence a partir do horário escolhido e até 3 horas depois (passou disso, não sai:
  * resumo atrasado demais não serve). O horário pode ter sido ontem, quando a hora de agora já virou o dia (23:30 → 00:40).
  *  • Resumo do dia: o dia do envio; marcado antes das 6 h, a noite que passou (o dia anterior ao do envio).
- *  • Resumo da semana: só no dia da semana escolhido; os 7 dias até a véspera do envio (na segunda, a semana passada
- *    inteira, de segunda a domingo).
+ *  • Resumo da semana e ideias da semana: só no dia da semana escolhido; os 7 dias até a véspera do envio (na segunda, a
+ *    semana passada inteira, de segunda a domingo).
  *  • Fichas novas: todo dia, o dia do envio e o horário marcado (as fichas das últimas 24 horas até esse horário).
  *  • Boletim do ramo: todo dia, o boletim do dia do envio.
  */
@@ -199,12 +214,51 @@ export function perguntaDoRelatorio(tipo: RelatorioDaIa, d: RelatorioDevido): st
       'Não use mostrar_grafico: este resumo vai só por escrito.',
     ].join('\n');
   }
+  if (tipo === 'ideias_semana') return perguntaDasIdeias(d);
   const titulo = `*Resumo da semana, ${diaMesDoRelatorio(d.referencia)} a ${diaMesDoRelatorio(d.ate)}*`;
   return [
     `Escreva o meu resumo da semana de ${diaMesDoRelatorio(d.referencia)} a ${diaMesDoRelatorio(d.ate)} (de ${d.referencia} até ${d.ate}).`,
     'Traga as vendas e o faturamento comparados com os 7 dias anteriores, os dias mais fortes e os mais fracos, os produtos que mais venderam, os cancelamentos e o que saiu do lugar.',
     `Comece com "${titulo}". Sem pergunta no fim.`,
     'Não use mostrar_grafico: este resumo vai só por escrito.',
+  ].join('\n');
+}
+
+/** O que a pessoa responde para fazer uma das ideias (fica no fim da mensagem e na instrução da conversa). */
+export const FECHO_DAS_IDEIAS = 'Para fazer uma, é só me dizer: "faz a 1", "a 2" ou "a 3".';
+/** Por quantos dias as ideias que saíram ficam no bloco da conversa (o "faz a 2" de depois). */
+export const DIAS_DAS_IDEIAS_NA_CONVERSA = 3;
+/** Até onde o texto das ideias entra no bloco da conversa. */
+const IDEIAS_NA_CONVERSA_MAX = 2500;
+
+/**
+ * As linhas das ideias no bloco "Esta conversa": o texto que saiu (sem valores para quem não os vê) e o que fazer quando a pessoa
+ * pede uma delas — o caminho de sempre, com o botão; os números conferidos de novo.
+ */
+export function linhasDasIdeias(texto: string, em: Date, verValores: boolean, semValores: (t: string) => string): string[] {
+  const limpo = String(texto ?? '').replace(/\r/g, '').trim();
+  if (!limpo) return [];
+  const dia = em.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: FUSO_OPERACAO });
+  const corpo = (verValores ? limpo : semValores(limpo)).slice(0, IDEIAS_NA_CONVERSA_MAX);
+  return [
+    `- As ideias da semana que você mandou a esta pessoa em ${dia} (se ela pedir "faz a 1", "a 2", "a 3" ou falar de uma delas, é uma destas: confira os números de novo e proponha pela ferramenta de sempre, com o botão — nunca faça sem ele):`,
+    ...corpo.split('\n').map((l) => `  ${l}`),
+  ];
+}
+
+/**
+ * Versão 10, C8: a "pergunta" das ideias da semana. A IA consulta os números (as mesmas consultas das perguntas) e escreve até 3
+ * ideias numeradas, cada uma com o número que a sustenta e o que faria no Regem. Nada é proposto nem feito aqui: a pessoa pede
+ * "faz a 2" depois, e aí vale o caminho de sempre (o "Vou fazer" e o botão).
+ */
+export function perguntaDasIdeias(d: RelatorioDevido): string {
+  const titulo = `*Ideias da semana, ${diaMesDoRelatorio(d.referencia)} a ${diaMesDoRelatorio(d.ate)}*`;
+  return [
+    `Olhe os números da loja nos 7 dias de ${diaMesDoRelatorio(d.referencia)} a ${diaMesDoRelatorio(d.ate)} (de ${d.referencia} até ${d.ate}), comparados com as semanas anteriores, e me traga ATÉ 3 ideias práticas para a próxima semana.`,
+    'Consulte o que ajudar: as vendas por dia e por hora, os produtos que mais e menos venderam, os cancelamentos e o motivo, o estoque abaixo do mínimo, o desperdício, as avaliações. Numere as ideias 1, 2 e 3; em cada uma, em poucas linhas: o que os números mostram (com o número e o período), a ideia e o que você faria no Regem para pôr em prática.',
+    'Só ideia com número que veio de uma consulta. Sem dado para sustentar, traga menos ideias; se a semana não deu base para nenhuma, diga isso em uma linha.',
+    `Não proponha nem faça nada agora (não use propor_acao nem fazer_no_regem). Comece com "${titulo}" e termine com: ${FECHO_DAS_IDEIAS}`,
+    'Não use mostrar_grafico: vai só por escrito.',
   ].join('\n');
 }
 
