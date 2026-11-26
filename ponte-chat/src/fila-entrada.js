@@ -9,14 +9,36 @@ const LOTE = 50;
 const MAXIMO_NA_FILA = 1000; // muito tempo sem nuvem: as mais velhas saem (não enche a memória do PC)
 
 class FilaDeEntrada {
-  /** @param {(lote: object[]) => Promise<{ ok: boolean }>} enviar */
-  constructor(enviar, { lote = LOTE, maximo = MAXIMO_NA_FILA } = {}) {
+  /**
+   * @param {(lote: object[]) => Promise<{ ok: boolean }>} enviar
+   * @param {{ lote?: number, maximo?: number, guarda?: { carregar: () => object[], guardar: (itens: object[]) => boolean } }} o
+   *   `guarda` (0.8.0): a fila em disco (`fila-em-disco.js`) — relida ao abrir e regravada a cada mudança.
+   */
+  constructor(enviar, { lote = LOTE, maximo = MAXIMO_NA_FILA, guarda = null } = {}) {
     this.enviar = enviar;
     this.lote = lote;
     this.maximo = maximo;
-    this.itens = [];
+    this.guarda = guarda;
     this.descartadas = 0;
     this.enviando = false;
+    let guardados = [];
+    try {
+      guardados = guarda ? guarda.carregar() : [];
+    } catch {
+      guardados = [];
+    }
+    // o que ficou de antes de fechar (ou de o PC reiniciar) volta para a fila; a nuvem não grava a mesma duas vezes
+    this.itens = Array.isArray(guardados) ? guardados.slice(-maximo) : [];
+  }
+
+  /** Regrava a fila no disco (sem guarda, ou se falhar, segue só na memória). */
+  guardarNoDisco() {
+    if (!this.guarda) return;
+    try {
+      this.guarda.guardar(this.itens);
+    } catch {
+      /* o disco não segura a ponte */
+    }
   }
 
   /** Põe na fila — só com a ponte ligada (desligada, a mensagem nem entra). */
@@ -28,12 +50,14 @@ class FilaDeEntrada {
       this.itens.splice(0, sobra);
       this.descartadas += sobra;
     }
+    this.guardarNoDisco();
     return true;
   }
 
-  /** A ponte foi desligada: a fila é esvaziada sem enviar. */
+  /** A ponte foi desligada: a fila é esvaziada sem enviar (e o arquivo, apagado). */
   esvaziar() {
     this.itens.length = 0;
+    this.guardarNoDisco();
   }
 
   /**
@@ -64,6 +88,7 @@ class FilaDeEntrada {
     } finally {
       this.enviando = false;
     }
+    if (foram) this.guardarNoDisco(); // o que chegou à nuvem sai do disco
     return foram;
   }
 }

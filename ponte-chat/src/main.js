@@ -40,6 +40,7 @@ const path = require('path');
 const { Configuracao } = require('./configuracao');
 const { Diagnostico } = require('./diagnostico');
 const { FilaDeEntrada } = require('./fila-entrada');
+const { criarGuardaCifrada } = require('./fila-em-disco');
 const { ligarLeitor } = require('./leitor');
 const { ligarLeitor99 } = require('./leitor-99');
 const { lerATelaDoChat, lerOQuadro } = require('./tela-do-chat');
@@ -141,7 +142,8 @@ if (!app.requestSingleInstanceLock()) {
     }
     if (r.ok) estado.enviadas += lote.length;
     return r;
-  });
+    // a fila em disco (0.8.0), cifrada pelo Windows: um reinício no meio de uma queda não perde mensagem — fila-em-disco.js
+  }, { guarda: criarGuardaCifrada(path.join(app.getPath('userData'), 'fila-de-entrada.bin'), safeStorage) });
 
   function registrarErro(s) {
     estado.ultimoErro = `${new Date().toLocaleTimeString('pt-BR')} ${s}`;
