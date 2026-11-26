@@ -1529,6 +1529,44 @@
         }
       }
     },
+    "/api/v1/compras/listas/{id}/itens/{itemId}/validade": {
+      "post": {
+        "operationId": "ComprasController_informarValidade",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "itemId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InformarValidadeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/compras/listas/{id}/faltante": {
       "post": {
         "operationId": "ComprasController_gerarListaDoQueFaltou",
@@ -6650,7 +6688,14 @@
         "parameters": [],
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -8246,6 +8291,17 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/produtos/codigos-pdv": {
+      "patch": {
+        "operationId": "ProdutoController_trocarCodigosPdv",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
           }
         }
       }
@@ -10853,7 +10909,14 @@
         ],
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -11870,7 +11933,14 @@
         ],
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -11890,7 +11960,14 @@
         ],
         "responses": {
           "201": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -13664,6 +13741,60 @@
         "responses": {
           "201": {
             "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/noticias-do-ramo": {
+      "get": {
+        "operationId": "NoticiasRamoController_ler",
+        "parameters": [
+          {
+            "name": "dia",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/noticias-do-ramo/loja": {
+      "get": {
+        "operationId": "NoticiasRamoController_doServidorDaLoja",
+        "parameters": [
+          {
+            "name": "dia",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
@@ -17939,6 +18070,71 @@
         }
       }
     },
+    "/api/v1/cardapio/banners/ia/situacao": {
+      "get": {
+        "operationId": "BannerIaController_situacao",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cardapio/banners/ia/melhorar": {
+      "post": {
+        "operationId": "BannerIaController_melhorar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/cardapio/banners/ia/criar": {
+      "post": {
+        "operationId": "BannerIaController_criar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cardapio/banners/ia/animar": {
+      "post": {
+        "operationId": "BannerIaController_animar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/publico/cardapio/{token}/clube/regras": {
       "get": {
         "operationId": "CardapioPublicoController_regrasDoClube",
@@ -19232,6 +19428,16 @@
       "post": {
         "operationId": "GraphCliqueController_iniciar",
         "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IniciarGraphDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -21339,6 +21545,26 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/distribuicao/mister/aparelho": {
+      "get": {
+        "operationId": "DistribuicaoController_aparelhoDoMister",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "DistribuicaoController_mudarAparelhoDoMister",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
           }
         }
       }
@@ -24523,6 +24749,141 @@
         }
       }
     },
+    "/api/v1/banco-repasses": {
+      "get": {
+        "operationId": "BancoRepassesController_listar",
+        "parameters": [
+          {
+            "name": "periodo",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "de",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ate",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "situacao",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fonte",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "busca",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limite",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "deslocamento",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/banco-repasses/importar/conferir": {
+      "post": {
+        "operationId": "BancoRepassesController_conferir",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/banco-repasses/importar": {
+      "post": {
+        "operationId": "BancoRepassesController_importar",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/banco-repasses/lancamentos/{id}": {
+      "patch": {
+        "operationId": "BancoRepassesController_classificar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassificarLancamentoDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/publico/mister/link/{codigo}": {
       "get": {
         "operationId": "MisterLinkController_ver",
@@ -24799,6 +25160,106 @@
         ],
         "responses": {
           "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/modelos": {
+      "get": {
+        "operationId": "MisterCompraModelosController_listar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/modelos/apelidos": {
+      "get": {
+        "operationId": "MisterCompraModelosController_apelidos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "patch": {
+        "operationId": "MisterCompraModelosController_mudarApelido",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/modelos/apelidos/esquecer": {
+      "post": {
+        "operationId": "MisterCompraModelosController_esquecerApelido",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/modelos/{fornecedor}": {
+      "get": {
+        "operationId": "MisterCompraModelosController_detalhe",
+        "parameters": [
+          {
+            "name": "fornecedor",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "patch": {
+        "operationId": "MisterCompraModelosController_mudarLinha",
+        "parameters": [
+          {
+            "name": "fornecedor",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/mister/modelos/{fornecedor}/esquecer": {
+      "post": {
+        "operationId": "MisterCompraModelosController_esquecer",
+        "parameters": [
+          {
+            "name": "fornecedor",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
             "description": ""
           }
         }
@@ -25503,6 +25964,12 @@
           "validadeIndefinida": {
             "type": "boolean"
           },
+          "validadePendente": {
+            "type": "boolean"
+          },
+          "fornecedorId": {
+            "type": "string"
+          },
           "loteCodigo": {
             "type": "string"
           },
@@ -25551,6 +26018,18 @@
         "required": [
           "itens"
         ]
+      },
+      "InformarValidadeDto": {
+        "type": "object",
+        "properties": {
+          "validade": {
+            "type": "string",
+            "pattern": "/^\\d{4}-\\d{2}-\\d{2}$/"
+          },
+          "validadeIndefinida": {
+            "type": "boolean"
+          }
+        }
       },
       "GerarFaltanteDto": {
         "type": "object",
@@ -25799,6 +26278,9 @@
           "itemId": {
             "type": "string"
           },
+          "loteId": {
+            "type": "string"
+          },
           "quantidade": {
             "type": "number"
           },
@@ -25942,6 +26424,9 @@
           },
           "validadeAbertoDias": {
             "type": "number"
+          },
+          "validadeObrigatoria": {
+            "type": "boolean"
           },
           "conversoes": {
             "type": "array",
@@ -26091,7 +26576,8 @@
             "type": "string"
           },
           "rendimento": {
-            "type": "number"
+            "type": "number",
+            "minimum": 1
           },
           "rendimentoUnidade": {
             "type": "string"
@@ -26153,7 +26639,8 @@
             "type": "string"
           },
           "rendimento": {
-            "type": "number"
+            "type": "number",
+            "minimum": 1
           },
           "rendimentoUnidade": {
             "type": "string"
@@ -27656,6 +28143,18 @@
         "required": [
           "unidadeId"
         ]
+      },
+      "IniciarGraphDto": {
+        "type": "object",
+        "properties": {
+          "pedir": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 40
+            }
+          }
+        }
       },
       "ConcluirGraphDto": {
         "type": "object",
@@ -29543,6 +30042,34 @@
           "codigo",
           "tipo"
         ]
+      },
+      "ClassificarLancamentoDto": {
+        "type": "object",
+        "properties": {
+          "tipo": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "venda_ifood",
+              "venda_ifood_pago",
+              "venda_99",
+              "venda_maquininha",
+              "pix_cliente",
+              "deposito_caixa",
+              "fornecedor",
+              "folha",
+              "imposto",
+              "retirada_dono",
+              "transferencia_contas",
+              "outra_despesa",
+              "outra_entrada",
+              "nao_e_da_loja"
+            ]
+          },
+          "lembrar": {
+            "type": "boolean"
+          }
+        }
       }
     }
   }
