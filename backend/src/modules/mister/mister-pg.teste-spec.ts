@@ -113,6 +113,8 @@ import { TEXTOS_DAS_ACOES } from './mister-acoes';
 import { PROCEDIMENTO_DO_PEDIDO, TEXTOS_DO_PEDIDO } from './mister-pedido';
 import { TEXTOS_DAS_TAREFAS } from './mister-tarefas';
 import { MisterTarefasService } from './mister-tarefas.service';
+import { MisterPinFaladoService } from './mister-pin-falado.service';
+import { TEXTOS_DO_PIN_FALADO } from './mister-pin-falado';
 import { mesesCompletos, ultimosDiasDaSemana } from './mister-analises';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -526,7 +528,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '501_mister_ligar_pela_ia.sql', '502_mister_ia_forte_nas_tarefas.sql', '503_mister_modelos_de_compra.sql', '506_mister_respostas_escritas.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '501_mister_ligar_pela_ia.sql', '502_mister_ia_forte_nas_tarefas.sql', '503_mister_modelos_de_compra.sql', '506_mister_respostas_escritas.sql', '507_mister_pin_falado.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -915,8 +917,8 @@ export function testesDoMisterComPostgres(): void {
       const doPresidente = await vinculo.pessoas(usuario('ana'));
       expect(doPresidente).toMatchObject({ disponivel: true, numeroDoMister: NUMERO_DO_MISTER, souPresidente: true, total: 2 });
       expect(doPresidente.pessoas).toEqual([
-        { colaboradorId: pessoa.ana, nome: 'Ana Souza', nivel: 'presidente', loja: null, voce: true, ligado: true, final: tel.slice(-4), ligadoEm: expect.stringMatching(ISO), pausado: false, pode: ['avisos', 'consulta', 'autorizacao'], desligado: null },
-        { colaboradorId: pessoa.carlos, nome: 'Carlos Lima', nivel: 'gerente', loja: 'Loja Centro', voce: false, ligado: true, final: telCarlos.slice(-4), ligadoEm: expect.stringMatching(ISO), pausado: true, pode: ['avisos', 'consulta'], desligado: null },
+        { colaboradorId: pessoa.ana, nome: 'Ana Souza', nivel: 'presidente', loja: null, voce: true, ligado: true, final: tel.slice(-4), ligadoEm: expect.stringMatching(ISO), pausado: false, pode: ['avisos', 'consulta', 'autorizacao'], desligado: null, pinFaladoEm: null },
+        { colaboradorId: pessoa.carlos, nome: 'Carlos Lima', nivel: 'gerente', loja: 'Loja Centro', voce: false, ligado: true, final: telCarlos.slice(-4), ligadoEm: expect.stringMatching(ISO), pausado: true, pode: ['avisos', 'consulta'], desligado: null, pinFaladoEm: null },
       ]);
       // Nem o telefone inteiro, nem quem não fala com o Mister (execução), nem gente de outra empresa.
       const cru = JSON.stringify(doPresidente);
@@ -935,6 +937,19 @@ export function testesDoMisterComPostgres(): void {
       const semNumero = await vinculo.pessoas(usuario('ana'));
       expect(semNumero).toMatchObject({ disponivel: false, numeroDoMister: null });
       expect(semNumero.pessoas[1]).toMatchObject({ colaboradorId: pessoa.carlos, ligado: false, final: null, ligadoEm: null, pausado: false });
+    });
+
+    it('C5: desligar o PIN falado — o próprio, ou só o presidente o de outra pessoa da empresa dele; Pessoas mostra quem ligou', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await ligar('carlos', telefone(), A, 'gerente');
+      await q(`update mister_vinculo set pin_falado_em = now() where tenant_id = $1`, [A]);
+      expect((await vinculo.pessoas(usuario('ana'))).pessoas.map((p) => !!p.pinFaladoEm)).toEqual([true, true]);
+      await expect(vinculo.desligarPinFalado(usuario('carlos', A, 'gerente'), pessoa.ana)).rejects.toThrow('Só o presidente desliga o PIN falado');
+      expect(await vinculo.desligarPinFalado(usuario('carlos', A, 'gerente'), pessoa.carlos)).toEqual({ desligado: true });
+      expect(await vinculo.desligarPinFalado(usuario('ana'), pessoa.ana)).toEqual({ desligado: true });
+      expect(await vinculo.desligarPinFalado(usuario('ana'), pessoa.ana)).toEqual({ desligado: false });
+      expect((await vinculo.pessoas(usuario('ana'))).pessoas.map((p) => p.pinFaladoEm)).toEqual([null, null]);
     });
 
     it('desligar: cada um o próprio; o de outra pessoa só o presidente, e só dentro da empresa dele', async () => {
@@ -5960,6 +5975,89 @@ export function testesDoMisterComPostgres(): void {
     });
 
     // ───────────────────────────── o link com PIN (F4.2a, mig 433) ─────────────────────────────
+
+    it('C5: o PIN falado — ligar pela página do PIN; o áudio dela autoriza a proposta de PIN; encaminhado não vale; não entendido não conta; errado conta; desligar', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await modulo(A, true);
+      await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+      const links = new MisterPropostasService(db, numero, entrada, fiscalDeMentira as any, auditoria, modulos);
+      const comPropostas = new MisterFerramentasService(
+        db, modulos, new DashboardService(db), new RelatoriosService(db, { custoEfetivoMapa: async () => ({}) } as any), new EstoqueService(db, auditoria as AuditoriaService),
+        deliveryDeMentira as any, cozinhaDeMentira as any, servidorDeMentira as any, vendasDeMentira as any, escalaDeMentira as any, pontoDeMentira as any,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, links,
+      );
+      // A transcrição do áudio é um dublê (o Graph não roda aqui); o resto é o de verdade.
+      let ouvido: string | null = 'dois cinco oito zero';
+      const pin = new MisterPinFaladoService(comPropostas, links, numero, { transcreverParaOPin: async () => ouvido } as any, undefined);
+      pin.onModuleInit();
+      const codigoDe = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+      const esperar = async (sqlTxt: string) => {
+        for (let i = 0; i < 40; i++) {
+          const [v] = await q(sqlTxt, [A, pessoa.ana]);
+          if (v?.x) return v.x;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        return null;
+      };
+      const quemM: any = { telefone: tel, tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente', nome: 'Ana' };
+      const audio: any = { tipo: 'audio', id: 'midia-1', mime: 'audio/ogg' };
+      const antes = process.env.MISTER_PIN_FALADO;
+      try {
+        const e = (await comPropostas.escopo(A, pessoa.ana, tel))!;
+        // Desligado na distribuição: a ferramenta recusa e o áudio segue como sempre.
+        delete process.env.MISTER_PIN_FALADO;
+        expect(await comPropostas.executar(e, 'pin_falado', { acao: 'ligar' })).toEqual({ ok: false, dados: { erro: TEXTOS_DO_PIN_FALADO.desligadoNaDistribuicao } });
+        expect(await pin.ouvirOPin(quemM, audio, null)).toBeNull();
+        process.env.MISTER_PIN_FALADO = '1';
+
+        // Ligar: a proposta de PIN "ligar o PIN falado"; o PIN pela página liga.
+        const r = await comPropostas.executar(e, 'pin_falado', { acao: 'ligar' });
+        expect(r).toMatchObject({ ok: true, dados: { siga: TEXTOS_DO_PIN_FALADO.sigaDoLigar }, proposta: { procedimento: 'ligar_pin_falado', nivel: 'pin' } });
+        await links.autorizarPeloLink(codigoDe(await links.enviarLink(r.proposta!.id, pessoa.ana, tel, r.proposta!.pergunta)), '2580');
+        expect(await esperar(`select pin_falado_em as x from mister_vinculo where tenant_id = $1 and colaborador_id = $2`)).not.toBeNull();
+        expect(await comPropostas.executar(e, 'pin_falado', { acao: 'ligar' })).toMatchObject({ ok: true, dados: { jaLigado: true } });
+
+        // Sem proposta de PIN esperando, o áudio é uma pergunta qualquer.
+        expect(await pin.ouvirOPin(quemM, audio, null)).toBeNull();
+
+        // A proposta de PIN esperando (a sessão com PIN, como exemplo): o link diz que pode mandar o áudio.
+        const s = (await links.proporSessao(A, pessoa.ana, 12))!;
+        numero.pedidos.length = 0;
+        await links.enviarLink(s.p.id, pessoa.ana, tel, s.p.pergunta);
+        expect(numero.enviadas[0].texto).toContain(TEXTOS_DO_PIN_FALADO.noLink);
+
+        // Encaminhado não vale; não entendido não conta.
+        numero.pedidos.length = 0;
+        expect(await pin.ouvirOPin(quemM, { ...audio, encaminhada: true }, null)).toBe('tratado');
+        ouvido = 'bom dia, tudo bem?';
+        expect(await pin.ouvirOPin(quemM, audio, null)).toBe('tratado');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PIN_FALADO.encaminhado, TEXTOS_DO_PIN_FALADO.naoEntendi]);
+        expect((await q(`select pin_erros from mister_proposta where id = $1`, [s.p.id]))[0].pin_erros).toBe(0);
+
+        // Errado: conta no MESMO contador da página.
+        numero.pedidos.length = 0;
+        ouvido = 'um um um um';
+        expect(await pin.ouvirOPin(quemM, audio, null)).toBe('tratado');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PIN_FALADO.errado(4), TEXTOS_DO_PIN_FALADO.apagueOAudio]);
+        expect((await q(`select pin_erros from mister_proposta where id = $1`, [s.p.id]))[0].pin_erros).toBe(1);
+
+        // Certo: autoriza a proposta e a sessão é liberada; o pedido para apagar o áudio.
+        numero.pedidos.length = 0;
+        ouvido = 'Dois, cinco, oito, zero.';
+        expect(await pin.ouvirOPin(quemM, audio, null)).toBe('tratado');
+        expect(numero.enviadas.slice(0, 2).map((m) => m.texto)).toEqual([TEXTOS_DO_PIN_FALADO.autorizado, TEXTOS_DO_PIN_FALADO.apagueOAudio]);
+        expect(await esperar(`select pin_ate as x from mister_vinculo where tenant_id = $1 and colaborador_id = $2`)).not.toBeNull();
+        expect((await q(`select situacao, autorizada_por::text as quem from mister_proposta where id = $1`, [s.p.id]))[0]).toMatchObject({ quem: pessoa.ana });
+
+        // Desligar pela conversa.
+        expect(await comPropostas.executar(e, 'pin_falado', { acao: 'desligar' })).toMatchObject({ ok: true, dados: { desligado: true, siga: TEXTOS_DO_PIN_FALADO.desligado } });
+        expect((await q(`select pin_falado_em from mister_vinculo where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]))[0].pin_falado_em).toBeNull();
+      } finally {
+        if (antes === undefined) delete process.env.MISTER_PIN_FALADO;
+        else process.env.MISTER_PIN_FALADO = antes;
+      }
+    });
 
     it('M6d: a sessão com PIN — desligada, nada muda; ligada, valores e dados de pessoas esperam o PIN; o link sai uma vez; o PIN (o do gerente também) libera pelas horas da empresa; o botão espera o PIN', async () => {
       const tel = telefone();

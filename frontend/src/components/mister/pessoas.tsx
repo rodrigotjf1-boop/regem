@@ -32,6 +32,8 @@ type Pessoa = {
   pode: Array<'avisos' | 'consulta' | 'autorizacao'>;
   /** Versão 6, M6a: quando e por quê foi desligado (ausente num servidor ainda sem a 468). */
   desligado?: { em: string; motivo: string } | null;
+  /** Versão 10, C5 (mig 507): quando a pessoa ligou o PIN falado (null = só digitado). */
+  pinFaladoEm?: string | null;
 };
 type Lista ={ disponivel: boolean; numeroDoMister: string | null; souPresidente: boolean; total: number; pessoas: Pessoa[] };
 type Meu = {
@@ -88,6 +90,21 @@ export function PessoasDoMister() {
       await ler();
     } catch (e) {
       toast.error(mensagem(e, 'Não deu para desligar agora.'));
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  // Versão 10, C5 (mig 507): desligar o PIN falado — o próprio, ou (só o presidente) o de outra pessoa. Ligar de novo é pela
+  // própria pessoa, na conversa, confirmando o PIN pelo link.
+  async function desligarPinFalado(p: Pessoa) {
+    setOcupado(true);
+    try {
+      await api.post(`/mister/pessoas/${p.colaboradorId}/pin-falado/desligar`, {});
+      toast.success(p.voce ? 'PIN falado desligado. O seu PIN segue pelo link, digitado.' : `PIN falado de ${p.nome} desligado.`);
+      await ler();
+    } catch (e) {
+      toast.error(mensagem(e, 'Não deu para desligar o PIN falado agora.'));
     } finally {
       setOcupado(false);
     }
@@ -160,6 +177,17 @@ export function PessoasDoMister() {
               </span>
             </span>
             {p.pausado && <p className={`mt-1 text-xs ${texto2}`}>Respondeu PARAR AVISOS. Para voltar, responde VOLTAR AVISOS.</p>}
+            {/* Versão 10, C5: o PIN falado — o presidente vê e desliga; a pessoa liga pela conversa, confirmando o PIN pelo link. */}
+            {p.pinFaladoEm && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Selo tom="ok">PIN falado ligado em {diaMes(p.pinFaladoEm)}</Selo>
+                {(lista?.souPresidente || p.voce) && (
+                  <Button type="button" size="sm" variant="outline" onClick={() => void desligarPinFalado(p)} disabled={ocupado}>
+                    Desligar o PIN falado
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         ),
     },

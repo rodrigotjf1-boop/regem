@@ -2930,7 +2930,49 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
     telefone e o contato não chegam à IA) e o gerente sem valores no fechamento do caixa.
 - **Para ligar:** rodar a avaliação real com `MISTER_LER_TELAS=1` e, com ela boa, pôr a variável na API.
 
-### C4a — fazer uma tarefa pelo mapa: a primeira área (26/11/2026; SEM migration; só na nuvem; nasce DESLIGADA, `MISTER_FAZER_TAREFAS=1`)
+### C5 — falar o PIN (26/11/2026; mig 507; só na nuvem; nasce DESLIGADO, `MISTER_PIN_FALADO=1`)
+
+- **A decisão V10-5:**
+  - cada pessoa liga para SI;
+  - o PIN inteiro é conferido pelo código;
+  - o áudio encaminhado não vale;
+  - depois, o Mister pede para apagar o áudio.
+- **Ligar** (a ferramenta `pin_falado`, ação "ligar"):
+  - nasce uma proposta de PIN `ligar_pin_falado` da própria pessoa, no modelo da sessão com PIN (M6d), e o link vai depois da
+    resposta;
+  - o PIN digitado UMA vez na página do PIN é a prova de quem liga. O PIN nunca é digitado na conversa;
+  - a IA diz o risco: o áudio fica gravado no celular, e quem pegar o celular destravado pode ouvir. Digitar continua valendo.
+- **Desligar:** pela conversa, na hora. Em Mister › Pessoas, a própria pessoa desliga o dela e o presidente desliga o de
+  qualquer um da empresa dele (`POST /mister/pessoas/{colaboradorId}/pin-falado/desligar`, auditado).
+- **A mig 507:** `mister_vinculo.pin_falado_em` (null = só digitado). É só da nuvem e não apaga nada.
+- **Usar** (`MisterPinFaladoService.ouvirOPin`, ligado na entrada ANTES da leitura da mídia):
+  - **quando vale:** com o PIN falado ligado na distribuição e para a pessoa, e uma proposta de PIN esperando por ela (o link
+    mandado a ela, no prazo). O link dessas pessoas ganha a linha "ou mande um áudio seu falando o PIN";
+  - **o encaminhado** (`context.forwarded` da Meta) não vale;
+  - **a transcrição** é a mesma `ouvir_audio` do DMS Graph, com o áudio de até 30 segundos (`transcreverParaOPin`). Dela saem
+    só os números (`pinNoTexto`: dígitos e números por extenso, o "meia" = 6, de 4 a 6 dígitos). O não entendido não conta como
+    erro;
+  - **a conferência é a da página** (`autorizarPelaVoz`): a tentativa reservada na mesma instrução que confere o teto (V98), os
+    erros somando no MESMO contador de 5 do link e o bloqueio. A autorização acontece uma vez só e a execução segue pelo
+    caminho de sempre;
+  - **nada segue** para a fila, a IA ou a memória (o desfecho `pin_falado`). O áudio, a transcrição e os números não ficam
+    guardados nem vão para log; a auditoria marca `pela: 'voz'`;
+  - **depois:** "apague o áudio do PIN desta conversa".
+- **Os testes:**
+  - `mister-pin-falado.spec.ts`: o PIN tirado da transcrição;
+  - **de ponta a ponta com Postgres:**
+    - desligado na distribuição;
+    - ligar pela página;
+    - o link com a linha do áudio;
+    - sem proposta esperando, o áudio segue;
+    - o encaminhado e o não entendido não contam;
+    - o errado conta no contador da página;
+    - o certo autoriza;
+    - desligar;
+  - **a regra de quem desliga** em Pessoas.
+- **Antes de ligar:** o teste com 20 áudios reais (o plano), para ver se a transcrição entende bem os números falados.
+
+### C4a — fazer uma tarefa pelo mapa: a primeira área (26/11/2026, #1363, NO AR; SEM migration; só na nuvem; nasce DESLIGADA, `MISTER_FAZER_TAREFAS=1`)
 
 - **A C4 abre por área** (o plano). A C4a é a primeira: uma lista FECHADA de tarefas (`mapa/tarefas-abertas.ts`), escolhidas e
   revisadas uma a uma, cada uma com os CAMPOS que a IA pode mandar. O contrato descreve o corpo de só 87 das 677 escritas, e o

@@ -60,6 +60,8 @@ export interface PessoaDoMister {
   pode: Array<'avisos' | 'consulta' | 'autorizacao'>;
   /** Versão 6, M6a (mig 468): quem foi desligado, quando e por quê (o texto da tela). Null = nunca desligado ou ligado de novo. */
   desligado: { em: string; motivo: string } | null;
+  /** Versão 10, C5 (mig 507): quando a pessoa ligou o PIN falado (null = só digitado). */
+  pinFaladoEm: string | null;
 }
 
 export interface ListaDePessoas {
@@ -180,6 +182,7 @@ export class MisterVinculoService {
                g.telefone, (g.pausado_em is not null) as pausado,
                to_char(g.ligado_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "ligadoEm",
                to_char(g.desligado_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "desligadoEm", g.desligado_motivo as "desligadoMotivo",
+               to_char(g.pin_falado_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "pinFaladoEm",
                count(*) over ()::int as total
           from colaborador c
           left join funcao f on f.id = c.funcao_id
@@ -213,9 +216,34 @@ export class MisterVinculoService {
           pode: presidente ? ['avisos', 'consulta', 'autorizacao'] : ['avisos', 'consulta'],
           desligado:
             !ligado && l.desligadoEm && ehMotivoDoDesligamento(l.desligadoMotivo) ? { em: String(l.desligadoEm), motivo: MOTIVO_NA_TELA[l.desligadoMotivo] } : null,
+          pinFaladoEm: ligado && l.pinFaladoEm ? String(l.pinFaladoEm) : null,
         };
       }),
     };
+  }
+
+  /**
+   * Versão 10, C5: desliga o PIN falado de uma pessoa — o próprio, ou (só o presidente) o de outra pessoa da empresa dele. Ligar
+   * de novo é sempre pela própria pessoa, confirmando o PIN pela página. Auditado.
+   */
+  async desligarPinFalado(user: AuthUser, colaboradorId: string): Promise<{ desligado: boolean }> {
+    const alvo = String(colaboradorId ?? '').trim();
+    if (!UUID.test(alvo)) throw new BadRequestException('Pessoa inválida.');
+    const proprio = alvo === user.colaboradorId;
+    const nivel = await this.nivelDe(user);
+    if (!nivel) throw new ForbiddenException('Só gerente ou presidente fala com o Mister.');
+    if (!proprio && nivel !== 'presidente') throw new ForbiddenException('Só o presidente desliga o PIN falado de outra pessoa.');
+    const mudou = linhas(
+      await this.db.execute(sql`
+        update mister_vinculo set pin_falado_em = null, atualizado_em = now()
+         where tenant_id = ${user.tenantId}::uuid and colaborador_id = ${alvo}::uuid and pin_falado_em is not null
+        returning id`),
+    );
+    if (mudou.length)
+      await this.auditoria
+        ?.registrar({ tenantId: user.tenantId, atorId: user.colaboradorId, atorPerfil: nivel, tipo: 'mister', acao: 'mister_pin_falado_desligado', entidadeTipo: 'colaborador', entidadeId: alvo, origem: 'web' } as any)
+        .catch(() => undefined);
+    return { desligado: mudou.length > 0 };
   }
 
   /**

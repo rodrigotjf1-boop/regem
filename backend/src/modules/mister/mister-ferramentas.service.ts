@@ -583,6 +583,11 @@ export class MisterFerramentasService {
     if (nome === FERRAMENTA_DE_LEMBRAR) return this.lembrar(e, entrada);
     // Versão 4, M4d: o lembrete é da pessoa, não de uma loja.
     if (nome === 'lembrete') return this.lembrete(e, entrada);
+    // Versão 10, C5: o PIN falado é da pessoa, não de uma loja.
+    if (nome === 'pin_falado') {
+      const en0 = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
+      return this.pinFalado ? this.pinFalado(e, en0) : recusa('O PIN falado ainda não está disponível neste servidor.');
+    }
     // Versão 10, C3: a busca no mapa não lê dado de loja nenhuma (é o mapa revisado pela DMS).
     if (nome === 'procurar_no_regem') return this.telas ? this.telas.procurar(entrada) : recusa('Não consegui ler esta tela agora.');
     if (e.semLoja) return recusa(SEM_LOJA);
@@ -721,6 +726,8 @@ export class MisterFerramentasService {
         return this.acoes ? this.acoes(e, en, loja) : Promise.resolve(recusa('As ações do Mister ainda não estão disponíveis neste servidor.'));
       case 'propor_plano':
         return this.planos ? this.planos(e, en, loja) : Promise.resolve(recusa('As ações do Mister ainda não estão disponíveis neste servidor.'));
+      case 'pin_falado':
+        return this.pinFalado ? this.pinFalado(e, en) : Promise.resolve(recusa('O PIN falado ainda não está disponível neste servidor.'));
       case 'fazer_no_regem':
         return this.tarefas ? this.tarefas(e, en, loja) : Promise.resolve(recusa('As tarefas do Mister ainda não estão disponíveis neste servidor.'));
     }
@@ -856,6 +863,11 @@ export class MisterFerramentasService {
   private planos: ((e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }) => Promise<ResultadoDaFerramenta>) | null = null;
   registrarPlano(f: (e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }) => Promise<ResultadoDaFerramenta>): void {
     this.planos = f;
+  }
+  // Versão 10, C5: ligar e desligar o PIN falado (a porta `pin_falado`), pelo `MisterPinFaladoService`.
+  private pinFalado: ((e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>) | null = null;
+  registrarPinFalado(f: (e: EscopoDoMister, en: Record<string, unknown>) => Promise<ResultadoDaFerramenta>): void {
+    this.pinFalado = f;
   }
   // Versão 10, C4: a tarefa pelo mapa (a porta `fazer_no_regem`), pelo `MisterTarefasService`.
   private tarefas: ((e: EscopoDoMister, en: Record<string, unknown>, loja: { atual: string | null; nome: string }) => Promise<ResultadoDaFerramenta>) | null = null;

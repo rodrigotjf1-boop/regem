@@ -441,7 +441,9 @@ export type NomeDaFerramenta =
   | 'procurar_no_regem'
   | 'ler_no_regem'
   // Versão 10, C4: fazer uma tarefa pelo mapa (nasce desligada, `MISTER_FAZER_TAREFAS=1`).
-  | 'fazer_no_regem';
+  | 'fazer_no_regem'
+  // Versão 10, C5: ligar e desligar o PIN falado (nasce desligado, `MISTER_PIN_FALADO=1`).
+  | 'pin_falado';
 
 // ───────────────────────────── as conversas anteriores (versão 4) ─────────────────────────────
 // O padrão do Hermes de procurar nas conversas antigas, sobre o texto que `mister_pergunta` já guarda por 30 dias.
@@ -544,6 +546,8 @@ export const FERRAMENTA_DE_PROCURAR = 'procurar_no_regem' as const;
 export const FERRAMENTA_DE_LER = 'ler_no_regem' as const;
 /** Versão 10, C4 (`mister-tarefas.service.ts`): PROPÕE uma tarefa pelo mapa — não é consulta; faz algo, uma de cada vez. */
 export const FERRAMENTA_DE_FAZER = 'fazer_no_regem' as const;
+/** Versão 10, C5 (`mister-pin-falado.service.ts`): liga (pela página do PIN) ou desliga o PIN falado da pessoa — não é consulta. */
+export const FERRAMENTA_DO_PIN_FALADO = 'pin_falado' as const;
 /** As ferramentas que NÃO são consulta: anotam, propõem, mandam, corrigem ou criam — não trazem dado da loja para a resposta. */
 export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DO_QUE_FALTA,
@@ -566,6 +570,7 @@ export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DE_ABRIR,
   FERRAMENTA_DE_PROCURAR,
   FERRAMENTA_DE_FAZER,
+  FERRAMENTA_DO_PIN_FALADO,
 ];
 // F4.2b: cancelar_pedido (de PIN) nasce da pergunta, preso ao pedido que a pessoa disse — não a um aviso.
 export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota', 'cancelar_pedido'] as const;
@@ -1440,6 +1445,18 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
       additionalProperties: false,
     },
   },
+  // Versão 10, C5: o PIN falado (nasce desligado, `MISTER_PIN_FALADO=1`).
+  {
+    name: 'pin_falado',
+    description:
+      'Não é consulta: LIGA ou DESLIGA, para a própria pessoa, o PIN falado — com ele ligado, quando você pedir o PIN, ela pode mandar um áudio falando os números (o Regem confere; nada fica guardado). acao "ligar": o Regem manda o link para ela confirmar o PIN uma vez; diga o risco (o áudio fica no celular; quem pegar o celular destravado pode ouvir) e que digitar continua valendo. acao "desligar": desliga na hora. Use só quando a pessoa pedir. Nunca peça o PIN na conversa e nunca repita números que ela falar.',
+    input_schema: {
+      type: 'object',
+      properties: { acao: { type: 'string', enum: ['ligar', 'desligar'] } },
+      required: ['acao'],
+      additionalProperties: false,
+    },
+  },
   // Versão 10, C4: fazer uma tarefa pelo mapa (nasce desligada, `MISTER_FAZER_TAREFAS=1`).
   {
     name: 'fazer_no_regem',
@@ -1547,6 +1564,8 @@ export const ferramentasDaConversa = (): typeof FERRAMENTAS => {
     ...(telasNoMister() ? [] : [FERRAMENTA_DE_PROCURAR, FERRAMENTA_DE_LER]),
     // C4: a tarefa pede a busca (que traz as tarefas): sem as telas ligadas, não entra.
     ...(telasNoMister() && process.env.MISTER_FAZER_TAREFAS === '1' ? [] : [FERRAMENTA_DE_FAZER]),
+    // C5: o PIN falado só entra com a distribuição ligada (depois do teste com 20 áudios).
+    ...(process.env.MISTER_PIN_FALADO === '1' ? [] : [FERRAMENTA_DO_PIN_FALADO]),
   ];
   return fora.length ? FERRAMENTAS.filter((f) => !fora.includes(f.name)) : FERRAMENTAS;
 };

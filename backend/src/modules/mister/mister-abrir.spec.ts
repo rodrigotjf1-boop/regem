@@ -147,7 +147,10 @@ describe('o link para abrir no Regem — nasce desligado', () => {
   const antesDasNoticias = process.env.MISTER_NOTICIAS_RAMO;
   const antesDasTelas = process.env.MISTER_LER_TELAS;
   const antesDasTarefas = process.env.MISTER_FAZER_TAREFAS;
+  const antesDoPin = process.env.MISTER_PIN_FALADO;
   afterEach(() => {
+    if (antesDoPin === undefined) delete process.env.MISTER_PIN_FALADO;
+    else process.env.MISTER_PIN_FALADO = antesDoPin;
     if (antesDasTarefas === undefined) delete process.env.MISTER_FAZER_TAREFAS;
     else process.env.MISTER_FAZER_TAREFAS = antesDasTarefas;
     if (antesDasTelas === undefined) delete process.env.MISTER_LER_TELAS;
@@ -162,6 +165,7 @@ describe('o link para abrir no Regem — nasce desligado', () => {
     process.env.MISTER_NOTICIAS_RAMO = '1';
     process.env.MISTER_LER_TELAS = '1';
     process.env.MISTER_FAZER_TAREFAS = '1';
+    process.env.MISTER_PIN_FALADO = '1';
     delete process.env.MISTER_LINKS;
     expect(linksNoMister()).toBe(false);
     expect(ferramentasDaConversa().map((f) => f.name)).not.toContain('abrir_no_regem');

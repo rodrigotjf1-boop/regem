@@ -28,6 +28,7 @@ import { MisterNotasService } from './mister-notas.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterTelasService } from './mister-telas.service';
 import { MisterTarefasService } from './mister-tarefas.service';
+import { MisterPinFaladoService } from './mister-pin-falado.service';
 import { MisterLinkController } from './mister-link.controller';
 import { MisterLinkPublicoController } from './mister-link-publico.controller';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
@@ -119,6 +120,8 @@ import { MisterModule } from './mister.module';
     MisterTelasService,
     // Versão 10, C4: fazer uma tarefa pelo mapa (a escrita pela própria API, com o bilhete preso ao método e ao corpo).
     MisterTarefasService,
+    // Versão 10, C5: falar o PIN (ligar pela página do PIN; o áudio conferido pelo código, antes da fila e da IA).
+    MisterPinFaladoService,
     MisterAgenteService,
     MisterAvisosService,
     MisterRelatoriosService,
