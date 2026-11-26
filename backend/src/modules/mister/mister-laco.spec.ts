@@ -1,5 +1,5 @@
 import { FalhaDaIa, PedidoDeIa, RespostaDaIa } from '../ia/ia-empresa.service';
-import { FERRAMENTAS, FERRAMENTAS_QUE_NAO_SAO_CONSULTA, FERRAMENTA_DO_QUE_FALTA, TETOS, podeRodarJunto } from './mister-agente.regras';
+import { FERRAMENTAS, FERRAMENTAS_QUE_NAO_SAO_CONSULTA, FERRAMENTA_DE_PROCURAR, FERRAMENTA_DO_QUE_FALTA, TETOS, podeRodarJunto } from './mister-agente.regras';
 import { PortasDoLaco, Vagas, responderComFerramentas, rodarNaOrdem } from './mister-laco';
 import type { ResultadoDaFerramenta } from './mister-ferramentas.service';
 
@@ -118,8 +118,9 @@ describe('mister — o laço com as consultas juntas', () => {
     expect(podeRodarJunto('apagar_tudo')).toBe(true);
   });
 
-  it('toda ferramenta que FAZ algo (a lista das que não são consulta, menos a anotação) roda uma de cada vez', () => {
-    const acoes = FERRAMENTAS_QUE_NAO_SAO_CONSULTA.filter((n) => n !== FERRAMENTA_DO_QUE_FALTA);
+  it('toda ferramenta que FAZ algo (a lista das que não são consulta, menos a anotação e a busca no mapa) roda uma de cada vez', () => {
+    // C3: procurar no mapa não lê dado da loja (não é consulta) e não muda nada — roda junto, como a anotação.
+    const acoes = FERRAMENTAS_QUE_NAO_SAO_CONSULTA.filter((n) => n !== FERRAMENTA_DO_QUE_FALTA && n !== FERRAMENTA_DE_PROCURAR);
     expect(acoes).toEqual(expect.arrayContaining(['propor_procedimento', 'mandar_link', 'corrigir_documento', 'link_para_encaminhar', 'cancelar_links']));
     for (const acao of acoes) expect([acao, podeRodarJunto(acao)]).toEqual([acao, false]);
     // E as outras do catálogo são consultas: rodam juntas.

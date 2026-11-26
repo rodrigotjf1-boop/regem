@@ -18,4 +18,6 @@ export interface AuthUser {
   aparelhoId?: string | null;
   // Sessão de suporte (F9): presente só quando categoria='suporte' (técnico da distribuição).
   suporte?: { sessaoId: string; tecnicoId: string; nome?: string | null };
+  // Mister, versão 10, C3: a leitura que o Mister fez pela pessoa, com o bilhete de uma chamada (`bilhete-do-mister.ts`).
+  origem?: 'mister';
 }

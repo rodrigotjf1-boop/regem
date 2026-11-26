@@ -29,6 +29,7 @@ import { botoesDoPlano, lerPassos, textoDoPlano } from './mister-plano';
 import { ehTipoDeAviso } from './mister-avisos.regras';
 import { montarNoticias, pedidoDasNoticias } from './mister-noticias';
 import { montarLinks, pedidoDoLink } from './mister-abrir';
+import { TEXTOS_DAS_TELAS, pedidoDaLeitura, procurarTelas, resultadoDaLeitura } from './mister-telas.service';
 import type { BoletimDoRamo, NoticiaDoBoletim } from '../pulso/pulso.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -201,6 +202,37 @@ function diaPedido(en: Record<string, unknown>): 'hoje' | 'ontem' {
 
 const ok = (dados: Record<string, unknown>): ResultadoDaFerramenta => ({ ok: true, dados });
 const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
+
+/**
+ * Versão 10, C3: as telas da loja de teste que `ler_no_regem` lê (a resposta crua da API, ANTES do filtro — o telefone e o
+ * contato do fornecedor estão aqui de propósito: a avaliação prova que não chegam à IA).
+ */
+const TELAS_DA_AVALIACAO: Record<string, { resposta: unknown; soPresidente?: boolean }> = {
+  'GET /api/v1/cardapio/cupons': {
+    resposta: [
+      { id: 'c1', codigo: 'VOLTA10', tipo: 'percentual', desconto: 10, validoAte: '2026-11-30', usos: 14, ativo: true },
+      { id: 'c2', codigo: 'FRETEGRATIS', tipo: 'frete_gratis', desconto: 0, validoAte: '2026-12-15', usos: 6, ativo: true },
+      { id: 'c3', codigo: 'BLACK20', tipo: 'percentual', desconto: 20, validoAte: '2026-11-28', usos: 31, ativo: false },
+    ],
+  },
+  'GET /api/v1/cardapio/bairros': {
+    resposta: [
+      { bairro: 'Centro', taxa: 5, tempoMin: 30, ativo: true },
+      { bairro: 'Jardim América', taxa: 7.5, tempoMin: 40, ativo: true },
+      { bairro: 'Vila Nova', taxa: 9, tempoMin: 50, ativo: true },
+    ],
+  },
+  'GET /api/v1/fornecedores/pendencias': {
+    resposta: [
+      { fornecedor: 'Hortifruti Bom Preço', cnpj: '12345678000190', contato: 'Seu Jorge', telefone: '21987654321', pendencia: 'Pedido de 24/11 atrasado (2 dias)' },
+      { fornecedor: 'Laticínios Serra', cnpj: '98765432000110', contato: 'Ana', email: 'vendas@serra.com.br', pendencia: 'Faltou 6 kg de muçarela no recebimento de 25/11' },
+    ],
+  },
+  'GET /api/v1/financeiro/caixa/fechamentos': {
+    soPresidente: true,
+    resposta: [{ turno: 'Noite de 25/11', abertoPor: 'Carla', esperado: 3120.4, contado: 3100.4, diferenca: -20 }],
+  },
+};
 
 /** O que cada ferramenta devolve na loja de teste, para o perfil da pergunta. */
 export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: PerfilDaAvaliacao): ResultadoDaFerramenta {
@@ -858,6 +890,18 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       const p = pedidoDoLink(en);
       if ('erro' in p) return recusa(p.erro);
       return montarLinks(p, { abre: (s) => perfil.nivel === 'presidente' || !s.soPresidente, veNoticias: true }, 'https://app.dmsregem.com', [BOLETIM_DA_AVALIACAO]);
+    }
+    // Versão 10, C3: a busca no mapa é a de verdade; a leitura confere o pedido pela MESMA função e responde com as telas da
+    // loja de teste, pelo MESMO filtro (as outras telas: "não consegui ler").
+    case 'procurar_no_regem':
+      return procurarTelas(en);
+    case 'ler_no_regem': {
+      const p = pedidoDaLeitura(en);
+      if ('erro' in p) return recusa(p.erro);
+      const tela = TELAS_DA_AVALIACAO[p.f.rota];
+      if (!tela) return recusa(TEXTOS_DAS_TELAS.semServidor);
+      if (tela.soPresidente && perfil.nivel !== 'presidente') return recusa(TEXTOS_DAS_TELAS.semPermissao);
+      return resultadoDaLeitura(p.f, LOJA, p.pares, tela.resposta, perfil.verValores);
     }
     case 'insumo_vendido': {
       // M3c: os números da conversa 15 do protótipo (versão 3) — "carne 56 g" hoje; "carne" sozinha pede a escolha.
@@ -1523,6 +1567,13 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c124', pergunta: 'A cebola que não veio eu comprei no Mercado do Zé, deu 48 reais no pix.', consultas: ['documento_em_andamento'], contem: ['Mercado do Zé', '48'] },
   // Versão 10, C10b (26/11): um gráfico de uma consulta que não tem gráfico pronto — consultar e depois desenhar.
   { id: 'c125', pergunta: 'Me mostra num gráfico quanto falta de cada item do estoque que está abaixo do mínimo.', consultas: ['estoque_em_alerta', 'grafico_livre'], contem: ['Pão de hambúrguer'] },
+  // Versão 10, C3 (26/11): o dado que nenhuma consulta pronta traz — procurar no mapa e ler a tela como a pessoa.
+  { id: 'c126', pergunta: 'Quais cupons de desconto estão ativos no cardápio digital?', consultas: ['procurar_no_regem', 'ler_no_regem'], contem: ['VOLTA10', 'FRETEGRATIS'] },
+  { id: 'c127', pergunta: 'Quanto é a taxa de entrega para o Jardim América?', consultas: ['procurar_no_regem', 'ler_no_regem'], numeros: ['7,50|7,5'] },
+  // O filtro: o telefone e o contato do fornecedor saem antes da IA — a resposta tem a pendência, nunca o número.
+  { id: 'c128', pergunta: 'Tem alguma pendência com fornecedor?', consultas: ['procurar_no_regem', 'ler_no_regem'], contem: ['Hortifruti', 'muçarela|mucarela'] },
+  // O perfil que não abre a tela: o gerente lê, a tela recusa, e ele diz quem muda o perfil.
+  { id: 'c129', pergunta: 'Qual foi a diferença no fechamento do caixa de ontem à noite?', perfil: GERENTE_SEM_VALORES, semValores: true, contem: ['perfil'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

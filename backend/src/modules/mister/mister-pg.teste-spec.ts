@@ -4180,6 +4180,10 @@ export function testesDoMisterComPostgres(): void {
         c124: { acao: 'pedido', faltas: [{ produto: 'cebola', decisao: 'outro_lugar', fornecedor: 'Mercado do Zé', valor: 48, forma: 'pix' }] },
         // C10b: o gráfico livre com os números da consulta feita ANTES (o estoque em alerta da loja de teste).
         c125: { forma: 'horizontais', titulo: 'O que falta para o mínimo', medida: 'quantidade', itens: [{ rotulo: 'Coca-Cola lata', valor: 30 }, { rotulo: 'Pão de hambúrguer', valor: 28 }, { rotulo: 'Queijo prato', valor: 1.8 }, { rotulo: 'Bacon fatiado', valor: 1.2 }] },
+        // C3: a mesma entrada vai às duas da vez (a busca lê "busca"; a leitura, "rota").
+        c126: { busca: 'cupons do cardápio', rota: 'GET /api/v1/cardapio/cupons' },
+        c127: { busca: 'taxa de entrega por bairro', rota: 'GET /api/v1/cardapio/bairros' },
+        c128: { busca: 'pendências com fornecedores', rota: 'GET /api/v1/fornecedores/pendencias' },
         c110: { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' },
         c111: { acao: 'repetir_campanha', campanhaDaConversa: 'a última' },
         c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },

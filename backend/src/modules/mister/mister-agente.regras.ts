@@ -83,7 +83,7 @@ export const INSTRUCOES_DO_MISTER = `Você é o Mister, o administrador virtual 
 COMO VOCÊ TRABALHA
 - Você não sabe nada da loja de cabeça. Todo número, valor, horário, nome de produto e situação que você disser vem de uma ferramenta que você chamou para ESTA pergunta.
 - Antes de responder a uma pergunta sobre a loja, chame a ferramenta que traz o dado. Se a pergunta pede dois assuntos, chame as duas. Junte consultas, compare períodos e faça as contas que a pergunta pedir.
-- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, quanto a venda gastou de um insumo pela ficha técnica (por hora, por dia e de onde saiu), pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, a análise da semana, do pico e dos itens que saem juntos, das fases do mês e das perdas, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal), o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram) como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns) e o que já foi conversado com você nos últimos 30 dias. Antes de dizer que ainda não tem acesso, chame anotar_o_que_falta com o tema do dado pedido. Nunca estime, nunca invente e nunca complete um dado que faltou.
+- Se a pergunta pede um DADO que nenhuma ferramenta traz, diga com clareza que você ainda não tem acesso a essa informação e diga em uma frase o que você consegue responder hoje: resumo do dia, vendas de um período, produtos mais vendidos, quanto a venda gastou de um insumo pela ficha técnica (por hora, por dia e de onde saiu), pedidos em andamento, a história de um pedido (onde ele demorou), os tempos dos pedidos (aceite, cozinha, entrega), a comparação com o período anterior, o horário de pico, o lucro e a margem por produto, a análise da semana, do pico e dos itens que saem juntos, das fases do mês e das perdas, cancelamentos com o motivo, caixas e sangrias, a equipe do dia (escala e ponto), estoque em alerta, a situação do servidor da loja e os canais de venda e as integrações (a pausa de cada canal, o último pedido que chegou por ele, o login da 99, o WhatsApp da loja e a nota fiscal), a conferência do cardápio com o iFood e a 99 (preço diferente, produto só de um lado), o Atendimento agora (os casos em aberto, os urgentes e os com prazo), a conciliação (o que não fecha entre a venda, o dinheiro e a nota fiscal), o que vence ou está desatualizado (o certificado digital, a tabela do IBPT, a licença e a versão do servidor da loja e o acesso do Instagram) como usar o Regem (onde fica cada tela e o passo a passo das tarefas mais comuns) e o que já foi conversado com você nos últimos 30 dias. Se procurar_no_regem estiver entre as suas ferramentas, antes de dizer que não tem acesso procure a tela do Regem que tem o dado e leia com ler_no_regem (as consultas prontas vêm primeiro; o mapa é para o resto). Antes de dizer que ainda não tem acesso, chame anotar_o_que_falta com o tema do dado pedido. Nunca estime, nunca invente e nunca complete um dado que faltou.
 - Quando a ferramenta devolver erro, diga que não conseguiu ler aquele dado agora. "Não houve vendas" e "não consegui ler as vendas" são respostas diferentes: nunca troque uma pela outra.
 - Quando um campo vier nulo com o aviso de que o perfil da pessoa não vê valores em reais, diga que o perfil dela no Regem não mostra valores em reais. Não tente chegar ao valor por outro caminho.
 - Conta, só com números que as ferramentas trouxeram (somar, comparar, percentual). Diga de onde saiu. Valor em reais sempre exato, como veio ou como a conta deu: nunca arredonde ("R$ 15 mil").
@@ -435,7 +435,10 @@ export type NomeDaFerramenta =
   | 'propor_acao'
   | 'propor_plano'
   // O link para abrir uma tela do Regem ou uma notícia do boletim (`mister-abrir.ts`): o endereço sai do código.
-  | 'abrir_no_regem';
+  | 'abrir_no_regem'
+  // Versão 10, C3: procurar no mapa do Regem e ler a tela como a pessoa (nascem desligadas, `MISTER_LER_TELAS=1`).
+  | 'procurar_no_regem'
+  | 'ler_no_regem';
 
 // ───────────────────────────── as conversas anteriores (versão 4) ─────────────────────────────
 // O padrão do Hermes de procurar nas conversas antigas, sobre o texto que `mister_pergunta` já guarda por 30 dias.
@@ -530,6 +533,12 @@ export const FERRAMENTA_DO_PLANO = 'propor_plano' as const;
  * Não lê dado da loja para a resposta: o endereço sai do código e vai no fim da resposta, depois do filtro de saída.
  */
 export const FERRAMENTA_DE_ABRIR = 'abrir_no_regem' as const;
+/**
+ * Versão 10, C3 (`mister-telas.service.ts`): procurar no mapa do Regem (não lê dado da loja: é o mapa revisado pela DMS) e
+ * ler uma função de leitura como a pessoa abriria a tela (é consulta: o dado vai à resposta e é origem dos números).
+ */
+export const FERRAMENTA_DE_PROCURAR = 'procurar_no_regem' as const;
+export const FERRAMENTA_DE_LER = 'ler_no_regem' as const;
 /** As ferramentas que NÃO são consulta: anotam, propõem, mandam, corrigem ou criam — não trazem dado da loja para a resposta. */
 export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DO_QUE_FALTA,
@@ -550,6 +559,7 @@ export const FERRAMENTAS_QUE_NAO_SAO_CONSULTA: readonly string[] = [
   FERRAMENTA_DAS_ACOES,
   FERRAMENTA_DO_PLANO,
   FERRAMENTA_DE_ABRIR,
+  FERRAMENTA_DE_PROCURAR,
 ];
 // F4.2b: cancelar_pedido (de PIN) nasce da pergunta, preso ao pedido que a pessoa disse — não a um aviso.
 export const PROCEDIMENTOS_QUE_A_IA_PROPOE = ['imprimir_teste', 'consultar_nota', 'cancelar_pedido'] as const;
@@ -1396,6 +1406,34 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
       additionalProperties: false,
     },
   },
+  // Versão 10, C3: procurar no mapa do Regem e ler a tela como a pessoa (nascem desligadas, `MISTER_LER_TELAS=1`).
+  {
+    name: 'procurar_no_regem',
+    description:
+      'Não lê dado: PROCURA no mapa do Regem as telas de leitura que têm o dado pedido, quando NENHUMA consulta pronta responde (use as prontas primeiro: são mais certas). Descreva o dado em poucas palavras (ex.: "cupons do cardápio", "taxa de entrega por bairro", "fechamentos de caixa", "lotes vencendo"). Devolve até 8 telas, cada uma com a rota, a frase do que ela traz, os parametros do caminho (como "id") e a consulta que aceita (como "inicio" e "fim"). Escolha a que responde e chame ler_no_regem. Tela com dado de pessoa (clientes, conversas, candidatos) não entra: diga que esse dado não sai pela conversa e indique a tela.',
+    input_schema: {
+      type: 'object',
+      properties: { busca: { type: 'string', description: 'O dado procurado, em poucas palavras.' } },
+      required: ['busca'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'ler_no_regem',
+    description:
+      'LÊ uma tela do Regem como a pessoa abriria (o mesmo perfil, as mesmas permissões, a loja dela), usando uma rota que procurar_no_regem trouxe. rota: exatamente como veio (ex.: "GET /api/v1/cardapio/cupons"). parametros: o valor de cada parametro do caminho (o "id" vem de outra leitura; nunca invente id). consulta: só os nomes que a tela aceita (datas em AAAA-MM-DD). loja: o nome, só com mais de uma. A resposta vem filtrada (sem contato, documento, endereço nem dado de cliente; sem valores para quem não os vê) e pode vir cortada (veja "observacoes"). Responda só com o que veio; o que não veio, diga que a tela não trouxe. Se o perfil não abrir a tela, diga isso e quem pode mudar o perfil.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        rota: { type: 'string', description: 'A rota exata que procurar_no_regem trouxe.' },
+        parametros: { type: 'object', description: 'O valor de cada parametro do caminho, como { "id": "…" }.', additionalProperties: { type: 'string' } },
+        consulta: { type: 'object', description: 'Os filtros que a tela aceita, como { "inicio": "2026-11-01", "fim": "2026-11-26" }.', additionalProperties: { type: 'string' } },
+        loja: LOJA,
+      },
+      required: ['rota'],
+      additionalProperties: false,
+    },
+  },
   // Versão 10, C10b: o gráfico de QUALQUER consulta desta pergunta, desenhado pelo Regem (sem custo, número exato).
   {
     name: 'grafico_livre',
@@ -1476,9 +1514,15 @@ export const ehFerramenta = (n: unknown): n is NomeDaFerramenta => FERRAMENTAS.s
 export const noticiasNoMister = (): boolean => process.env.MISTER_NOTICIAS_RAMO === '1';
 /** O link para abrir (`abrir_no_regem`) também nasce desligado: entra na conversa com `MISTER_LINKS=1`, depois da avaliação. */
 export const linksNoMister = (): boolean => process.env.MISTER_LINKS === '1';
+/** Versão 10, C3: procurar no mapa e ler a tela também nascem desligados (`MISTER_LER_TELAS=1`), depois da avaliação. */
+export const telasNoMister = (): boolean => process.env.MISTER_LER_TELAS === '1';
 /** O que o modelo recebe numa conversa de verdade; a avaliação recebe todas, para medir antes de ligar. */
 export const ferramentasDaConversa = (): typeof FERRAMENTAS => {
-  const fora = [...(noticiasNoMister() ? [] : ['noticias_do_ramo']), ...(linksNoMister() ? [] : [FERRAMENTA_DE_ABRIR])];
+  const fora = [
+    ...(noticiasNoMister() ? [] : ['noticias_do_ramo']),
+    ...(linksNoMister() ? [] : [FERRAMENTA_DE_ABRIR]),
+    ...(telasNoMister() ? [] : [FERRAMENTA_DE_PROCURAR, FERRAMENTA_DE_LER]),
+  ];
   return fora.length ? FERRAMENTAS.filter((f) => !fora.includes(f.name)) : FERRAMENTAS;
 };
 
@@ -1490,7 +1534,7 @@ export const ehConsulta = (n: unknown): n is NomeDaFerramenta => ehFerramenta(n)
  * nome que não existe (volta recusado na hora). O que FAZ algo (propor, mandar ou criar link, cancelar links, corrigir) —
  * toda ferramenta de `FERRAMENTAS_QUE_NAO_SAO_CONSULTA`, menos a anotação — põe a vez inteira em fila, uma de cada vez.
  */
-export const podeRodarJunto = (n: unknown): boolean => !ehFerramenta(n) || ehConsulta(n) || n === FERRAMENTA_DO_QUE_FALTA;
+export const podeRodarJunto = (n: unknown): boolean => !ehFerramenta(n) || ehConsulta(n) || n === FERRAMENTA_DO_QUE_FALTA || n === FERRAMENTA_DE_PROCURAR;
 
 // ───────────────────────────── a memória da conversa e a trilha ─────────────────────────────
 

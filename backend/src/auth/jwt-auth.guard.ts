@@ -8,9 +8,10 @@ import {
 } from '@nestjs/common';
 import { rotaDoTerminalDePonto, SESSAO_SO_DO_PONTO } from './sessao-do-ponto';
 import { JwtService } from '@nestjs/jwt';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../db/drizzle.module';
-import { colaborador, funcao, perfilAcesso, suporteSessao, empresa } from '../db/schema';
+import { colaborador, funcao, perfilAcesso, setor, suporteSessao, empresa } from '../db/schema';
+import { cabecalhoDoBilhete, consumirBilhete } from './bilhete-do-mister';
 import { perfilPadrao, PACOTE_SUPORTE, PACOTE_SUPORTE_TOTAL, type Permissoes } from './permissoes';
 import { lerCookieSessao } from './cookie-sessao';
 import { sessaoEncerrada } from './sessao-encerrada';
@@ -42,6 +43,10 @@ export class JwtAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
+    // Mister, versão 10, C3: a leitura de uma tela pelo Mister, com o bilhete de UMA chamada (`bilhete-do-mister.ts`). Com
+    // o cabeçalho, só o bilhete decide — nunca cai no cookie ou no Bearer.
+    const bilhete = cabecalhoDoBilhete(req);
+    if (bilhete !== undefined) return this.peloBilhete(req, bilhete);
     // Header Bearer tem prioridade (edge/integrações/API); sem ele, cai no cookie
     // httpOnly (nuvem, Fase B). Um dos dois carrega o JWT.
     const header = req.headers['authorization'] as string | undefined;
@@ -145,6 +150,48 @@ export class JwtAuthGuard implements CanActivate {
       // não derruba a sessão: segue com os dados do token.
       if (e instanceof UnauthorizedException) throw e;
     }
+    return true;
+  }
+
+  /**
+   * O bilhete do Mister (C3): gasta o bilhete (uma chamada, GET, o caminho exato, 30 s) e monta a pessoa lida no banco
+   * AGORA, sem o cache — excluída, bloqueada ou de outra empresa não lê. Perfil, setor, loja e permissões saem como no
+   * login (`AuthService.login` + `escopo`): a loja do colaborador; sem ela, a do setor da função.
+   */
+  private async peloBilhete(req: any, id: string): Promise<boolean> {
+    const b = consumirBilhete(id, req.method, req.originalUrl ?? req.url);
+    if (!b) throw new UnauthorizedException('Bilhete inválido ou vencido.');
+    const [row] = await this.db
+      .select({
+        nome: colaborador.nome,
+        status: colaborador.status,
+        deletedAt: colaborador.deletedAt,
+        unidadeId: colaborador.unidadeId,
+        funcaoNome: funcao.nome,
+        funcaoCategoria: funcao.categoria,
+        setorId: funcao.setorId,
+        setorUnidadeId: setor.unidadeId,
+        perfilNivel: perfilAcesso.nivel,
+        permissoes: perfilAcesso.permissoes,
+      })
+      .from(colaborador)
+      .leftJoin(funcao, eq(colaborador.funcaoId, funcao.id))
+      .leftJoin(setor, eq(funcao.setorId, setor.id))
+      .leftJoin(perfilAcesso, eq(colaborador.perfilAcessoId, perfilAcesso.id))
+      .where(and(eq(colaborador.id, b.colaboradorId), eq(colaborador.tenantId, b.tenantId)));
+    if (!row || row.deletedAt || row.status === 'bloqueado') throw new UnauthorizedException('Acesso encerrado.');
+    const categoria = (row.perfilNivel ?? row.funcaoCategoria ?? 'execucao') as string;
+    req.user = {
+      colaboradorId: b.colaboradorId,
+      tenantId: b.tenantId,
+      categoria,
+      setorId: row.setorId ?? null,
+      unidadeId: row.unidadeId ?? row.setorUnidadeId ?? null,
+      permissoes: (row.permissoes ?? perfilPadrao(categoria).permissoes) as Permissoes,
+      nome: row.nome ?? null,
+      funcaoNome: row.funcaoNome ?? null,
+      origem: 'mister',
+    };
     return true;
   }
 

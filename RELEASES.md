@@ -12,7 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.16)
 
-- _(nada ainda — o #1354, Mister C10b, entrou na `main` logo depois do corte da 1.30.15 e não está no `.exe`; é só da nuvem)_
+- _(o #1354, Mister C10b, entrou na `main` logo depois do corte da 1.30.15 e não está no `.exe`; é só da nuvem)_
+- **Mister C3 — ler qualquer tela (26/11; SEM migration; o efeito é só na nuvem).** O `JwtAuthGuard` ganhou o ramo do bilhete de
+  uma leitura (`x-regem-bilhete`, `auth/bilhete-do-mister.ts`), e o limite de chamadas conta o bilhete pela empresa. Vai no
+  próximo `.zip` só por ser código comum: no servidor da loja nenhum bilhete é emitido, então o cabeçalho dá 401 e o resto não
+  muda. Não pede `.exe`.
 
 ## Última release: `1.30.15` — gerada em 26/11/2026 da `origin/main` `8df7de83`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 222.738.140 bytes, SHA-256 `b98d802f95e5a0780d64f97e422da6004cc164397d33d0062b967e0c1e48338b`), pelo `build-release.ps1` (preflight OK; o único aviso = o carimbo do `.iss`; Node 24.22.1; ponte 0.7.9) e Inno 7 (802 s); entregue ao dono em `Documentos\Regem - release 1.30.15 (26-11)` com o `LEIA-ME.txt` (instalar por cima no servidor, com a loja fechada); **sem `.zip`** e nada publicado no console — a loja que só atualiza pelo ícone segue na 1.30.14 até um `.zip`
 

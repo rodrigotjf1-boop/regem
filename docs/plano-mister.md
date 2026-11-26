@@ -2837,7 +2837,7 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
 - Falta o dono confirmar no celular que essas 3 estavam certas e que as 10 ficaram legíveis. Com isso o teste passa (V10-12), e
   a C10c (o ajuste por empresa, com o preço) fica liberada.
 
-### C2 — o mapa do Regem (26/11/2026; SEM migration)
+### C2 — o mapa do Regem (26/11/2026, #1357, NO AR; SEM migration)
 
 - **O mapa** (`backend/src/modules/mister/mapa/mapa-do-regem.ts`) tem cada função da API do Regem: a rota ("METODO
   /api/v1/caminho", como o contrato), a MARCA e uma frase. São 1.296 funções; o contrato de 21/11 tinha 1.275, e as 21 que
@@ -2868,5 +2868,64 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
   - as áreas do público, da distribuição, do servidor da loja, do sync, do Mister e da autenticação ficam sempre `interna`.
 - **O Mister ainda NÃO usa o mapa.** A C3 (ler qualquer tela) e a C4 (fazer qualquer tarefa) o usam, depois da revisão das
   marcas. Até lá, o mapa só garante que nenhuma função nova nasce sem a decisão de como o Mister pode usá-la.
-- **A revisar pela DMS antes da C3:** as marcas de escrita (sobretudo `botao` × `pin`) e as frases das funções de leitura que a
-  C3 vai oferecer.
+- **A revisão ficou em duas partes.** As leituras foram revisadas na C3 (abaixo). A escrita (sobretudo `botao` × `pin`) a DMS
+  revisa antes da C4.
+- **O que o plano pedia e ficou para a C3:** marcar os campos de dado pessoal. Saiu de outro jeito: a leitura inteira com dado de
+  pessoa ganha a marca `pessoal`, e um filtro por nome de campo vale para todas as respostas.
+
+### C3 — ler qualquer tela (26/11/2026; SEM migration; só na nuvem; nasce DESLIGADA, `MISTER_LER_TELAS=1`)
+
+- **As duas ferramentas** (`mister-telas.service.ts`):
+  - `procurar_no_regem`: procura no mapa pelas palavras (`mapa/busca-no-mapa.ts`), sem IA e sem banco. Devolve até 8 leituras,
+    cada uma com a frase, os parâmetros do caminho e a consulta que aceita. A tela com dado de pessoa não é oferecida: a busca
+    só avisa que ela existe;
+  - `ler_no_regem`: lê uma dessas funções "como se a pessoa abrisse a tela". As consultas prontas continuam vindo primeiro (a
+    instrução diz isso); o mapa é para o resto.
+- **Como a leitura acontece — o bilhete de uma chamada** (`auth/bilhete-do-mister.ts`):
+  - o Mister chama a PRÓPRIA API, por dentro do servidor (127.0.0.1, a porta em que o app escuta), com o cabeçalho
+    `x-regem-bilhete`;
+  - o bilhete vale UMA chamada, por 30 segundos, para UM caminho exato (com a consulta) e só GET. O primeiro uso o gasta, dê certo
+    ou não. São 32 bytes aleatórios, só na memória do processo;
+  - o `JwtAuthGuard` troca o bilhete pela pessoa lida no banco NA HORA, sem o cache (excluída, bloqueada ou de outra empresa não
+    lê). Daí em diante valem as travas da tela: o perfil, as permissões, os módulos, a loja (`@UnidadeAtual`; o presidente manda
+    a loja escolhida no cabeçalho, quem está preso a uma loja fica nela) e o filtro da empresa em toda consulta;
+  - não é sessão nem token: não abre o tempo real, não entra em "Sair" e não vale em outro servidor. No servidor da loja, onde o
+    Mister não roda, a lista fica vazia, e quem mandar o cabeçalho recebe 401;
+  - o limite de chamadas conta o bilhete pela empresa (`mister:<empresa>`), não pelo 127.0.0.1 que todas dividiriam.
+- **A revisão das leituras** (o que a DMS faria antes da C3, feito agora e a conferir):
+  - **175 leituras** que o Mister lê, cada uma com a frase em português de quem usa;
+  - **87 com dado de pessoa** (`pessoal: true`), que o Mister não lê:
+    - as áreas inteiras de Atendimento, WhatsApp, Clientes, Vagas, Ponto, Colaboradores e Auditoria;
+    - os pedidos do delivery, a retirada, as encomendas, as avaliações, os entregadores e as falhas de envio;
+    - os participantes da fidelidade, as notas fiscais, o público e o opt-out das campanhas;
+  - **44 que viraram `interna`:**
+    - 36 com credencial própria (servidor da loja, totem, aparelho, estação de impressão, IBPT pelo token do servidor);
+    - as de credencial de integração (delivery, Pix principal, certificado);
+    - as telas do KDS;
+  - **a consulta de cada leitura** (os `?inicio=…` que ela aceita) veio do contrato.
+- **O filtro da resposta** (`mapa/leitura-limpa.ts`), a segunda trava, pelo nome de cada campo, em qualquer nível:
+  - sai todo campo de contato, documento (CPF, CNPJ), endereço, posição, foto, link, segredo e credencial;
+  - sai o cliente (texto, objeto ou lista; a contagem fica);
+  - no objeto com cara de pessoa sai também o nome; no fornecedor com CNPJ e na loja, o nome fica;
+  - todo texto passa pelo `semDadoPessoal` (e-mail e 9 dígitos), menos o que é só uma data — o filtro antigo apagava
+    "26/11/2026 12:30" como número;
+  - quem não vê valores não recebe campo de dinheiro, e o "R$" do texto vira "(oculto)";
+  - listas, textos e níveis fundos são cortados, com a observação. A resposta acima de 12.000 letras encolhe; se nem com 4 itens
+    por lista couber, a IA pede um período menor.
+- **A sessão com PIN pendente** (M6d): a leitura espera o PIN, como os dados de pessoas.
+- **A trava do mapa** ganhou dois testes:
+  - toda leitura `le` passa pelo `JwtAuthGuard`, lido dos metadados do próprio app (o bilhete só vale nele). Foi assim que
+    apareceram as 36 de credencial própria;
+  - `pessoal` só em leitura, e as áreas de pessoas inteiras marcadas.
+- **Os testes:**
+  - o bilhete, com o balde do limite de chamadas;
+  - o filtro, a busca e a conferência do pedido;
+  - **de ponta a ponta** (`auth/bilhete-do-mister-pg.spec.ts`), com Postgres e um servidor HTTP de verdade:
+    - o presidente lê as lojas da empresa dele e não as da outra;
+    - forjado, reaproveitado, de outro caminho, POST e pessoa de outra empresa: 401, e o POST não grava;
+    - bloqueado e excluído não leem;
+    - o gerente sem a permissão da tela recebe a recusa do perfil;
+    - o PIN pendente nem chama a API;
+  - **a avaliação** ganhou c126 a c129 (129 perguntas): os cupons ativos, a taxa de um bairro, a pendência do fornecedor (o
+    telefone e o contato não chegam à IA) e o gerente sem valores no fechamento do caixa.
+- **Para ligar:** rodar a avaliação real com `MISTER_LER_TELAS=1` e, com ela boa, pôr a variável na API.

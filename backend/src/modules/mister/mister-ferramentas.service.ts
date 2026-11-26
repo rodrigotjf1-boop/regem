@@ -128,6 +128,7 @@ import { WhatsappGastoService } from '../whatsapp/whatsapp-gasto.service';
 import { FRANQUIA_DO_ATENDIMENTO, FRASE_DO_ESTIMADO, LinhaSomada, mesesAntes, primeiroDoMes, projecaoDoMes, resumoDasLinhas, ultimoDoMes } from '../whatsapp/whatsapp-gasto';
 import { ASSUNTOS_DO_LINK, AssuntoDoLink, TELA_DO_ASSUNTO, acharPessoa, enderecoDoApp, mensagemDoLink, resumoDaContagem } from './link-de-conferencia';
 import { MisterPropostasService, PropostaPendente } from './mister-propostas.service';
+import { MisterTelasService } from './mister-telas.service';
 import { PROCEDIMENTOS, propostaDoAviso } from './mister-procedimentos';
 import {
   PROCEDIMENTOS_QUE_A_IA_PROPOE,
@@ -442,6 +443,8 @@ export class MisterFerramentasService {
     @Optional() private readonly perfisDeClientes?: PerfilClienteService,
     // Etapa 2 de 24/11: o acerto dos entregadores (o módulo deles não exporta o serviço).
     @Optional() private readonly moduleRef?: ModuleRef,
+    // Versão 10, C3: procurar no mapa e ler a tela como a pessoa. Sem ele, "não consegui ler esta tela agora".
+    @Optional() private readonly telas?: MisterTelasService,
   ) {}
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -576,6 +579,8 @@ export class MisterFerramentasService {
     if (nome === FERRAMENTA_DE_LEMBRAR) return this.lembrar(e, entrada);
     // Versão 4, M4d: o lembrete é da pessoa, não de uma loja.
     if (nome === 'lembrete') return this.lembrete(e, entrada);
+    // Versão 10, C3: a busca no mapa não lê dado de loja nenhuma (é o mapa revisado pela DMS).
+    if (nome === 'procurar_no_regem') return this.telas ? this.telas.procurar(entrada) : recusa('Não consegui ler esta tela agora.');
     if (e.semLoja) return recusa(SEM_LOJA);
     // Versão 6, M6d: com a sessão com PIN pendente, os dados de pessoas esperam o PIN (os valores já saem escondidos pelo
     // `verValores` do escopo). O link vai depois da resposta (o agente).
@@ -704,6 +709,10 @@ export class MisterFerramentasService {
         return Promise.resolve(this.refazerGrafico(e, en));
       case 'grafico_livre':
         return Promise.resolve(this.graficoLivre(e, en, loja));
+      case 'procurar_no_regem':
+        return Promise.resolve(this.telas ? this.telas.procurar(en) : recusa('Não consegui ler esta tela agora.'));
+      case 'ler_no_regem':
+        return this.telas ? this.telas.ler(e, en, loja) : Promise.resolve(recusa('Não consegui ler esta tela agora.'));
       case 'propor_acao':
         return this.acoes ? this.acoes(e, en, loja) : Promise.resolve(recusa('As ações do Mister ainda não estão disponíveis neste servidor.'));
       case 'propor_plano':

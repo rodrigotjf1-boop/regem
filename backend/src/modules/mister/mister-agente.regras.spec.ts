@@ -299,6 +299,9 @@ describe('Mister — o que o modelo recebe', () => {
       'documento_em_andamento',
       // Versão 6, M6i: o "refazer" do último gráfico.
       'refazer_grafico',
+      // Versão 10, C3: procurar no mapa e ler a tela como a pessoa (fora da conversa até `MISTER_LER_TELAS=1`).
+      'procurar_no_regem',
+      'ler_no_regem',
       // Versão 10, C10b: o gráfico de qualquer consulta desta pergunta, desenhado pelo Regem.
       'grafico_livre',
       // Versão 6, M6j: a porta das ações.
@@ -309,6 +312,9 @@ describe('Mister — o que o modelo recebe', () => {
       'abrir_no_regem',
     ]);
     expect(ehConsulta('gasto_do_whatsapp')).toBe(true);
+    // C3: ler a tela é consulta (o dado vai à resposta e é origem dos números); procurar no mapa não lê dado da loja, mas roda junto.
+    expect([ehConsulta('ler_no_regem'), podeRodarJunto('ler_no_regem')]).toEqual([true, true]);
+    expect([ehConsulta('procurar_no_regem'), podeRodarJunto('procurar_no_regem')]).toEqual([false, true]);
     // Versão 4, M4d (mig 452): o "fica de olho" e o lembrete marcam — não leem dado para responder — e vão um de cada vez.
     for (const n of ['ficar_de_olho', 'lembrete', 'regras', 'lista_de_compras', 'refazer_grafico', 'grafico_livre', 'propor_acao', 'propor_plano', 'abrir_no_regem'])
       expect([n, ehConsulta(n), podeRodarJunto(n)]).toEqual([n, false, false]);
