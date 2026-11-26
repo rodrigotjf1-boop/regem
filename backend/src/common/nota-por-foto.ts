@@ -386,7 +386,19 @@ export interface PedidoDaNota {
   itensDoPedido?: Array<{ compraItemId: string; itemId: string; nome: string; quantidade: number }>;
   /** Versão 10, C1b: o que a pessoa decidiu, pela conversa, sobre o que veio menos e o que veio a mais (pelo insumo). */
   decisoes?: {
-    faltas: Record<string, { decisao: 'chega_depois' | 'cancelado'; para: string | null }>;
+    faltas: Record<
+      string,
+      {
+        decisao: 'chega_depois' | 'cancelado' | 'outro_lugar';
+        para: string | null;
+        /** C1b-2, "veio de outro lugar": de quem (o id do cadastro, ou null = fornecedor novo, cadastrado no lançamento). */
+        fornecedor?: { id: string | null; nome: string };
+        /** Quanto veio de lá (na unidade do estoque) e quanto custou, em centavos; a forma do pagamento, se dita. */
+        quantidade?: number;
+        valorCentavos?: number;
+        forma?: 'pix' | 'dinheiro' | 'cartao' | null;
+      }
+    >;
     aMais: Record<string, 'no_pedido' | 'avulso'>;
   };
 }

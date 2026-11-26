@@ -486,6 +486,9 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       const brl = (c: number) => `R$ ${(c / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
       // Versão 10, C1b: a decisão sobre as diferenças do pedido (a mesma leitura da de verdade; nada é gravado).
       if (en.acao === 'pedido') {
+        // C1b-2: "é de outro pedido" (na avaliação, o pedido dito só é ecoado).
+        if (typeof en.outro_pedido === 'string' && en.outro_pedido.trim())
+          return ok({ gravado: true, feito: [`Agora o cupom recebe o pedido "${en.outro_pedido.trim()}".`], lancado: false, siga: 'Diga em uma frase o que mudou e pergunte o que aconteceu com as diferenças do pedido novo.' });
         const p = lerDecisoesDoPedido(en, DIFERENCAS_DA_AVALIACAO, undefined, AGORA_DA_AVALIACAO_INSTANTE.toISOString().slice(0, 10));
         if ('erro' in p) return recusa(p.erro);
         const faltam = diferencasSemDecisao({ decisoes: p.decisoes }, DIFERENCAS_DA_AVALIACAO);
@@ -1506,6 +1509,8 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   { id: 'c122', pergunta: 'O boleto da Light que mandei é de 480 reais e vence dia 10/12.', consultas: ['documento_em_andamento'], contem: ['480', '10/12'] },
   // Versão 10, C1b (25/11): as diferenças do pedido na nota, contadas do jeito da pessoa ("amanhã" = 14/11 na loja de teste).
   { id: 'c123', pergunta: 'Sobre o cupom: o resto da batata chega amanhã e a cebola eu cancelei.', consultas: ['documento_em_andamento'], contem: ['14/11'] },
+  // Versão 10, C1b-2 (26/11): "veio de outro lugar" — a cebola comprada no mercado, com o valor (a conta entra já paga).
+  { id: 'c124', pergunta: 'A cebola que não veio eu comprei no Mercado do Zé, deu 48 reais no pix.', consultas: ['documento_em_andamento'], contem: ['Mercado do Zé', '48'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

@@ -66,7 +66,7 @@ describe('C1b · as diferenças entre o pedido e a nota', () => {
   });
   it('produto fora das diferenças, decisão que não existe, dia impossível ou longe: volta para a IA perguntar', () => {
     expect((lerDecisoesDoPedido({ faltas: [{ produto: 'tomate', decisao: 'cancelado' }] }, dif, undefined, '2026-11-25') as any).erro).toContain('não está nas diferenças');
-    expect((lerDecisoesDoPedido({ faltas: [{ produto: 'cebola', decisao: 'sumiu' }] }, dif, undefined, '2026-11-25') as any).erro).toContain('chega_depois ou cancelado');
+    expect((lerDecisoesDoPedido({ faltas: [{ produto: 'cebola', decisao: 'sumiu' }] }, dif, undefined, '2026-11-25') as any).erro).toContain('chega_depois, cancelado ou outro_lugar');
     expect((lerDecisoesDoPedido({ faltas: [{ produto: 'batata', decisao: 'chega_depois', para: '2026-11-31' }] }, dif, undefined, '2026-11-25') as any).erro).toContain('AAAA-MM-DD');
     expect((lerDecisoesDoPedido({ faltas: [{ produto: 'batata', decisao: 'chega_depois', para: '2026-11-20' }] }, dif, undefined, '2026-11-25') as any).erro).toContain('confirme');
     expect((lerDecisoesDoPedido({ a_mais: [{ produto: 'nugget', decisao: 'joga fora' }] }, dif, undefined, '2026-11-25') as any).erro).toContain('no_pedido ou avulso');
@@ -81,5 +81,24 @@ describe('C1b · as diferenças entre o pedido e a nota', () => {
       ],
       aMais: [{ produto: 'Nugget 1 kg', veio: 1, decidido: null }],
     });
+  });
+  it('C1b-2 · veio de outro lugar: o fornecedor, o valor, a quantidade (sem ela, o que faltou) e a forma', () => {
+    const r = lerDecisoesDoPedido({ faltas: [{ produto: 'cebola', decisao: 'outro_lugar', fornecedor: ' Mercado  do Zé ', valor: 48, forma: 'pix' }] }, dif, undefined, '2026-11-25');
+    expect(r).toEqual({
+      decisoes: { faltas: { cebola: { decisao: 'outro_lugar', para: null, fornecedor: { id: null, nome: 'Mercado do Zé' }, quantidade: 10, valorCentavos: 4800, forma: 'pix' } }, aMais: {} },
+      feito: ['Cebola: 10 veio de Mercado do Zé, R$ 48,00, conta paga.'],
+    });
+    // O resumo diz o fornecedor novo (sem id) e a conta paga; com o id do cadastro, sem "novo".
+    const dec: any = (r as any).decisoes;
+    expect(linhasDoPedidoNoResumo(dif, dec)).toEqual(['• Cebola: 10 entra pelo Mercado do Zé (fornecedor novo), R$ 48,00, conta paga.']);
+    dec.faltas.cebola.fornecedor = { id: 'f1', nome: 'Mercado do Zé' };
+    expect(linhasDoPedidoNoResumo(dif, dec)).toEqual(['• Cebola: 10 entra pelo Mercado do Zé, R$ 48,00, conta paga.']);
+    // A quantidade dita vale; a forma fora da lista fica sem forma.
+    expect((lerDecisoesDoPedido({ faltas: [{ produto: 'batata', decisao: 'outro_lugar', fornecedor: 'Atacadão', valor: 60, quantidade: 5, forma: 'cheque' }] }, dif, undefined, '2026-11-25') as any).decisoes.faltas.batata).toMatchObject({ quantidade: 5, forma: null });
+  });
+  it('C1b-2 · sem de onde veio ou sem o valor, volta para a IA perguntar', () => {
+    expect((lerDecisoesDoPedido({ faltas: [{ produto: 'cebola', decisao: 'outro_lugar', valor: 48 }] }, dif, undefined, '2026-11-25') as any).erro).toContain('diga de onde veio');
+    expect((lerDecisoesDoPedido({ faltas: [{ produto: 'cebola', decisao: 'outro_lugar', fornecedor: 'Mercado' }] }, dif, undefined, '2026-11-25') as any).erro).toContain('quanto custou');
+    expect((lerDecisoesDoPedido({ faltas: [{ produto: 'cebola', decisao: 'outro_lugar', fornecedor: 'Mercado', valor: 10, quantidade: -1 }] }, dif, undefined, '2026-11-25') as any).erro).toContain('não é válida');
   });
 });

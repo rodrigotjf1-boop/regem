@@ -70,6 +70,8 @@ export interface ResumoDoPedidoRecebido {
   chegaDepois?: { nome: string; itens: string[]; para: string | null };
   /** C1b: o que foi cancelado (não volta a ser pedido). */
   cancelados?: string[];
+  /** C1b-2: o que veio de outro lugar, com a conta (paga, ou que não entrou). */
+  deOutroLugar?: Array<{ item: string; fornecedor: string; valorCentavos: number; pago: boolean }>;
 }
 
 export const FRASES_DO_PEDIDO_DA_NOTA = {
@@ -116,6 +118,10 @@ export const FRASES_DO_PEDIDO_DA_NOTA = {
     // Versão 10, C1b: o que a pessoa decidiu sobre as diferenças.
     `${r.chegaDepois ? ` O que ainda chega (${r.chegaDepois.itens.join(', ')}) está no pedido "${r.chegaDepois.nome}"${r.chegaDepois.para ? `, para ${r.chegaDepois.para.slice(8, 10)}/${r.chegaDepois.para.slice(5, 7)}` : ''}.` : ''}` +
     `${r.cancelados?.length ? ` ${r.cancelados.length === 1 ? 'Cancelado' : 'Cancelados'}: ${r.cancelados.join(', ')} (não ${r.cancelados.length === 1 ? 'volta' : 'voltam'} a ser pedido).` : ''}` +
+    // C1b-2: o que veio de outro lugar.
+    (r.deOutroLugar ?? [])
+      .map((x) => ` ${x.item} veio de ${x.fornecedor}, R$ ${reais(x.valorCentavos)}: ${x.pago ? 'a conta entrou já paga' : 'a conta NÃO entrou, lance em Financeiro › Contas a pagar'}.`)
+      .join('') +
     `${r.pendentes.length ? ` A validade de ${r.pendentes.join(', ')} ficou pendente: responda a data quando souber.` : ''}`
     );
   },

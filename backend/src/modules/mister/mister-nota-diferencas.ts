@@ -107,7 +107,23 @@ export function lerDecisoesDoPedido(
   for (const x of faltas as any[]) {
     const f = acharPorNome(x?.produto, d.faltas);
     if ('erro' in f) return f;
-    if (x?.decisao !== 'chega_depois' && x?.decisao !== 'cancelado') return { erro: `${f.nome}: a decisão é chega_depois ou cancelado.` };
+    if (x?.decisao !== 'chega_depois' && x?.decisao !== 'cancelado' && x?.decisao !== 'outro_lugar') return { erro: `${f.nome}: a decisão é chega_depois, cancelado ou outro_lugar.` };
+    // C1b-2: "veio de outro lugar" — de quem, quanto e quanto custou (a conta entra já paga). O fornecedor é achado (ou fica
+    // como novo) pelo serviço, que conhece o cadastro.
+    if (x.decisao === 'outro_lugar') {
+      const fornecedor = String(x.fornecedor ?? '').replace(/\s+/g, ' ').trim();
+      if (fornecedor.length < 2 || fornecedor.length > 80 || !/\p{L}/u.test(fornecedor)) return { erro: `${f.nome}: diga de onde veio (o fornecedor ou o mercado).` };
+      const valor = Number(x.valor);
+      if (!Number.isFinite(valor) || valor <= 0 || valor > 1_000_000) return { erro: `${f.nome}: diga quanto custou, em reais.` };
+      const resto = Math.round((f.pedida - f.veio) * 10000) / 10000;
+      const quantidade = x.quantidade === undefined || x.quantidade === null ? resto : Number(x.quantidade);
+      if (!Number.isFinite(quantidade) || quantidade <= 0 || quantidade > f.pedida * 10) return { erro: `${f.nome}: a quantidade que veio de lá não é válida.` };
+      const forma = x.forma === 'pix' || x.forma === 'dinheiro' || x.forma === 'cartao' ? x.forma : null;
+      const valorCentavos = Math.round(valor * 100);
+      dec.faltas[f.itemId] = { decisao: 'outro_lugar', para: null, fornecedor: { id: null, nome: fornecedor }, quantidade: Math.round(quantidade * 10000) / 10000, valorCentavos, forma };
+      feito.push(`${f.nome}: ${num(quantidade)} veio de ${fornecedor}, R$ ${(valorCentavos / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}, conta paga.`);
+      continue;
+    }
     let para: string | null = null;
     if (x.decisao === 'chega_depois' && x.para !== undefined && x.para !== null && String(x.para).trim()) {
       const v = String(x.para).trim();
@@ -152,6 +168,11 @@ export function linhasDoPedidoNoResumo(d: DiferencasDoPedido, dec: DecisoesDoPed
   for (const f of d.faltas) {
     const x = dec?.faltas?.[f.itemId];
     if (!x) continue;
+    if (x.decisao === 'outro_lugar') {
+      const novo = x.fornecedor && !x.fornecedor.id ? ' (fornecedor novo)' : '';
+      linhas.push(`• ${f.nome}: ${num(x.quantidade ?? f.pedida - f.veio)} entra pelo ${x.fornecedor?.nome ?? 'outro fornecedor'}${novo}, R$ ${((x.valorCentavos ?? 0) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}, conta paga.`);
+      continue;
+    }
     linhas.push(x.decisao === 'cancelado' ? `• ${f.nome}: sai do pedido (cancelado).` : `• ${f.nome}: ${num(f.pedida - f.veio)} continua num pedido novo${x.para ? `, para ${dia(x.para)}` : ''}.`);
   }
   for (const a of d.aMais) {
@@ -168,6 +189,6 @@ export function diferencasParaAIa(d: DiferencasDoPedido, dec: DecisoesDoPedido |
     faltas: d.faltas.map((f) => ({ produto: f.nome, pedida: f.pedida, veio: f.veio, decidido: dec?.faltas?.[f.itemId]?.decisao ?? null })),
     aMais: d.aMais.map((a) => ({ produto: a.nome, veio: a.veio, decidido: dec?.aMais?.[a.itemId] ?? null })),
     siga:
-      'Pergunte o que aconteceu com cada diferença, do jeito da conversa, e grave com documento_em_andamento acao pedido: faltas (chega_depois, com para AAAA-MM-DD se a pessoa disser o dia; ou cancelado) e a_mais (no_pedido ou avulso). Sem certeza, pergunte; nunca decida sozinho.',
+      'Pergunte o que aconteceu com cada diferença, do jeito da conversa, e grave com documento_em_andamento acao pedido: faltas (chega_depois, com para AAAA-MM-DD se a pessoa disser o dia; cancelado; ou outro_lugar, com fornecedor, valor em reais e, se dito, quantidade e forma — a conta entra paga) e a_mais (no_pedido ou avulso). Se a pessoa disser que a nota é de OUTRO pedido, mande outro_pedido com o nome dele. Sem certeza, pergunte; nunca decida sozinho.',
   };
 }
