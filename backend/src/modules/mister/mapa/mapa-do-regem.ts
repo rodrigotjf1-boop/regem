@@ -1065,6 +1065,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'POST /api/v1/mister/modelos/{fornecedor}/esquecer', marca: 'interna', frase: 'mister compra modelos: esquecer' },
   { rota: 'POST /api/v1/mister/modelos/apelidos/esquecer', marca: 'interna', frase: 'mister compra modelos: esquecer apelido' },
   { rota: 'POST /api/v1/mister/pessoas/{colaboradorId}/perdi-o-celular', marca: 'interna', frase: 'mister: perdi ocelular' },
+  { rota: 'POST /api/v1/mister/pessoas/{colaboradorId}/pin-falado/desligar', marca: 'interna', frase: 'Mister › Pessoas: desligar o PIN falado de uma pessoa' },
   { rota: 'POST /api/v1/mister/regras/{id}/pausar', marca: 'interna', frase: 'mister regras: pausar' },
   { rota: 'POST /api/v1/mister/regras/{id}/retomar', marca: 'interna', frase: 'mister regras: retomar' },
   { rota: 'POST /api/v1/mister/whatsapp/codigo', marca: 'interna', frase: 'mister: gerar codigo' },

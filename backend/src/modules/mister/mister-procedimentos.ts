@@ -11,7 +11,7 @@ import { compararVersao } from '../edge/release-selecao';
 import { ACOES, TEXTOS_DAS_ACOES, ehDadoInformado, type AcaoDoMister } from './mister-acoes';
 
 // Versão 6, M6j: as AÇÕES da porta `propor_acao` (`mister-acoes.ts`) também são propostas — de botão, de quem pediu.
-export type ProcedimentoDoMister = 'consultar_nota' | 'imprimir_teste' | 'cancelar_pedido' | 'reiniciar_impressao' | 'abrir_sessao' | AcaoDoMister;
+export type ProcedimentoDoMister = 'consultar_nota' | 'imprimir_teste' | 'cancelar_pedido' | 'reiniciar_impressao' | 'abrir_sessao' | 'ligar_pin_falado' | AcaoDoMister;
 export type NivelDaAutorizacao = 'botao' | 'pin';
 export type SituacaoDaProposta = 'proposta' | 'autorizada' | 'recusada' | 'vencida' | 'executando' | 'feita' | 'nao_deu';
 
@@ -50,6 +50,9 @@ export const PROCEDIMENTOS: Record<ProcedimentoDoMister, Procedimento> = {
   // botão pedem o PIN pelo link; o PIN certo libera por 6, 12 ou 24 horas (`mister_vinculo.pin_ate`). Da própria pessoa
   // (presidente ou gerente), nasce da conversa, vale 15 minutos. O efeito é imediato (não há o que conferir depois).
   abrir_sessao: { id: 'abrir_sessao', tipoDoAviso: null, nivel: 'pin', prazoMin: 15, conferirMin: 1, nome: 'liberar os valores e os dados de pessoas no Mister' },
+  // Versão 10, C5 (mig 507): ligar o PIN FALADO para si — confirmando o PIN uma vez, pela página do link; da própria pessoa,
+  // nasce da conversa, vale 15 minutos. O efeito é imediato (`mister_vinculo.pin_falado_em`).
+  ligar_pin_falado: { id: 'ligar_pin_falado', tipoDoAviso: null, nivel: 'pin', prazoMin: 15, conferirMin: 1, nome: 'ligar o PIN falado' },
   // Versão 6, M6j: as ações da porta `propor_acao` (lote 1, o Delivery) — de botão, de QUEM pediu (presidente ou gerente com
   // o Delivery no perfil), nascem da conversa; o efeito se confere na hora, pelo estado que o serviço da tela deixou.
   ...(Object.fromEntries(

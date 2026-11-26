@@ -302,6 +302,8 @@ describe('Mister — o que o modelo recebe', () => {
       // Versão 10, C3: procurar no mapa e ler a tela como a pessoa (fora da conversa até `MISTER_LER_TELAS=1`).
       'procurar_no_regem',
       'ler_no_regem',
+      // Versão 10, C5: o PIN falado (fora da conversa até `MISTER_PIN_FALADO=1`).
+      'pin_falado',
       // Versão 10, C4: fazer uma tarefa pelo mapa (fora da conversa até `MISTER_FAZER_TAREFAS=1`).
       'fazer_no_regem',
       // Versão 10, C10b: o gráfico de qualquer consulta desta pergunta, desenhado pelo Regem.
@@ -319,6 +321,7 @@ describe('Mister — o que o modelo recebe', () => {
     expect([ehConsulta('procurar_no_regem'), podeRodarJunto('procurar_no_regem')]).toEqual([false, true]);
     // C4: propor uma tarefa faz algo — não é consulta e vai sozinha.
     expect([ehConsulta('fazer_no_regem'), podeRodarJunto('fazer_no_regem')]).toEqual([false, false]);
+    expect([ehConsulta('pin_falado'), podeRodarJunto('pin_falado')]).toEqual([false, false]);
     // Versão 4, M4d (mig 452): o "fica de olho" e o lembrete marcam — não leem dado para responder — e vão um de cada vez.
     for (const n of ['ficar_de_olho', 'lembrete', 'regras', 'lista_de_compras', 'refazer_grafico', 'grafico_livre', 'propor_acao', 'propor_plano', 'abrir_no_regem'])
       expect([n, ehConsulta(n), podeRodarJunto(n)]).toEqual([n, false, false]);

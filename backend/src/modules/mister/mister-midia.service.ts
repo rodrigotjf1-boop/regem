@@ -110,6 +110,37 @@ export class MisterMidiaService implements OnModuleInit {
   }
 
   /**
+   * Versão 10, C5: a TRANSCRIÇÃO do áudio para o PIN falado — a mesma `ouvir_audio` do Graph, sem o tom, sem virar pergunta e
+   * sem responder nada (quem chama confere o PIN e responde). Áudio de PIN é curto: mais de 30 segundos não vale. Devolve o
+   * texto ou null (sem o Graph, não baixou, tipo errado, longo, inaudível ou falhou). O texto não vai para log nem fica guardado.
+   */
+  async transcreverParaOPin(tenantId: string, midia: MidiaDoMister, wamid: string | null): Promise<string | null> {
+    if (!this.ligado() || !this.graph || midia.tipo !== 'audio') return null;
+    try {
+      const lig = await this.graph.ligacaoParaFoto(tenantId);
+      if (!lig) return null;
+      const arquivo = await this.numero.baixarMidia(midia.id);
+      if (!arquivo?.buffer?.length || arquivo.buffer.length > MAX_BYTES_DA_MIDIA) return null;
+      const mime = tipoDoAudio(arquivo.mime ?? midia.mime);
+      if (!mime) return null;
+      const duracao = mime === 'audio/ogg' ? duracaoDoOggOpus(arquivo.buffer) : null;
+      if (duracao != null && duracao > 30) return null;
+      const ouvido = await this.graph.analisar(
+        tenantId,
+        lig,
+        { buffer: arquivo.buffer, mime, mensagemId: wamid ?? undefined },
+        this.prazoDoAudioMs,
+        oQueOGraphOuviu,
+        { ferramenta: FERRAMENTA_OUVIR, mimes: MIMES_DO_AUDIO, prefixoDaChave: PREFIXO_DA_CHAVE_DO_AUDIO },
+      );
+      return ouvido && !ouvido.inaudivel ? String(ouvido.transcricao ?? '') : null;
+    } catch (e: any) {
+      this.logger.warn(`áudio do PIN não ouvido (${String(e?.code ?? e?.name ?? e?.message ?? e).slice(0, 120)})`);
+      return null;
+    }
+  }
+
+  /**
    * Versão 5, M5c: a resposta em áudio. Quem chama (o agente) já mandou o texto e conferiu que a pergunta veio por áudio
    * e que a empresa ligou "Responder em áudio". O principal da resposta (~40 s) vira a nota de voz pela ferramenta `falar`
    * do DMS Graph e vai DEPOIS do texto. Devolve o desfecho curto (`enviado`, `desligado`, `sem-graph`, `sem-texto` ou o

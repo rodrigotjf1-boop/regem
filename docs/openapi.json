@@ -6174,6 +6174,26 @@
         }
       }
     },
+    "/api/v1/mister/pessoas/{colaboradorId}/pin-falado/desligar": {
+      "post": {
+        "operationId": "MisterController_desligarPinFalado",
+        "parameters": [
+          {
+            "name": "colaboradorId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/mister/pessoas/{colaboradorId}": {
       "delete": {
         "operationId": "MisterController_desligarPessoa",

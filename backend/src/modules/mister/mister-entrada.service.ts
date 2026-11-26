@@ -77,6 +77,8 @@ export interface MidiaDoMister {
   tipo: 'imagem' | 'documento' | 'audio';
   id: string;
   mime: string | null;
+  /** Versão 10, C5: a Meta marcou a mensagem como encaminhada (`context.forwarded`) — o áudio encaminhado não vale como PIN. */
+  encaminhada?: boolean;
   /** M5a: o que a pessoa escreveu junto da foto (a legenda da Meta, `caption`). */
   legenda?: string | null;
 }
@@ -91,7 +93,8 @@ export function midiaDaMeta(m: any): MidiaDoMister | null {
   const id = String(corpo?.id ?? '').trim();
   if (!corpo || !id) return null;
   const legenda = typeof corpo?.caption === 'string' && corpo.caption.trim() ? corpo.caption.trim() : null;
-  return { tipo: tipo === 'image' ? 'imagem' : tipo === 'audio' ? 'audio' : 'documento', id, mime: corpo?.mime_type ? String(corpo.mime_type) : null, legenda };
+  const encaminhada = m?.context?.forwarded === true || m?.context?.frequently_forwarded === true;
+  return { tipo: tipo === 'image' ? 'imagem' : tipo === 'audio' ? 'audio' : 'documento', id, mime: corpo?.mime_type ? String(corpo.mime_type) : null, legenda, ...(encaminhada ? { encaminhada: true } : {}) };
 }
 
 /** Quem mandou a mídia: o vínculo que vale para esta conversa (a empresa já escolhida). */
@@ -154,6 +157,8 @@ export type Desfecho =
   | 'proposta_nao_achada'
   | 'documento'
   | 'midia_nao_lida'
+  /** Versão 10, C5: o áudio era o PIN falado (conferido pelo código; nada seguiu para a fila nem para a IA). */
+  | 'pin_falado'
   | 'calado'
   /** Gravado pela rotina: a mensagem parou no meio e a lista de compras seguiu dali (ERR-584). */
   | 'retomada_lista';
@@ -207,6 +212,15 @@ export class MisterEntradaService {
   private midia: TratarMidia | null = null;
   registrarMidia(tratar: TratarMidia): void {
     this.midia = tratar;
+  }
+
+  /**
+   * Versão 10, C5: o PIN falado. Quem trata decide se o áudio é o PIN (o PIN falado ligado e uma proposta de PIN esperando
+   * esta pessoa): se for, confere pelo código e responde — 'tratado', e nada segue para a fila, a IA ou a memória. Senão, null.
+   */
+  private pinFalado: ((quem: QuemMandou, midia: MidiaDoMister, wamid: string | null) => Promise<'tratado' | null>) | null = null;
+  registrarPinFalado(tratar: (quem: QuemMandou, midia: MidiaDoMister, wamid: string | null) => Promise<'tratado' | null>): void {
+    this.pinFalado = tratar;
   }
 
   constructor(
@@ -650,6 +664,14 @@ export class MisterEntradaService {
     // que ela mostra vira a pergunta; boleto ou nota tenta os documentos antes. Desligada ou outro tipo: como antes.
     let daFoto: { pergunta: string; documento: boolean } | null = null;
     let semGraph = false;
+    // Versão 10, C5: o áudio pode ser o PIN falado — conferido pelo código ANTES da leitura da mídia, da fila e da IA.
+    if (midia?.tipo === 'audio' && this.pinFalado) {
+      const r = await this.pinFalado(quem, midia, wamid).catch((err: any) => {
+        this.logger.error(`mister: o PIN falado de ${mascarar(tel)} não foi conferido — ${err?.message ?? err}`);
+        return null;
+      });
+      if (r === 'tratado') return { desfecho: 'pin_falado', tenantId: v.tenantId };
+    }
     if (midia && this.midia) {
       const r = await this.midia(quem, midia, wamid).catch((err: any) => {
         this.logger.error(`mister: a foto de ${mascarar(tel)} não foi lida — ${err?.message ?? err}`, err?.stack);

@@ -32,6 +32,7 @@ import { montarLinks, pedidoDoLink } from './mister-abrir';
 import { TEXTOS_DAS_TELAS, pedidoDaLeitura, procurarTelas, recusaDaTela, resultadoDaLeitura } from './mister-telas.service';
 import { MOTIVO_NAO_TEM, SIGA_DO_QUE_FALTA, comMotivo } from './mister-motivo';
 import { TEXTOS_DAS_TAREFAS, pedidoDaTarefa } from './mister-tarefas';
+import { TEXTOS_DO_PIN_FALADO } from './mister-pin-falado';
 import { recusaPeloPerfil } from './mister-acoes-perfil';
 import { perfilPadrao } from '../../auth/permissoes';
 import type { BoletimDoRamo, NoticiaDoBoletim } from '../pulso/pulso.regras';
@@ -905,6 +906,9 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
     case 'procurar_no_regem':
       // C4: na avaliação a busca traz também as tarefas abertas (na conversa, só com `MISTER_FAZER_TAREFAS=1`).
       return procurarTelas(en, { tarefas: true });
+    // C5: na avaliação nada é ligado; ligar devolve a fala do risco e o link (que não sai), desligar devolve o "pronto".
+    case 'pin_falado':
+      return String(en.acao) === 'desligar' ? ok({ desligado: true, siga: TEXTOS_DO_PIN_FALADO.desligado }) : String(en.acao) === 'ligar' ? ok({ siga: TEXTOS_DO_PIN_FALADO.sigaDoLigar }) : recusa('Diga se é para ligar ou desligar o PIN falado.');
     case 'fazer_no_regem': {
       // C4: a MESMA conferência do pedido e o "Vou fazer" do Regem; na avaliação nada é proposto nem feito.
       const p = pedidoDaTarefa(en, { unidadeId: LOJA_ID_DA_AVALIACAO }, origemDe(en.__origem).resultados);

@@ -60,6 +60,7 @@ import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDaBaixa, apresentacaoDoHora
 import { PROCEDIMENTO_DO_PLANO, RESULTADO_DO_PLANO_TROCADO, TEXTOS_DO_PLANO } from './mister-plano';
 import { PROCEDIMENTO_DO_PEDIDO, TEXTOS_DO_PEDIDO, quemPediu, resumoGuardado } from './mister-pedido';
 import { PROCEDIMENTO_DA_TAREFA } from './mister-tarefas';
+import { TEXTOS_DO_PIN_FALADO, pinFaladoLigado } from './mister-pin-falado';
 import { IaEmpresaService } from '../ia/ia-empresa.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { linhasDoJeito } from './mister-agente.regras';
@@ -618,6 +619,18 @@ export class MisterPropostasService implements OnModuleInit {
       if (!v) return this.concluir(p, false, 'o WhatsApp desta pessoa não está mais ligado ao Mister. Nada foi liberado.');
       return this.concluir(p, true, TEXTOS_DA_SESSAO.liberada(horaNoFuso(new Date(v.pinAte))));
     }
+    if (p.procedimento === 'ligar_pin_falado') {
+      // Versão 10, C5: o PIN de QUEM pediu (o link vai só a ela) liga o PIN falado para ela.
+      if (!p.autorizadaPor || p.autorizadaPor !== String(p.parametros?.colaboradorId ?? '')) return this.concluir(p, false, 'o PIN não é de quem pediu. Nada foi ligado.');
+      const [v] = linhas(
+        await this.db.execute(sql`
+          update mister_vinculo set pin_falado_em = clock_timestamp(), atualizado_em = now()
+           where tenant_id = ${p.tenantId}::uuid and colaborador_id = ${p.autorizadaPor}::uuid and ligado_em is not null
+          returning id`),
+      );
+      if (!v) return this.concluir(p, false, 'o WhatsApp desta pessoa não está mais ligado ao Mister. Nada foi ligado.');
+      return this.concluir(p, true, 'o PIN falado está ligado para você. Quando eu pedir o PIN, você pode mandar um áudio falando os números; depois, apague o áudio. Digitar continua valendo.');
+    }
     return this.concluir(p, false, 'esse procedimento não existe mais.');
   }
 
@@ -847,8 +860,10 @@ export class MisterPropostasService implements OnModuleInit {
     if (!p) return null;
     const url = `${baseDoApp()}${caminhoDoLink(codigo)}`;
     await this.auditar(p.tenantId, colaboradorId, 'mister_proposta_link_enviado', propostaId, {}, 'whatsapp');
+    // Versão 10, C5: quem ligou o PIN falado lê que pode mandar um áudio com o PIN (a página continua valendo).
+    const comVoz = pinFaladoLigado() && (await this.pinFaladoDe(p.tenantId, colaboradorId));
     try {
-      await this.numero.enviar(telefone, { texto, link: { titulo: TEXTOS_DO_LINK.botao, url } });
+      await this.numero.enviar(telefone, { texto: comVoz ? `${texto}\n\n${TEXTOS_DO_PIN_FALADO.noLink}` : texto, link: { titulo: TEXTOS_DO_LINK.botao, url } });
     } catch (e: any) {
       this.logger.warn(`o link da proposta ${propostaId} não saiu — ${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)}`);
     }
@@ -1026,6 +1041,126 @@ export class MisterPropostasService implements OnModuleInit {
     return this.vistaDoLink(await this.linhaDoLink(codigo));
   }
 
+  // ───────────────────────────── C5: o PIN falado (mig 507) ─────────────────────────────
+
+  /** A pessoa ligou o PIN falado? A leitura que falha vale como não (o PIN segue pelo link). */
+  async pinFaladoDe(tenantId: string, colaboradorId: string): Promise<boolean> {
+    try {
+      const [v] = linhas(
+        await this.db.execute(sql`
+          select pin_falado_em is not null as ligado from mister_vinculo
+           where tenant_id = ${tenantId}::uuid and colaborador_id = ${colaboradorId}::uuid and ligado_em is not null`),
+      );
+      return v?.ligado === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * A proposta de PIN para LIGAR o PIN falado (como a da sessão com PIN): da própria pessoa, pelo link de sempre — o PIN digitado
+   * uma vez é a prova de quem liga. Devolve a proposta pendente (o agente manda o link), ou null.
+   */
+  async proporPinFalado(tenantId: string, colaboradorId: string): Promise<PropostaPendente | null> {
+    const proc = PROCEDIMENTOS.ligar_pin_falado;
+    const avisoId = uuidDeChave('mister:ligar_pin_falado:', tenantId, ':', colaboradorId);
+    const p = await this.gravarDaConversa(tenantId, null, avisoId, 'ligar_pin_falado', proc.nivel, { colaboradorId }, proc.prazoMin);
+    if (!p) return null;
+    return { id: p.id, procedimento: 'ligar_pin_falado', nivel: 'pin', pergunta: `Para ligar o PIN falado, confirme o seu PIN uma vez pelo link (vale até ${horaNoFuso(new Date(p.venceEm))}).`, botoes: [] };
+  }
+
+  /** Há uma proposta de PIN esperando ESTA pessoa (o link mandado a ela, no prazo, sem bloqueio)? */
+  async temPinEsperando(tenantId: string, colaboradorId: string): Promise<boolean> {
+    const [p] = linhas(
+      await this.db.execute(sql`
+        select 1 as tem from mister_proposta
+         where tenant_id = ${tenantId}::uuid and link_para = ${colaboradorId}::uuid and nivel = 'pin' and situacao = 'proposta'
+           and vence_em > now() and bloqueada_em is null and link_hash is not null
+         limit 1`),
+    );
+    return !!p;
+  }
+
+  /** Desliga o PIN falado da pessoa (ela mesma, pela conversa, ou o presidente, em Mister › Pessoas). Devolve se estava ligado. */
+  async desligarPinFalado(tenantId: string, colaboradorId: string): Promise<boolean> {
+    const mudou = linhas(
+      await this.db.execute(sql`
+        update mister_vinculo set pin_falado_em = null, atualizado_em = now()
+         where tenant_id = ${tenantId}::uuid and colaborador_id = ${colaboradorId}::uuid and pin_falado_em is not null
+        returning id`),
+    );
+    return mudou.length > 0;
+  }
+
+  /**
+   * O PIN dito num áudio, para a proposta de PIN que espera ESTA pessoa (o link mandado a ela, a mais nova). A mesma régua da
+   * página: a tentativa reservada na MESMA instrução que confere o teto (V98), o PIN conferido pelo código, os erros somando no
+   * mesmo bloqueio de 5, a autorização uma vez só e a execução pelo caminho de sempre. 'sem_proposta' = não há o que autorizar
+   * (o áudio segue como uma pergunta). O PIN nunca vai para a auditoria nem para log.
+   */
+  async autorizarPelaVoz(tenantId: string, colaboradorId: string, telefone: string, pin: string): Promise<{ r: 'sem_proposta' | 'feito' | 'errado' | 'bloqueado'; restam?: number }> {
+    const [p] = linhas(
+      await this.db.execute(sql`
+        select id::text as id, procedimento, parametros, link_hash as "linkHash"
+          from mister_proposta
+         where tenant_id = ${tenantId}::uuid and link_para = ${colaboradorId}::uuid and nivel = 'pin' and situacao = 'proposta'
+           and vence_em > now() and bloqueada_em is null and link_hash is not null
+         order by link_criado_em desc
+         limit 1`),
+    );
+    if (!p) return { r: 'sem_proposta' };
+    const [nivel] = linhas(
+      await this.db.execute(sql`
+        select coalesce(pa.nivel, f.categoria::text) as nivel from colaborador c
+          left join funcao f on f.id = c.funcao_id left join perfil_acesso pa on pa.id = c.perfil_acesso_id
+         where c.id = ${colaboradorId}::uuid and c.tenant_id = ${tenantId}::uuid`),
+    );
+    const [reservada] = linhas(
+      await this.db.execute(sql`
+        update mister_proposta set pin_erros = pin_erros + 1
+         where id = ${p.id}::uuid and link_hash = ${p.linkHash} and situacao = 'proposta' and vence_em > now() and bloqueada_em is null and pin_erros < ${PIN_TENTATIVAS}
+        returning pin_erros as "pinErros"`),
+    );
+    if (!reservada) return { r: 'sem_proposta' };
+    try {
+      await autorizarPorPinDoUsuario(this.db, tenantId, colaboradorId, pin, PROCEDIMENTOS_DO_GERENTE.includes(p.procedimento) ? ['presidente', 'gerente'] : ['presidente']);
+    } catch (e: any) {
+      if (e?.message !== PIN_INVALIDO) {
+        await this.db.execute(sql`update mister_proposta set pin_erros = greatest(pin_erros - 1, 0) where id = ${p.id}::uuid`);
+        return { r: 'sem_proposta' };
+      }
+      const restam = tentativasQueRestam(reservada.pinErros);
+      await this.auditar(tenantId, colaboradorId, 'mister_proposta_pin_errado', p.id, { restam, pela: 'voz' }, 'whatsapp', nivel?.nivel);
+      if (restam > 0) return { r: 'errado', restam };
+      const [bloqueou] = linhas(
+        await this.db.execute(sql`
+          update mister_proposta
+             set situacao = 'recusada', bloqueada_em = now(), concluida_em = now(), resultado = ${`link bloqueado: o PIN errado ${PIN_TENTATIVAS} vezes`}
+           where id = ${p.id}::uuid and situacao = 'proposta' and bloqueada_em is null
+          returning id`),
+      );
+      if (bloqueou) {
+        await this.auditar(tenantId, colaboradorId, 'mister_proposta_bloqueada', p.id, { procedimento: p.procedimento, pela: 'voz' }, 'whatsapp', nivel?.nivel);
+        this.planoAndou(p.parametros?.planoId);
+        await this.avisarQuemPediu(tenantId, p.parametros, (nome) => TEXTOS_DO_PEDIDO.presidenteRecusou(nome, resumoGuardado(p.parametros)), colaboradorId);
+      }
+      return { r: 'bloqueado' };
+    }
+    const final = telefone.slice(-4);
+    const [mudou] = linhas(
+      await this.db.execute(sql`
+        update mister_proposta
+           set situacao = 'autorizada', respondida_em = now(), autorizada_por = link_para, telefone_final = ${final},
+               pin_erros = greatest(pin_erros - 1, 0)
+         where id = ${p.id}::uuid and situacao = 'proposta' and vence_em > now() and bloqueada_em is null
+        returning id`),
+    );
+    if (!mudou) return { r: 'sem_proposta' };
+    await this.auditar(tenantId, colaboradorId, 'mister_proposta_autorizada', p.id, { procedimento: p.procedimento, final, pela: 'voz' }, 'whatsapp', nivel?.nivel);
+    void this.executar(p.id).catch((e) => this.logger.error(`a proposta ${p.id} não executou — ${e?.message ?? e}`));
+    return { r: 'feito' };
+  }
+
   /**
    * C6b: quem pediu (o gerente) recebe o que aconteceu com o pedido — pelo WhatsApp ligado dele. A proposta que não é um pedido
    * não faz nada. `presidenteId` dá o nome de quem respondeu (null: ninguém respondeu). Nunca lança.
@@ -1074,7 +1209,7 @@ export class MisterPropostasService implements OnModuleInit {
 }
 
 /** Os procedimentos de PIN que o gerente autoriza, com o PIN dele: a sessão e as ações de PIN que ele mesmo pediu. */
-const PROCEDIMENTOS_DO_GERENTE: readonly string[] = ['abrir_sessao', ...ACOES_DE_PIN];
+const PROCEDIMENTOS_DO_GERENTE: readonly string[] = ['abrir_sessao', 'ligar_pin_falado', ...ACOES_DE_PIN];
 
 /** M6j: o perfil gravado com a ação (quem pediu); as outras propostas são do presidente. */
 const perfilDe = (p: { parametros?: any }): string => (p.parametros?.nivel === 'gerente' ? 'gerente' : 'presidente');

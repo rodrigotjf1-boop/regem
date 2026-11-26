@@ -66,6 +66,15 @@ export class MisterController {
     return this.vinculo.pessoas(user);
   }
 
+  /** Versão 10, C5: desliga o PIN falado de uma pessoa: o próprio, ou — só o presidente — o de outra pessoa da empresa dele. */
+  @Post('pessoas/:colaboradorId/pin-falado/desligar')
+  @CloudOnly()
+  @Roles('presidente', 'gerente')
+  @RequireModulo('mister')
+  desligarPinFalado(@CurrentUser() user: AuthUser, @Param('colaboradorId') colaboradorId: string) {
+    return this.vinculo.desligarPinFalado(user, colaboradorId);
+  }
+
   /** Desliga o WhatsApp de uma pessoa: o próprio, ou — só o presidente — o de outra pessoa da empresa dele. */
   @Delete('pessoas/:colaboradorId')
   @CloudOnly()
