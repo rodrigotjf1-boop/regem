@@ -111,6 +111,8 @@ import { TarefaDefService } from '../tarefa/tarefa-def.service';
 import { ProdutoService } from '../produto/produto.service';
 import { TEXTOS_DAS_ACOES } from './mister-acoes';
 import { PROCEDIMENTO_DO_PEDIDO, TEXTOS_DO_PEDIDO } from './mister-pedido';
+import { TEXTOS_DAS_TAREFAS } from './mister-tarefas';
+import { MisterTarefasService } from './mister-tarefas.service';
 import { mesesCompletos, ultimosDiasDaSemana } from './mister-analises';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -4185,6 +4187,9 @@ export function testesDoMisterComPostgres(): void {
         c126: { busca: 'cupons do cardápio', rota: 'GET /api/v1/cardapio/cupons' },
         c127: { busca: 'taxa de entrega por bairro', rota: 'GET /api/v1/cardapio/bairros' },
         c128: { busca: 'pendências com fornecedores', rota: 'GET /api/v1/fornecedores/pendencias' },
+        // C4a: a busca lê "busca"; a tarefa, "rota" e "campos".
+        c132: { busca: 'pedido de manutenção', rota: 'POST /api/v1/manutencao', campos: { titulo: 'Coifa da cozinha pingando', prioridade: 'alta' } },
+        c133: { busca: 'criar setor', rota: 'POST /api/v1/setores', campos: { nome: 'Bar' } },
         c110: { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' },
         c111: { acao: 'repetir_campanha', campanhaDaConversa: 'a última' },
         c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },
@@ -13853,6 +13858,53 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from compra_lista where id = any($1::uuid[])`, [listas]);
           await q(`delete from item_estoque where id = any($1::uuid[])`, [itens]);
           await q(`delete from fornecedor where id = any($1::uuid[])`, [forns]);
+        }
+      });
+
+      it('C4a: a tarefa pelo mapa — desligada recusa; ligada, o "Vou fazer" do Regem, só quem pediu autoriza e a escrita vai pela API como a pessoa', async () => {
+        const tel = telefone();
+        const telCarlos = telefone();
+        await ligar('ana', tel);
+        await ligar('carlos', telCarlos, A, 'gerente');
+        await modulo(A, true);
+        const escritas: any[] = [];
+        let resposta: { status: number; mensagem: string; dados: unknown } | null = { status: 201, mensagem: '', dados: { id: randomUUID() } };
+        const telasDeMentira = { escrever: async (e: any, metodo: string, caminho: string, corpo: any, loja: any) => (escritas.push({ quem: e.colaboradorId, metodo, caminho, corpo, loja }), resposta) };
+        const tarefas = new MisterTarefasService(db, ferramentas, propostasDasAcoes, telasDeMentira as any, numero, auditoria);
+        tarefas.onModuleInit();
+        const antes = process.env.MISTER_FAZER_TAREFAS;
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          const en = { rota: 'POST /api/v1/manutencao', campos: { titulo: 'Coifa da cozinha pingando', prioridade: 'alta' } };
+          delete process.env.MISTER_FAZER_TAREFAS;
+          expect(await ferramentas.executar(e, 'fazer_no_regem', en)).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_TAREFAS.fora } });
+          process.env.MISTER_FAZER_TAREFAS = '1';
+          const r = await ferramentas.executar(e, 'fazer_no_regem', en);
+          expect(r.ok).toBe(true);
+          expect(r.dados.oQueVouFazer).toContain('O que está com defeito: Coifa da cozinha pingando');
+          expect(r.mensagens![0].botoes!.map((b) => b.titulo)).toEqual(['Autorizar', 'Não agora']);
+          const id = idDaProposta(r);
+          expect(escritas).toEqual([]);
+          // O Carlos não autoriza a tarefa da Ana.
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(telCarlos, 'carlos', 'gerente'));
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DAS_ACOES.naoDisponivel]);
+          // O "Autorizar" da Ana: a escrita como ela, com o corpo conferido; o "feito" com a frase da função.
+          numero.pedidos.length = 0;
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(id)).toMatchObject({ situacao: 'feita' });
+          expect(escritas).toEqual([{ quem: pessoa.ana, metodo: 'POST', caminho: '/api/v1/manutencao', corpo: { titulo: 'Coifa da cozinha pingando', prioridade: 'alta' }, loja: expect.anything() }]);
+          await esperarMensagens(2);
+          expect(numero.enviadas.map((m) => m.texto)).toContain('Autorizado. Fazendo agora…');
+          // A tela recusa: "não deu", com a frase da API, e nada é dado como feito.
+          resposta = { status: 400, mensagem: 'Descreva o que está com defeito.', dados: null };
+          const r2 = await ferramentas.executar(e, 'fazer_no_regem', { ...en, campos: { titulo: 'Freezer sem gelar' } });
+          const id2 = idDaProposta(r2);
+          await propostasDasAcoes.responder(`prop:${id2}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(id2)).toMatchObject({ situacao: 'nao_deu', resultado: expect.stringContaining('a tela recusou: Descreva o que está com defeito.') });
+        } finally {
+          if (antes === undefined) delete process.env.MISTER_FAZER_TAREFAS;
+          else process.env.MISTER_FAZER_TAREFAS = antes;
         }
       });
 

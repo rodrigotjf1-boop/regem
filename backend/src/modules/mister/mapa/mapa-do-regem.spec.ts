@@ -5,6 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from '../../../app.module';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { MAPA_DO_REGEM, MARCAS_DO_MAPA } from './mapa-do-regem';
+import { TAREFAS_ABERTAS } from './tarefas-abertas';
 
 // Versão 10, C2: o mapa do Regem (decisão V10-3 — a marca de cada função é da DMS, e função nova sem marca reprova o CI). O teste
 // monta o app inteiro, como o `app-sobe.spec.ts`, lê as rotas de verdade pelo Swagger e compara com o mapa.
@@ -97,6 +98,14 @@ describe('C2 · o mapa do Regem', () => {
       if (f.marca === 'le' && ['atendimento', 'whatsapp', 'clientes', 'vagas', 'ponto', 'colaboradores', 'colaborador', 'auditoria'].includes(area)) expect([f.rota, f.pessoal]).toEqual([f.rota, true]);
       for (const c of f.consulta ?? []) expect([f.rota, c]).toEqual([f.rota, expect.stringMatching(/^[A-Za-z_][\w.]{0,40}$/)]);
       if (f.consulta?.length) expect([f.rota, f.marca, !!f.pessoal]).toEqual([f.rota, 'le', false]);
+    }
+  });
+
+  it('C4: toda tarefa aberta é escrita do mapa (botao ou pin), sem dado de pessoa, e passa pelo JwtAuthGuard', () => {
+    for (const t of TAREFAS_ABERTAS) {
+      const f = MAPA_DO_REGEM.find((x) => x.rota === t.rota);
+      expect([t.rota, f?.marca, !!f?.pessoal]).toEqual([t.rota, expect.stringMatching(/^(botao|pin)$/), false]);
+      expect([t.rota, (guardas.get(t.rota) ?? []).includes(JwtAuthGuard)]).toEqual([t.rota, true]);
     }
   });
 

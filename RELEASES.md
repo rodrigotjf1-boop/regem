@@ -12,7 +12,11 @@
 
 ## Acumulado (NÃO empacotado) — próxima release (1.30.17)
 
-- _(o #1360, Mister C6a, entrou na `main` logo depois do corte da 1.30.16 e não está no `.exe`; é só da nuvem)_
+- _(o #1360, Mister C6a, entrou na `main` logo depois do corte da 1.30.16 e não está no `.exe`; é só da nuvem; o #1362, C6b, também)_
+- **Mister C4a — fazer uma tarefa pelo mapa (26/11; SEM migration; o efeito é só na nuvem).** O bilhete do Mister
+  (`auth/bilhete-do-mister.ts`) passa a guardar o método e o resumo do corpo, e o `JwtAuthGuard` confere os dois na escrita. Vai
+  no próximo `.zip` só por ser código comum: no servidor da loja nenhum bilhete é emitido, o cabeçalho dá 401 e o resto não
+  muda. Não pede `.exe`.
 
 ## Última release: `1.30.16` — gerada em 26/11/2026 da `origin/main` `d6249543`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 223.038.515 bytes, SHA-256 `0c4ad6d66a7feb8e1138e6da911ed1c0ce770a8ccfa1818c57b1d2cfa9f5bd96`), pelo `build-release.ps1` (preflight OK; o único aviso = o carimbo do `.iss`; Node 24.22.1; ponte 0.8.0; `undici` 7.30.2 no pacote) e Inno 7 (1.076 s); entregue ao dono em `Documentos\Regem - release 1.30.16 (26-11)` com o `LEIA-ME.txt` (instalar por cima no servidor com a loja fechada — de casa pela Área de Trabalho Remota pelo i7, ou na loja); **sem `.zip`** e nada publicado no console — a loja que só atualiza pelo ícone segue na 1.30.14 até um `.zip`
 

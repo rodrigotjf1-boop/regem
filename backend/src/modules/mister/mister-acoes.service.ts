@@ -1742,23 +1742,7 @@ export class MisterAcoesService implements OnModuleInit {
     parametros: Record<string, unknown>,
     prazoMin: number,
   ): Promise<{ id: string; venceEm: string | Date } | null> {
-    const acao = procedimento;
-    await this.db.execute(sql`
-      insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em)
-      values (${tenantId}::uuid, ${unidadeId}::uuid, ${avisoId}::uuid, ${acao}, ${JSON.stringify(parametros)}::jsonb, ${nivel},
-              clock_timestamp() + make_interval(mins => ${prazoMin}::int))
-      on conflict (aviso_id, procedimento) do update
-        set situacao = 'proposta', criada_em = clock_timestamp(), vence_em = excluded.vence_em, parametros = excluded.parametros,
-            unidade_id = excluded.unidade_id, respondida_em = null, autorizada_por = null, telefone_final = null, executada_em = null,
-            conferir_ate = null, concluida_em = null, resultado = null,
-            link_hash = null, link_para = null, link_criado_em = null, link_aberto_em = null, pin_erros = 0, bloqueada_em = null
-        where mister_proposta.situacao in ('vencida', 'recusada', 'nao_deu', 'feita', 'proposta')`);
-    const [p] = linhas(
-      await this.db.execute(sql`
-        select id::text as id, vence_em as "venceEm" from mister_proposta
-         where aviso_id = ${avisoId}::uuid and procedimento = ${acao} and situacao = 'proposta' and vence_em > now()`),
-    );
-    return p ? { id: p.id, venceEm: p.venceEm } : null;
+    return this.propostas.gravarDaConversa(tenantId, unidadeId, avisoId, procedimento, nivel, parametros, prazoMin);
   }
 
   // ───────────────────────────── C6b: pedir ao presidente ─────────────────────────────

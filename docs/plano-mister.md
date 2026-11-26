@@ -2930,7 +2930,53 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
     telefone e o contato não chegam à IA) e o gerente sem valores no fechamento do caixa.
 - **Para ligar:** rodar a avaliação real com `MISTER_LER_TELAS=1` e, com ela boa, pôr a variável na API.
 
-### C6b — pedir ao presidente (26/11/2026; SEM migration; só na nuvem; nasce DESLIGADO, `MISTER_PEDIR_AO_PRESIDENTE=1`)
+### C4a — fazer uma tarefa pelo mapa: a primeira área (26/11/2026; SEM migration; só na nuvem; nasce DESLIGADA, `MISTER_FAZER_TAREFAS=1`)
+
+- **A C4 abre por área** (o plano). A C4a é a primeira: uma lista FECHADA de tarefas (`mapa/tarefas-abertas.ts`), escolhidas e
+  revisadas uma a uma, cada uma com os CAMPOS que a IA pode mandar. O contrato descreve o corpo de só 87 das 677 escritas, e o
+  que não está na lista não vai no corpo.
+  - **As oito tarefas:**
+    - abrir um pedido de manutenção (o que está com defeito, os detalhes, a prioridade);
+    - mudar a situação de um pedido de manutenção (a situação, o motivo);
+    - criar um setor;
+    - criar um turno (nome e horários);
+    - criar um dia especial (data, tipo, nome);
+    - criar uma janela de pico;
+    - criar uma categoria do estoque;
+    - resolver um alerta do estoque.
+  - **De fora:** nenhuma exclusão, nada de dinheiro, nota, ficha técnica, pessoa ou canal.
+  - **As 43 ações prontas (`propor_acao`) vêm antes:** têm conferências próprias.
+- **O caminho** (`mister-tarefas.ts`, `mister-tarefas.service.ts`):
+  - a busca (`procurar_no_regem`) traz também as tarefas que combinam, com os campos de cada uma;
+  - a IA propõe com `fazer_no_regem` (a rota, os parâmetros do caminho, os campos);
+  - **o Regem confere o pedido:** a tarefa aberta, cada campo com o tipo certo (texto, inteiro com mínimo e máximo, data, hora,
+    id de uma leitura, opção da lista), os obrigatórios, nenhum campo a mais. O campo da loja vem da conversa, nunca da IA;
+  - **o Regem monta o "Vou fazer":** a frase da função e os campos com os rótulos em português. O id vira o nome do registro
+    que as leituras desta pergunta trouxeram, nunca um nome inventado;
+  - "Autorizar" e "Não agora", só de quem pediu, valendo 15 min.
+- **No "Autorizar"** (`MisterTelasService.escrever`):
+  - a escrita vai à própria API como a pessoa, com o bilhete de uma chamada preso ao MÉTODO, ao CAMINHO e ao resumo (sha-256)
+    do CORPO exato: o guarda confere os três;
+  - valem as travas da tela: o perfil, as permissões, a loja, a empresa e o DTO da rota;
+  - o "feito" sai só com a resposta de sucesso da API, e a recusa da tela vira o "não deu" com a frase dela;
+  - a auditoria grava `mister_tarefa_feita` ou `mister_tarefa_nao_deu`.
+- **As travas:**
+  - a do mapa confere que toda tarefa aberta é escrita do mapa, sem dado de pessoa, e passa pelo `JwtAuthGuard`;
+  - o bilhete de leitura não abre escrita;
+  - a C4a abre só tarefas de botão (a de PIN entra com o link numa área seguinte).
+- **Os testes:**
+  - a conferência do pedido e o "Vou fazer";
+  - o bilhete de escrita (o corpo trocado, o método trocado, sem o resumo);
+  - **de ponta a ponta com Postgres e HTTP:** a escrita certa grava; o corpo e o método trocados recebem 401; o gerente sem a
+    permissão recebe 403;
+  - **o fluxo pela proposta:** desligada recusa; o "Vou fazer"; só quem pediu autoriza; a escrita como a pessoa; a recusa da
+    tela vira "não deu";
+  - **a avaliação:** c132 (abrir a manutenção da coifa) e c133 (criar o setor Bar), 133 perguntas.
+- **Revisão da DMS:** a escrita (botao × pin) de cada área nova se revisa antes de abri-la. A C4a já saiu revisada, uma a uma;
+  as áreas seguintes entram do mesmo jeito.
+- **Para ligar:** `MISTER_LER_TELAS=1` (a busca) e `MISTER_FAZER_TAREFAS=1`, depois da avaliação real.
+
+### C6b — pedir ao presidente (26/11/2026, #1362, NO AR; SEM migration; só na nuvem; nasce DESLIGADO, `MISTER_PEDIR_AO_PRESIDENTE=1`)
 
 - **O caso** (protótipo, "O seu perfil não pode"): o gerente pede o que o perfil dele não faz (guardar o saldo, pagar o
   entregador, mexer num canal sem o Delivery). O Regem confere a MESMA ação como se o presidente pedisse (`preparar` com o

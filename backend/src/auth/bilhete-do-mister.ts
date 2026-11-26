@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 // O BILHETE DE UMA LEITURA (Mister, versão 10, fase C3 — "ler qualquer tela"; `docs/plano-mister.md` § "C3").
 //
@@ -7,8 +7,9 @@ import { randomBytes } from 'node:crypto';
 // banco NA HORA, e daí em diante valem as mesmas travas da tela: o perfil (`@Roles`), as permissões (`@RequirePerm`), os
 // módulos ligados, a loja (`@UnidadeAtual`) e o filtro da empresa em toda consulta.
 //
-//  • O bilhete vale UMA chamada, por 30 segundos, para UM caminho exato (com a consulta) e só para GET. O primeiro uso o
-//    gasta, dê certo ou não. São 32 bytes aleatórios: não se adivinha, e só existe na memória deste processo.
+//  • O bilhete vale UMA chamada, por 30 segundos, para UM caminho exato (com a consulta) e UM método — GET na leitura (C3); na
+//    tarefa (C4), POST/PUT/PATCH com o resumo do corpo EXATO que o Mister mandou. O primeiro uso o gasta, dê certo ou não. São
+//    32 bytes aleatórios: não se adivinha, e só existe na memória deste processo.
 //  • Não é sessão nem token: não abre o tempo real, não entra em "Sair", não serve em outro servidor. No servidor da loja
 //    (onde o Mister não roda) a lista fica vazia, e quem mandar o cabeçalho recebe 401.
 //  • O limite de chamadas conta o bilhete pela empresa (`mister:<empresa>`), não pelo IP 127.0.0.1 que todas dividiriam.
@@ -23,8 +24,17 @@ export interface Bilhete {
   colaboradorId: string;
   /** O caminho exato que o bilhete abre, como a requisição chega (`/api/v1/estoque/itens?x=1`). */
   caminho: string;
+  /**
+   * C4 (fazer uma tarefa): o método que o bilhete abre (sem ele, GET) e o resumo (sha-256) do corpo EXATO que o Mister mandou —
+   * a escrita só passa com o mesmo método, o mesmo caminho e o mesmo corpo.
+   */
+  metodo?: 'GET' | 'POST' | 'PUT' | 'PATCH';
+  corpoHash?: string | null;
   vence: number;
 }
+
+/** O resumo do corpo como o guarda o vê (o JSON do objeto que a API recebeu — o mesmo texto que o Mister mandou). */
+export const resumoDoCorpo = (corpo: unknown): string => createHash('sha256').update(JSON.stringify(corpo ?? {})).digest('hex');
 
 const bilhetes = new Map<string, Bilhete>();
 const FORMATO = /^[0-9a-f]{64}$/;
@@ -38,7 +48,14 @@ export function emitirBilhete(b: Omit<Bilhete, 'vence'>, agora = Date.now()): st
   if (bilhetes.size >= 100) limparVencidos(agora);
   if (bilhetes.size >= BILHETES_NO_MAXIMO) throw new Error('bilhetes_demais');
   const id = randomBytes(32).toString('hex');
-  bilhetes.set(id, { tenantId: b.tenantId, colaboradorId: b.colaboradorId, caminho: b.caminho, vence: agora + VALIDADE_DO_BILHETE_MS });
+  bilhetes.set(id, {
+    tenantId: b.tenantId,
+    colaboradorId: b.colaboradorId,
+    caminho: b.caminho,
+    metodo: b.metodo ?? 'GET',
+    corpoHash: b.metodo && b.metodo !== 'GET' ? (b.corpoHash ?? null) : null,
+    vence: agora + VALIDADE_DO_BILHETE_MS,
+  });
   return id;
 }
 
@@ -61,12 +78,17 @@ export function espiarBilhete(id: unknown, agora = Date.now()): Bilhete | null {
   return b;
 }
 
-/** Gasta o bilhete (sempre, dê certo ou não) e o devolve só se é GET e o caminho é exatamente o dele. */
-export function consumirBilhete(id: unknown, metodo: unknown, caminho: unknown, agora = Date.now()): Bilhete | null {
+/**
+ * Gasta o bilhete (sempre, dê certo ou não) e o devolve só se o método e o caminho são exatamente os dele — e, na escrita (C4),
+ * o corpo que chegou tem o mesmo resumo do que o Mister mandou.
+ */
+export function consumirBilhete(id: unknown, metodo: unknown, caminho: unknown, agora = Date.now(), corpo?: unknown): Bilhete | null {
   const b = espiarBilhete(id, agora);
   if (!b) return null;
   bilhetes.delete(id as string);
-  if (String(metodo ?? '').toUpperCase() !== 'GET' || String(caminho ?? '') !== b.caminho) return null;
+  const esperado = b.metodo ?? 'GET';
+  if (String(metodo ?? '').toUpperCase() !== esperado || String(caminho ?? '') !== b.caminho) return null;
+  if (esperado !== 'GET' && (!b.corpoHash || resumoDoCorpo(corpo) !== b.corpoHash)) return null;
   return b;
 }
 

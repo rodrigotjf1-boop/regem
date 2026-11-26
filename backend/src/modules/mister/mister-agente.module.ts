@@ -27,6 +27,7 @@ import { MisterDocumentosService } from './mister-documentos.service';
 import { MisterNotasService } from './mister-notas.service';
 import { MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterTelasService } from './mister-telas.service';
+import { MisterTarefasService } from './mister-tarefas.service';
 import { MisterLinkController } from './mister-link.controller';
 import { MisterLinkPublicoController } from './mister-link-publico.controller';
 import { MisterLinkPublicoService } from './mister-link-publico.service';
@@ -116,6 +117,8 @@ import { MisterModule } from './mister.module';
     MisterFerramentasService,
     // Versão 10, C3: procurar no mapa e ler a tela como a pessoa (o bilhete de uma chamada, pela própria API).
     MisterTelasService,
+    // Versão 10, C4: fazer uma tarefa pelo mapa (a escrita pela própria API, com o bilhete preso ao método e ao corpo).
+    MisterTarefasService,
     MisterAgenteService,
     MisterAvisosService,
     MisterRelatoriosService,

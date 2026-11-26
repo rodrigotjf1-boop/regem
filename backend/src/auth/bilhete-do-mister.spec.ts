@@ -1,5 +1,5 @@
 import { CfThrottlerGuard } from '../common/cf-throttler.guard';
-import { BILHETES_NO_MAXIMO, CABECALHO_DO_BILHETE, VALIDADE_DO_BILHETE_MS, bilhetesVivos, cabecalhoDoBilhete, consumirBilhete, emitirBilhete, espiarBilhete } from './bilhete-do-mister';
+import { BILHETES_NO_MAXIMO, CABECALHO_DO_BILHETE, VALIDADE_DO_BILHETE_MS, bilhetesVivos, cabecalhoDoBilhete, consumirBilhete, emitirBilhete, espiarBilhete, resumoDoCorpo } from './bilhete-do-mister';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -50,6 +50,20 @@ describe('o bilhete de uma leitura do Mister', () => {
     } finally {
       for (const id of emitidos) consumirBilhete(id, 'GET', A.caminho, agora);
     }
+    expect(bilhetesVivos()).toBe(0);
+  });
+
+  it('C4: o bilhete de escrita abre só o mesmo método, o mesmo caminho e o MESMO corpo', () => {
+    const corpo = { nome: 'Bar', unidadeId: 'loja-1' };
+    const escrever = (c: unknown = corpo) => emitirBilhete({ ...A, caminho: '/api/v1/setores', metodo: 'POST', corpoHash: resumoDoCorpo(c) });
+    expect(consumirBilhete(escrever(), 'POST', '/api/v1/setores', Date.now(), { nome: 'Bar', unidadeId: 'loja-1' })).toMatchObject({ metodo: 'POST' });
+    expect(consumirBilhete(escrever(), 'POST', '/api/v1/setores', Date.now(), { nome: 'Bar', unidadeId: 'loja-2' })).toBeNull();
+    expect(consumirBilhete(escrever(), 'PATCH', '/api/v1/setores', Date.now(), corpo)).toBeNull();
+    expect(consumirBilhete(escrever(), 'GET', '/api/v1/setores')).toBeNull();
+    // Sem o resumo do corpo, a escrita nunca abre.
+    expect(consumirBilhete(emitirBilhete({ ...A, caminho: '/api/v1/setores', metodo: 'POST' }), 'POST', '/api/v1/setores', Date.now(), corpo)).toBeNull();
+    // O de leitura não abre escrita.
+    expect(consumirBilhete(emitirBilhete({ ...A, caminho: '/api/v1/setores' }), 'POST', '/api/v1/setores', Date.now(), corpo)).toBeNull();
     expect(bilhetesVivos()).toBe(0);
   });
 
