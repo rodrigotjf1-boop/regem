@@ -58,6 +58,8 @@ import {
 // com nova tentativa na hora. As regras ficam em rede-regras.mjs (testadas); o fetch do pacote usa o agente explícito.
 import { Agent as AgenteDoUndici, fetch as fetchDoUndici } from 'undici';
 import { opcoesDoAgente, ehFalhaDeAbertura, pausaAntesDeTentarDeNovo } from './rede-regras.mjs';
+// ERR-616 (1.30.16): na tabela com chave de negócio, a loja adota o id da nuvem em vez de pular a linha (23505).
+import { sqlAdotarIdDaNuvem } from './pull-chave-de-negocio.mjs';
 import {
   PEDIDOS_INTERVALO_MS as PEDIDOS_INTERVALO_PADRAO_MS, PAUSA_SEM_ROTA_MS, LIMITE_POR_ID,
   proximaConferencia, motivoParaEsperar, avisarFalha, listaDaNuvem,
@@ -672,7 +674,13 @@ async function upsertLote(tabela, rows, exec = pool) {
 // ficou de fora. A janela foi removida na nuvem, mas o cursor gravado aqui aponta para
 // "60 dias atrás" e o histórico anterior nunca viria. Rebobinamos uma vez; o catch-up é
 // paginado (1000 linhas/ciclo) e some sozinho quando alcança o presente.
-const REPAROS_CURSOR = [{ marca: 'reparo_ledger_completo_v1', tabelas: ['movimento_estoque'] }];
+// reparo_item_fornecedor_chave_v1 (ERR-616, 1.30.16): os vínculos produto × fornecedor recusados por 23505 foram pulados
+// e o cursor andou. Com a adoção do id da nuvem, a tabela desce de novo uma vez (está em TABELAS_DESDE_ZERO: sem cursor,
+// a nuvem recomeça do zero) — o que já está aqui é regravado igual e os que faltavam entram.
+const REPAROS_CURSOR = [
+  { marca: 'reparo_ledger_completo_v1', tabelas: ['movimento_estoque'] },
+  { marca: 'reparo_item_fornecedor_chave_v1', tabelas: ['item_fornecedor'] },
+];
 
 async function repararCursores(cursores) {
   let mudou = false;
@@ -946,6 +954,26 @@ async function aplicarPull(data, cursores, cli) {
     await upsertLocal(tabela, row, cli);
     await recon.aplicarLinha(fila, tabela, row, cli);
   };
+  // ERR-616 (1.30.16): a linha recusada por 23505 numa tabela com chave de negócio — a mesma chave aqui com outro id —
+  // entra adotando o id da nuvem (tira a cópia local, grava a da nuvem) num ponto de salvamento NOVO (o que falhou já foi
+  // desfeito). true = entrou; false = não era o caso (ou falhou de novo: segue como erro duro, com o erro original).
+  let adotadas = 0;
+  const entrarPelaChave = async (tabela, row, e) => {
+    if (e?.code !== '23505') return false;
+    const adotar = sqlAdotarIdDaNuvem(tabela, row);
+    if (!adotar) return false;
+    try {
+      await tx.tentar(async () => {
+        await cli.query(adotar.text, adotar.values);
+        await aplicar(tabela, row);
+      });
+    } catch (e2) {
+      if (ehErroDeRecurso(e2)) throw e2;
+      return false;
+    }
+    adotadas++;
+    return true;
+  };
   // O que a nuvem mandou e este servidor não tem (tabela → null, ou → colunas).
   const ausentes = {};
   for (const [tabela, rows] of Object.entries(data.tabelas)) {
@@ -993,6 +1021,7 @@ async function aplicarPull(data, cursores, cli) {
       } catch (e) {
         if (ehErroDeRecurso(e)) throw e;
         if (e.code === '23503') pendentes.push([tabela, row]);
+        else if (await entrarPelaChave(tabela, row, e)) aplicadas++;
         else falhas.push([tabela, row, e]);
       }
     };
@@ -1037,6 +1066,7 @@ async function aplicarPull(data, cursores, cli) {
       } catch (e) {
         if (ehErroDeRecurso(e)) throw e;
         if (e.code === '23503') resta.push([tabela, row]);
+        else if (await entrarPelaChave(tabela, row, e)) aplicadas++;
         else falhas.push([tabela, row, e]);
       }
       await tx.aliviar();
@@ -1070,14 +1100,34 @@ async function aplicarPull(data, cursores, cli) {
   // impede a velha de sobrescrevê-la.
   const LIMITE_CICLOS = 20;
   const guardar = [];
-  let descartados = 0;
+  const descartar = [];
   const vistos = new Set();
   for (const [tabela, row] of pendentes) {
     if (vistos.has(row.id)) continue;
     vistos.add(row.id);
     const n = (tentativas.get(row.id) ?? 0) + 1;
-    if (n > LIMITE_CICLOS) descartados++;
+    if (n > LIMITE_CICLOS) descartar.push({ tabela, row, n });
     else guardar.push({ tabela, row, n });
+  }
+  const descartados = descartar.length;
+  // ERR-617 (1.30.16): a linha que não entrou em 20 ciclos não some mais calada — em 23/11 foram 16 estornos de caixa
+  // (o lançamento original, de antes da janela de 60 dias, a loja nunca teve). Fica guardada em `sync_fila` como
+  // 'descartado' (a linha inteira, para conferir e decidir) e a distribuição recebe os ids na telemetria. Não volta a
+  // ser tentada sozinha: a decisão é de quem confere.
+  if (descartados) {
+    for (const d of descartar.slice(0, 5000)) {
+      try {
+        await pool.query(
+          `insert into sync_fila (tipo, tabela, registro_id, conteudo, tentativas)
+           values ('descartado', $1, $2, $3, $4) on conflict (tipo, tabela, registro_id) do nothing`,
+          [d.tabela, d.row.id, JSON.stringify(d.row), d.n],
+        );
+      } catch { /* best-effort: o aviso abaixo sai mesmo assim */ }
+    }
+    const ids = descartar.slice(0, 20).map((d) => `${d.tabela}:${d.row.id}`).join(', ');
+    try {
+      await reportarTelemetria('sync', 'pull_linha_descartada', `${descartados} linha(s) sem o pai em ${LIMITE_CICLOS} ciclos (guardadas em sync_fila 'descartado'): ${ids}`);
+    } catch { /* best-effort */ }
   }
   if (guardar.length || orfaosAntes.length) {
     const manter = guardar.slice(0, 5000);
@@ -1093,7 +1143,8 @@ async function aplicarPull(data, cursores, cli) {
     }
   }
   if (guardar.length) console.warn(`  ${guardar.length} linha(s) aguardando o pai (FK) — nova tentativa no próximo ciclo`);
-  if (descartados) console.warn(`  ${descartados} linha(s) descartada(s): o pai não chegou em ${LIMITE_CICLOS} ciclos (fora da janela ou ausente na nuvem)`);
+  if (descartados) console.warn(`  ${descartados} linha(s) descartada(s): o pai não chegou em ${LIMITE_CICLOS} ciclos (fora da janela ou ausente na nuvem) — guardadas em sync_fila 'descartado' e avisadas na telemetria`);
+  if (adotadas) console.log(`  ${adotadas} linha(s) com a chave de negócio repetida entraram com o id da nuvem (ERR-616)`);
   // Exclusões feitas na nuvem (mig 262): apaga a mesma linha aqui, DEPOIS de aplicar as linhas
   // desta resposta. A sessão do daemon é marcada como sync, então não gera registro de volta.
   try {
