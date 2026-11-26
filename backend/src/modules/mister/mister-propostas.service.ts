@@ -58,6 +58,11 @@ import { apresentacaoDaPromocao } from './mister-acoes-cardapio';
 import { apresentacaoDaCampanha } from './mister-acoes-campanha';
 import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDaBaixa, apresentacaoDoHorario, apresentacaoDoPreco, ehAcaoDoMister, ehDadoInformado } from './mister-acoes';
 import { PROCEDIMENTO_DO_PLANO, RESULTADO_DO_PLANO_TROCADO, TEXTOS_DO_PLANO } from './mister-plano';
+import { IaEmpresaService } from '../ia/ia-empresa.service';
+import { MisterConversaConfigService } from './mister-conversa-config.service';
+import { linhasDoJeito } from './mister-agente.regras';
+import { modeloDasPerguntas } from './mister-laco';
+import { PRAZO_DA_RESPOSTA_ESCRITA_MS, RECURSO_DA_RESPOSTA_ESCRITA, SAIDA_DA_RESPOSTA_ESCRITA, conferirRespostaEscrita, instrucoesDaRespostaEscrita } from './mister-resposta-escrita';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -136,6 +141,9 @@ export class MisterPropostasService implements OnModuleInit {
     @Optional() private readonly modulos?: ModuloService,
     // F4.2b: o cancelamento é o MESMO do botão "Cancelar" do painel do Delivery.
     @Optional() private readonly delivery?: DeliveryService,
+    // Versão 10, C9: o "feito" e o "não deu" escritos pela IA (com "A IA escreve as respostas" ligado pela empresa, mig 506).
+    @Optional() private readonly ia?: IaEmpresaService,
+    @Optional() private readonly conversa?: MisterConversaConfigService,
   ) {}
 
   // Versão 6, M6j: as ações da porta `propor_acao` moram no `MisterAcoesService`, que se apresenta (nenhum injeta o outro
@@ -647,8 +655,40 @@ export class MisterPropostasService implements OnModuleInit {
              where tenant_id = ${p.tenantId}::uuid and colaborador_id = ${p.autorizadaPor}::uuid and ligado_em is not null and telefone is not null`),
         )
       : [];
-    if (quem?.telefone) await this.falar(quem.telefone, textoDoDesfecho(feita, resultado, horaNoFuso(new Date(fechou.concluidaEm))));
+    if (quem?.telefone) await this.falar(quem.telefone, await this.escreverDesfecho(p.tenantId, textoDoDesfecho(feita, resultado, horaNoFuso(new Date(fechou.concluidaEm)))));
     return situacao;
+  }
+
+  /**
+   * Versão 10, C9: o "feito" e o "não deu" escritos pela IA, no jeito da empresa, variando as palavras — só com o grupo
+   * "A IA escreve as respostas" ligado (Mister › Jeito e memória › Avisos, mig 506; nasce desligado). O que aconteceu continua sendo a frase do Regem: a IA
+   * só reescreve, e a conferência exige todos os números dela, nenhum novo, o caminho do menu e o que está entre aspas. Sem IA,
+   * passou de 5 segundos ou não passou: a frase fixa. Nunca lança.
+   */
+  private async escreverDesfecho(tenantId: string, fixo: string): Promise<string> {
+    if (!this.ia || !this.conversa) return fixo;
+    try {
+      const c = await this.conversa.daEmpresa(tenantId);
+      if (!c.respostasEscritas) return fixo;
+      const r = await this.ia.pedir(tenantId, {
+        recurso: RECURSO_DA_RESPOSTA_ESCRITA,
+        modelo: modeloDasPerguntas(),
+        maxTokens: SAIDA_DA_RESPOSTA_ESCRITA,
+        system: instrucoesDaRespostaEscrita(linhasDoJeito(c.perfil, c.jeito)),
+        messages: [{ role: 'user', content: `A mensagem do Regem:\n${fixo}` }],
+        prazoMs: PRAZO_DA_RESPOSTA_ESCRITA_MS,
+      });
+      if (r.recusou || r.parou === 'max_tokens') return fixo;
+      const conferido = conferirRespostaEscrita(r.texto, fixo);
+      if ('motivo' in conferido) {
+        this.logger.warn(`a resposta escrita não passou na conferência (${conferido.motivo}) — foi a frase fixa`);
+        return fixo;
+      }
+      return conferido.texto;
+    } catch (e: any) {
+      this.logger.warn(`a resposta escrita falhou — foi a frase fixa (${String(e?.motivo ?? e?.message ?? e).slice(0, 160)})`);
+      return fixo;
+    }
   }
 
   /**
