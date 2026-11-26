@@ -66,13 +66,16 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
         await q(
           `insert into pedido_externo (tenant_id, unidade_id, canal, client_ref, display_id, cliente_nome, cliente_telefone, tipo, endereco,
              endereco_rua, endereco_numero, endereco_referencia, endereco_bairro, itens, total, forma_pagamento, taxa_entrega, desconto,
-             troco_para, valor_bruto, observacao, status, agendamento, retirada_tipo)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19,$20,$21,'novo',$22,$23) returning *`,
+             troco_para, valor_bruto, observacao, status, agendamento, retirada_tipo, status_pagamento)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19,$20,$21,'novo',$22,$23,$24) returning *`,
           [tenantId, unidadeId, canal, x.clientRef, n.displayId, n.cliente, n.clienteTelefone, n.tipo, n.endereco ?? null, x.enderecoRua ?? null,
             x.enderecoNumero ?? null, x.enderecoReferencia ?? null, x.enderecoBairro ?? null, JSON.stringify(n.itens), n.total, n.formaPagamento,
             x.taxaEntrega ?? 0, x.desconto ?? 0, x.trocoPara ?? null, n.valorBruto ?? null, x.observacao ?? null,
             // O pedido agendado (mig 455, D4c): o horário e a marca, como o Delivery grava.
-            x.agendamento ? new Date(x.agendamento) : null, x.retiradaTipo ?? null],
+            x.agendamento ? new Date(x.agendamento) : null, x.retiradaTipo ?? null,
+            // A situação do pagamento como o Delivery grava (`extra.statusPagamento`, senão "na entrega" — V108): o pedido no Pix
+            // nasce "aguardando".
+            x.statusPagamento ?? 'na_entrega'],
         )
       ).map((r: any) => ({ ...r, id: r.id, displayId: r.display_id, status: r.status, unidadeId: r.unidade_id }))[0],
     aceitar: async (_t: string, _u: any, id: string) => q(`update pedido_externo set status = 'confirmado' where id = $1`, [id]),
@@ -242,10 +245,12 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(r.pedido.entrega.endereco).toBe('Rua A, 10 · Centro · ref: casa 2, portão azul');
     expect(r.pedido.total).toBe('R$ 69,80');
 
-    // Pagamento: Pix online só pelo link; "Dinheiro" com "sem troco" que a IA marcou SOZINHA não vale (o teste do dono);
-    // só o troco chega depois, sem repetir a forma; troco menor que o total não vale.
-    r = await robo.definirPagamento(c, { forma: 'pix' });
-    expect(r).toMatchObject({ ok: false, motivo: 'so_pelo_link' });
+    // Pagamento: o Pix online é aceito pela conversa (26/11 — antes era "só pelo link") e o cliente muda de ideia para o
+    // dinheiro; "Dinheiro" com "sem troco" que a IA marcou SOZINHA não vale (o teste do dono); só o troco chega depois, sem
+    // repetir a forma; troco menor que o total não vale.
+    r = await robo.definirPagamento(c, { forma: 'quero pagar no pix' });
+    expect(r.ok).not.toBe(false);
+    expect(r.pedido.pagamento.forma).toBe('Pix (pague agora, pelo código que mandamos)');
     r = await robo.definirPagamento(c, { forma: 'Dinheiro', semTroco: true });
     expect(r.pedido.falta.map((f: any) => f.campo)).toEqual(['nome', 'troco']);
     r = await robo.definirPagamento(c, { troco: '50' });
@@ -831,6 +836,49 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(await robo.cancelar(c)).toEqual({ ok: true, feito: 'pedido em montagem cancelado' });
     expect((await robo.ver(c)).pedido.itens).toEqual([]);
     expect(await q(`select count(*)::int as n from pedido_externo where tenant_id = $1`, [l.t])).toEqual([{ n: 0 }]);
+  });
+
+  // O pedido do dono de 26/11/2026: "mandei áudio pedindo para pagar em Pix e o atendente não conseguiu" — o Pix online era
+  // "só pelo link" fora do agendado. Agora, na loja que cobra Pix, ele vem nas opções do pagamento e, ao registrar, o Regem
+  // gera a cobrança pelo caminho da página do pedido e manda o código sozinho; o pedido nasce aguardando o pagamento.
+  it('pedido normal no Pix pela conversa: o Pix nas opções, "quero pagar no Pix" serve e o código sai sozinho ao registrar', async () => {
+    const l = await loja();
+    const c = await l.ctx();
+    await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'coca lata', quantidade: 4 });
+    await robo.mexerNosItens(c, { acao: 'fechar' });
+    let r: any = await robo.definirEntrega(c, { tipo: 'retirada' });
+    expect(r.ok).toBe(true);
+    r = await robo.definirNome(c, { nome: 'Bia' });
+    // O Pix é a primeira opção (a ordem das formas do cardápio), com o detalhe de que se paga agora pelo código.
+    expect(r.pedido.proximo).toMatchObject({ campo: 'pagamento' });
+    expect(r.pedido.proximo.opcoes).toEqual([
+      'Pix — pague agora, pelo código que mandamos',
+      'Dinheiro — pago na retirada',
+      'Cartão na retirada — débito ou crédito na maquininha',
+    ]);
+    r = await robo.definirPagamento(c, { forma: 'quero pagar no pix' });
+    expect(r.pedido).toMatchObject({ podeRegistrar: true, resumoEnviado: true });
+
+    expect(await l.responder('Pode registrar')).toBe(true);
+    const espiao = jest
+      .spyOn(cardapio, 'pagarPedidoPublico')
+      .mockResolvedValueOnce({ ok: true, statusPagamento: 'aguardando', pix: { qrCode: '00020126PIX-NORMAL', qrCodeBase64: null, ticketUrl: null } } as any);
+    const antesDoRegistro = enviados.length;
+    const reg: any = await robo.registrar(c, {});
+    const cobrancas = [...espiao.mock.calls]; // o `mockRestore` apaga as chamadas
+    espiao.mockRestore();
+    expect(reg).toMatchObject({ ok: true, pixEnviado: true });
+    expect(reg.orientacao).toContain('o pedido segue para a loja quando o Pix entrar');
+    const [ped] = await q(`select * from pedido_externo where tenant_id = $1`, [l.t]);
+    expect(ped).toMatchObject({ tipo: 'retirada', forma_pagamento: 'pix', status_pagamento: 'aguardando', agendamento: null });
+    // A cobrança pelo caminho da página do pedido, uma vez, para ESTE pedido.
+    expect(cobrancas).toEqual([[l.token, ped.id]]);
+    const depois = enviados.slice(antesDoRegistro).map((e) => e.texto);
+    expect(depois).toHaveLength(3); // o resumo final, o texto do Pix e o código
+    expect(depois[1]).toContain('Aqui está o Pix de R$ 24,00');
+    expect(depois[1]).toContain('Assim que o pagamento cair, o pedido segue para a loja.');
+    expect(depois[1]).not.toContain('horário marcado');
+    expect(depois[2]).toBe('00020126PIX-NORMAL');
   });
 
   // D4c (mig 455 — protótipo, parte 2, G4 e G5): a loja FECHADA hoje (só abre amanhã), com "Aceitar pedido agendado"

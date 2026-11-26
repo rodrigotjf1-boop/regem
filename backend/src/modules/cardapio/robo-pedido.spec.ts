@@ -11,6 +11,7 @@ import {
   escolhasQueFaltam,
   faltaDaLinha,
   formasDoRobo,
+  formasSoPeloLink,
   montarEscolhas,
   nomeDoCliente,
   opcoesDePagamento,
@@ -301,22 +302,34 @@ describe('a entrega', () => {
 });
 
 describe('o pagamento', () => {
-  it('as formas do robô: as do cardápio de pagar na entrega (Pix e cartão online ficam no link)', () => {
-    expect(formasDoRobo(MENU, 'entrega')).toEqual([{ forma: 'entrega', nome: 'Pagar na entrega (dinheiro ou maquininha)', pedeTroco: true }]);
-    expect(formasDoRobo(MENU, 'retirada')[0].nome).toBe('Pagar na retirada (dinheiro ou maquininha)');
+  it('as formas do robô: o Pix na hora (a loja cobra Pix) e as de pagar na entrega; o cartão online fica no link', () => {
+    expect(formasDoRobo(MENU, 'entrega')).toEqual([
+      { forma: 'pix', nome: 'Pix', pedeTroco: false },
+      { forma: 'entrega', nome: 'Pagar na entrega (dinheiro ou maquininha)', pedeTroco: true },
+    ]);
+    expect(formasDoRobo(MENU, 'retirada')[1].nome).toBe('Pagar na retirada (dinheiro ou maquininha)');
+    expect(formasSoPeloLink(MENU)).toEqual(['Cartão online pelo link']);
+    // A loja sem gateway: o menu nem traz a chave `pix` (ERR-581) — o robô não oferece.
+    expect(formasDoRobo({ loja: { pagamentos: ['entrega'] } }, 'entrega').map((f) => f.forma)).toEqual(['entrega']);
   });
-  it('"dinheiro" e "cartão" caem no pagar na entrega com o MEIO; o nome inteiro da forma não diz qual; "pix" vai pelo link', () => {
+  it('"dinheiro" e "cartão" caem no pagar na entrega com o MEIO; o nome inteiro da forma não diz qual; "pix" é o Pix na hora (26/11)', () => {
     expect(acharForma(MENU, 'entrega', 'dinheiro')).toEqual({ ok: true, forma: 'entrega', porCartao: false, meio: 'dinheiro' });
     expect(acharForma(MENU, 'entrega', 'cartão de crédito')).toEqual({ ok: true, forma: 'entrega', porCartao: true, meio: 'cartao' });
     expect(acharForma(MENU, 'entrega', 'maquininha')).toEqual({ ok: true, forma: 'entrega', porCartao: true, meio: 'cartao' });
     expect(acharForma(MENU, 'entrega', 'Pagar na entrega (dinheiro ou maquininha)')).toEqual({ ok: true, forma: 'entrega', porCartao: false, meio: null });
-    expect(acharForma(MENU, 'entrega', 'pix')).toMatchObject({ ok: false, motivo: 'so_pelo_link' });
+    // O pedido do dono: "quero pagar no Pix" pela conversa (escrito ou por áudio) — antes voltava "só pelo link".
+    expect(acharForma(MENU, 'entrega', 'pix')).toEqual({ ok: true, forma: 'pix', porCartao: false, meio: null });
+    expect(acharForma(MENU, 'entrega', 'quero pagar no pix')).toMatchObject({ ok: true, forma: 'pix' });
+    expect(acharForma(MENU, 'entrega', 'Pix — pague agora, pelo código que mandamos')).toMatchObject({ ok: true, forma: 'pix' });
+    // Sem o Pix no menu (loja sem gateway), "pix" não serve: o robô oferece as da lista.
+    expect(acharForma({ loja: { pagamentos: ['entrega'] } }, 'entrega', 'pix')).toMatchObject({ ok: false, motivo: 'nenhuma', opcoes: ['Dinheiro', 'Cartão na entrega'] });
     expect(acharForma(MENU, 'entrega', 'cheque')).toMatchObject({ ok: false, motivo: 'nenhuma' });
   });
   it('F5: os botões tocados ("Dinheiro", "Cartão na entrega — débito…", "Vale-refeição") e os nomes curtos', () => {
     const m: any = { loja: { pagamentos: ['pix', 'cartao', 'entrega', 'vr'] } };
-    expect(opcoesDePagamento(m, 'entrega').map((o) => o.titulo)).toEqual(['Dinheiro', 'Cartão na entrega', 'Vale-refeição']);
-    expect(opcoesDePagamento(m, 'retirada').map((o) => o.titulo)).toEqual(['Dinheiro', 'Cartão na retirada', 'Vale-refeição']);
+    expect(opcoesDePagamento(m, 'entrega').map((o) => o.titulo)).toEqual(['Pix', 'Dinheiro', 'Cartão na entrega', 'Vale-refeição']);
+    expect(opcoesDePagamento(m, 'retirada').map((o) => o.titulo)).toEqual(['Pix', 'Dinheiro', 'Cartão na retirada', 'Vale-refeição']);
+    expect(opcoesDePagamento(m, 'entrega')[0]).toEqual({ titulo: 'Pix', detalhe: 'pague agora, pelo código que mandamos', forma: 'pix', meio: null });
     expect(opcoesDePagamento(m, 'entrega').every((o) => o.titulo.length <= 20)).toBe(true); // cabe no botão da Meta
     expect(acharForma(m, 'entrega', 'Cartão na entrega — débito ou crédito na maquininha')).toEqual({ ok: true, forma: 'entrega', porCartao: true, meio: 'cartao' });
     expect(acharForma(m, 'entrega', 'Vale-refeição')).toEqual({ ok: true, forma: 'vr', porCartao: false, meio: 'cartao' });
@@ -351,8 +364,9 @@ describe('o pagamento', () => {
     expect(acharForma(m, 'entrega', 'Pix — pague agora, pelo código que mandamos', true)).toEqual({ ok: true, forma: 'pix', porCartao: false, meio: null });
     expect(acharForma(m, 'entrega', 'pix', true)).toMatchObject({ ok: true, forma: 'pix' });
     expect(acharForma(m, 'entrega', 'dinheiro', true)).toMatchObject({ ok: false, motivo: 'nenhuma', opcoes: ['Pix'] });
-    // Sem o agendado, o Pix segue pelo link.
-    expect(acharForma(m, 'entrega', 'pix')).toMatchObject({ ok: false, motivo: 'so_pelo_link' });
+    // Sem o agendado, o Pix é uma das formas (26/11) — e o dinheiro também serve.
+    expect(acharForma(m, 'entrega', 'pix')).toMatchObject({ ok: true, forma: 'pix' });
+    expect(acharForma(m, 'entrega', 'dinheiro')).toMatchObject({ ok: true, forma: 'entrega', meio: 'dinheiro' });
   });
   it('o valor do troco: "100", "R$ 100,00", "1.000"', () => {
     expect(valorDoTroco('100')).toBe(100);

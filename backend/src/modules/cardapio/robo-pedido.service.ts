@@ -2482,8 +2482,15 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
           ctx,
           menu,
           f.motivo === 'so_pelo_link'
-            ? recusa('so_pelo_link', `Pix e cartão online só pelo link do cardápio (${link}). Pelo WhatsApp, as formas são as da lista.`, { formas: f.opcoes })
-            : recusa('forma', 'Essa forma de pagamento não está no cardápio. Ofereça as da lista.', { formas: f.opcoes, soPeloLink: formasSoPeloLink(menu) }),
+            ? recusa('so_pelo_link', `Cartão online só pelo link do cardápio (${link}). Pelo WhatsApp, as formas são as da lista.`, { formas: f.opcoes })
+            : recusa(
+                'forma',
+                // Pediu Pix e a loja não cobra Pix agora (sem gateway, o menu não traz a chave — ERR-581): diga isso, não "não existe".
+                /\bpix\b/.test(normalizar(dto?.forma))
+                  ? 'A loja não está recebendo Pix agora. Ofereça as formas da lista.'
+                  : 'Essa forma de pagamento não está no cardápio. Ofereça as da lista.',
+                { formas: f.opcoes, soPeloLink: formasSoPeloLink(menu) },
+              ),
         );
       }
       forma = f.forma;
@@ -3187,16 +3194,19 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * O PIX DO PEDIDO AGENDADO (D4c, G5): o pedido foi registrado no Pix, aguardando o pagamento — gera a cobrança pelo
-   * MESMO caminho da página do pedido (`pagarPedidoPublico`: o gateway da loja, 10 minutos, o cancelamento do não pago) e
-   * manda ao cliente o texto e, numa mensagem só, o código copia e cola (como o Pix do adicional). Não saiu? O robô recebe
-   * o código para mandar; sem código, a orientação de chamar a equipe.
+   * O PIX DO PEDIDO (D4c, G5; desde 26/11/2026 também o pedido NORMAL, não só o agendado): o pedido foi registrado no Pix,
+   * aguardando o pagamento — gera a cobrança pelo MESMO caminho da página do pedido (`pagarPedidoPublico`: o gateway da
+   * loja, 10 minutos, o cancelamento do não pago) e manda ao cliente o texto e, numa mensagem só, o código copia e cola
+   * (como o Pix do adicional). Não saiu? O robô recebe o código para mandar; sem código, a orientação de chamar a equipe.
    */
   private async mandarPixDoPedido(
     ctx: Contexto,
     ped: any,
   ): Promise<{ pixEnviado: boolean; pixCopiaECola?: string; orientacaoDoPix: string } | null> {
     if (!ped?.id || ped.pago === true) return null;
+    // O agendado fica GARANTIDO no horário; o normal SEGUE PARA A LOJA (o pedido Pix nasce "aguardando" o pagamento).
+    const agendado = ped.retiradaTipo === 'agendado' || !!ped.agendamento;
+    const depoisDoPix = agendado ? 'o pedido fica garantido no horário marcado' : 'o pedido segue para a loja';
     try {
       const r: any = await this.cardapio.pagarPedidoPublico(ctx.token, ped.id);
       if (r?.jaPago || r?.statusPagamento === 'aprovado') return { pixEnviado: false, orientacaoDoPix: 'O pagamento já está aprovado.' };
@@ -3204,14 +3214,14 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
       if (!codigo) throw new Error('a cobrança voltou sem o código');
       const texto = [
         `Aqui está o Pix de ${reais(Number(ped.total ?? 0))} do pedido nº ${ped.displayId ?? ped.numero ?? ''} 👇`,
-        'Vale por 10 minutos. Assim que o pagamento cair, o pedido fica garantido no horário marcado e eu te aviso aqui.',
+        `Vale por 10 minutos. Assim que o pagamento cair, ${depoisDoPix}.`,
       ].join('\n');
       const ok = (await this.enviarResumo(ctx, texto)) && (await this.enviarResumo(ctx, codigo));
       return ok
-        ? { pixEnviado: true, orientacaoDoPix: 'O código Pix JÁ FOI ENVIADO: diga só que o pedido fica garantido quando o Pix entrar, em até 10 minutos.' }
+        ? { pixEnviado: true, orientacaoDoPix: `O código Pix JÁ FOI ENVIADO: diga só que ${depoisDoPix} quando o Pix entrar, em até 10 minutos.` }
         : { pixEnviado: false, pixCopiaECola: codigo, orientacaoDoPix: 'Mande o pixCopiaECola numa mensagem só com ele e diga que vale por 10 minutos.' };
     } catch (e: any) {
-      this.logger.warn(`Pix do pedido agendado ${ped.id} não gerado: ${e?.message ?? e}`);
+      this.logger.warn(`Pix do pedido ${ped.id} não gerado: ${e?.message ?? e}`);
       return {
         pixEnviado: false,
         orientacaoDoPix: 'O código Pix não saiu agora: diga que o pedido está registrado e que a equipe manda o Pix em instantes, e chame a equipe.',

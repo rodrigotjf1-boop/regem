@@ -498,28 +498,34 @@ export const referenciaParaOPedido = (r: string | null | undefined) => (r && r !
 
 // ───────────────────────── pagamento ─────────────────────────
 
-/** As chaves fixas do cardápio que são pagamento ONLINE — o robô não cobra; quem quer pagar assim usa o link. */
-const ONLINE = new Set(['pix', 'cartao']);
+/**
+ * As chaves fixas do cardápio que o robô NÃO cobra pela conversa — quem quer pagar assim usa o link. Só o cartão online
+ * (que nem o menu oferece hoje, CAR-B-06). O PIX online o robô cobra: o menu só traz a chave `pix` na loja que consegue
+ * cobrar (`cobraOnline`, ERR-581), e ao registrar o Regem gera a cobrança pelo mesmo caminho da página do pedido e manda o
+ * código copia e cola (`mandarPixDoPedido`). Antes de 26/11/2026 o Pix também era "só pelo link": o cliente que pedia
+ * "quero pagar no Pix" pela conversa não tinha a opção (pedido do dono).
+ */
+const SO_PELO_LINK = new Set(['cartao']);
 
-/** As formas do cardápio que o robô oferece (as de pagar na entrega/retirada), com o nome para o cliente. */
+/** As formas do cardápio que o robô oferece (o Pix na hora e as de pagar na entrega/retirada), com o nome para o cliente. */
 export function formasDoRobo(menu: any, tipo: 'entrega' | 'retirada' | null, soPix = false): { forma: string; nome: string; pedeTroco: boolean }[] {
   // O pedido AGENDADO com o Pix online na loja (D4c, G5): só o Pix, pago na hora pelo código que o Regem manda.
   if (soPix) return [{ forma: 'pix', nome: 'Pix', pedeTroco: false }];
   const lista: string[] = Array.isArray(menu?.loja?.pagamentos) ? menu.loja.pagamentos : [];
   const onde = tipo === 'retirada' ? 'na retirada' : 'na entrega';
   return lista
-    .filter((f) => typeof f === 'string' && f.trim() && !ONLINE.has(f))
+    .filter((f) => typeof f === 'string' && f.trim() && !SO_PELO_LINK.has(f))
     .map((f) => ({
       forma: f,
-      nome: f === 'entrega' ? `Pagar ${onde} (dinheiro ou maquininha)` : f === 'vr' ? 'Vale-refeição (na maquininha)' : f,
+      nome: f === 'entrega' ? `Pagar ${onde} (dinheiro ou maquininha)` : f === 'vr' ? 'Vale-refeição (na maquininha)' : f === 'pix' ? 'Pix' : f,
       pedeTroco: pedeTroco(f),
     }));
 }
 
-/** As formas ONLINE do cardápio (Pix e cartão pelo link): o robô avisa que essas são pelo link. */
+/** As formas ONLINE do cardápio que o robô não cobra (o cartão online pelo link): o robô avisa que essas são pelo link. */
 export function formasSoPeloLink(menu: any): string[] {
   const lista: string[] = Array.isArray(menu?.loja?.pagamentos) ? menu.loja.pagamentos : [];
-  return lista.filter((f) => ONLINE.has(f)).map((f) => (f === 'pix' ? 'Pix pelo link' : 'Cartão online pelo link'));
+  return lista.filter((f) => SO_PELO_LINK.has(f)).map(() => 'Cartão online pelo link');
 }
 
 /** Forma em que pode haver troco: "pagar na entrega" (dinheiro ou maquininha) ou uma forma de dinheiro da loja. */
