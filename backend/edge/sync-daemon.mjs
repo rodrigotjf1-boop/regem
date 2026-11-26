@@ -54,6 +54,10 @@ import { reiniciarServicoDeImpressao } from './comando-reiniciar-impressao.mjs';
 import {
   ehTempoEsgotado, motivoDoAdiamento, loteDepoisDoTempoEsgotado, loteDepoisDoSucesso, adiamentoViraFalha,
 } from './sync-push-ritmo.mjs';
+// A conexão com a nuvem (1.30.16): UM agente do undici para todas as chamadas — keep-alive de 60 s e abertura de 3 s
+// com nova tentativa na hora. As regras ficam em rede-regras.mjs (testadas); o fetch do pacote usa o agente explícito.
+import { Agent as AgenteDoUndici, fetch as fetchDoUndici } from 'undici';
+import { opcoesDoAgente, ehFalhaDeAbertura, pausaAntesDeTentarDeNovo } from './rede-regras.mjs';
 import {
   PEDIDOS_INTERVALO_MS as PEDIDOS_INTERVALO_PADRAO_MS, PAUSA_SEM_ROTA_MS, LIMITE_POR_ID,
   proximaConferencia, motivoParaEsperar, avisarFalha, listaDaNuvem,
@@ -120,13 +124,16 @@ function ehTransitorio(e) {
 // DUPLO-APPLY, então NÃO re-tenta aqui — o ciclo re-tenta no próximo tick e a nuvem
 // deduplica por seq. Na última tentativa devolve a resposta 5xx (o chamador loga o corpo).
 const GATEWAY_5XX = new Set([502, 503, 504]);
+// O agente ÚNICO (1.30.16): o mesmo para pull, envio, restore, snapshot, conferência dos pedidos e o resto — a conexão
+// aberta num serve ao seguinte. Ver rede-regras.mjs.
+const AGENTE_NUVEM = new AgenteDoUndici(opcoesDoAgente(process.env));
 async function fetchT(url, opts = {}, ms = FETCH_TIMEOUT_MS) {
   const metodo = (opts.method || 'GET').toUpperCase();
   const idempotente = metodo === 'GET' || metodo === 'HEAD';
   let ultimo;
   for (let tent = 1; tent <= FETCH_TENTATIVAS; tent++) {
     try {
-      const res = await fetch(url, { ...opts, signal: AbortSignal.timeout(ms) });
+      const res = await fetchDoUndici(url, { ...opts, dispatcher: AGENTE_NUVEM, signal: AbortSignal.timeout(ms) });
       if (idempotente && GATEWAY_5XX.has(res.status) && tent < FETCH_TENTATIVAS) {
         ultimo = new Error(`HTTP ${res.status} (gateway)`);
         await new Promise((r) => setTimeout(r, 600 * tent));
@@ -135,11 +142,15 @@ async function fetchT(url, opts = {}, ms = FETCH_TIMEOUT_MS) {
       return res;
     } catch (e) {
       ultimo = e;
+      const causa = causaErro(e);
+      // A ABERTURA da conexão falhou (1.30.16): o pedido nem saiu — tenta de novo NA HORA, inclusive o envio (POST).
+      const abertura = ehFalhaDeAbertura(causa);
       // Envio (POST) que passou do tempo NÃO se repete: a nuvem provavelmente recebeu e ainda está aplicando — repetir só
       // batia na trava dele (429) e o ciclo inteiro falhava (ERR-278). O lote volta no próximo ciclo.
-      if (!idempotente && ehTempoEsgotado(causaErro(e))) break;
-      if (!ehTransitorio(e) || tent === FETCH_TENTATIVAS) break;
-      await new Promise((r) => setTimeout(r, 600 * tent)); // backoff curto p/ pegar socket novo
+      if (!abertura && !idempotente && ehTempoEsgotado(causa)) break;
+      if ((!abertura && !ehTransitorio(e)) || tent === FETCH_TENTATIVAS) break;
+      const pausa = pausaAntesDeTentarDeNovo(causa, tent); // 0 na abertura; 0,6 s × n no resto (socket novo)
+      if (pausa) await new Promise((r) => setTimeout(r, pausa));
     }
   }
   // Propaga a mensagem JÁ com a causa real (a telemetria/log param de esconder o motivo).
