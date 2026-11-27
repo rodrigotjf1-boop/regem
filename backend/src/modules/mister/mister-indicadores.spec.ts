@@ -168,6 +168,31 @@ describe('a venda com custo', () => {
     expect(contarCusto([grupo({ produtoId: 'ok', comAdicional: true, centavos: 1000 })], cadastro())).toMatchObject({ cobertoCentavos: 0, semCustoCentavos: 1000 });
   });
 
+  it('o combo com produtos custa a soma deles (ficha completa, custo à mão, lata do estoque); faltando um, fica fora', () => {
+    const comCombo = (partes: Array<[string, number]>) =>
+      cadastro({
+        produtos: new Map([
+          ...cadastro().produtos,
+          ['lata', { nome: 'Lata', tipo: 'simples', fichaId: null, precoCusto: null, itemId: 'item-lata', itemFator: 1 }],
+        ]),
+        produtosDosCombos: new Map([['combo', partes.map(([produtoId, quantidade]) => ({ produtoId, quantidade }))]]),
+        custoDoItem: (itemId) => (itemId === 'item-lata' ? 2.25 : 0),
+      });
+    // Smash (ficha: 4) + 2 × Refri (à mão: 2,50) + Lata (estoque: 2,25) = 11,25.
+    const c = contarCusto([grupo({ produtoId: 'combo', quantidade: 2, centavos: 5000 })], comCombo([['ok', 1], ['manual', 2], ['lata', 1]]));
+    expect(c).toMatchObject({ cobertoCentavos: 5000, custoCentavos: 2250, semCustoCentavos: 0 });
+    // A batata com a ficha incompleta deixa o combo sem custo — nunca a soma parcial.
+    const falta = contarCusto([grupo({ produtoId: 'combo', centavos: 3000 })], comCombo([['ok', 1], ['falta', 1]]));
+    expect(falta).toMatchObject({ cobertoCentavos: 0, semCustoCentavos: 3000 });
+    expect(falta.faltam[0]).toMatchObject({ nome: 'Combo', motivo: 'combo' });
+    // Custo zero à mão no produto do combo é "não informado" aqui, como no resto desta conta.
+    expect(contarCusto([grupo({ produtoId: 'combo', centavos: 100 })], comCombo([['zero', 1]])).faltam[0].motivo).toBe('combo');
+    // Variação de combo: não dá para saber o tamanho.
+    expect(contarCusto([grupo({ produtoId: 'combo', variacaoId: 'grande', centavos: 100 })], comCombo([['ok', 1]])).faltam[0].motivo).toBe('variacao');
+    // A frase diz o que fazer.
+    expect(oQueFaltaNoCusto(falta).join(' ')).toContain('a soma dos produtos dele');
+  });
+
   it('o que falta traz os produtos, os ingredientes e o caminho do menu', () => {
     const t = oQueFaltaNoCusto(contarCusto([grupo({ produtoId: 'falta', centavos: 1000 }), grupo({ produtoId: 'semficha', centavos: 500 }), grupo({ produtoId: 'combo', centavos: 100 })], cadastro())).join(' ');
     expect(t).toContain('Batata');

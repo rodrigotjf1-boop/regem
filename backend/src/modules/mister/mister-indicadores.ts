@@ -1,6 +1,7 @@
 import { somarDias } from '../../common/data';
 import { linhaEntra, type CanalDaFicha } from '../../common/embalagem-da-ficha';
 import { custoDaLinhaDaFicha } from '../../common/regras-negocio';
+import type { ProdutosDosCombos } from '../produto/custo-do-combo';
 import { diaMes } from './mister-agente.regras';
 import { emLista, semAcentoMinusculo } from './mister-analises';
 
@@ -172,6 +173,9 @@ export interface ProdutoDoCusto {
   fichaId: string | null;
   /** O custo informado à mão no produto. Zero ou vazio = não informado. */
   precoCusto: number | null;
+  /** Revenda (a lata): o item do estoque e quanto dele sai por venda — usado no produto dentro de um combo. */
+  itemId?: string | null;
+  itemFator?: number;
 }
 
 /** As vendas de um produto, agrupadas (uma linha por produto, variação, loja, canal e "levou adicional"). */
@@ -192,6 +196,48 @@ export interface CadastroDeCusto {
   /** O fator da ficha de cada variação (grande = 1,5 da receita). */
   fatores: ReadonlyMap<string, number>;
   custoDaFicha: (fichaId: string, canal: CanalDaFicha, unidadeId: string | null) => CustoDaFicha;
+  /** Os produtos de cada combo, com a quantidade (o que a venda baixa). Ausente = nenhum combo tem produtos. */
+  produtosDosCombos?: ProdutosDosCombos;
+  /** O custo médio de um item do estoque (o da loja, senão o do cadastro; 0 = sem custo) — a revenda dentro do combo. */
+  custoDoItem?: (itemId: string, unidadeId: string | null) => number;
+}
+
+/**
+ * O custo de UM produto dentro de um combo, pela regra desta conta: o informado à mão (> 0), o combo dentro dele, a ficha
+ * COMPLETA ou o item do estoque com custo. null = desconhecido — e aí o combo inteiro fica sem custo (nunca soma parcial).
+ */
+function custoDoProdutoNoCombo(id: string, canal: CanalDaFicha, unidadeId: string | null, c: CadastroDeCusto, emCurso: Set<string>): number | null {
+  const p = c.produtos.get(id);
+  if (!p) return null;
+  if (p.precoCusto !== null && p.precoCusto > 0) return p.precoCusto;
+  if (p.tipo === 'combo') return somaDoCombo(id, canal, unidadeId, c, emCurso);
+  if (p.fichaId) {
+    const r = c.custoDaFicha(p.fichaId, canal, unidadeId);
+    return r.completo ? r.porPorcao : null;
+  }
+  if (p.itemId && c.custoDoItem) {
+    const v = c.custoDoItem(p.itemId, unidadeId) * (p.itemFator || 1);
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }
+  return null;
+}
+
+/** A soma dos produtos do combo × a quantidade (`produto/custo-do-combo.ts`, a mesma regra da lista). Sem produtos ou ciclo: null. */
+function somaDoCombo(id: string, canal: CanalDaFicha, unidadeId: string | null, c: CadastroDeCusto, emCurso = new Set<string>()): number | null {
+  const partes = c.produtosDosCombos?.get(id);
+  if (!partes?.length || emCurso.has(id)) return null;
+  emCurso.add(id);
+  let total = 0;
+  for (const parte of partes) {
+    const u = custoDoProdutoNoCombo(parte.produtoId, canal, unidadeId, c, emCurso);
+    if (u === null) {
+      emCurso.delete(id);
+      return null;
+    }
+    total += u * parte.quantidade;
+  }
+  emCurso.delete(id);
+  return total;
 }
 
 export type MotivoSemCusto = 'ficha_incompleta' | 'sem_ficha' | 'combo' | 'variacao' | 'adicional' | 'sem_cadastro';
@@ -216,7 +262,12 @@ function custoDoGrupo(g: GrupoDeVenda, c: CadastroDeCusto): { unitario: number }
   const fator = g.variacaoId ? (c.fatores.get(g.variacaoId) ?? null) : 1;
   if (fator === null || !(fator > 0)) return { motivo: 'variacao' };
   if (p.precoCusto !== null && p.precoCusto > 0) return fator === 1 ? { unitario: p.precoCusto } : { motivo: 'variacao' };
-  if (p.tipo === 'combo') return { motivo: 'combo' };
+  if (p.tipo === 'combo') {
+    // O combo com produtos custa a soma deles (o que a venda baixa); com algum produto sem custo, ou sem produtos, fica fora.
+    const soma = g.produtoId ? somaDoCombo(g.produtoId, g.canal, g.unidadeId, c) : null;
+    if (soma === null) return { motivo: 'combo' };
+    return fator === 1 ? { unitario: soma } : { motivo: 'variacao' };
+  }
   if (!p.fichaId) return { motivo: 'sem_ficha' };
   const r = c.custoDaFicha(p.fichaId, g.canal, g.unidadeId);
   if (!r.completo) return { motivo: 'ficha_incompleta', insumos: r.faltam };
@@ -272,7 +323,10 @@ export function oQueFaltaNoCusto(c: ContaDoCusto): string[] {
   const semFicha = doMotivo('sem_ficha');
   if (semFicha.length) fora.push(`${plural(semFicha.length, 'produto vendido não tem', 'produtos vendidos não têm')} ficha nem custo (${exemplos(semFicha)}). Crie a ficha em ${ONDE_CRIAR_FICHA}, ou informe o custo em ${ONDE_PRECO_DE_CUSTO}.`);
   const combos = doMotivo('combo');
-  if (combos.length) fora.push(`${plural(combos.length, 'combo não tem', 'combos não têm')} custo (${exemplos(combos)}). Informe em ${ONDE_PRECO_DE_CUSTO}.`);
+  if (combos.length)
+    fora.push(
+      `${plural(combos.length, 'combo não tem', 'combos não têm')} custo (${exemplos(combos)}): o custo do combo é a soma dos produtos dele, e algum está sem ficha ou sem custo (ou o combo não tem produtos). Lance o que falta, ou informe o custo do combo em ${ONDE_PRECO_DE_CUSTO}.`,
+    );
   const variacoes = doMotivo('variacao');
   if (variacoes.length) fora.push(`${plural(variacoes.length, 'produto com variação fica', 'produtos com variação ficam')} de fora (${exemplos(variacoes)}): o custo informado à mão não diz quanto cada tamanho usa. Use a ficha técnica em ${ONDE_CRIAR_FICHA}.`);
   if (doMotivo('adicional').length) fora.push('As vendas com adicional pago ficam de fora: o custo do adicional ainda não entra nesta conta.');
