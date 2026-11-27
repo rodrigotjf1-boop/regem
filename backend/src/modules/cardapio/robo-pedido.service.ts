@@ -478,6 +478,23 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     return promocoesParaOCliente(cupons, { ativa: !!promos?.fidelidadeAtiva, planos: promos?.planos ?? [] });
   }
 
+  /**
+   * A chave da memória da conversa (27/11, ERR-629): o fluxo do n8n (2.6) junta este valor à chave da memória do atendente.
+   * É o começo do id do último pedido do cliente — não muda enquanto ele monta um pedido e muda quando um pedido novo entra
+   * (pelo robô, pelo cardápio ou por um aplicativo). Assim o pedido seguinte começa sem as mensagens do anterior (o
+   * atendente repetiu as formas de pagamento de um pedido de 5 horas antes). Cliente sem cadastro = sem chave (a de sempre).
+   */
+  private async chaveDaMemoria(ctx: Contexto, cli: ClienteDaConversa): Promise<string | null> {
+    if (!cli?.id) return null;
+    const [p] = await this.db
+      .select({ id: pedidoExterno.id })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, ctx.cfg.tenantId), eq(pedidoExterno.clienteId, cli.id)))
+      .orderBy(desc(pedidoExterno.criadoEm))
+      .limit(1);
+    return p?.id ? String(p.id).replace(/-/g, '').slice(0, 12) : null;
+  }
+
   async ver(ctx: Contexto) {
     const [menu, cli, c] = await Promise.all([this.cardapio.menu(ctx.token), this.clienteDaConversa(ctx), this.carrinhoAberto(ctx)]);
     const produtos = new Map<string, any>((menu?.produtos ?? []).map((p: any) => [p.id, p]));
@@ -499,7 +516,12 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
           return null;
         })
       : null;
+    const chaveDaMemoria = await this.chaveDaMemoria(ctx, cli).catch((e: any) => {
+      this.logger.warn(`chave da memória não lida: ${e?.message ?? e}`);
+      return null;
+    });
     return {
+      ...(chaveDaMemoria ? { chaveDaMemoria } : {}),
       cliente: cli
         ? { conhecido: true, nome: cli.nome ?? null }
         : { conhecido: false, nome: null, dica: 'Cliente novo: pergunte o nome para o pedido.' },
