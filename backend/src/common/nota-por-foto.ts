@@ -10,6 +10,7 @@
 // Quem lança (o recebimento e a conta a pagar, pelo serviço da tela) e quem pergunta é o serviço, na parte 2.
 
 import { dvModulo11 } from '../modules/fiscal/chave';
+import { chaveUnidade, proporcaoFixa, unidadesDoProduto, type Conversao } from './conversao-unidade';
 
 const soDigitos = (s: unknown) => String(s ?? '').replace(/\D/g, '');
 
@@ -320,7 +321,11 @@ export interface ItemNoMister extends ItemDaNota {
   insumoNome: string | null;
   unidadeDoEstoque: string | null;
   fator: number | null;
-  /** A conta dita numa frase, à espera do "sim": o fator fica guardado para as próximas notas do fornecedor (ERR-588). */
+  /**
+   * A conta dita numa frase, à espera do "sim": o fator fica guardado para as próximas notas do fornecedor (ERR-588). Na linha
+   * ainda sem insumo (`item`) com a proposta da IA, é a conta que vale se ela for ligada à primeira sugestão (ERR-628: o
+   * "Aceitar as sugestões" resolve as duas dúvidas da linha num toque, com a conta mostrada antes).
+   */
   fatorProposto?: number | null;
   /** A pessoa disse a conta nesta nota: a conferência da embalagem não pergunta de novo. */
   fatorConfirmado?: boolean;
@@ -331,7 +336,8 @@ export interface ItemNoMister extends ItemDaNota {
   /** Versão 9, O1: o nome limpo que a IA propôs para o cadastro novo. */
   nomeNovo?: string | null;
   estado: 'ligado' | 'fora' | 'item' | 'fator';
-  sugestoes: { id: string; nome: string }[];
+  /** `unidade`: a unidade do estoque do insumo sugerido (ERR-628: para mostrar a conta junto da proposta da IA). */
+  sugestoes: { id: string; nome: string; unidade?: string | null }[];
 }
 
 export interface NotaNoMister {
@@ -481,11 +487,136 @@ export function fatorDaEmbalagem(it: ItemNoMister): number | null {
   return Math.abs(it.fator * n - 1) < 0.001 ? 1 : null;
 }
 
-/** Toda linha ligada cuja conta a embalagem contradiz volta a perguntar, com a conta a confirmar. Nada entra no estoque assim. */
-export function conferirEmbalagens(n: Pick<NotaNoMister, 'itens'>): void {
+/** Medida de peso ou de volume (kg, grama, litro, ml): "1 UN = 0,5 kg" pode estar certo (o pacote de 500 g). */
+const ehMedidaFixa = (u: unknown) => proporcaoFixa(u, u) !== null;
+
+/**
+ * A linha da nota em "UN" e o estoque contado numa EMBALAGEM (caixa, pacote, fardo, saco, peça…): não é a unidade solta nem
+ * peso ou volume. É o caso em que o fornecedor imprime "UN" para a embalagem fechada (ERR-628).
+ */
+export function emUnDeEmbalagem(it: Pick<ItemNoMister, 'unidade'>, unidadeDoEstoque: string | null | undefined): boolean {
+  return ehUnidadeSolta(it.unidade) && !!unidadeDoEstoque && !ehUnidadeSolta(unidadeDoEstoque) && !ehMedidaFixa(unidadeDoEstoque);
+}
+
+/**
+ * ERR-628: a conta que faz cada UN da nota valer uma FRAÇÃO da embalagem do estoque. A conversão do cadastro diz o que vem
+ * DENTRO dela (1 caixa = 24 unidade), e "1 UN = 1/24 caixa" fazia as 25 caixas de Guaravita entrarem como 1,04. Só a pessoa
+ * confirma uma conta assim.
+ */
+export function ehFracaoDeEmbalagem(it: Pick<ItemNoMister, 'unidade'>, unidadeDoEstoque: string | null | undefined, fator: number | null | undefined): boolean {
+  return typeof fator === 'number' && fator > 0 && fator < 0.999 && emUnDeEmbalagem(it, unidadeDoEstoque);
+}
+
+/**
+ * ERR-628: a conta que REPETE o que o cadastro diz que vem dentro da embalagem: "1 UN = 24 caixas" com 1 caixa = 24 unidade.
+ * Foi o que a conversa gravou quando o dono explicou "1 UN = 1 caixa, e 1 caixa = 24 unidades no Regem". `conteudos` = quantas
+ * unidades menores cabem em 1 da unidade do estoque, pelo cadastro (`conteudosDaEmbalagem`).
+ */
+export function repeteOConteudo(it: Pick<ItemNoMister, 'unidade'>, unidadeDoEstoque: string | null | undefined, fator: number | null | undefined, conteudos: number[]): boolean {
+  return typeof fator === 'number' && fator > 1.001 && emUnDeEmbalagem(it, unidadeDoEstoque) && conteudos.some((c) => Math.abs(c - fator) < 0.001);
+}
+
+/**
+ * Quantas unidades menores cabem em 1 da unidade do estoque, pelo cadastro: com "1 caixa = 24 unidade", [24]. As medidas fixas
+ * (kg ↔ grama) ficam de fora: são conta, não conteúdo.
+ */
+export function conteudosDaEmbalagem(unidadeDoEstoque: string | null | undefined, conversoes: Conversao[]): number[] {
+  if (!unidadeDoEstoque) return [];
+  const estoque = chaveUnidade(unidadeDoEstoque);
+  return unidadesDoProduto(unidadeDoEstoque, conversoes)
+    .filter((u) => chaveUnidade(u.unidade) !== estoque && !ehMedidaFixa(u.unidade) && u.fator > 0 && u.fator < 1)
+    .map((u) => Math.round((1 / u.fator) * 1000) / 1000);
+}
+
+/**
+ * O que o cadastro diz da embalagem, em frases para a IA ler junto da linha: "1 caixa = 24 unidade". Sem conversão, vazio.
+ */
+export function cadastroDaEmbalagem(unidadeDoEstoque: string | null | undefined, conversoes: Conversao[]): string[] {
+  if (!unidadeDoEstoque) return [];
+  const estoque = chaveUnidade(unidadeDoEstoque);
+  const n = (v: number) => (Math.round(v * 1000) / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+  // O estoque em kg não precisa de "1 kg = 1000 grama"; a caixa com "1 caixa = 6 kg" precisa.
+  return unidadesDoProduto(unidadeDoEstoque, conversoes)
+    .filter((u) => chaveUnidade(u.unidade) !== estoque && u.fator > 0 && !(ehMedidaFixa(u.unidade) && ehMedidaFixa(unidadeDoEstoque)))
+    .slice(0, 4)
+    .map((u) => (u.fator < 1 ? `1 ${unidadeDoEstoque} = ${n(1 / u.fator)} ${u.unidade}` : `1 ${u.unidade} = ${n(u.fator)} ${unidadeDoEstoque}`));
+}
+
+/** Como a descrição do fornecedor chama a embalagem de cada unidade do estoque ("CX 24", "PCT 100un", "FD"). */
+const NOME_DA_EMBALAGEM: Record<string, RegExp> = {
+  caixa: /\b(cx|cxa|caixa)\b/,
+  pacote: /\b(pct|pc|pac|pacote)\b/,
+  fardo: /\b(fd|fdo|fardo)\b/,
+  saco: /\b(sc|saco)\b/,
+  galao: /\b(gl|gal|galao)\b/,
+  bisnaga: /\b(bg|bisnaga)\b/,
+  peca: /\b(pc|pca|peca)\b/,
+};
+const semAcento = (t: unknown) =>
+  String(t ?? '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase();
+function descricaoChamaAEmbalagem(descricao: unknown, unidadeDoEstoque: string | null | undefined): boolean {
+  const u = chaveUnidade(unidadeDoEstoque);
+  const t = semAcento(descricao);
+  const pelaTabela = NOME_DA_EMBALAGEM[u];
+  return (!!pelaTabela && pelaTabela.test(t)) || (u.length >= 3 && new RegExp(`\\b${u.replace(/[^a-z]/g, '')}\\b`).test(t));
+}
+
+/**
+ * Quanto do estoque o pedido de compra esperava por UN desta linha: a quantidade pedida do insumo ÷ a soma da nota nele. Null
+ * sem pedido (ou com "Não é deste pedido").
+ */
+export function razaoDoPedido(n: Partial<Pick<NotaNoMister, 'itens' | 'pedido'>>, insumoId: string | null | undefined, quantidadeNaNota?: number): number | null {
+  const p = n.pedido;
+  if (!insumoId || !p?.itensDoPedido?.length || p.resposta === 'nao') return null;
+  const pedida = p.itensDoPedido.filter((x) => x.itemId === insumoId).reduce((s, x) => s + (Number(x.quantidade) || 0), 0);
+  const naNota = quantidadeNaNota ?? (n.itens ?? []).filter((x) => x.insumoId === insumoId).reduce((s, x) => s + (Number(x.quantidade) || 0), 0);
+  return pedida > 0 && naNota > 0 ? pedida / naNota : null;
+}
+
+/**
+ * A conta proposta para a linha em UN de um estoque em embalagem (ERR-628), na ordem das provas: o pedido de compra que a nota
+ * recebe (a quantidade pedida ÷ a da nota, quando dá 1, ou o número de peças que a descrição diz — "2270gx8": 3 UN × 8 = as 24
+ * peças pedidas); sem ele, 1 embalagem por UN quando a descrição não diz quantas peças vêm, ou quando ela chama a embalagem
+ * pelo nome do estoque ("CX 24" com o estoque em caixa). Fora disso, nenhuma: a pessoa diz.
+ */
+export function propostaDaEmbalagem(it: Pick<ItemNoMister, 'descricao'>, unidadeDoEstoque: string | null | undefined, peloPedido?: number | null): number | null {
+  const n = embalagemDaDescricao(it.descricao);
+  if (typeof peloPedido === 'number' && peloPedido > 0) {
+    if (Math.abs(peloPedido - 1) < 0.001) return 1;
+    if (n && Math.abs(peloPedido - n) < 0.001) return n;
+  }
+  if (!n) return 1;
+  return descricaoChamaAEmbalagem(it.descricao, unidadeDoEstoque) ? 1 : null;
+}
+
+/**
+ * Toda linha ligada cuja conta a embalagem contradiz volta a perguntar, com a conta a confirmar. Nada entra no estoque assim.
+ * ERR-628: a FRAÇÃO de embalagem também (com a conta proposta), e a linha que espera a conta em UN de um estoque em embalagem
+ * ganha a proposta — o "Aceitar as sugestões" resolve. Com o pedido de compra na nota, ele é a primeira prova.
+ */
+export function conferirEmbalagens(n: Pick<NotaNoMister, 'itens'> & Partial<Pick<NotaNoMister, 'pedido'>>): void {
   for (const it of n.itens) {
     const proposto = fatorDaEmbalagem(it);
-    if (proposto != null) Object.assign(it, { estado: 'fator', fator: null, fatorProposto: proposto });
+    if (proposto != null) {
+      Object.assign(it, { estado: 'fator', fator: null, fatorProposto: proposto });
+      continue;
+    }
+    if (it.estado === 'ligado' && !it.fatorConfirmado && ehFracaoDeEmbalagem(it, it.unidadeDoEstoque, it.fator)) {
+      Object.assign(it, { estado: 'fator', fator: null, fatorProposto: propostaDaEmbalagem(it, it.unidadeDoEstoque, razaoDoPedido(n, it.insumoId)) });
+      continue;
+    }
+    if (it.estado === 'fator' && !it.fatorConfirmado && typeof it.fatorProposto !== 'number' && it.insumoId && emUnDeEmbalagem(it, it.unidadeDoEstoque)) {
+      it.fatorProposto = propostaDaEmbalagem(it, it.unidadeDoEstoque, razaoDoPedido(n, it.insumoId));
+      continue;
+    }
+    // A linha que espera o insumo, com a proposta da IA: a conta que valeria com ela (o pedido decide entre 1 e a embalagem).
+    const s = it.estado === 'item' && it.propostaDaIa ? it.sugestoes?.[0] : undefined;
+    if (s?.unidade && typeof it.fatorProposto !== 'number' && emUnDeEmbalagem(it, s.unidade)) {
+      it.fatorProposto = propostaDaEmbalagem(it, s.unidade, razaoDoPedido(n, s.id, it.quantidade));
+    }
   }
 }
 
@@ -602,7 +733,16 @@ export const FRASES_DA_NOTA = {
         return `• ${nome}: é o *${it.insumoNome}*, contado em ${it.unidadeDoEstoque}. Cada ${it.unidade ?? 'unidade'} da nota é quanto do estoque?`;
       }
       const s = it.sugestoes ?? [];
-      if (it.propostaDaIa && s[0]) return `• ${nome}: é o *${s[0].nome}*?${s[1] ? ` Ou o ${s[1].nome}?` : ''}`;
+      if (it.propostaDaIa && s[0]) {
+        // ERR-628: a conta vai junto, e o "Aceitar as sugestões" vale para as duas dúvidas da linha.
+        // "Cada UN = 1 unidade" não diz nada: só a conta que muda alguma coisa aparece.
+        const trivial = it.fatorProposto === 1 && ehUnidadeSolta(it.unidade) && ehUnidadeSolta(s[0].unidade);
+        const conta =
+          typeof it.fatorProposto === 'number' && s[0].unidade && !trivial
+            ? ` (cada ${it.unidade ?? 'unidade'} = ${qtd(it.fatorProposto)} ${s[0].unidade}: entram ${comUnidade(Math.round(it.quantidade * it.fatorProposto * 1000) / 1000, s[0].unidade)})`
+            : '';
+        return `• ${nome}: é o *${s[0].nome}*${conta}?${s[1] ? ` Ou o ${s[1].nome}?` : ''}`;
+      }
       if (s[0]) return `• ${nome}: não tenho certeza. Pode ser o *${s[0].nome}*${s[1] ? ` ou o ${s[1].nome}` : ''}${it.nomeNovo ? `, ou cadastro *${it.nomeNovo}*` : ''}.`;
       return `• ${nome}: não achei no estoque. ${it.nomeNovo ? `Cadastro *${it.nomeNovo}*, ou é outro nome?` : 'Cadastro um novo, ou é outro nome?'}`;
     };

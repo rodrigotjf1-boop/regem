@@ -2853,6 +2853,20 @@ cupom, a nota, o boleto e a conta por foto) NUNCA foi registrada em produção. 
 toda resposta ao documento vai à IA, então a nota parava na primeira pergunta ("o cupom pela conversa ainda não está disponível
 neste servidor"). Corrigido com `forwardRef`; o `app-sobe.spec.ts` passou a reprovar qualquer `@Optional` vazio por esse motivo.
 
+**ERR-628 (27/11/2026, a nota da Rucas com a ferramenta já no ar):**
+
+- **A conta errada entrava calada:** o "UN" do fornecedor é a embalagem fechada, e a conversão do cadastro (1 caixa = 24 unidade)
+  fazia cada UN valer 1/24 de caixa. Essa linha agora volta como dúvida, com a conta proposta pelas provas: o pedido de compra
+  (pedido ÷ nota), a descrição ("CX 24", "PCT") ou nenhuma.
+- **"Aceitar as sugestões" vale para a linha inteira:** a proposta da IA mostra a conta junto ("é o Queijo (cada UN = 8 peças:
+  entram 24 peças)?"), e o toque aceita o insumo e a conta, dizendo quantas aceitou e quantas faltam.
+- **"Os itens entram no estoque?":** a pergunta e o botão "Entram no estoque" agora deixam claro que é só a escolha do caminho. O
+  lançamento é o "Lançar" do resumo.
+- **A conversa não converte sozinha:** ela manda o número com a medida que a pessoa disse ("24 unidades"), e o Regem converte pelo
+  cadastro. O "ver" mostra a unidade do estoque e o que o cadastro diz da embalagem. "24 caixas" com 1 caixa = 24 unidade não grava
+  sem a medida, e a memória do fornecedor com essa conta também não vale.
+- **A foto nova da mesma nota toma o lugar da aberta:** ela traz as contas confirmadas, o "fora do estoque" e as respostas do pedido.
+
 ### C10c — a imagem para todos (26/11/2026; mig 509; só na nuvem; nasce DESLIGADO, o ajuste "Imagem na conversa")
 
 - **O ajuste** `mister_conversa_config.imagem_na_conversa` (mig 509) fica em Mister › Avisos e relatórios › Conversa ›

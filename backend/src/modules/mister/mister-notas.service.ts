@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, Logger, OnModuleInit, Optional, forwardRef } from '@nestjs/common';
 import { SQL, sql } from 'drizzle-orm';
 import { hojeISO } from '../../common/data';
-import { Conversao, fatorParaEstoque } from '../../common/conversao-unidade';
+import { Conversao, chaveUnidade, fatorParaEstoque } from '../../common/conversao-unidade';
 import { custosMediosNaLoja, lojaDeControle } from '../../common/custo-loja';
 import {
   FRASES_DA_NOTA,
@@ -9,9 +9,12 @@ import {
   ItemNoMister,
   NotaNoMister,
   botoesDoComoLancar,
+  cadastroDaEmbalagem,
   chaveDoDePara,
   conferirEmbalagens,
+  conteudosDaEmbalagem,
   embalagemDaDescricao,
+  repeteOConteudo,
   formaDoPagamento,
   lerComoLancar,
   conferirNota,
@@ -359,7 +362,11 @@ export class MisterNotasService implements OnModuleInit {
       if (lembrado && !lembrado.itemId) return { ...it, insumoId: null, insumoNome: null, unidadeDoEstoque: null, fator: null, estado: 'fora', sugestoes: [] };
       const insumo = lembrado ? insumos.find((x) => x.id === lembrado.itemId) : undefined;
       if (insumo) {
-        const fator = lembrado!.fator ?? fatorParaEstoque(unidadeImpressa(it.unidade), insumo.unidadeMedida, conversoes.get(insumo.id) ?? []);
+        const conv = conversoes.get(insumo.id) ?? [];
+        // ERR-628: a memória que repete o conteúdo da embalagem ("1 UN = 24 caixas" com 1 caixa = 24 unidade) não vale: a conta
+        // volta a ser a do cadastro, e a conferência da embalagem pergunta.
+        const lembrada = repeteOConteudo(it, insumo.unidadeMedida, lembrado!.fator, conteudosDaEmbalagem(insumo.unidadeMedida, conv)) ? null : lembrado!.fator;
+        const fator = lembrada ?? fatorParaEstoque(unidadeImpressa(it.unidade), insumo.unidadeMedida, conv);
         return { ...it, insumoId: insumo.id, insumoNome: insumo.nome, unidadeDoEstoque: insumo.unidadeMedida, fator, estado: fator == null ? 'fator' : 'ligado', sugestoes: [] };
       }
       const sugestoes = sugerirInsumos(it.descricao, insumos).map((s) => ({ id: s.id, nome: s.nome }));
@@ -392,10 +399,21 @@ export class MisterNotasService implements OnModuleInit {
       const conhecidos = nota.itens.filter((it) => memoria.has(chaveDoDePara(it)));
       nota.modelo = { conhecidos: conhecidos.length, mudancas: mudancasDoModelo(conhecidos.map((it) => ({ ...it, ultima: ultimas.get(chaveDoDePara(it)) ?? null }))) };
     }
+    // ERR-628: a mesma nota mandada de novo (outra foto) toma o lugar da que ainda esperava resposta, com o que a pessoa já
+    // decidiu em cada linha (o insumo, a conta confirmada, o "fora").
+    const anterior = await this.substituirAMesmaNota(quem, wamid, nota);
     conferirEmbalagens(nota);
     // P4 de "Pedidos e recebimento" (PR-7): o pedido aberto que bate com a nota pelos itens ligados. A pergunta vem depois das
     // dúvidas da leitura e antes do "Como deseja lançar?" do cupom.
     nota.pedido = await this.pedidoQueBateComANota(quem.tenantId, quem.unidadeId ?? null, nota, fornecedorId);
+    // A mesma nota de novo, com o mesmo pedido: o que a pessoa já respondeu sobre ele vale (não pergunta de novo).
+    if (anterior?.pedido && nota.pedido && anterior.pedido.listaId === nota.pedido.listaId) {
+      nota.pedido.resposta = anterior.pedido.resposta ?? null;
+      if (anterior.pedido.decisoes) nota.pedido.decisoes = anterior.pedido.decisoes;
+      if (anterior.comoLancar && (anterior.especie ?? 'nota') === (nota.especie ?? 'nota')) nota.comoLancar = anterior.comoLancar;
+    }
+    // ERR-628: com o pedido, a conta proposta das linhas em UN de um estoque em embalagem tem a primeira prova (pedido ÷ nota).
+    if (nota.pedido) conferirEmbalagens(nota);
     const daLeitura = pendenciaDaLeitura(nota);
     if (daLeitura) {
       const id = await this.gravar(quem, wamid, 'falta', daLeitura, nota, fornecedorId);
@@ -477,17 +495,18 @@ export class MisterNotasService implements OnModuleInit {
       }
       conferirEmbalagens(nota);
       await this.lembrar(tx, d.tenantId, nota.emitenteCnpj, it, v.colaboradorId);
-      const pend = proximaPendencia(nota);
+      // ERR-628: o MESMO próximo passo das outras respostas (com o pedido, as diferenças vêm antes do "Lançar").
+      const prox = this.proximoPasso(nota);
       await tx.execute(sql`
         update mister_documento
-           set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), situacao = ${pend ? 'falta' : 'confirmar'},
-               motivo = ${pend ? `${pend.tipo}:${pend.indice}` : 'itens_ligados'}, atualizado_em = clock_timestamp()
+           set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), situacao = ${prox.situacao},
+               motivo = ${prox.motivo}, atualizado_em = clock_timestamp()
          where id = ${d.id}::uuid`);
-      return { achou: true, seguir: { id: d.id, nota } } as const;
+      return { achou: true, seguir: { id: d.id as string, nota, motivo: prox.motivo } } as const;
     });
     if (!resultado.achou) return false;
     if ('resposta' in resultado && resultado.resposta) await this.falar(quem.telefone, resultado.resposta);
-    if ('seguir' in resultado && resultado.seguir) await this.seguir(quem.telefone, resultado.seguir.id, resultado.seguir.nota);
+    if ('seguir' in resultado && resultado.seguir) await this.falarDepoisDaLeitura(quem.telefone, resultado.seguir.id, resultado.seguir.nota, resultado.seguir.motivo);
     return true;
   }
 
@@ -722,6 +741,56 @@ export class MisterNotasService implements OnModuleInit {
          and wamid is distinct from ${wamid}`);
   }
 
+  /**
+   * ERR-628: a foto nova da MESMA nota (a mesma chave de acesso, ou o mesmo fornecedor com o mesmo total e o mesmo número de
+   * linhas) encerra a que ainda esperava resposta desta pessoa ("foto_nova") — antes ficavam as duas abertas, e a conversa
+   * gravava numa e a pessoa respondia sobre a outra. Traz o que ela já decidiu em cada linha (o insumo com a conta que ela
+   * confirmou, ou o "fora do estoque"); a leitura e os valores vêm da foto nova. Devolve a nota antiga (para o pedido), ou null.
+   */
+  private async substituirAMesmaNota(quem: QuemMandou, wamid: string | null, nota: NotaNoMister): Promise<NotaNoMister | null> {
+    const condicoes: SQL[] = [];
+    if (nota.chave) condicoes.push(sql`dados->'nota'->>'chave' = ${nota.chave}`);
+    if (nota.emitenteCnpj && nota.valorTotalCentavos > 0)
+      condicoes.push(sql`(dados->'nota'->>'emitenteCnpj' = ${nota.emitenteCnpj} and (dados->'nota'->>'valorTotalCentavos')::numeric = ${nota.valorTotalCentavos}
+        and jsonb_array_length(coalesce(dados->'nota'->'itens', '[]'::jsonb)) = ${nota.itens.length})`);
+    if (!condicoes.length) return null;
+    let anterior: NotaNoMister | null = null;
+    try {
+      const antigas = linhas(
+        await this.db.execute(sql`
+          update mister_documento set situacao = 'recusado', motivo = 'foto_nova', respondido_em = now(), atualizado_em = clock_timestamp()
+           where tenant_id = ${quem.tenantId}::uuid and colaborador_id = ${quem.colaboradorId}::uuid and tipo = 'nota'
+             and situacao in ('falta', 'confirmar') and wamid is distinct from ${wamid}
+             and (${sql.join(condicoes, sql` or `)})
+          returning dados, criado_em as "criadoEm"`),
+      ).sort((a, b) => new Date(b.criadoEm).getTime() - new Date(a.criadoEm).getTime());
+      anterior = antigas[0]?.dados?.nota ?? null;
+    } catch (e: any) {
+      // Nunca derruba a leitura: sem a troca, as duas ficam abertas, como antes.
+      this.logger.warn(`a troca da nota antiga pela foto nova falhou — ${e?.message ?? e}`);
+      return null;
+    }
+    if (!anterior?.itens) return anterior;
+    const ids = [...new Set(anterior.itens.filter((x) => x.estado === 'ligado' && x.insumoId).map((x) => x.insumoId as string))];
+    const conv = await this.conversoes(quem.tenantId, ids).catch(() => new Map<string, Conversao[]>());
+    const decididas = new Map<string, ItemNoMister>();
+    for (const it of anterior.itens) {
+      const fora = it.estado === 'fora' && !it.pelaIa;
+      // A conta confirmada que repete o conteúdo da embalagem não passa adiante (a conferência pergunta de novo).
+      const conta =
+        it.estado === 'ligado' && it.fatorConfirmado && !repeteOConteudo(it, it.unidadeDoEstoque, it.fator, conteudosDaEmbalagem(it.unidadeDoEstoque, conv.get(it.insumoId ?? '') ?? []));
+      if (fora || conta) decididas.set(chaveDoDePara(it), it);
+    }
+    for (const it of nota.itens) {
+      const d = decididas.get(chaveDoDePara(it));
+      if (!d) continue;
+      const limpa = { fatorProposto: null, sugestoes: [], pelaIa: false, propostaDaIa: false };
+      if (d.estado === 'fora') Object.assign(it, { ...limpa, estado: 'fora', insumoId: null, insumoNome: null, unidadeDoEstoque: null, fator: null });
+      else Object.assign(it, { ...limpa, estado: 'ligado', insumoId: d.insumoId, insumoNome: d.insumoNome, unidadeDoEstoque: d.unidadeDoEstoque, fator: d.fator, fatorConfirmado: true });
+    }
+    return anterior;
+  }
+
   /** Depois de resolver a leitura: a próxima dúvida, o "Como deseja lançar?" do cupom, os itens ou o resumo. */
   private proximoPasso(nota: NotaNoMister): { situacao: 'falta' | 'confirmar'; motivo: string } {
     const daLeitura = pendenciaDaLeitura(nota);
@@ -858,16 +927,108 @@ export class MisterNotasService implements OnModuleInit {
       } else if (p.fora) {
         Object.assign(it, { estado: 'fora', pelaIa: true, sugestoes: [] });
       } else {
-        const sugestoes = [p.insumo, ...p.outros].filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ id: x.id, nome: x.nome }));
-        Object.assign(it, { sugestoes: sugestoes.length ? sugestoes : it.sugestoes, propostaDaIa: !!p.insumo, nomeNovo: p.nomeNovo });
+        const sugestoes = [p.insumo, ...p.outros]
+          .filter((x): x is NonNullable<typeof x> => !!x)
+          .map((x, k) => ({ id: x.id, nome: x.nome, ...(k === 0 ? { unidade: x.unidadeMedida } : {}) }));
+        // ERR-628: a conta que valeria com a proposta vai junto (a da memória do cadastro; a fração de embalagem, a proposta da
+        // conferência), para o "Aceitar as sugestões" resolver as duas dúvidas da linha num toque.
+        const conta = p.insumo ? this.contaComOInsumo(it, p.insumo, conversoes.get(p.insumo.id) ?? []) : null;
+        Object.assign(it, { sugestoes: sugestoes.length ? sugestoes : it.sugestoes, propostaDaIa: !!p.insumo, nomeNovo: p.nomeNovo, fatorProposto: conta });
       }
     }
     return true;
   }
 
   /**
+   * ERR-628: a conta que valeria se a linha fosse ligada a este insumo — a do cadastro, passada pela MESMA conferência da
+   * embalagem (a fração de embalagem vira a conta proposta; a "36un" contrária, a da descrição). Null quando não há conta.
+   */
+  private contaComOInsumo(it: ItemNoMister, insumo: { id: string; unidadeMedida: string }, conv: Conversao[]): number | null {
+    const fator = fatorParaEstoque(unidadeImpressa(it.unidade), insumo.unidadeMedida, conv);
+    const teste: ItemNoMister = {
+      ...it,
+      insumoId: insumo.id,
+      unidadeDoEstoque: insumo.unidadeMedida,
+      fator,
+      fatorProposto: null,
+      fatorConfirmado: false,
+      propostaDaIa: false,
+      estado: fator == null ? 'fator' : 'ligado',
+      sugestoes: [],
+    };
+    conferirEmbalagens({ itens: [teste] });
+    return teste.estado === 'ligado' ? teste.fator : typeof teste.fatorProposto === 'number' ? teste.fatorProposto : null;
+  }
+
+  /**
+   * ERR-628: a conversão dita na conversa, na unidade do estoque. Com a medida que a pessoa usou ("24 unidades", "1 kg"), o Regem
+   * converte pelo cadastro do insumo. Sem ela (ou na própria unidade do estoque), o número vale como veio — menos quando ele
+   * repete o que o cadastro diz que vem DENTRO da embalagem ("24" com 1 caixa = 24 unidade): era o que a conversa gravava quando
+   * o dono explicava a caixa por dentro. Aí volta à IA, que confere com a pessoa; sendo mesmo 24 caixas, ela manda de novo com a
+   * medida do estoque.
+   */
+  private async contaDaConversao(tenantId: string, tx: any, it: ItemNoMister, a: { quantoNoEstoque: number; medida?: string }): Promise<{ fator: number } | { erro: string }> {
+    const ue = it.unidadeDoEstoque || 'unidade';
+    const un = it.unidade || 'unidade';
+    const nome = limpo(it.insumoNome, 40) || 'insumo';
+    const conv = (await this.conversoes(tenantId, [it.insumoId as string], tx)).get(it.insumoId as string) ?? [];
+    const n = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+    if (a.medida) {
+      const medida = normalizarUnidade(a.medida) ?? a.medida;
+      if (chaveUnidade(medida) !== chaveUnidade(ue)) {
+        const f = fatorParaEstoque(medida, ue, conv);
+        if (f == null) {
+          const conhece = cadastroDaEmbalagem(ue, conv);
+          return {
+            erro:
+              `o cadastro do ${nome} (contado em ${ue}) não diz quanto é 1 ${limpo(a.medida, 20)}` +
+              `${conhece.length ? `; ele conhece: ${conhece.join('; ')}. Se for uma dessas, mande com ela` : ''}. Senão, pergunte quantos ${ue} entram por 1 ${un} da nota.`,
+          };
+        }
+        const fator = Math.round(a.quantoNoEstoque * f * 1e6) / 1e6;
+        return fator > 0 ? { fator } : { erro: `a conta deu zero ${ue}: pergunte quantos ${ue} entram por 1 ${un} da nota.` };
+      }
+      return { fator: a.quantoNoEstoque };
+    }
+    if (repeteOConteudo(it, ue, a.quantoNoEstoque, conteudosDaEmbalagem(ue, conv))) {
+      const dentro = cadastroDaEmbalagem(ue, conv).find((x) => x.startsWith(`1 ${ue} = ${n(a.quantoNoEstoque)} `)) ?? `1 ${ue} = ${n(a.quantoNoEstoque)}`;
+      return {
+        erro:
+          `não gravei: no cadastro, ${dentro} (o ${nome}). "${n(a.quantoNoEstoque)}" é o que vem dentro de 1 ${ue}, não quantos ${ue} entram por 1 ${un}. ` +
+          `Se cada ${un} da nota é 1 ${ue}, grave 1. Se a pessoa contou na medida menor, mande o número com essa medida. ` +
+          `Se são mesmo ${n(a.quantoNoEstoque)} ${ue} por ${un}, confirme com ela e mande de novo com medida "${ue}".`,
+      };
+    }
+    return { fator: a.quantoNoEstoque };
+  }
+
+  /** ERR-628: a unidade do estoque e o que o cadastro diz da embalagem de cada insumo das linhas (o "ver" mostra à IA). */
+  private async cadastrosDasLinhas(tenantId: string, nota: NotaNoMister): Promise<Map<string, { unidade: string; conversoes: string[] }>> {
+    const m = new Map<string, { unidade: string; conversoes: string[] }>();
+    const ids = [
+      ...new Set(nota.itens.map((it) => it.insumoId ?? (it.estado === 'item' && it.propostaDaIa ? it.sugestoes?.[0]?.id : null)).filter((x): x is string => !!x)),
+    ];
+    if (!ids.length) return m;
+    try {
+      const lidos = linhas(
+        await this.db.execute(sql`
+          select id::text as id, unidade_medida as "unidadeMedida" from item_estoque
+           where tenant_id = ${tenantId}::uuid and id in (${sql.join(ids.map((x) => sql`${x}::uuid`), sql`, `)})`),
+      );
+      const conv = await this.conversoes(tenantId, ids);
+      for (const l of lidos) m.set(String(l.id), { unidade: String(l.unidadeMedida), conversoes: cadastroDaEmbalagem(String(l.unidadeMedida), conv.get(String(l.id)) ?? []) });
+    } catch (e: any) {
+      // O "ver" nunca cai por isto: sem o cadastro, as linhas vão como antes.
+      this.logger.warn(`o cadastro das linhas da nota não veio — ${e?.message ?? e}`);
+    }
+    return m;
+  }
+
+  /**
    * O "Aceitar as sugestões": cada linha com a proposta da IA fica ligada a ela, e cada conversão proposta vale. Só o presidente
-   * e só a nota que espera resposta. O que não tinha proposta continua na próxima mensagem.
+   * e só a nota que espera resposta. O que não tinha proposta continua na próxima mensagem. ERR-628: a conta mostrada junto da
+   * proposta da IA vale no mesmo toque (antes, a linha ligada voltava a perguntar a conta, e o toque parecia não ter valido); a
+   * resposta diz quantas foram aceitas e o que ainda falta.
    */
   async aceitarSugestoes(botaoId: string, quem: QuemTocou): Promise<boolean> {
     const documentoId = lerAceitarSugestoes(botaoId);
@@ -901,8 +1062,22 @@ export class MisterNotasService implements OnModuleInit {
       for (const it of nota.itens) {
         if (it.estado === 'item' && it.propostaDaIa && existem.has(it.sugestoes?.[0]?.id)) {
           const x = existem.get(it.sugestoes[0].id);
-          const fator = fatorParaEstoque(unidadeImpressa(it.unidade), x.unidadeMedida, conv.get(x.id) ?? []);
-          Object.assign(it, { insumoId: x.id, insumoNome: x.nome, unidadeDoEstoque: x.unidadeMedida, fator, estado: fator == null ? 'fator' : 'ligado', propostaDaIa: false, pelaIa: false, sugestoes: [] });
+          // A conta mostrada junto da proposta (na unidade que o insumo ainda tem) vale: a pessoa aceitou as duas.
+          const mostrada =
+            typeof it.fatorProposto === 'number' && it.sugestoes[0].unidade && chaveUnidade(it.sugestoes[0].unidade) === chaveUnidade(x.unidadeMedida) ? it.fatorProposto : null;
+          const fator = mostrada ?? fatorParaEstoque(unidadeImpressa(it.unidade), x.unidadeMedida, conv.get(x.id) ?? []);
+          Object.assign(it, {
+            insumoId: x.id,
+            insumoNome: x.nome,
+            unidadeDoEstoque: x.unidadeMedida,
+            fator,
+            fatorProposto: null,
+            fatorConfirmado: mostrada != null,
+            estado: fator == null ? 'fator' : 'ligado',
+            propostaDaIa: false,
+            pelaIa: false,
+            sugestoes: [],
+          });
           mexidos.push(it);
         } else if (it.estado === 'fator' && typeof it.fatorProposto === 'number') {
           Object.assign(it, { fator: it.fatorProposto, fatorProposto: null, fatorConfirmado: true, estado: 'ligado' });
@@ -916,11 +1091,22 @@ export class MisterNotasService implements OnModuleInit {
         update mister_documento
            set dados = jsonb_set(dados, '{nota}', ${JSON.stringify(nota)}::jsonb), situacao = ${prox.situacao}, motivo = ${prox.motivo}, atualizado_em = clock_timestamp()
          where id = ${d.id}::uuid`);
-      return { achou: true, seguir: { id: d.id as string, nota, motivo: prox.motivo } } as const;
+      return { achou: true, aceitas: mexidos.length, seguir: { id: d.id as string, nota, motivo: prox.motivo } } as const;
     });
     if (!resultado.achou) return false;
     if ('resposta' in resultado && resultado.resposta) await this.falar(quem.telefone, resultado.resposta);
-    if ('seguir' in resultado && resultado.seguir) await this.falarDepoisDaLeitura(quem.telefone, resultado.seguir.id, resultado.seguir.nota, resultado.seguir.motivo);
+    if ('seguir' in resultado && resultado.seguir) {
+      const { id, nota, motivo } = resultado.seguir;
+      const proxima = this.respostaDoPasso(id, nota, motivo);
+      // O toque sempre diz o que fez: quantas aceitou e se ainda falta algo (antes, a mesma lista voltava e parecia que não valeu).
+      const faltam = nota.itens.filter((x) => x.estado === 'item' || x.estado === 'fator').length;
+      const aceitas = resultado.aceitas ?? 0;
+      const topo =
+        aceitas === 0
+          ? 'Não havia sugestão para aceitar nas linhas que faltam: elas precisam da sua resposta.'
+          : `✅ Aceitei ${aceitas === 1 ? '1 sugestão' : `${aceitas} sugestões`}.${faltam ? ` ${faltam === 1 ? 'Falta 1 linha' : `Faltam ${faltam} linhas`}.` : ''}`;
+      await this.falar(quem.telefone, { ...proxima, texto: `${topo}\n\n${proxima.texto}` });
+    }
     return true;
   }
 
@@ -965,7 +1151,10 @@ export class MisterNotasService implements OnModuleInit {
           emitente: limpo(nota.emitenteNome) || null,
           ...(e.verValores ? { total: nota.valorTotalCentavos / 100 } : {}),
           situacao: d.situacao === 'confirmar' ? 'pronto, esperando o toque em "Lançar"' : 'faltam respostas',
-          linhas: linhasParaOAgente(nota, e.verValores),
+          linhas: linhasParaOAgente(nota, e.verValores, await this.cadastrosDasLinhas(e.tenantId, nota)),
+          // ERR-628: o que a conversão grava, para a IA não confundir o que vem dentro da caixa com quantas caixas entram.
+          comoGravarAConversao:
+            'conversao = quanto entra no estoque (estoqueContaEm) por 1 unidade da nota. "1 UN = 1 caixa" com o estoque em caixa: quanto_no_estoque 1. Se a pessoa disser o número em outra medida ("24 unidades", "6 discos", "1 kg"), mande o número e a medida como ela disse — o Regem converte pelo noCadastro. "1 caixa = 24 unidades" descreve o que vem dentro: não é 24 caixas.',
           // C1b: o que veio diferente do pedido e o que já foi decidido.
           ...(recebePedido(nota) && nota.pedido?.itensDoPedido?.length && lancaEstoque(nota)
             ? { pedido: nota.pedido.nome, diferencasDoPedido: diferencasParaAIa(diferencasDoPedido(nota), nota.pedido.decisoes) }
@@ -1006,7 +1195,9 @@ export class MisterNotasService implements OnModuleInit {
           if (corrigirLinha(it, a)) nota.itens[i] = this.itemSemInsumo(it, insumos);
         } else if (a.tipo === 'conversao') {
           if (!it.insumoId) return { erro: `Linha ${a.linha}: ligue a um insumo antes de dizer a conversão.` };
-          Object.assign(it, { fator: a.quantoNoEstoque, fatorProposto: null, fatorConfirmado: true, estado: 'ligado', pelaIa: false });
+          const conta = await this.contaDaConversao(e.tenantId, tx, it, a);
+          if ('erro' in conta) return { erro: `Linha ${a.linha}: ${conta.erro}` };
+          Object.assign(it, { fator: conta.fator, fatorProposto: null, fatorConfirmado: true, estado: 'ligado', pelaIa: false });
         } else {
           const achado = acharInsumo(a.insumo, insumos);
           if ('opcoes' in achado) {
@@ -1412,7 +1603,11 @@ export class MisterNotasService implements OnModuleInit {
       };
     }
     // Versão 9, O1: ligada pela IA, as dúvidas vão juntas numa mensagem; a resposta em frase vai ao agente, que grava pela ferramenta.
-    if (nota.ligadaPelaIa) {
+    // ERR-628: também quando a nota veio ligada pela memória do fornecedor e a conferência da embalagem deixou várias CONTAS a
+    // confirmar (antes, uma pergunta por vez, sem o "Aceitar as sugestões"). Falta escolher um insumo: os botões da linha seguem.
+    const pendentes = nota.itens.filter((x) => x.estado === 'item' || x.estado === 'fator').length;
+    const soContas = nota.itens.every((x) => x.estado !== 'item');
+    if (nota.ligadaPelaIa || (pendentes > 1 && soContas)) {
       const temProposta = nota.itens.some((x) => (x.estado === 'item' && x.propostaDaIa && x.sugestoes?.[0]) || (x.estado === 'fator' && typeof x.fatorProposto === 'number'));
       return {
         texto: FRASES_DA_NOTA.pendenciasJuntas(nota),

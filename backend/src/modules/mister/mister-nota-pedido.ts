@@ -83,13 +83,17 @@ export const FRASES_DO_PEDIDO_DA_NOTA = {
       `${p.batem} dos ${p.itens} itens estão ${d.nele}. Registrar o recebimento?`
     );
   },
-  /** A pergunta do dono, depois de "Receber o pedido". */
+  /**
+   * A pergunta do dono, depois de "Receber o pedido". ERR-628: é a ESCOLHA do caminho, não o lançamento — o botão "Lançar no
+   * estoque" parecia lançar, e a conversa seguia com as dúvidas das linhas. O lançamento é o "Lançar" do resumo.
+   */
   estoque: (n: NotaNoMister, p: PedidoDaNota): string => {
     const d = doDocumento(n);
     return (
-      `Recebo o pedido "${p.nome}" ${d.com}. Lançar no estoque?\n` +
-      `• Lançar no estoque: cada item entra no estoque pelo recebimento do pedido, com a quantidade e o valor ${d.do}; o que não veio fica como falta.\n` +
-      '• Só marcar recebido: o pedido fica recebido sem mexer no estoque, e entra só a despesa.'
+      `Recebo o pedido "${p.nome}" ${d.com}. Os itens entram no estoque?\n` +
+      `• Entram no estoque: cada item entra pelo recebimento do pedido, com a quantidade e o valor ${d.do}; o que não veio fica como falta.\n` +
+      '• Só marcar recebido: o pedido fica recebido sem mexer no estoque, e entra só a despesa.\n\n' +
+      'Nada é lançado agora: antes eu confiro as linhas com você e mando o resumo com o botão "Lançar".'
     );
   },
   /** A linha do resumo antes do "Lançar". */
@@ -138,7 +142,7 @@ export const botoesDoPedidoDaNota = (documentoId: string) => [
   { id: `doc:pd:${documentoId}:n`, titulo: 'Não é deste pedido' },
 ];
 export const botoesDoEstoqueDoPedido = (documentoId: string) => [
-  { id: `doc:pd:${documentoId}:e`, titulo: 'Lançar no estoque' },
+  { id: `doc:pd:${documentoId}:e`, titulo: 'Entram no estoque' },
   { id: `doc:pd:${documentoId}:s`, titulo: 'Só marcar recebido' },
 ];
 

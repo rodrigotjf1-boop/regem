@@ -65,7 +65,10 @@ describe('a resposta e o caminho do estoque', () => {
       /\n\nTemos o pedido "Compras do mercado", criado em 24\/11, com 9 itens, que bate com este cupom: 7 dos 9 itens estão nele\. Registrar o recebimento\?$/,
     );
     expect(FRASES_DO_PEDIDO_DA_NOTA.bate(nota(), { ...pedido, fornecedor: 'Rucas' })).toContain('Temos o pedido "Compras do mercado" (Rucas), criado em 24/11, com 9 itens, que bate com esta nota: 7 dos 9 itens estão nela.');
-    expect(FRASES_DO_PEDIDO_DA_NOTA.estoque(nota(), pedido)).toMatch(/^Recebo o pedido "Compras do mercado" com esta nota\. Lançar no estoque\?\n• Lançar no estoque: .+\n• Só marcar recebido: /);
+    // ERR-628: é a escolha do caminho, não o lançamento — e a frase diz isso.
+    expect(FRASES_DO_PEDIDO_DA_NOTA.estoque(nota(), pedido)).toMatch(
+      /^Recebo o pedido "Compras do mercado" com esta nota\. Os itens entram no estoque\?\n• Entram no estoque: .+\n• Só marcar recebido: .+\n\nNada é lançado agora: .+"Lançar"\.$/,
+    );
     expect(FRASES_DO_PEDIDO_DA_NOTA.noResumo(nota({ comoLancar: 'despesa' }), pedido)).toBe('📦 O pedido "Compras do mercado" fica marcado como recebido, sem mexer no estoque.');
     expect(FRASES_DO_PEDIDO_DA_NOTA.soDespesaDaNota(nota({ duplicatas: [{ vencimento: '2026-12-01', valorCentavos: 62_000 }, { vencimento: '2026-12-15', valorCentavos: 62_000 }] }))).toMatch(
       /Lanço a conta a pagar de R\$ 1\.240,00 em 2 parcelas\? O estoque não muda\.$/,
@@ -86,7 +89,7 @@ describe('a resposta e o caminho do estoque', () => {
   it('os botões cabem no WhatsApp (até 20 letras) e se leem de volta', () => {
     const id = '0b0e8f3e-6d5c-4a9f-9a51-3c1f0e2d7a10';
     const todos = [...botoesDoPedidoDaNota(id), ...botoesDoEstoqueDoPedido(id)];
-    expect(todos.map((b) => b.titulo)).toEqual(['Receber o pedido', 'Não é deste pedido', 'Lançar no estoque', 'Só marcar recebido']);
+    expect(todos.map((b) => b.titulo)).toEqual(['Receber o pedido', 'Não é deste pedido', 'Entram no estoque', 'Só marcar recebido']);
     for (const b of todos) expect(b.titulo.length).toBeLessThanOrEqual(20);
     expect(todos.map((b) => lerBotaoDoPedidoDaNota(b.id)?.escolha)).toEqual(['r', 'n', 'e', 's']);
     expect(lerBotaoDoPedidoDaNota(`doc:pd:${id.toUpperCase()}:R`)).toEqual({ documentoId: id, escolha: 'r' });
