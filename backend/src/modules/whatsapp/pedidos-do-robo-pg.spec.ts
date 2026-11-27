@@ -164,4 +164,57 @@ descrever('os pedidos que o robô vê (Postgres)', () => {
     expect(nomeDe('8104')).toBe('Entregador iFood');
     await q(`delete from entregador_preferencia where colaborador_id = any($1::uuid[])`, [[semPermissao, comPermissao, deOutraEmpresa]]);
   });
+
+  // 26/11/2026 — "cadê meu pedido?" com a previsão real (item 1 do plano das leituras do Mister): o pedido em andamento traz
+  // o `acompanhar`; a previsão vem do Delivery (a função que ele entrega ao subir); o token e a saída não saem.
+  it('o pedido em andamento traz o acompanhar: horas, previsão do Delivery, a parada na saída e o link; o token não sai', async () => {
+    const T3 = (await q(`insert into empresa (nome) values ('teste acompanhar do robo') returning id`))[0].id;
+    empresas.push(T3);
+    const INST3 = `inst-${randomUUID()}`;
+    await q(`insert into cardapio_config (tenant_id, unidade_id, token, ativo, nome_publico, evolution_instancia) values ($1, null, $2, true, 'Loja 3', $3)`, [
+      T3,
+      `tok-${randomUUID()}`,
+      INST3,
+    ]);
+    const saida = randomUUID();
+    // o do cliente: saiu, 2ª parada de uma saída com 3 pedidos (os outros dois são de outras pessoas)
+    const meu = (
+      await q(
+        `insert into pedido_externo (tenant_id, canal, client_ref, display_id, cliente_nome, cliente_telefone, tipo, itens, total, forma_pagamento, status,
+           criado_em, confirmado_em, despachado_em, saida_id, ordem_parada, rastreio_token)
+         values ($1,'cardapio',$2,'7301','Cliente','21987654321','entrega','[]'::jsonb,30,'entrega','despachado',
+           now() - interval '40 minutes', now() - interval '39 minutes', now() - interval '10 minutes', $3, 2, 'rastreio-do-teste')
+         returning id`,
+        [T3, `ref-${randomUUID()}`, saida],
+      )
+    )[0].id;
+    for (const [d, ordem] of [['7302', 1], ['7303', 3]] as const)
+      await q(
+        `insert into pedido_externo (tenant_id, canal, client_ref, display_id, cliente_nome, cliente_telefone, tipo, itens, total, forma_pagamento, status, saida_id, ordem_parada)
+         values ($1,'cardapio',$2,$3,'Outro','21911112222','entrega','[]'::jsonb,30,'entrega','despachado',$4,$5)`,
+        [T3, `ref-${randomUUID()}`, d, saida, ordem],
+      );
+    const pedidas: string[] = [];
+    wa.definirPrevisaoDoPedido(async (_t, id) => {
+      pedidas.push(id);
+      return '20h35';
+    });
+    try {
+      const lista: any[] = await wa.pedidosPorTelefoneBot(INST3, SENHA, CLIENTE);
+      expect(lista.map((p) => String(p.displayId))).toEqual(['7301']);
+      const a = lista[0].acompanhar;
+      expect(a).toMatchObject({ quemEntrega: 'loja', chegaPorVoltaDe: '20h35', parada: { suaEntrega: 2, de: 3 } });
+      expect(a.saiuAs).toMatch(/^\d{2}h\d{2}$/);
+      expect(a.aceitoAs).toMatch(/^\d{2}h\d{2}$/);
+      expect(a.linkAcompanhar).toMatch(/\/r\/rastreio-do-teste$/);
+      expect(pedidas).toEqual([meu]); // a previsão só do pedido que saiu com o entregador da loja
+      const json = JSON.stringify(lista);
+      for (const proibido of ['rastreioToken', 'saidaId', 'ordemParada', '"raw"', saida]) expect(json).not.toContain(proibido);
+    } finally {
+      wa.definirPrevisaoDoPedido(async () => null);
+    }
+    // Sem a função do Delivery (servidor da loja, testes): sem previsão — o robô não inventa.
+    const semPrevisao: any[] = await wa.pedidosPorTelefoneBot(INST3, SENHA, CLIENTE);
+    expect(semPrevisao[0].acompanhar.chegaPorVoltaDe).toBeNull();
+  });
 });

@@ -143,6 +143,7 @@ import { edgeAtivo } from '../../common/edge-ativo';
 import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
 import { montarMensagemDaPausa, pausaVigenteDoCanal, rotuloDoMotivo, textoDaRecusa, type PausaVigente } from '../../common/pausa-do-canal';
 import { sinalDoServidor, vereditoDaLoja, type SinalDoCanal, type SituacaoConferida } from './situacao-da-loja';
+import { atrasoDaCozinha, tempoAgoraDoTipo, type AmostraDaCozinha, type TempoAgora } from './tempo-de-espera';
 import { gravarOrigemPedido, medicaoDeAnuncios } from './origem-pedido';
 import { escolhaNoCheckout, promocoesDaLoja } from './promocoes-cardapio';
 import { TIPOS_EVENTO_FUNIL, ehTemplateCardapio, proximaAberturaDe, templateDoCardapio } from './menu-themes';
@@ -2068,6 +2069,65 @@ export class CardapioService {
    * A loja tem o Pix ONLINE no cardápio (a chave 'pix' na lista de formas — a mesma lista que o menu manda e o checkout
    * mostra como "Pix · aprovação na hora")? G5: com ele, o pedido agendado só vai por Pix; sem ele, vale o "na entrega".
    */
+  /**
+   * O TEMPO DE ESPERA AGORA para o atendente (`tempo-de-espera.ts`, 26/11): a faixa da entrega e da retirada quando a cozinha
+   * está mais lenta que o normal; null = vale o tempo configurado. Nunca derruba o `consultar_loja`: falhou, vai sem.
+   */
+  async tempoDeEsperaAgora(token: string): Promise<{ entrega: TempoAgora | null; retirada: TempoAgora | null }> {
+    try {
+      const cfg: any = await this.resolver(token);
+      const atraso = atrasoDaCozinha(await this.amostraDaCozinha(cfg.tenantId, cfg.unidadeId ?? null));
+      return { entrega: tempoAgoraDoTipo(cfg.tempoEntregaMin, atraso), retirada: tempoAgoraDoTipo(cfg.tempoRetiradaMin, atraso) };
+    } catch (e) {
+      this.logger.warn(`tempo de espera de agora não lido (vale o configurado): ${e instanceof Error ? e.message : e}`);
+      return { entrega: null, retirada: null };
+    }
+  }
+
+  /** Lembrança da amostra da cozinha por loja: 2 min (muitas conversas ao mesmo tempo não repetem a mesma conta). */
+  private static readonly cozinhaLembrada = new Map<string, { ate: number; amostra: AmostraDaCozinha }>();
+
+  /**
+   * Quanto a cozinha leva até o pedido ficar PRONTO ou SAIR (o que vier primeiro — `least` ignora o nulo): a mediana da
+   * última hora (o "agora") e a dos 7 dias anteriores (o "normal"), numa consulta só; tempos fora de 1 a 120 min não contam
+   * (pedido esquecido aberto, encomenda). Cancelado fora. Da loja do cardápio (sem loja: a empresa toda).
+   */
+  async amostraDaCozinha(tenantId: string, unidadeId: string | null): Promise<AmostraDaCozinha> {
+    const chave = `${tenantId}:${unidadeId ?? ''}`;
+    const lembrada = CardapioService.cozinhaLembrada.get(chave);
+    if (lembrada && lembrada.ate > Date.now()) return lembrada.amostra;
+    const r: any = await this.db.execute(sql`
+      with feitos as (
+        select fim, extract(epoch from (fim - criado_em)) / 60.0 as min
+          from (select criado_em, least(pronto_em, despachado_em) as fim
+                  from pedido_externo
+                 where tenant_id = ${tenantId}::uuid and deleted_at is null and status <> 'cancelado'
+                   and criado_em >= now() - interval '7 days'
+                   ${unidadeId ? sql`and (unidade_id = ${unidadeId}::uuid or unidade_id is null)` : sql``}) x
+         where fim is not null and fim > criado_em
+      )
+      select count(*) filter (where fim >= now() - interval '60 minutes' and min between 1 and 120)::int as n_agora,
+             percentile_cont(0.5) within group (order by min) filter (where fim >= now() - interval '60 minutes' and min between 1 and 120) as mediana_agora,
+             count(*) filter (where fim < now() - interval '60 minutes' and min between 1 and 120)::int as n_normal,
+             percentile_cont(0.5) within group (order by min) filter (where fim < now() - interval '60 minutes' and min between 1 and 120) as mediana_normal
+        from feitos`);
+    const l = (r?.rows ?? r ?? [])[0] ?? {};
+    const amostra: AmostraDaCozinha = {
+      nAgora: Number(l.n_agora ?? 0),
+      medianaAgoraMin: l.mediana_agora != null ? Number(l.mediana_agora) : null,
+      nNormal: Number(l.n_normal ?? 0),
+      medianaNormalMin: l.mediana_normal != null ? Number(l.mediana_normal) : null,
+    };
+    if (CardapioService.cozinhaLembrada.size > 2000) CardapioService.cozinhaLembrada.clear();
+    CardapioService.cozinhaLembrada.set(chave, { ate: Date.now() + 2 * 60_000, amostra });
+    return amostra;
+  }
+
+  /** Só para teste: esquece a amostra lembrada. */
+  static esquecerCozinha(): void {
+    CardapioService.cozinhaLembrada.clear();
+  }
+
   private async temPixOnlineNoCardapio(cfg: any): Promise<boolean> {
     const formas = await this.db
       .select({ nome: formaPagamento.nome })

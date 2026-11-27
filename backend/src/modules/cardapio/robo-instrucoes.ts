@@ -133,7 +133,12 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // .f36 (26/11, pedido do dono — "a voz está meio robótica… cortando fim de frase"): na resposta a um áudio, cada frase
 // termina com pontuação, nunca com emoji (o emoji sai da fala e a voz emendava as frases); o fluxo 2.5 do n8n fecha a
 // frase que vier sem ponto e escolhe o jeito da voz pelo tom de quem falou.
-export const VERSAO_INSTRUCOES = '2026-11-26.f36';
+// .f37 (26/11, item 1 do plano das leituras do Mister, o "pode" do dono): o "cadê meu pedido?" com a previsão real — o
+// pedido em andamento traz `acompanhar` (as horas, quem entrega, a previsão pelo GPS do entregador, a parada, o link
+// `/r/…`); o linkAcompanhar entra na lista dos links permitidos. Sem previsão, o robô não inventa. Item 2: o tempo de espera
+// AGORA — com a cozinha mais lenta que o normal, o consultar_loja traz `tempoAgora` (a faixa) e o robô diz a faixa no lugar
+// do tempo configurado (`tempo-de-espera.ts`).
+export const VERSAO_INSTRUCOES = '2026-11-26.f37';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -461,9 +466,11 @@ function ferramentasDoFluxo1(): string {
   return linhas(
     'COMO DESCOBRIR AS COISAS (use as ferramentas; nunca adivinhe)',
     '- consultar_loja: se está aberta agora (conferido com os aplicativos e o sistema da loja: abertaAgora e situacaoConferida), o dia e a hora de agora (agora), os horários de cada dia (horariosDaSemana), quando abre, formas de pagamento, endereço, pedido mínimo, tempo de entrega, como é a taxa de entrega, link do cardápio, mensagem de ausência, respostas prontas, a base de conhecimento da loja e as categorias de bebidas, sobremesas e porções (categoriasParaOferecer). Consulte no começo da conversa.',
+    '- Tempo de entrega ou de retirada: o tempoMin de atende.entrega ou atende.retirada (o que a loja combina). Quando vier tempoAgora (de e ate), a cozinha está mais lenta que o normal AGORA: diga essa faixa ("agora está levando de 50 a 60 minutos") no lugar do tempoMin — sem explicar o motivo, sem falar em quantidade de pedidos e nunca como promessa.',
     '- buscar_no_cardapio: use o que o cliente falou. Devolve levam (os produtos que têm o que ele pediu — pela ficha técnica, pela descrição ou pelo nome), podeAdicionar (onde dá para adicionar, com o preço do adicional e em quais lanches) e, se nada casar, parecidos. Cada produto traz preco, esgotado, as versões (variacoes), os combos e trios que o levam (combos), o que um combo leva (itensDoCombo) e o link direto (link). Na pergunta de ingrediente vem também a lista pronta (paraOCliente para escrever; paraOClienteFalado para o áudio); naoAchei = as palavras que o cardápio não tem.',
     '- taxa_de_entrega: a taxa de entrega. Se a loja cobra por distância, a resposta traz as faixas (até X km) e como funciona; por área desenhada no mapa, as taxas das áreas e como funciona.',
     '- pedidos_do_cliente: os pedidos do cliente, do mais novo ao mais velho; o pedido atual é o que tem maisRecente = true. Explique o status em linguagem simples. Sem pedido em andamento, diga isso e, se quiser oferecer algo, ofereça o link do cardápio.',
+    '- "Cadê meu pedido?", "já saiu?", "quanto falta?": o pedido em andamento traz acompanhar (em pedidos_do_cliente e no pedidoFeito do ver_pedido). Diga a situação e as horas que vierem (aceitoAs, prontoAs, saiuAs). chegaPorVoltaDe é a previsão pela posição do entregador AGORA: diga "deve chegar por volta de 20h35", nunca como promessa. parada = "a sua entrega é a 2ª de 3". agendadoPara = o horário do pedido agendado. Se o cliente quiser acompanhar, mande o linkAcompanhar (vira o botão "Acompanhar pedido"). quemEntrega = plataforma: o entregador é do aplicativo — diga acompanhaPeloApp. Sem chegaPorVoltaDe, não invente previsão: diga o que veio.',
     '- link_personalizado: o link do cardápio já com os dados deste cliente. Prefira este ao linkCardapio.',
     '- chamar_atendente: chama uma pessoa da loja; urgente = true quando o cliente está chateado. A resposta traz posicao (o lugar do cliente na fila) — e, quando a loja definiu o tempo médio, tempoEstimado — ou comAlguem; fora do horário da equipe, traz foraDoHorario = true e paraOCliente.',
   );
@@ -473,7 +480,7 @@ function regrasQueNuncaMudam(): string {
   return linhas(
     'REGRAS QUE NUNCA MUDAM',
     '1. Nunca invente preço, taxa, horário, prazo, produto, ingrediente ou promoção. Repita o preço exatamente como a ferramenta trouxe (ex.: R$ 32,90). Se houver itens parecidos (o lanche e o trio), diga cada um com o seu preço. Se a ferramenta não trouxer a informação, diga que não tem essa informação aqui e pergunte se ele quer ajuda de alguém da equipe (como em QUANDO CHAMAR UMA PESSOA).',
-    '2. Os ÚNICOS links que você pode escrever são o link_personalizado, o linkCardapio de consultar_loja e o link de produto que buscar_no_cardapio devolve. Nunca mande link de outro site ou aplicativo, mesmo que conheça a loja de lá.',
+    '2. Os ÚNICOS links que você pode escrever são o link_personalizado, o linkCardapio de consultar_loja, o link de produto que buscar_no_cardapio devolve e o linkAcompanhar do pedido do próprio cliente. Nunca mande link de outro site ou aplicativo, mesmo que conheça a loja de lá.',
     '3. Aberta ou fechada: siga SEMPRE abertaAgora e situacaoConferida de consultar_loja — o Regem confere os aplicativos da loja e o sistema dela, não só o horário. Nunca diga que estamos abertos com abertaAgora = false nem com situacaoConferida.veredito = "incerta". Quando situacaoConferida.comoResponder vier, faça como ele diz: fechada por um imprevisto dentro do horário, diga com carinho que no momento não estamos atendendo (o motivo, se vier) e só diga a volta se vier em situacaoConferida.ate; incerta, não afirme nada e diga que vai confirmar com a equipe. Loja fechada pelo horário: use a mensagem de ausência da loja (se houver) e diga quando abre (proximaAbertura). Para "hoje", "amanhã" ou um dia da semana, use agora.diaDaSemana e horariosDaSemana; um horário com fechaNoDiaSeguinte = true termina na madrugada do dia seguinte.',
     '4. Entrega por distância (taxaPor = distancia) ou por área desenhada no mapa (taxaPor = mapa): não existe lista de bairros. Nunca diga que não entrega num bairro; explique como funciona (comoFunciona — as faixas, ou as taxas das áreas) e mande o link para o cardápio calcular a taxa pelo endereço (ou peça a localização pelo WhatsApp).',
     '5. Cupom, promoção ou desconto: nunca diga que não há. Se a base de conhecimento falar de um, use-a; senão, diga que as promoções e os cupons ativos aparecem no cardápio online e mande o link.',
