@@ -3209,6 +3209,32 @@ neste servidor"). Corrigido com `forwardRef`; o `app-sobe.spec.ts` passou a repr
   o motivo do cancelamento, limpar a fila sem loja recusado, o mês conferido (quatro formas tortas) e descrito à IA; a
   avaliação: c138 (o fechamento de outubro) e c139 (limpar a fila do KDS com o PIN), 139 perguntas.
 
+### C4 Onda 4 — dinheiro e fiscal, tudo com PIN (27/11/2026; SEM migration; só na nuvem; vale com `MISTER_FAZER_TAREFAS=1`)
+
+- **6 tarefas novas** (69 no total). Só entra o que DESFAZ ou ENCERRA com trava no serviço, mais a contingência fiscal:
+  - cancelar uma conta: só a conta em aberto (a paga é recusada; estorne antes);
+  - estornar uma conta paga: volta a aberta com o lançamento inverso, uma vez só (a troca condicional vem antes do lançamento);
+  - ativar ou desativar uma forma de pagamento;
+  - transmitir à SEFAZ as notas que saíram em contingência;
+  - encerrar um plano de fidelidade ou de cashback (ele passa a "finalizando" e para de juntar).
+- **Fora desta onda, de propósito:**
+  - o que já é ação pronta (lançar e pagar conta, fechar o caixa, sangria, cupom, pagar o entregador);
+  - o caixa do terminal (abrir, movimentar, reconciliar; o caixa é o do terminal, V7) e a venda do PDV (comandas, mesas,
+    balcão, acertos): a operação é no balcão;
+  - as pessoas e os acessos (colaboradores, perfis, contadores): dado de pessoa e "quem acessa o quê" ficam na tela;
+  - as lojas e a configuração da empresa;
+  - criar e mudar forma de pagamento, conta e plano: formulários com as regras de cada tela;
+  - emitir, cancelar e inutilizar nota: efeito fiscal na hora;
+  - a consulta da SEFAZ e da nota: uma consulta com PIN não vale a pena, e a lista de notas tem dado de cliente;
+  - o prêmio de desculpas e o cancelamento do atendimento: são do caso, na Central.
+- **Os testes:** as seis com o PIN (no mapa e no pedido), as dezesseis fora, a conta com o corpo vazio e o campo a mais
+  recusado, e a forma de pagamento com o sim/não; a trava do mapa (todas passam pelo `JwtAuthGuard`); a avaliação: c140 (as
+  notas em contingência), 140 perguntas.
+
+**As 4 ondas da C4 abertas em 27/11/2026:** 69 tarefas pelo mapa (8 da C4a e 61 das ondas), além das 43 ações prontas.
+Ficou na tela, de propósito, o que mexe com uma pessoa, com quem acessa o quê, com o fiscal e com a operação do balcão e da
+cozinha. Para valer: `MISTER_FAZER_TAREFAS=1` (já ligada) e a avaliação real de novo.
+
 ### C6b — pedir ao presidente (26/11/2026, #1362, NO AR; SEM migration; só na nuvem; nasce DESLIGADO, `MISTER_PEDIR_AO_PRESIDENTE=1`)
 
 - **O caso** (protótipo, "O seu perfil não pode"): o gerente pede o que o perfil dele não faz (guardar o saldo, pagar o

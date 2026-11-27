@@ -4216,6 +4216,8 @@ export function testesDoMisterComPostgres(): void {
         // C4 Onda 3.
         c138: { busca: 'fechamento do ponto', rota: 'POST /api/v1/ponto/fechamentos/gerar', campos: { competencia: '2026-10' } },
         c139: { busca: 'limpar fila da cozinha', rota: 'POST /api/v1/producao/fila/limpar', campos: {} },
+        // C4 Onda 4.
+        c140: { busca: 'transmitir notas em contingência', rota: 'POST /api/v1/fiscal/contingencia/transmitir', campos: {} },
         c110: { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' },
         c111: { acao: 'repetir_campanha', campanhaDaConversa: 'a última' },
         c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },

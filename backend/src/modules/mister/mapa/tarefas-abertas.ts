@@ -17,6 +17,9 @@
 //
 // C4 Onda 3 (27/11/2026): cozinha e ponto — as ordens de produção (criar, liberar, iniciar, cancelar com PIN), limpar a fila
 // da cozinha (PIN, só de uma loja) e o fechamento do ponto do mês (o tipo `mes`, AAAA-MM).
+//
+// C4 Onda 4 (27/11/2026): dinheiro e fiscal, tudo com PIN — cancelar e estornar a conta, ativar a forma de pagamento,
+// transmitir a contingência fiscal e encerrar os planos de fidelidade e cashback.
 
 import { UNIDADES_ESTOQUE } from '../../estoque/unidades';
 
@@ -478,6 +481,30 @@ export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
     rota: 'POST /api/v1/ponto/fechamentos/gerar',
     campos: [{ nome: 'competencia', tipo: 'mes', rotulo: 'Mês', obrigatorio: true }],
   },
+
+  // ───────────── C4 Onda 4 (27/11/2026): dinheiro e fiscal — tudo com PIN ─────────────
+  // Só o que DESFAZ ou ENCERRA com trava no serviço, e a contingência fiscal. Fora, de propósito: o que já é ação pronta
+  // (lançar e pagar conta, fechar o caixa, sangria, cupom, pagar o entregador); o CAIXA do terminal (abrir, movimentar,
+  // reconciliar — o caixa é o do terminal, V7) e a venda do PDV (comandas, mesas, balcão, acertos: a operação é no balcão);
+  // as PESSOAS e os ACESSOS (colaboradores, perfis, contadores — dado de pessoa e quem acessa o quê ficam na tela); as LOJAS e
+  // a configuração da empresa; criar e mudar forma de pagamento, conta e plano (formulários com regras de cada tela); EMITIR,
+  // CANCELAR e INUTILIZAR nota (efeito fiscal na hora); a consulta da SEFAZ e da nota (consulta com PIN não vale a pena; a
+  // lista de notas tem dado de cliente); o prêmio de desculpas e o cancelamento do atendimento (são do caso, na Central).
+  // Contas (os ids vêm de "Contas a pagar e a receber").
+  // Só a conta EM ABERTO (a rota recusa a paga: estorne antes).
+  { rota: 'DELETE /api/v1/financeiro/titulos/{id}', campos: [] },
+  // Só a conta PAGA volta a aberta, com o lançamento inverso — uma vez só (a troca condicional vem antes do lançamento).
+  { rota: 'POST /api/v1/financeiro/titulos/{id}/estornar', campos: [] },
+  // Formas de pagamento (os ids vêm de "As formas de pagamento cadastradas").
+  {
+    rota: 'POST /api/v1/financeiro/formas-pagamento/{id}/ativa',
+    campos: [{ nome: 'ativo', tipo: 'booleano', rotulo: 'Ativa', obrigatorio: true }],
+  },
+  // Fiscal: manda à SEFAZ as notas que saíram em contingência (offline) — da loja da conversa, ou de todas.
+  { rota: 'POST /api/v1/fiscal/contingencia/transmitir', campos: [] },
+  // Fidelidade e cashback: o plano passa a "finalizando" (para de juntar; os ids vêm dos planos de cada um).
+  { rota: 'POST /api/v1/fidelidade/planos/{id}/finalizar', campos: [] },
+  { rota: 'POST /api/v1/cashback/planos/{id}/finalizar', campos: [] },
 ];
 
 /** A tarefa aberta da rota pedida, ou undefined. */
