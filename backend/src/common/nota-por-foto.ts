@@ -319,6 +319,11 @@ export function sugerirInsumos(descricao: string, insumos: InsumoParaSugerir[]):
 export interface ItemNoMister extends ItemDaNota {
   insumoId: string | null;
   insumoNome: string | null;
+  /**
+   * O nome comercial (o de compra) do insumo ligado, quando a pessoa o ligou por ele (ERR-633): a resposta mostra os dois
+   * nomes, e a IA não toma o nome do cadastro por um produto diferente do que a pessoa disse.
+   */
+  insumoNomeComercial?: string | null;
   unidadeDoEstoque: string | null;
   fator: number | null;
   /**
