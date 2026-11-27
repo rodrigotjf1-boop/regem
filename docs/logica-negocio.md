@@ -20,6 +20,9 @@ Regras:
 - `saldo_antes` = soma do ledger ANTES da entrada (como já está em `recebimento.service.ts`) — sempre dentro da mesma transação.
 - Saídas e ajustes **não alteram** o custo médio; apenas entradas com custo.
 - Se `saldo_antes ≤ 0` (estoque zerado ou negativo por ajuste), `novo_custo_medio = custo_unitario_entrada`.
+- Se `custo_medio_atual = 0` com saldo (o saldo foi contado sem custo — custo **desconhecido**, como a carga do estoque de
+  25/11/2026), `novo_custo_medio = custo_unitario_entrada`. Antes, esse saldo pesava como R$ 0 e a primeira compra derrubava o custo
+  (decisão do dono, 27/11/2026 — ERR-630).
 - Entrada **sem custo informado** não altera o custo médio (movimento entra, custo fica).
 - `item_estoque.custo_medio` é um **cache de leitura** recalculável; a verdade são os movimentos. Criar script `npm run recalc:custo-medio` que reprocessa o ledger em ordem cronológica e confere o cache (usar também como teste de integridade).
 

@@ -40,6 +40,14 @@ describe('custoMedioPonderado (CMP no recebimento)', () => {
   it('saldo negativo é tratado como base 0', () => {
     expect(custoMedioPonderado(-5, 9, 10, 7)).toBe(7);
   });
+  // ERR-630: o estoque contado sem custo (a carga de 25/11) pesava como R$ 0 — 27 pacotes de blend + 40 a R$ 31,99 davam R$ 19,10.
+  it('saldo com custo desconhecido (custo médio 0) assume o custo da entrada', () => {
+    expect(custoMedioPonderado(27, 0, 40, 31.99)).toBe(31.99);
+    expect(custoMedioPonderado(7, 0, 25, 23.49)).toBe(23.49);
+    // A entrada de graça (custo 0 informado) num saldo sem custo continua 0; num saldo com custo, pondera como sempre.
+    expect(custoMedioPonderado(10, 0, 5, 0)).toBe(0);
+    expect(custoMedioPonderado(10, 4, 10, 0)).toBe(2);
+  });
   // logica-negocio §7 caso 1: sequência de 3 entradas bate com o cálculo manual.
   it('sequência de 3 entradas confere', () => {
     let cm = 0;

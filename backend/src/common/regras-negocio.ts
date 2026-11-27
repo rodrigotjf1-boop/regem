@@ -6,7 +6,10 @@ import { linhaEntra, type CanalDaFicha } from './embalagem-da-ficha';
  * Custo médio ponderado móvel (recebimento de estoque).
  * novo = (saldoBase × custoMédioAtual + qtdEntrada × custoEntrada) / (saldoBase + qtdEntrada)
  * - saldoBase 0  → assume o custo da entrada;
- * - custoEntrada null → não altera (item recebido sem custo informado).
+ * - custoEntrada null → não altera (item recebido sem custo informado);
+ * - custoMédioAtual 0 com saldo → o saldo tem custo DESCONHECIDO (contado sem custo, como a carga de 25/11/2026): assume o custo
+ *   da entrada. Antes, esse saldo pesava como R$ 0 e a primeira compra derrubava o custo médio (o blend comprado a R$ 31,99 ficou
+ *   em R$ 19,10, e o CMV saía baixo — ERR-630).
  */
 export function custoMedioPonderado(
   saldoBase: number,
@@ -15,6 +18,7 @@ export function custoMedioPonderado(
   custoEntrada: number | null,
 ): number {
   if (custoEntrada == null) return custoMedioAtual;
+  if (!(custoMedioAtual > 0)) return custoEntrada;
   const base = Math.max(saldoBase, 0);
   const denom = base + qtdEntrada;
   if (denom <= 0) return custoEntrada;
