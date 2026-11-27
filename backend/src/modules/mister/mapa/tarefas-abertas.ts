@@ -11,6 +11,9 @@
 // tarefas, checklists, manutenção, desperdício, ocorrências, vistorias, calendário, dias especiais, picos, setores, turnos e
 // funções. Entram a EXCLUSÃO (`DELETE`, corpo `{}`), o número com casas, o sim/não e a LISTA de itens (cada item com os seus
 // campos, conferidos como os de fora). A marca do mapa diz se confirma com o botão ou com o PIN.
+//
+// C4 Onda 2 (27/11/2026): delivery e cardápio — estender a pausa, o Pix prioritário, categorias, produtos (excluir com PIN,
+// duplicar, vender sem saldo) e as opções reutilizáveis (pausa e preço por canal, preço na etapa, excluir, custo em massa).
 
 import { UNIDADES_ESTOQUE } from '../../estoque/unidades';
 
@@ -58,6 +61,11 @@ const TIPOS_DE_VISTORIA = { abertura: 'abertura', fechamento: 'fechamento', padr
 const TIPOS_DE_EVENTO = { show: 'show', promocao: 'promoção', feriado_municipal: 'feriado municipal', jogo_time: 'jogo do time', outro: 'outro' } as const;
 const REPETE_O_EVENTO = { nao: 'não repete', semana: 'toda semana', ano: 'todo ano' } as const;
 const NIVEIS_DA_FUNCAO = { presidente: 'presidente', gerente: 'gerente', supervisao: 'supervisão', execucao: 'execução' } as const;
+// C4 Onda 2: os valores que os serviços conferem (`common/pausa-do-canal.ts`, `produto/produto-canais.ts`, `setPixPrioritario`).
+const CANAIS_DA_PAUSA = { cardapio: 'cardápio digital', ifood: 'iFood', food99: '99' } as const;
+const GATEWAYS_DO_PIX = { mercadopago: 'Mercado Pago', pagseguro: 'PagBank', rede: 'Rede' } as const;
+const CANAIS_DA_OPCAO = { regem: 'Regem', ifood: 'iFood', '99food': '99' } as const;
+const APPS_DO_PRECO = { ifood: 'iFood', '99food': '99' } as const;
 /** Um ingrediente da ficha (`CreateIngredienteDto`), sem a ordem. */
 const INGREDIENTE: readonly CampoDaTarefa[] = [
   { nome: 'insumoNome', tipo: 'texto', rotulo: 'Ingrediente', obrigatorio: true, maxLetras: 120 },
@@ -347,6 +355,80 @@ export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
     ],
   },
   { rota: 'DELETE /api/v1/funcoes/{id}', campos: [] },
+
+  // ───────────── C4 Onda 2 (27/11/2026): delivery e cardápio ─────────────
+  // Fora desta onda, de propósito: o que já tem AÇÃO PRONTA (pausar e reabrir canal, aceitar, pronto e despachar pedido,
+  // pausar e reativar produto, mudar o preço do produto, criar categoria e produto, promoção, mudar o produto); as mudanças de
+  // situação do PEDIDO (o id só vem pela lista de pedidos, que tem dado de cliente — o caminho é a ação pronta pelo número); o
+  // pedido manual (dado de cliente, V10-4); as rotas que TROCAM a lista inteira (faixas, direcionamento, os complementos do
+  // produto, reordenar categorias); criar e editar complemento e opção (o código PDV, o estoque e a ligação andam juntos, V49);
+  // a troca de códigos PDV em massa (V57); a configuração do delivery (formulário inteiro); a conferência com os apps.
+  // Delivery
+  {
+    rota: 'POST /api/v1/delivery/pausas/estender',
+    campos: [
+      { nome: 'canal', tipo: 'opcao', rotulo: 'Canal', obrigatorio: true, opcoes: CANAIS_DA_PAUSA },
+      // 10 ou 30 minutos (a 99 também 20): a rota recusa os outros com o motivo.
+      { nome: 'minutos', tipo: 'inteiro', rotulo: 'Mais minutos', obrigatorio: true, min: 10, max: 30 },
+    ],
+  },
+  {
+    rota: 'PATCH /api/v1/delivery/pix-prioritario',
+    campos: [{ nome: 'gateway', tipo: 'opcao', rotulo: 'Pix pelo', obrigatorio: true, opcoes: GATEWAYS_DO_PIX }],
+  },
+  // Cardápio: categorias e produtos (os ids vêm das leituras "Produtos do cardápio" e "As categorias do cardápio").
+  {
+    // A rota grava só o que vier.
+    rota: 'PATCH /api/v1/produtos/categorias/{id}',
+    campos: [
+      { nome: 'nome', tipo: 'texto', rotulo: 'Nome da categoria', maxLetras: 80 },
+      { nome: 'descricao', tipo: 'texto', rotulo: 'Descrição', maxLetras: 300 },
+      { nome: 'ativo', tipo: 'booleano', rotulo: 'No ar' },
+    ],
+  },
+  // Solta os produtos da categoria (eles ficam sem categoria) e tira a categoria.
+  { rota: 'DELETE /api/v1/produtos/categorias/{id}', campos: [] },
+  // PIN (a revisão da C4): apaga o produto que vende nos canais.
+  { rota: 'DELETE /api/v1/produtos/{id}', campos: [] },
+  // A cópia nasce "(cópia)", sem código PDV e fora do iFood e da 99.
+  { rota: 'POST /api/v1/produtos/{id}/duplicar', campos: [] },
+  {
+    // Ligado: vende sem saldo (a contagem fica negativa) e sai da pausa por estoque; desligado: volta ao controle normal.
+    rota: 'POST /api/v1/produtos/{id}/permite-negativo',
+    campos: [{ nome: 'ativo', tipo: 'booleano', rotulo: 'Vender sem saldo', obrigatorio: true }],
+  },
+  // Cardápio: as opções reutilizáveis e as etapas (os ids vêm de "As opções reutilizáveis" e "As etapas de complementos").
+  {
+    rota: 'PUT /api/v1/produtos/opcoes/{id}/pausa-canal',
+    campos: [
+      { nome: 'canal', tipo: 'opcao', rotulo: 'Canal', obrigatorio: true, opcoes: CANAIS_DA_OPCAO },
+      { nome: 'pausado', tipo: 'booleano', rotulo: 'Pausado', obrigatorio: true },
+    ],
+  },
+  {
+    // PIN no mapa: o preço do complemento no app.
+    rota: 'PUT /api/v1/produtos/opcoes/{id}/preco-canal',
+    campos: [
+      { nome: 'canal', tipo: 'opcao', rotulo: 'App', obrigatorio: true, opcoes: APPS_DO_PRECO },
+      { nome: 'valor', tipo: 'numero', rotulo: 'Preço no app', obrigatorio: true, min: 0, max: 999999.99 },
+    ],
+  },
+  {
+    // PIN no mapa: o preço da opção dentro de uma etapa (o do Regem).
+    rota: 'PUT /api/v1/produtos/complementos-catalogo/{id}/opcoes/{opcaoId}/preco',
+    campos: [{ nome: 'valor', tipo: 'numero', rotulo: 'Preço na etapa', obrigatorio: true, min: 0, max: 999999.99 }],
+  },
+  { rota: 'DELETE /api/v1/produtos/opcoes/{id}', campos: [] },
+  { rota: 'POST /api/v1/produtos/opcoes/massa/excluir', campos: [{ nome: 'ids', tipo: 'ids', rotulo: 'Opções', obrigatorio: true, maxItens: 50 }] },
+  {
+    // PIN no mapa: o custo de várias opções de uma vez.
+    rota: 'PATCH /api/v1/produtos/opcoes/massa/preco',
+    campos: [
+      { nome: 'ids', tipo: 'ids', rotulo: 'Opções', obrigatorio: true, maxItens: 50 },
+      { nome: 'precoCusto', tipo: 'numero', rotulo: 'Custo', obrigatorio: true, min: 0, max: 999999.99 },
+    ],
+  },
+  { rota: 'DELETE /api/v1/produtos/complementos-catalogo/{id}', campos: [] },
 ];
 
 /** A tarefa aberta da rota pedida, ou undefined. */

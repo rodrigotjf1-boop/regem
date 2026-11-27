@@ -4210,6 +4210,9 @@ export function testesDoMisterComPostgres(): void {
         // C4 Onda 1: a data e a hora conferidas pelo tipo do campo; a loja do checklist vem do contexto.
         c134: { busca: 'evento no calendário da loja', rota: 'POST /api/v1/calendario-da-loja/eventos', campos: { nome: 'Show de Natal', tipo: 'show', dia: '2026-12-24', hora: '21:00' } },
         c135: { busca: 'criar checklist', rota: 'POST /api/v1/checklists', campos: { nome: 'Abertura do salão' } },
+        // C4 Onda 2.
+        c136: { busca: 'estender pausa do canal', rota: 'POST /api/v1/delivery/pausas/estender', campos: { canal: 'ifood', minutos: 10 } },
+        c137: { busca: 'pix prioritário', rota: 'PATCH /api/v1/delivery/pix-prioritario', campos: { gateway: 'mercadopago' } },
         c110: { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' },
         c111: { acao: 'repetir_campanha', campanhaDaConversa: 'a última' },
         c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },
