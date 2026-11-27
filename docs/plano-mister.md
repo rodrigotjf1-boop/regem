@@ -2866,6 +2866,10 @@ neste servidor"). Corrigido com `forwardRef`; o `app-sobe.spec.ts` passou a repr
   cadastro. O "ver" mostra a unidade do estoque e o que o cadastro diz da embalagem. "24 caixas" com 1 caixa = 24 unidade não grava
   sem a medida, e a memória do fornecedor com essa conta também não vale.
 - **A foto nova da mesma nota toma o lugar da aberta:** ela traz as contas confirmadas, o "fora do estoque" e as respostas do pedido.
+- **A nota já lançada antes do deploy (00:54):** entraram 360 caixas de Ovo, 240 pacotes de Blend, 4.416 peças de Queijo, 48 caixas
+  de Bacon e 600 caixas de Guaravita. A mig 510 (só da nuvem) corrige com um ajuste negativo da diferença (linha nova, que desce à
+  loja), o custo médio pela conta do recebimento, o recebido do pedido e a memória do fornecedor. Ela não corrige por cima de um
+  ajuste feito à mão depois.
 
 ### C10c — a imagem para todos (26/11/2026; mig 509; só na nuvem; nasce DESLIGADO, o ajuste "Imagem na conversa")
 
