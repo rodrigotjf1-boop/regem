@@ -166,6 +166,10 @@ describe('quanto custou', () => {
     expect(custouDoCaso(caso({ tipo: 'reembolso_99', decisao: 'reembolsado_pela_99', valor99: 1500 }))).toEqual({ centavos: 1500, estimado: false, conhecido: true });
     expect(custouDoCaso(caso({ tipo: 'reembolso_99', decisao: 'aceito' }))).toEqual({ centavos: 5000, estimado: true, conhecido: true });
     expect(custouDoCaso(caso({ tipo: 'reembolso_99', decisao: 'recusado_automatico' })).centavos).toBe(0);
+    // Respondido pelo app da 99 e só fechado no Regem (ERR-638): aceito custa como o aceito pelo Regem.
+    expect(custouDoCaso(caso({ tipo: 'reembolso_99', decisao: 'aceito', resposta: { em: '2026-11-27T21:00:00Z', via: 'app_99' }, valor99: 1500 })).centavos).toBe(1500);
+    // Encerrado nas 24 h da 99 sem resposta pelo Regem (ERR-638): não se sabe se custou — "sem o valor", fora da soma.
+    expect(custouDoCaso(caso({ tipo: 'reembolso_99', decisao: 'encerrado_na_99', valor99: 1500 }))).toEqual({ centavos: 0, estimado: false, conhecido: false });
   });
   it('cancelamento do cardápio aceito custa o pedido; caso do robô não custa', () => {
     expect(custouDoCaso(caso({ tipo: 'cancelamento', decisao: 'aceito' })).centavos).toBe(5000);
@@ -201,6 +205,8 @@ describe('o caso no placar', () => {
   it('99: a resposta automática do Regem não é resposta; o aceite pelo ajuste da loja fica fora do placar', () => {
     expect(situacaoNoPlacar(caso({ tipo: 'reembolso_99', resposta: { em: min(1), automatico: true }, decisao: 'recusado_automatico' }), AGORA).respondida).toBe(false);
     expect(situacaoNoPlacar(caso({ tipo: 'cancelamento_99', decisao: 'aceito_automatico' }), AGORA).conta).toBe(false);
+    // Respondido pelo app da 99 (ERR-638): respondido, mas sem o tempo (a hora é a de fechar no Regem).
+    expect(situacaoNoPlacar(caso({ tipo: 'reembolso_99', resposta: { em: min(1), via: 'app_99' }, decisao: 'aceito' }), AGORA)).toEqual({ conta: true, respondida: true, seg: null });
     expect(situacaoNoPlacar(caso({ tipo: 'cancelamento_99', criadoEm: min(10), resposta: { em: min(8) } }), AGORA).seg).toBe(120);
   });
 });

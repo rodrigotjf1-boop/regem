@@ -35,6 +35,10 @@
   loja (lá a chave não aparece). Vai no mesmo `.zip` da H1a. Não pede `.exe`.
 - **Dias especiais — H2b, o feriado pelo Mister (27/11; sem migration).** O Mister e o aviso são só da nuvem; o PATCH que
   mantém o que não veio (V16) vale também no servidor da loja e vai no mesmo `.zip` da H1a. Não pede `.exe`.
+- **Reembolso da 99 respondido pelo app da 99 não fica mais preso no Atendimento (27/11; SEM migration; ERR-638, V123).** A
+  rotina (janela das 24 h da 99, nova tentativa a cada 10 min) é só da nuvem e vale com o deploy — o caso preso de 22/11 fecha
+  sozinho. O botão "Já respondi pelo app da 99" chega à loja com o `.zip` (o app que o servidor da loja serve, e o servidor
+  passa o `peloApp` à nuvem). Não pede `.exe`.
 - **Atendente: pôr item no pedido pago, Pix confirmado sem comprovante e o estorno no aviso de cancelado (26/11; SEM migration;
   ERR-626, ERR-627).** A versão do servidor e a conferência de minuto do Pix são só da nuvem. O texto do aviso de cancelado vai no
   próximo `.zip` por ser código comum (o servidor da loja que monta o aviso ganha a frase do estorno). Não pede `.exe`.

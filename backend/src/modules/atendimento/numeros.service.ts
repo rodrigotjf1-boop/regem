@@ -81,7 +81,8 @@ export class NumerosDoAtendimentoService {
              case when ch.detalhe ? 'encerramento' then jsonb_build_object(
                'status', ch.detalhe -> 'encerramento' -> 'status', 'proposta', ch.detalhe -> 'encerramento' -> 'proposta') end as encerramento,
              case when ch.detalhe ? 'resposta' then jsonb_build_object(
-               'em', ch.detalhe -> 'resposta' -> 'em', 'automatico', ch.detalhe -> 'resposta' -> 'automatico') end as resposta,
+               'em', ch.detalhe -> 'resposta' -> 'em', 'automatico', ch.detalhe -> 'resposta' -> 'automatico',
+               'via', ch.detalhe -> 'resposta' -> 'via') end as resposta,
              case when jsonb_typeof(ch.detalhe -> 'pedido99' -> 'valorCentavos') = 'number'
                   then (ch.detalhe -> 'pedido99' ->> 'valorCentavos')::numeric end as "valor99",
              ch.detalhe -> 'classificacao' as classificacao
