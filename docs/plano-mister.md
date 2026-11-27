@@ -3235,6 +3235,16 @@ neste servidor"). Corrigido com `forwardRef`; o `app-sobe.spec.ts` passou a repr
 Ficou na tela, de propósito, o que mexe com uma pessoa, com quem acessa o quê, com o fiscal e com a operação do balcão e da
 cozinha. Para valer: `MISTER_FAZER_TAREFAS=1` (já ligada) e a avaliação real de novo.
 
+**A avaliação real de 27/11 (128 de 140) e o ERR-637:**
+- **Os 4 casos novos das ondas que erraram** (c136, c137, c139, c140): a IA não procurou no mapa. A busca dizia só "telas de
+  leitura", e o guia da tela mandava ensinar o caminho "quando pedirem uma ação que você não faz". Corrigido nas descrições:
+  - a busca também procura as TAREFAS, com exemplos das ondas;
+  - a ação pronta só serve se faz EXATAMENTE o pedido;
+  - pedido para fazer não vira passo a passo antes do mapa.
+- **Os 5 que acertavam e erraram** (c59, c70, c98, c100, c111): o Haiku varia entre rodadas; o c124, que errava, acertou.
+  Só a próxima rodada separa a variação de um defeito.
+- **Os 3 que já erravam** (c35, c128, c130) seguem iguais.
+
 ### Dias especiais H2b — o feriado pelo Mister (27/11/2026; SEM migration; só na nuvem)
 
 Fase H2b do protótipo `mockups/regem-dias-especiais.html` (aba "No Mister"; decisões 4 e 8).
