@@ -295,13 +295,18 @@ export class RoboRespostaService {
         // o id que a IA escreve é chute. Sem foto que sirva, vai sem.
         // O link do cardápio todo também vira o do produto quando o cliente pediu a FOTO de um produto pelo nome.
         const deProduto = /[?&]produto=/.test(comLink.url);
+        // A página de ACOMPANHAR o pedido (`/r/…`, 26/11 — "cadê meu pedido?" com a previsão): é do mesmo site do cardápio,
+        // mas o botão diz o que ela é e nunca vira o link de um produto.
+        const deAcompanhar = /^https:\/\/[^/]+\/r\/[^/?#\s]+$/i.test(comLink.url);
         let { corpo, url } = comLink;
-        let rotulo = deProduto ? 'Ver no cardápio' : 'Ver cardápio';
+        let rotulo = deAcompanhar ? 'Acompanhar pedido' : deProduto ? 'Ver no cardápio' : 'Ver cardápio';
         let foto: string | null = null;
-        const c = await this.produtoConferido(loja.tenantId, cfg.token as string, para, comLink, deProduto).catch((e: any) => {
-          this.logger.warn(`produto do link não conferido (vai o link da IA, sem foto): ${e?.message ?? e}`);
-          return null;
-        });
+        const c = deAcompanhar
+          ? null
+          : await this.produtoConferido(loja.tenantId, cfg.token as string, para, comLink, deProduto).catch((e: any) => {
+              this.logger.warn(`produto do link não conferido (vai o link da IA, sem foto): ${e?.message ?? e}`);
+              return null;
+            });
         if (c) ({ corpo, url, rotulo, foto } = c);
         const r: any = await this.cloud.enviarLink(loja.tenantId, para, corpo, url, rotulo, foto);
         ids.push(idDoEnvio(r));

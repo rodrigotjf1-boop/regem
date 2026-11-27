@@ -249,6 +249,10 @@ describe('resposta do robô — como cada via mostra', () => {
       const produto = montar({ ...LOJA_CLOUD, token: 'tok1' });
       await produto.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: 'O X Bacon sai por R$ 26,00: https://app.dmsregem.com/c/tok1?produto=xb1' });
       expect(produto.chamadas[0]).toEqual(['cloud.link', TEL, 'O X Bacon sai por R$ 26,00', 'https://app.dmsregem.com/c/tok1?produto=xb1', 'Ver no cardápio']);
+      // A página de ACOMPANHAR o pedido (`/r/…`, 26/11 — "cadê meu pedido?"): o botão diz "Acompanhar pedido", nunca "Ver cardápio".
+      const acompanhar = montar({ ...LOJA_CLOUD, token: 'tok1' });
+      await acompanhar.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: 'Seu pedido saiu às 20h05 e deve chegar por volta de 20h35. Acompanhe aqui: https://app.dmsregem.com/r/abc123' });
+      expect(acompanhar.chamadas[0]).toEqual(['cloud.link', TEL, 'Seu pedido saiu às 20h05 e deve chegar por volta de 20h35. Acompanhe', 'https://app.dmsregem.com/r/abc123', 'Acompanhar pedido']);
       // Sem link: botões de resposta, como antes.
       const semLink = montar({ ...LOJA_CLOUD, token: 'tok1' });
       await semLink.svc.responder(SENHA, { phoneNumberId: 'p', para: TEL, texto: 'Posso ajudar?', opcoes: ops(2) });

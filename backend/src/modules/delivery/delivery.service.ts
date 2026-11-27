@@ -2088,6 +2088,13 @@ export class DeliveryService {
     this.previsaoDeChegada = fn;
   }
 
+  // E passa a mesma previsão adiante, aos pedidos que o atendente virtual vê (26/11 — "cadê meu pedido?" com a previsão
+  // real): o `WhatsappService` é dependência deste; o contrário seria circular. A conta só roda na hora da pergunta, então a
+  // ordem de subida não importa.
+  onModuleInit(): void {
+    this.whatsappQr?.definirPrevisaoDoPedido?.((tenantId, pedidoId) => this.horaPrevistaDoPedido(tenantId, pedidoId));
+  }
+
   /** "20h15": o instante arredondado PARA CIMA em 5 min, no fuso da operação (melhor chegar antes do que depois). */
   static horaPorVolta(d: Date): string {
     const cinco = 5 * 60 * 1000;

@@ -36,9 +36,22 @@ export class RoboConsultasController {
     const resumo = resumoDaLoja(menu, this.service.linkDoCardapio(token));
     // A loja está atendendo AGORA (15/11): o horário do cardápio é dado fixo — confere a 99, a pausa do Regem e o servidor
     // da loja; fechada pelos aplicativos dentro do horário = `abertaAgora` false (`situacao-da-loja.ts`).
-    const conferida = await this.service.situacaoConferida(token, resumo.abertaAgora && !resumo.pausadaPelaLoja);
+    const [conferida, agora] = await Promise.all([
+      this.service.situacaoConferida(token, resumo.abertaAgora && !resumo.pausadaPelaLoja),
+      // O tempo de espera AGORA (26/11, `tempo-de-espera.ts`): com a cozinha mais lenta que o normal, a faixa de agora junto
+      // do tempo configurado; sem isso, nada (vale o configurado).
+      this.service.tempoDeEsperaAgora(token),
+    ]);
+    const comAgora = {
+      ...resumo,
+      atende: {
+        ...resumo.atende,
+        entrega: resumo.atende.entrega && agora.entrega ? { ...resumo.atende.entrega, tempoAgora: agora.entrega } : resumo.atende.entrega,
+        retirada: resumo.atende.retirada && agora.retirada ? { ...resumo.atende.retirada, tempoAgora: agora.retirada } : resumo.atende.retirada,
+      },
+    };
     // + as categorias por papel (bebidas, sobremesas, porções): o que oferecer no fim do pedido (F2).
-    return { ...aplicarNoResumo(resumo, conferida), categoriasParaOferecer: categoriasPorPapel(menu) };
+    return { ...aplicarNoResumo(comAgora, conferida), categoriasParaOferecer: categoriasPorPapel(menu) };
   }
 
   // Com texto: a busca da F2 (robo-busca.ts) — os que LEVAM (ficha > descrição > nome), onde entra como ADICIONAL (com o

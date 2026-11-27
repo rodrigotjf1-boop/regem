@@ -12,6 +12,8 @@ import {
 import { lembrarEnvio } from './evolution-envios';
 import { anotarNaMemoria, chaveDaMemoria } from './robo-do-outro-lado';
 import { pedidosParaORobo } from './pedidos-do-robo';
+import { acompanharPedido, basePublicaDoApp, type Acompanhar } from './acompanhar-pedido';
+import { modoEntrega } from '../entregador/modo-entrega';
 import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect, ehChaveDoMessenger, lerConversa } from '../../common/conversa-do-robo';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { comNomeDoEntregadorParaOCliente } from '../../common/entregador-para-o-cliente';
@@ -1159,6 +1161,18 @@ export class WhatsappService {
         entregadorId: pedidoExterno.entregadorId,
         entregadorNome: pedidoExterno.entregadorNome,
         criadoEm: pedidoExterno.criadoEm,
+        // O acompanhamento (26/11 — "cadê meu pedido?" com a previsão real): as horas, quem entrega, a parada, o link.
+        id: pedidoExterno.id,
+        canal: pedidoExterno.canal,
+        raw: pedidoExterno.raw,
+        confirmadoEm: pedidoExterno.confirmadoEm,
+        prontoEm: pedidoExterno.prontoEm,
+        despachadoEm: pedidoExterno.despachadoEm,
+        agendamento: pedidoExterno.agendamento,
+        retiradaTipo: pedidoExterno.retiradaTipo,
+        rastreioToken: pedidoExterno.rastreioToken,
+        saidaId: pedidoExterno.saidaId,
+        ordemParada: pedidoExterno.ordemParada,
       })
       .from(pedidoExterno)
       .where(
@@ -1172,9 +1186,58 @@ export class WhatsappService {
       )
       .orderBy(desc(pedidoExterno.criadoEm))
       .limit(5);
+    const acompanhar = await this.acompanharDosPedidos(cfg.tenantId, rows);
     // O nome do entregador da loja só com a permissão dele (a regra do rastreio — `common/entregador-para-o-cliente.ts`).
     const comNome = await comNomeDoEntregadorParaOCliente(this.db, cfg.tenantId, rows);
-    return pedidosParaORobo(comNome.map((r) => ({ ...r, statusTexto: this.textoStatusPedido(r) })));
+    return pedidosParaORobo(
+      comNome.map((r: any) => {
+        // O que só servia à conta não segue para o robô (o token, a saída, o pedido cru, o id).
+        const { id, canal: _c, raw: _r, rastreioToken: _t, saidaId: _s, ordemParada: _o, confirmadoEm: _a, prontoEm: _p, despachadoEm: _d, agendamento: _g, retiradaTipo: _rt, ...resto } = r;
+        const a = acompanhar.get(String(id));
+        return { ...resto, statusTexto: this.textoStatusPedido(r), ...(a ? { acompanhar: a } : {}) };
+      }),
+    );
+  }
+
+  /**
+   * A PREVISÃO DE CHEGADA de um pedido ("20h35"): a conta mora no Delivery (a mesma do rastreio e do aviso "saiu"), que já
+   * depende deste serviço — o contrário seria circular. Ele entrega a função aqui quando sobe (`onModuleInit`). Sem ela
+   * (testes, servidor da loja), sem previsão: o robô não inventa.
+   */
+  private previsaoDoPedido?: (tenantId: string, pedidoId: string) => Promise<string | null>;
+  definirPrevisaoDoPedido(fn: (tenantId: string, pedidoId: string) => Promise<string | null>): void {
+    this.previsaoDoPedido = fn;
+  }
+
+  /**
+   * O `acompanhar` de cada pedido em andamento (`acompanhar-pedido.ts`): uma consulta para as paradas de todas as saídas e a
+   * previsão só da entrega da loja que já saiu (no máximo os 5 pedidos da lista). Nunca derruba a lista.
+   */
+  private async acompanharDosPedidos(tenantId: string, rows: any[]): Promise<Map<string, Acompanhar>> {
+    const saida = new Map<string, Acompanhar>();
+    const vivos = rows.filter((r) => !['entregue', 'concluido', 'cancelado'].includes(String(r.status)));
+    if (!vivos.length) return saida;
+    const saidas = [...new Set(vivos.filter((r) => r.status === 'despachado' && r.saidaId).map((r) => String(r.saidaId)))];
+    const paradas = new Map<string, number>();
+    if (saidas.length) {
+      try {
+        const t: any = await this.db.execute(sql`
+          select saida_id::text as saida, count(*)::int as n from pedido_externo
+           where tenant_id = ${tenantId}::uuid and saida_id::text = any(string_to_array(${saidas.join(',')}, ','))
+           group by saida_id`);
+        for (const l of t?.rows ?? t ?? []) paradas.set(String(l.saida), Number(l.n));
+      } catch (e: any) {
+        this.logger.warn(`paradas da saída não lidas (o acompanhamento segue sem elas): ${e?.message ?? e}`);
+      }
+    }
+    const base = basePublicaDoApp();
+    for (const r of vivos) {
+      const daLoja = r.status === 'despachado' && modoEntrega({ tipo: r.tipo, canal: r.canal, raw: r.raw }) !== 'logistica_canal' && r.tipo !== 'retirada';
+      const chega = daLoja && this.previsaoDoPedido ? await this.previsaoDoPedido(tenantId, String(r.id)).catch(() => null) : null;
+      const a = acompanharPedido(r, { basePublica: base, chegaPorVoltaDe: chega, totalDeParadas: r.saidaId ? (paradas.get(String(r.saidaId)) ?? null) : null });
+      if (a) saida.set(String(r.id), a);
+    }
+    return saida;
   }
 
   async resolver(instancia: string, secret: string, numero?: string) {

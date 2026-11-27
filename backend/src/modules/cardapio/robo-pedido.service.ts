@@ -148,6 +148,8 @@ import { textoDoPix } from './adicional-pix';
 import { AdicionalPixService } from './adicional-pix.service';
 import { cartaoDoCliente } from '../perfil-cliente/cartao-do-cliente';
 import { pagoNoPixOnline } from '../../common/prazo-estorno-pix';
+import { acompanharPedido, basePublicaDoApp, type Acompanhar } from '../whatsapp/acompanhar-pedido';
+import { modoEntrega } from '../entregador/modo-entrega';
 import { horarioDoTexto, instanteDeSaoPaulo, quandoDoAgendado, rotuloDaJanela } from '../../common/pedido-agendado';
 import {
   type EnderecoDoCaso,
@@ -505,7 +507,15 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
         : {}),
       ...(beneficios ? { beneficios } : {}),
       ...(cartao ? { cartao } : {}),
-      ...(feito ? { pedidoFeito: visaoDoPedidoFeito(feito.p, situacaoParaOCliente(feito.p.status), lerMudanca(c?.mudanca)) } : {}),
+      ...(feito
+        ? {
+            pedidoFeito: {
+              ...visaoDoPedidoFeito(feito.p, situacaoParaOCliente(feito.p.status), lerMudanca(c?.mudanca)),
+              // "Cadê meu pedido?" com a previsão real (26/11): as horas, quem entrega, a parada e o link de acompanhar.
+              ...(await this.acompanharDoFeito(ctx.cfg.tenantId, feito.ped).then((a) => (a ? { acompanhar: a } : {}))),
+            },
+          }
+        : {}),
       pedido: visao,
     };
   }
@@ -892,6 +902,29 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
    * pelo cadastro achado. Vem com os itens da venda numerados (e se a cozinha já deixou cada um pronto), se foi pago antes,
    * se tem nota, se o robô já mudou e se a loja deixa o robô mudar. Dois em andamento: a equipe confere qual.
    */
+  /**
+   * O ACOMPANHAMENTO do pedido feito (26/11 — "cadê meu pedido?" com a previsão real, `whatsapp/acompanhar-pedido.ts`): as
+   * horas, quem entrega, a parada na saída do entregador, o link de acompanhar e a previsão pelo GPS do entregador (o
+   * Delivery; sem ele, sem previsão). Nunca derruba o `ver`: falhou, vai sem.
+   */
+  private async acompanharDoFeito(tenantId: string, ped: any): Promise<Acompanhar | null> {
+    try {
+      let total: number | null = null;
+      if (ped?.status === 'despachado' && ped?.saidaId) {
+        const t: any = await this.db.execute(
+          sql`select count(*)::int as n from pedido_externo where tenant_id = ${tenantId}::uuid and saida_id = ${ped.saidaId}::uuid`,
+        );
+        total = Number((t?.rows ?? t ?? [])[0]?.n ?? 0) || null;
+      }
+      const daLoja = ped?.status === 'despachado' && ped?.tipo !== 'retirada' && modoEntrega(ped) !== 'logistica_canal';
+      const chega = daLoja && this.delivery ? await this.delivery.horaPrevistaDoPedido(tenantId, String(ped.id)).catch(() => null) : null;
+      return acompanharPedido(ped, { basePublica: basePublicaDoApp(), chegaPorVoltaDe: chega, totalDeParadas: total });
+    } catch (e: any) {
+      this.logger.warn(`acompanhamento do pedido ${ped?.id ?? '?'} não montado: ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
   private async pedidoFeitoDaConversa(ctx: Contexto, cli: ClienteDaConversa): Promise<{ p: PedidoFeito; ped: any } | null> {
     const tenantId = ctx.cfg.tenantId;
     const peloTelefone = sql`${sqlChaveTelefone(sql`${pedidoExterno.clienteTelefone}`)} = ${ctx.conversa.chave}`;
