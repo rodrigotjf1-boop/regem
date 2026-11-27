@@ -57,7 +57,7 @@ import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { menuNumerado } from '../whatsapp/robo-resposta.service';
 import { estadoDaPausa } from '../whatsapp/robo-pausa';
 import { CardapioService } from './cardapio.service';
-import { normalizar, reais } from './robo-consultas';
+import { normalizar, promocoesParaOCliente, reais } from './robo-consultas';
 import { GRUPOS, nucleoDoNome, palavrasDe, papelDaCategoria } from './robo-busca';
 import {
   EntregaDoCarrinho,
@@ -463,6 +463,21 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
    * do plano de 31/10/2026: `emCurso` (há pedido em montagem — continuar, sem mandar o link) e `ultimoPedido` (o cliente
    * conhecido pode repetir: os itens que ainda estão à venda).
    */
+  /**
+   * "TEM PROMOÇÃO? TEM CUPOM?" (item 5 do plano das leituras do Mister, 27/11): os cupons que ESTE cliente pode usar agora —
+   * o mesmo filtro da sugestão do fechamento do cardápio (`cuponsDisponiveis`: sem os pessoais e os "só aniversariantes"; as
+   * condições — só novos, dias sem comprar, limite por cliente — conferidas pelo telefone da conversa, nunca um número que a
+   * IA mande) — e os planos da fidelidade da loja. Só leitura.
+   */
+  async promocoes(ctx: Contexto) {
+    const cli = await this.clienteDaConversa(ctx);
+    const [cupons, promos] = await Promise.all([
+      this.cardapio.cuponsDisponiveis(ctx.token, cli?.telefone ?? ctx.conversa.chave, 0),
+      this.cardapio.promosPublico(ctx.token),
+    ]);
+    return promocoesParaOCliente(cupons, { ativa: !!promos?.fidelidadeAtiva, planos: promos?.planos ?? [] });
+  }
+
   async ver(ctx: Contexto) {
     const [menu, cli, c] = await Promise.all([this.cardapio.menu(ctx.token), this.clienteDaConversa(ctx), this.carrinhoAberto(ctx)]);
     const produtos = new Map<string, any>((menu?.produtos ?? []).map((p: any) => [p.id, p]));

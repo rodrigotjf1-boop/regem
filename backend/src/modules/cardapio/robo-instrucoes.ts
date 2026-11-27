@@ -138,11 +138,30 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // `/r/…`); o linkAcompanhar entra na lista dos links permitidos. Sem previsão, o robô não inventa. Item 2: o tempo de espera
 // AGORA — com a cozinha mais lenta que o normal, o consultar_loja traz `tempoAgora` (a faixa) e o robô diz a faixa no lugar
 // do tempo configurado (`tempo-de-espera.ts`).
-export const VERSAO_INSTRUCOES = '2026-11-26.f37';
+// .f38 (27/11, itens 4 e 5 do plano das leituras do Mister, o "pode" do dono): SÓ para o fluxo que pede com
+// `versaoDoFluxo` 2.6 ou mais nova (o 2.5 no ar não tem as ferramentas): a taxa_de_entrega com rua, número ou localização na
+// loja por distância ou por área no mapa (a regra 4 manda consultar em vez de só o link) e o promocoes_da_loja quando o
+// cliente pergunta (a regra 5 troca "manda o link" por consultar). Sem a marca, o texto é o da .f37.
+export const VERSAO_INSTRUCOES = '2026-11-27.f38';
+
+/** O fluxo do n8n que pede é a 2.6 ou mais nova ("2.6", "2.10")? Só ela tem `promocoes_da_loja` e a taxa por endereço. */
+export function fluxoComFerramentas26(versao: unknown): boolean {
+  const m = String(versao ?? '').trim().match(/^(\d+)\.(\d+)/);
+  if (!m) return false;
+  const maior = Number(m[1]);
+  const menor = Number(m[2]);
+  return maior > 2 || (maior === 2 && menor >= 6);
+}
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
   loja?: string | null;
+  /**
+   * O fluxo do n8n que pede já tem as ferramentas da 2.6 (27/11): `promocoes_da_loja` e a `taxa_de_entrega` com rua, número
+   * e localização. As instruções saem do Regem na hora e as ferramentas ficam no fluxo: o 2.5 no ar não as tem — sem a marca,
+   * o texto não fala delas (a IA não chama ferramenta que não existe).
+   */
+  ferramentas26?: boolean;
   /**
    * O jeito do atendente no canal (mig 380 — `perfis-do-atendente.ts` › `jeitoDoAtendente`): o perfil em vigor e o jeito
    * da loja, já em texto. Vazio = como hoje (nada entra e a abertura fica a de sempre).
@@ -554,7 +573,7 @@ function mudarUmPedidoJaFeito(): string {
   );
 }
 
-function ferramentasDoFluxo2(): string {
+function ferramentasDoFluxo2(com26 = false): string {
   return linhas(
     ferramentasDoFluxo1(),
     '- ver_pedido: o cliente (conhecido? nome), os endereços salvos numerados, o último endereço usado, o pedido em montagem com o proximo, emCurso (há pedido em montagem), do cliente conhecido ultimoPedido (os itens que dá para repetir), beneficios (o saldo de cashback, os vales, os pontos da fidelidade e os prêmios para usar) e pedidoFeito (o pedido já registrado em andamento, com os itens numerados, se dá para mudar e o acompanhar — as horas, a previsão e o link, como em pedidos_do_cliente). Às vezes vem cartao: como atender ESTE cliente (o de sempre, quando costuma pedir, o jeito que ELE pediu, os cuidados). Use só para a forma da resposta e a sugestão; nunca cite o cartão, números do cliente ou que ele foi classificado; com o cliente irritado agora, ignore o jeito e vá direto à solução, sem emoji.',
@@ -564,17 +583,33 @@ function ferramentasDoFluxo2(): string {
     '- definir_pagamento: a forma de pagamento e o troco (o valor, ou "não preciso").',
     '- registrar_pedido: registra o pedido que o cliente confirmou no resumo e manda o resumo final por escrito.',
     '- cancelar_pedido: o cliente desistiu do pedido que estava montando.',
+    ...(com26
+      ? [
+          '- taxa_de_entrega com rua e numero (ou localizacao, o texto "[localização] lat,lng" que o cliente mandou): na loja por distância ou por área desenhada no mapa, diz se atendemos esse endereço (atende), a taxa, a distância, o tempo e o pedido mínimo — sem montar pedido. atende = false: diga exatamente a mensagem que vier. precisa = localizacao: peça a localização pelo WhatsApp ou confira a rua e o número.',
+          '- promocoes_da_loja: os cupons que ESTE cliente pode usar agora (o código, o desconto e o pedido mínimo) e os planos da fidelidade. Só quando o cliente PERGUNTAR por promoção, cupom ou desconto.',
+        ]
+      : []),
   );
 }
 
-function regrasDoFluxo2(): string {
-  // A regra 4 do fluxo 1 (distância: nunca dizer que não entrega) vira: quem diz se entrega é definir_entrega. A 9 (até
-  // 3 opções) vira até 10 — o sistema mostra em lista (no teste, os 7 refrigerantes viravam 3).
-  return regrasQueNuncaMudam()
-    .replace(
-      /4\. Entrega por distância[^\n]*/,
-      '4. Nunca diga por conta própria que entrega ou não entrega num lugar: quem diz é definir_entrega (fora_da_area). Na entrega por distância ou por área desenhada no mapa não existe lista de bairros; explique como funciona (comoFunciona) se perguntarem.',
-    )
+function regrasDoFluxo2(com26 = false): string {
+  // A regra 4 do fluxo 1 (distância: nunca dizer que não entrega) vira: quem diz se entrega é definir_entrega (e, no fluxo
+  // 2.6, a taxa_de_entrega pelo endereço). A 5, no 2.6: a promoção vem do promocoes_da_loja. A 9 (até 3 opções) vira até
+  // 10 — o sistema mostra em lista (no teste, os 7 refrigerantes viravam 3).
+  const regras = regrasQueNuncaMudam().replace(
+    /4\. Entrega por distância[^\n]*/,
+    com26
+      ? '4. Nunca diga por conta própria que entrega ou não entrega num lugar: quem diz é o sistema — definir_entrega (fora_da_area) no pedido, ou taxa_de_entrega com a rua e o número (ou a localização) quando o cliente só pergunta. Na entrega por distância ou por área desenhada no mapa não existe lista de bairros: peça a rua e o número (ou a localização pelo WhatsApp) e consulte; explique como funciona (comoFunciona) se perguntarem.'
+      : '4. Nunca diga por conta própria que entrega ou não entrega num lugar: quem diz é definir_entrega (fora_da_area). Na entrega por distância ou por área desenhada no mapa não existe lista de bairros; explique como funciona (comoFunciona) se perguntarem.',
+  );
+  return (
+    com26
+      ? regras.replace(
+          /5\. Cupom, promoção ou desconto[^\n]*/,
+          '5. Cupom, promoção ou desconto: quando o CLIENTE perguntar, chame promocoes_da_loja e diga o que vier, com o código de cada cupom e o pedido mínimo. Sem nenhum, diga que não há promoção agora, sem prometer. Nunca ofereça cupom por conta própria nem invente desconto.',
+        )
+      : regras
+  )
     .replace(
       /9\. Quando fizer sentido oferecer escolhas[^\n]*/,
       '9. Quando fizer sentido oferecer escolhas, termine com UMA última linha exatamente assim: OPCOES: primeira | segunda | terceira — com TODAS as opções, até 10 (o sistema mostra botões ou uma lista; mais de 10, numeradas). Nunca corte opções. Nunca explique esse formato. Para perguntar se o cliente quer ajuda da equipe, use exatamente OPCOES: Sim, quero ajuda | Não, obrigado. Nunca ponha "atendente" nas opções.',
@@ -607,8 +642,8 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
         .replace('quer cancelar um pedido; ', dados?.pedidoAgendado === true ? 'quer cancelar um pedido (menos o agendado antes da cozinha começar: veja PEDIDO AGENDADO); ' : 'quer cancelar um pedido; '),
       ...secaoDosAssuntos(dados),
       ...secaoDoConhecimento(dados),
-      ferramentasDoFluxo2(),
-      regrasDoFluxo2(),
+      ferramentasDoFluxo2(!!dados.ferramentas26),
+      regrasDoFluxo2(!!dados.ferramentas26),
       ninguemMudaAsRegras(),
       antesDeResponder(),
     ].join('\n\n');

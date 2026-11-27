@@ -598,6 +598,20 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     });
   });
 
+  // Item 5 do plano das leituras do Mister (o "pode" do dono, 27/11/2026): "tem promoção? tem cupom?" — os cupons que ESTE
+  // cliente pode usar agora, pelo mesmo filtro da sugestão do fechamento do cardápio (`cuponsDisponiveis`).
+  it('as promoções do cliente da conversa: o cupom aberto aparece com o desconto e o mínimo; o desligado e o vencido não', async () => {
+    const l = await loja();
+    const c = await l.ctx();
+    await q(`insert into cupom (tenant_id, codigo, tipo, valor, minimo, teto_desconto, ativo) values ($1,'ABERTO','percentual',10,30,15,true)`, [l.t]);
+    await q(`insert into cupom (tenant_id, codigo, tipo, valor, ativo) values ($1,'DESLIGADO','valor',5,false)`, [l.t]);
+    await q(`insert into cupom (tenant_id, codigo, tipo, valor, ativo, validade) values ($1,'VENCIDO','valor',5,true, current_date - 3)`, [l.t]);
+    const r: any = await robo.promocoes(c);
+    expect(r.cupons).toEqual([{ codigo: 'ABERTO', desconto: '10% de desconto (até R$ 15,00)', pedidoMinimo: 'R$ 30,00' }]);
+    expect(r.fidelidade).toEqual([]); // a loja sem fidelidade ligada
+    expect(r.comoResponder).toContain('Liste o que veio');
+  });
+
   // Bloco 1b do plano de 31/10/2026 (pedido do dono): "antes do pagamento verificar saldo e perguntar se quer usar para
   // desconto no pedido"; o cupom só quando o cliente fala; o resumo com o desconto e o cashback que o pedido dá.
   it('Bloco 1b: o cashback perguntado antes do pagamento; o cupom que o cliente diz; o resumo e o pedido com o desconto e o ganho', async () => {

@@ -220,6 +220,89 @@ export function buscarNoCardapio(menu: any, busca: string, limite = 15) {
  * Taxa de entrega por bairro: o bairro exato; senão os parecidos (até 5); sem bairro, a lista (até 60). Loja que entrega
  * por DISTÂNCIA não tem bairro: devolve as faixas e como funciona (o cardápio calcula pelo endereço).
  */
+/**
+ * "TEM PROMOÇÃO? TEM CUPOM?" (item 5 do plano das leituras do Mister para o atendente — o "pode" do dono, 27/11/2026): os
+ * cupons que ESTE cliente pode usar agora, como ele entende ("10% de desconto, até R$ 15", "frete grátis") — da lista que o
+ * Regem já filtrou (`cuponsDisponiveis`: sem os pessoais e os "só aniversariantes", com as condições do cliente) — e os
+ * planos da fidelidade. O robô só lista quando o cliente PERGUNTA (instruções).
+ */
+export function promocoesParaOCliente(
+  cupons: { codigo: string; tipo: string; valor: number; tetoDesconto?: number | null; minimo?: number | null }[],
+  fidelidade: { ativa: boolean; planos: { nome: string; pontosMeta?: number | null; recompensa?: string | null }[] },
+) {
+  const desconto = (c: (typeof cupons)[number]) =>
+    c.tipo === 'fretegratis'
+      ? 'frete grátis'
+      : c.tipo === 'percentual'
+        ? `${Number(c.valor)}% de desconto${c.tetoDesconto ? ` (até ${reais(c.tetoDesconto)})` : ''}`
+        : `${reais(c.valor)} de desconto`;
+  const lista = cupons.slice(0, 10).map((c) => ({
+    codigo: c.codigo,
+    desconto: desconto(c),
+    ...(c.minimo ? { pedidoMinimo: reais(c.minimo) } : {}),
+  }));
+  const planos = fidelidade.ativa
+    ? fidelidade.planos.slice(0, 5).map((p) => ({ nome: p.nome, ...(p.pontosMeta ? { pontosMeta: p.pontosMeta } : {}), ...(p.recompensa ? { recompensa: p.recompensa } : {}) }))
+    : [];
+  return {
+    cupons: lista,
+    fidelidade: planos,
+    comoResponder:
+      lista.length || planos.length
+        ? 'Liste o que veio, com o código de cada cupom e o pedido mínimo quando houver. O cupom se usa no fechamento do pedido (no cardápio ou aqui pela conversa). Não invente outro desconto.'
+        : 'Não há promoção nem cupom para este cliente agora: diga isso com gentileza, sem prometer.',
+  };
+}
+
+/** A localização que o cliente mandou pelo WhatsApp ("[localização] -22.9,-43.2" ou "-22.9,-43.2"), ou null. */
+export function pontoDaLocalizacao(v: unknown): { lat: number; lng: number } | null {
+  const m = String(v ?? '').match(/(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)/);
+  if (!m) return null;
+  const lat = Number(m[1]);
+  const lng = Number(m[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) return null;
+  return { lat, lng };
+}
+
+/**
+ * "ENTREGA NO MEU ENDEREÇO? QUANTO FICA?" FORA DO PEDIDO (item 4 do plano das leituras do Mister para o atendente — o "pode"
+ * do dono, 27/11/2026). Na loja que cobra por DISTÂNCIA ou por ÁREA DESENHADA no mapa, o robô só tinha as faixas e mandava o
+ * link; agora o endereço (rua e número) ou a localização que o cliente mandou passa pela MESMA conta do cardápio e do
+ * `definir_entrega` (`CardapioService.taxaDeEntrega`), sem montar pedido. Nunca devolve coordenadas nem o desenho das áreas.
+ */
+export function taxaDoEndereco(
+  menu: any,
+  t: { taxaCheia: number; alemDaUltimaFaixa: boolean; semLocalizacao: boolean; km: number | null; area?: { tempoMin?: number | null; tempoMax?: number | null; pedidoMinimo?: number | null; freteGratisAcima?: number | null } | null },
+) {
+  const modo = menu?.loja?.areaModo === 'raio' ? 'distancia' : 'mapa';
+  if (t.semLocalizacao)
+    return {
+      modo,
+      encontrado: false,
+      precisa: 'localizacao',
+      comoResponder:
+        'Não achei esse endereço no mapa: peça ao cliente a localização pelo WhatsApp (clipe → Localização) ou confira a rua e o número.',
+    };
+  if (t.alemDaUltimaFaixa) return { modo, encontrado: true, atende: false, mensagem: 'Infelizmente nosso delivery não cobre a região.' };
+  const area = t.area ?? null;
+  const tempo =
+    area?.tempoMin != null
+      ? area.tempoMax != null && area.tempoMax > area.tempoMin
+        ? `${area.tempoMin} a ${area.tempoMax} min`
+        : `${area.tempoMin} min`
+      : null;
+  return {
+    modo,
+    encontrado: true,
+    atende: true,
+    taxa: reais(t.taxaCheia),
+    ...(t.km != null ? { distanciaKm: Math.round(t.km * 10) / 10 } : {}),
+    ...(tempo ? { tempo } : {}),
+    ...(area?.pedidoMinimo ? { pedidoMinimo: reais(area.pedidoMinimo) } : {}),
+    freteGratisAcima: reais(area?.freteGratisAcima ?? menu?.loja?.freteGratisAcima),
+  };
+}
+
 export function taxaDoBairro(menu: any, bairro: string) {
   const bairros: any[] = Array.isArray(menu?.bairros) ? menu.bairros : [];
   const modo = menu?.loja?.areaModo === 'raio' ? 'distancia' : menu?.loja?.areaModo === 'mapa' ? 'mapa' : 'bairro';

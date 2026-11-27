@@ -498,6 +498,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'GET /api/v1/publico/bot/pedido', marca: 'interna', frase: 'robo pedido: ver' },
   { rota: 'GET /api/v1/publico/bot/pedido-status', marca: 'interna', frase: 'whatsapp: status pedido bot' },
   { rota: 'GET /api/v1/publico/bot/pedidos', marca: 'interna', frase: 'whatsapp: pedidos bot' },
+  { rota: 'GET /api/v1/publico/bot/promocoes', marca: 'interna', frase: 'robo pedido: promocoes' },
   { rota: 'GET /api/v1/publico/bot/resolver', marca: 'interna', frase: 'whatsapp: resolver' },
   { rota: 'GET /api/v1/publico/bot/taxa', marca: 'interna', frase: 'robo consultas: taxa' },
   { rota: 'GET /api/v1/publico/campanha/r/{id}', marca: 'interna', frase: 'campanha publico: redirect' },
