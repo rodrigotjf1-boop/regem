@@ -10,7 +10,8 @@ import { origemDe } from './mister-imagem-numeros';
 import { MOTIVO_DO_PIN, MOTIVO_DO_QR, comMotivo, motivoDoPerfil } from './mister-motivo';
 import { MisterNumeroService } from './mister-numero.service';
 import { botoesDaProposta } from './mister-procedimentos';
-import { MisterPropostasService } from './mister-propostas.service';
+import { MisterPropostasService, type PropostaPendente } from './mister-propostas.service';
+import { horaNoFuso } from '../../common/data';
 import { PRAZO_DA_TAREFA_MIN, PROCEDIMENTO_DA_TAREFA, TEXTOS_DAS_TAREFAS, pedidoDaTarefa, tarefasNoMister } from './mister-tarefas';
 import { MisterTelasService } from './mister-telas.service';
 import { PEDIDO_MAX, textoAprendido } from './mister-aprendizado';
@@ -48,13 +49,14 @@ export class MisterTarefasService implements OnModuleInit {
     if (e.nivel !== 'presidente' && e.nivel !== 'gerente') return comMotivo(TEXTOS_DAS_ACOES.soGestor, motivoDoPerfil('o presidente ou o gerente'));
     if (e.pinPendente) return comMotivo('Para fazer pela conversa, confirme antes o seu PIN: o link vai logo depois desta resposta.', MOTIVO_DO_PIN);
     try {
-      // Pela conexão por QR Code não há o botão "Autorizar".
-      if (this.numero && (await this.numero.ler()).provedor === 'evolution') return comMotivo(TEXTOS_DAS_ACOES.semBotao, MOTIVO_DO_QR);
       const unidadeId = loja.atual ?? (e.lojaUnica ? (e.lojas[0]?.id ?? null) : null);
       const p = pedidoDaTarefa(en, { unidadeId }, origemDe(en.__origem).resultados);
       if ('erro' in p) return recusa(p.erro);
-      // A C4a abre só tarefas de botão; a de PIN entra com o link numa fase seguinte.
-      if (p.f.marca !== 'botao') return recusa(TEXTOS_DAS_TAREFAS.fora);
+      // C4 Onda 1: a tarefa marcada "pin" no mapa (apaga o que tem histórico, mexe em dinheiro ou pessoas) sai com o link
+      // "Abrir no Regem", que pede o PIN — como as ações de PIN. A de botão, com "Autorizar" e "Não agora".
+      const comPin = p.f.marca === 'pin';
+      // Pela conexão por QR Code não há o botão "Autorizar" (o link do PIN funciona).
+      if (!comPin && this.numero && (await this.numero.ler()).provedor === 'evolution') return comMotivo(TEXTOS_DAS_ACOES.semBotao, MOTIVO_DO_QR);
       const chave = createHash('sha256').update(`${p.caminho}|${JSON.stringify(p.corpo)}`).digest('hex').slice(0, 32);
       const avisoId = uuidDeChave('mister:tarefa:', e.tenantId, ':', e.colaboradorId, ':', p.f.rota, ':', chave);
       const prop = await this.propostas.gravarDaConversa(
@@ -62,12 +64,23 @@ export class MisterTarefasService implements OnModuleInit {
         unidadeId,
         avisoId,
         PROCEDIMENTO_DA_TAREFA,
-        'botao',
+        comPin ? 'pin' : 'botao',
         // C7: o pedido nas palavras da pessoa vai junto (vira exemplo, se a tarefa der certo).
         { colaboradorId: e.colaboradorId, nivel: e.nivel, rota: p.f.rota, metodo: p.metodo, caminho: p.caminho, corpo: p.corpo, loja: unidadeId, frase: p.f.frase, resumo: p.resumo, ...(origemDe(en.__origem).falas[0] ? { pedidoDaPessoa: textoAprendido(origemDe(en.__origem).falas[0], PEDIDO_MAX) } : {}) },
         PRAZO_DA_TAREFA_MIN,
       );
       if (!prop) return recusa('Essa mesma tarefa já foi autorizada e está em andamento; o resultado chega na conversa.');
+      if (comPin) {
+        // O link sai depois da resposta (o agente chama `enviarLinkDaProposta`), nunca com botões.
+        const proposta: PropostaPendente = {
+          id: prop.id,
+          procedimento: PROCEDIMENTO_DA_TAREFA as unknown as PropostaPendente['procedimento'],
+          nivel: 'pin',
+          pergunta: TEXTOS_DAS_TAREFAS.link(p.resumo, horaNoFuso(new Date(prop.venceEm))),
+          botoes: [],
+        };
+        return { ok: true, dados: { oQueVouFazer: p.resumo, siga: TEXTOS_DAS_TAREFAS.sigaDoPin }, proposta };
+      }
       return {
         ok: true,
         dados: { oQueVouFazer: p.resumo, siga: TEXTOS_DAS_TAREFAS.siga },
@@ -91,7 +104,7 @@ export class MisterTarefasService implements OnModuleInit {
     if (!tarefaAberta(par.rota)) return { feita: false, texto: 'essa tarefa não está mais aberta ao Mister. Nada foi feito.' };
     const e = await this.ferramentas.escopoDaTela(p.tenantId, quem);
     if (!e) return { feita: false, texto: 'o seu acesso ao Mister mudou. Nada foi feito.' };
-    const metodo = ['POST', 'PUT', 'PATCH'].includes(par.metodo) ? (par.metodo as 'POST' | 'PUT' | 'PATCH') : 'POST';
+    const metodo = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(par.metodo) ? (par.metodo as 'POST' | 'PUT' | 'PATCH' | 'DELETE') : 'POST';
     const r = await this.telas.escrever(e, metodo, String(par.caminho ?? ''), (par.corpo ?? {}) as Record<string, unknown>, par.loja ?? null);
     const auditar = (acao: string, detalhe: Record<string, unknown>) =>
       this.auditoria
