@@ -4,9 +4,11 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuthUser } from '../../auth/auth-user';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { agoraEmSaoPaulo, diaCurto, somarDias } from '../../common/horario-da-data';
+import { aberturasDoDia, agoraEmSaoPaulo, diaCurto, somarDias } from '../../common/horario-da-data';
 import { instanteDeSaoPaulo } from '../../common/pedido-agendado';
-import { conferirDiaEspecial, deLinha, type DiaEspecialConferido } from './dias-especiais';
+import { eventosDaRegra, ocorrencias } from '../perfil-cliente/calendario-regra';
+import { conferirDiaEspecial, deLinha, DIAS_A_FRENTE, type DiaEspecialConferido } from './dias-especiais';
+import { diasDoPeriodo, feriadosSemResposta, type FeriadoSugerido, type RespostaDaLoja } from './feriados-sem-resposta';
 
 // O CADASTRO DOS DIAS ESPECIAIS (fase H1; mig 512): Delivery › Configurações › Horários › Dias especiais. A lista com as
 // situações (próximos e passados) e os agendados de cada dia, criar e editar em gaveta, excluir em diálogo, e os pedidos
@@ -82,6 +84,66 @@ export class DiasEspeciaisService {
         agendados: Number(x.agendados) || 0,
       })),
     };
+  }
+
+  /**
+   * Os feriados sem resposta dos próximos `dias` (H2a): a lista "Próximos feriados sem resposta" (60 dias) e a faixa da tela
+   * (10 dias). Fontes: a lei (calculada), o feriado da Escala e o feriado da cidade do Marketing — este só existe na nuvem:
+   * no servidor da loja (ou sem a tabela) a resposta diz `fontes.calendario = false`, e a tela conta que não leu (V37).
+   */
+  async semResposta(tenantId: string, unidadeId: string | null, dias = DIAS_A_FRENTE) {
+    const hoje = this.hoje();
+    const ate = somarDias(hoje, Math.min(Math.max(Math.trunc(Number(dias) || DIAS_A_FRENTE), 1), DIAS_A_FRENTE));
+    const loja = unidadeId ? sql`and (unidade_id = ${unidadeId}::uuid or unidade_id is null)` : sql``;
+    const candidatos: FeriadoSugerido[] = eventosDaRegra(hoje, ate)
+      .filter((e) => e.tipo === 'feriado' || e.tipo === 'ponto_facultativo')
+      .map((e) => ({ chave: e.chave, data: e.dia, nome: e.nome, origem: e.tipo === 'feriado' ? 'lei' : 'ponto_facultativo' }));
+    // O feriado da Escala (Escalas › Feriado / evento): o da empresa ou da loja, nunca o de uma pessoa (férias e folgas).
+    const escala: any = await this.db.execute(sql`
+      select id, to_char(data, 'YYYY-MM-DD') as data, to_char(data_fim, 'YYYY-MM-DD') as data_fim, nome
+        from dia_especial
+       where tenant_id = ${tenantId}::uuid and tipo = 'feriado' and colaborador_id is null and deleted_at is null
+         and coalesce(data_fim, data) >= ${hoje}::date and data <= ${ate}::date ${loja}
+       limit 200`);
+    for (const x of linhas(escala))
+      for (const d of diasDoPeriodo(String(x.data), x.data_fim ? String(x.data_fim) : null, somarDias))
+        candidatos.push({ chave: `escala:${x.id}:${d}`, data: d, nome: String(x.nome ?? '').trim(), origem: 'escala' });
+    // O feriado da cidade (Delivery › Clientes › Calendário de eventos; mig 461, só da nuvem). Repete todo ano ou não.
+    let calendario = true;
+    try {
+      const cal: any = await this.db.execute(sql`
+        select id, to_char(dia, 'YYYY-MM-DD') as dia, repete, nome
+          from evento_loja
+         where tenant_id = ${tenantId}::uuid and tipo = 'feriado_municipal' and excluido_em is null ${loja}
+         limit 200`);
+      for (const x of linhas(cal))
+        for (const d of ocorrencias(String(x.dia), String(x.repete ?? 'nao'), hoje, ate))
+          candidatos.push({ chave: `calendario:${x.id}:${d}`, data: d, nome: String(x.nome ?? '').trim(), origem: 'calendario' });
+    } catch (e: any) {
+      if (e?.code !== '42P01' && e?.cause?.code !== '42P01') throw e;
+      calendario = false;
+    }
+    // O que já responde: todo dia especial que vale (inclusive o "horário normal", decisão 9).
+    const resp: any = await this.db.execute(sql`
+      select to_char(data, 'YYYY-MM-DD') as data, to_char(data_fim, 'YYYY-MM-DD') as data_fim, feriado_chave
+        from horario_especial
+       where tenant_id = ${tenantId}::uuid and deleted_at is null
+         and (unidade_id is not distinct from ${unidadeId}::uuid or unidade_id is null)
+         and coalesce(data_fim, data) >= ${hoje}::date and data <= ${ate}::date
+       limit 500`);
+    const respostas: RespostaDaLoja[] = linhas(resp).map((x) => ({ data: x.data, dataFim: x.data_fim ?? null, feriadoChave: x.feriado_chave ?? null }));
+    // O horário da semana (o da entrega — o mesmo do "Aberta até" do cardápio): o que vale até alguém responder.
+    const cfg: any = await this.db.execute(sql`
+      select horarios from cardapio_config
+       where tenant_id = ${tenantId}::uuid and unidade_id is not distinct from ${unidadeId}::uuid
+       limit 1`);
+    const semana = linhas(cfg)[0]?.horarios ?? [];
+    const normalDoDia = (data: string): string | null => {
+      const ab = aberturasDoDia(semana, [], data);
+      if (ab === 'dia_inteiro') return 'o dia inteiro';
+      return ab.length ? ab.map((a) => `${a.abre} às ${a.fecha}`).join(' e ') : null;
+    };
+    return { hoje, ate, fontes: { calendario }, itens: feriadosSemResposta({ hoje, ate, candidatos, respostas, normalDoDia }) };
   }
 
   /** Os pedidos agendados de um período (o diálogo "Há N pedidos agendados para…"): só leitura. */

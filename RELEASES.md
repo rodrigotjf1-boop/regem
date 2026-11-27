@@ -20,6 +20,9 @@
 - **Dias especiais — H1b, a tela e o cardápio (27/11; sem migration).** Delivery › Configurações › Horários com a lista e a
   gaveta, as faixas do cardápio e o dia fechado no "Para quando?". Vai no mesmo `.zip` da H1a (o app que o servidor da loja
   serve); não pede `.exe` além do da H1a.
+- **Dias especiais — H2a, os feriados sem resposta (27/11; sem migration).** A rota nova e a faixa do topo valem também no
+  servidor da loja (lei e Escala; o feriado da cidade só pela internet). Vai no mesmo `.zip` da H1a; não pede `.exe` além
+  do da H1a.
 - **Atendente: pôr item no pedido pago, Pix confirmado sem comprovante e o estorno no aviso de cancelado (26/11; SEM migration;
   ERR-626, ERR-627).** A versão do servidor e a conferência de minuto do Pix são só da nuvem. O texto do aviso de cancelado vai no
   próximo `.zip` por ser código comum (o servidor da loja que monta o aviso ganha a frase do estorno). Não pede `.exe`.

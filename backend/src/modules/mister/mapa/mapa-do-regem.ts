@@ -179,6 +179,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'GET /api/v1/cardapio/cupons', marca: 'le', frase: 'Cupons de desconto do cardápio digital: código, desconto, validade e quantas vezes foram usados' },
   { rota: 'GET /api/v1/cardapio/dias-especiais', marca: 'le', frase: 'Dias especiais do horário da loja (feriados, fechada ou outro horário): os próximos e os passados, com os pedidos agendados de cada um', consulta: ['situacao'] },
   { rota: 'GET /api/v1/cardapio/dias-especiais/agendados', marca: 'le', frase: 'Os pedidos agendados de um período (antes de fechar a loja num dia especial)', pessoal: true },
+  { rota: 'GET /api/v1/cardapio/dias-especiais/sem-resposta', marca: 'le', frase: 'Os próximos feriados (por lei, da Escala e do calendário) que a loja ainda não disse como fica, com o horário da semana que vale até responder', consulta: ['dias'] },
   { rota: 'GET /api/v1/cardapio/encomenda/regras-sinal', marca: 'le', frase: 'Encomendas: as regras do sinal (quanto se paga antes e até quando)' },
   { rota: 'GET /api/v1/cardapio/eventos', marca: 'le', frase: 'Eventos sazonais do cardápio digital (Natal, Dia das Mães…): a agenda e quais estão ligados' },
   { rota: 'GET /api/v1/cashback/planos', marca: 'le', frase: 'Cashback: os planos, com a porcentagem, a validade e as regras' },

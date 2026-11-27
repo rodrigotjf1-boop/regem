@@ -25,6 +25,16 @@ export class DiasEspeciaisController {
     return this.service.listar(user.tenantId, loja(unidadeId), situacao === 'passados' ? 'passados' : 'proximos');
   }
 
+  /**
+   * Os feriados sem resposta (H2a): os próximos 60 dias na lista, os próximos 10 na faixa da tela (`?dias=10`). Lei, Escala
+   * e o calendário do Marketing; o que já tem dia especial (até o "horário normal") não volta.
+   */
+  @Get('sem-resposta')
+  @RequirePerm('loja')
+  semResposta(@CurrentUser() user: AuthUser, @Query('dias') dias?: string, @Query('unidadeId') unidadeId?: string) {
+    return this.service.semResposta(user.tenantId, loja(unidadeId), dias ? Number(dias) : undefined);
+  }
+
   /** Os pedidos agendados de um período (o diálogo antes de fechar um dia). */
   @Get('agendados')
   @RequirePerm('loja')
