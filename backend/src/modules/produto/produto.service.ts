@@ -51,6 +51,7 @@ import {
 } from './produto-canais';
 import { fraseDosAtrasados, servidoresAtrasados } from '../../common/servidores-da-empresa';
 import { codigoLimpo, codigosRecusados, lerTrocasDeCodigo, type RecusaDeCodigo, type TrocaDeCodigo } from './codigos-pdv';
+import { agruparProdutosDosCombos, criarResolvedorDeCusto, type ParteDoCombo } from './custo-do-combo';
 
 /** Quem fez a mudança (para a auditoria). */
 type Ator = { id: string | null; perfil: string | null };
@@ -1590,36 +1591,46 @@ export class ProdutoService {
         custoFonte: null,
       }));
     }
-    const fichaCusto = await this.fichas.custoPorPorcao(tenantId, atual);
+    const [fichaCusto, dosCombos] = await Promise.all([this.fichas.custoPorPorcao(tenantId, atual), this.lerProdutosDosCombos(tenantId)]);
+    const porId = new Map<string, any>(rows.map((p) => [String(p.id), p]));
+    // Prioridade: override manual → (combo com produtos: a soma deles) → custo da ficha → custo médio do item de estoque.
+    const custoDe = criarResolvedorDeCusto({
+      manual: (id) => {
+        const p = porId.get(id);
+        const override = p && p.precoCusto != null && p.precoCusto !== '' ? Number(p.precoCusto) : null;
+        return override != null ? { balcao: override, delivery: override } : null;
+      },
+      cadastro: (id) => {
+        const p = porId.get(id);
+        if (!p) return null;
+        const fc = p.fichaId ? fichaCusto[p.fichaId] : null;
+        if (fc) return { custo: { balcao: fc.balcao, delivery: fc.delivery }, fonte: 'ficha' };
+        // Custo de UMA unidade vendida: o custo médio do item × quanto dele sai por venda (mig 309). Industrializado não
+        // tem embalagem própria na ficha: o mesmo no balcão e no delivery.
+        const itemMedio = p.itemCustoMedio != null ? Number(p.itemCustoMedio) * (Number(p.itemFator) || 1) : null;
+        return itemMedio != null ? { custo: { balcao: itemMedio, delivery: itemMedio }, fonte: 'estoque' } : null;
+      },
+      ehCombo: (id) => porId.get(id)?.tipo === 'combo',
+      produtosDosCombos: dosCombos,
+    });
     return rows.map((p) => {
-      const override = p.precoCusto != null && p.precoCusto !== '' ? Number(p.precoCusto) : null;
-      const fc = p.fichaId ? fichaCusto[p.fichaId] : null;
-      // Custo de UMA unidade vendida: o custo médio do item × quanto dele sai por venda (mig 309).
-      const itemMedio = p.itemCustoMedio != null ? Number(p.itemCustoMedio) * (Number(p.itemFator) || 1) : null;
-      // Prioridade: override manual → custo da ficha → custo médio do item de estoque.
-      let custo: number | null = null;
-      let custoDelivery: number | null = null;
-      let fonte: 'manual' | 'ficha' | 'estoque' | null = null;
-      if (override != null) {
-        custo = override;
-        custoDelivery = override;
-        fonte = 'manual';
-      } else if (fc) {
-        custo = fc.balcao;
-        custoDelivery = fc.delivery;
-        fonte = 'ficha';
-      } else if (itemMedio != null) {
-        custo = itemMedio;
-        custoDelivery = itemMedio; // industrializado não tem embalagem própria na ficha
-        fonte = 'estoque';
-      }
+      const r = custoDe(String(p.id));
       return {
         ...p,
-        custoEfetivo: custo,
-        custoEfetivoDelivery: custoDelivery,
-        custoFonte: fonte,
+        custoEfetivo: r ? r.custo.balcao : null,
+        custoEfetivoDelivery: r ? r.custo.delivery : null,
+        custoFonte: r ? r.fonte : null,
       };
     });
+  }
+
+  /** Os produtos de cada combo (vivos), com a quantidade — o que a venda baixa (`acumularProduto`). */
+  private async lerProdutosDosCombos(tenantId: string): Promise<Map<string, ParteDoCombo[]>> {
+    const r: any = await this.db.execute(sql`
+      select combo_produto_id::text as combo, componente_produto_id::text as componente, quantidade
+        from produto_combo_item
+       where tenant_id = ${tenantId} and deleted_at is null`);
+    return agruparProdutosDosCombos((r?.rows ?? r) as any[]);
   }
 
   // Mapa produtoId → custo EFETIVO (balcão), pela MESMA prioridade do listar
@@ -1634,7 +1645,7 @@ export class ProdutoService {
     // da revisão de 25/11/2026): antes era o do cadastro — com R$ 3 no cadastro e R$ 7 na loja A, a Curva ABC da loja A dizia R$ 3.
     // Sem loja escolhida (ou sem custo próprio da loja), o do cadastro. O fator (o fardo vendido por unidade) continua.
     const res: any = await this.db.execute(sql`
-      select p.id, p.preco_custo as "precoCusto", p.ficha_id as "fichaId",
+      select p.id, p.tipo, p.preco_custo as "precoCusto", p.ficha_id as "fichaId",
              coalesce(iu.custo_medio, ie.custo_medio) * p.item_fator as "itemCustoMedio"
       from produto p
       left join item_estoque ie on ie.id = p.item_id
@@ -1643,14 +1654,32 @@ export class ProdutoService {
       where p.tenant_id = ${tenantId} and p.deleted_at is null
     `);
     const rows = (res.rows ?? res) as any[];
-    const fichaCusto = await this.fichas.custoPorPorcao(tenantId, unidadeId);
+    const [fichaCusto, dosCombos] = await Promise.all([this.fichas.custoPorPorcao(tenantId, unidadeId), this.lerProdutosDosCombos(tenantId)]);
+    const porId = new Map<string, any>(rows.map((p) => [String(p.id), p]));
+    // A mesma prioridade do listar; aqui o custo do cadastro só vale CONHECIDO (> 0 e ficha completa). O combo com produtos é
+    // a soma deles — com algum produto sem custo conhecido, o combo fica fora do mapa (sem soma parcial).
+    const custoDe = criarResolvedorDeCusto({
+      manual: (id) => {
+        const p = porId.get(id);
+        const override = p && p.precoCusto != null && p.precoCusto !== '' ? Number(p.precoCusto) : null;
+        return override != null && Number.isFinite(override) ? { balcao: override, delivery: override } : null;
+      },
+      cadastro: (id) => {
+        const p = porId.get(id);
+        if (!p) return null;
+        const fc = p.fichaId ? fichaCusto[p.fichaId] : null;
+        const itemMedio = p.itemCustoMedio != null ? Number(p.itemCustoMedio) : null;
+        const custo = fc ? (fc.balcaoCompleto === false ? null : fc.balcao) : itemMedio;
+        if (custo == null || !Number.isFinite(custo) || !(custo > 0)) return null;
+        return { custo: { balcao: custo, delivery: custo }, fonte: fc ? 'ficha' : 'estoque' };
+      },
+      ehCombo: (id) => porId.get(id)?.tipo === 'combo',
+      produtosDosCombos: dosCombos,
+    });
     const out: Record<string, number> = {};
     for (const p of rows) {
-      const override = p.precoCusto != null && p.precoCusto !== '' ? Number(p.precoCusto) : null;
-      const fc = p.fichaId ? fichaCusto[p.fichaId] : null;
-      const itemMedio = p.itemCustoMedio != null ? Number(p.itemCustoMedio) : null;
-      const custo = override != null ? override : fc ? (fc.balcaoCompleto === false ? null : fc.balcao) : itemMedio;
-      if (custo != null && Number.isFinite(custo) && (override != null || custo > 0)) out[p.id] = custo;
+      const r = custoDe(String(p.id));
+      if (r && Number.isFinite(r.custo.balcao)) out[p.id] = r.custo.balcao;
     }
     return out;
   }

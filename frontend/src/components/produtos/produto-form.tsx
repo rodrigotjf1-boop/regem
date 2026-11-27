@@ -23,6 +23,7 @@ const FONTE_LABEL: Record<string, string> = {
   manual: 'override manual',
   ficha: 'da ficha técnica',
   estoque: 'custo médio do estoque',
+  combo: 'soma dos produtos do combo',
 };
 
 // Seção com moldura + título (padrão do reprojeto do Cardápio).
@@ -236,7 +237,11 @@ export function ProdutoForm({
                     </div>
                   ) : (
                     <div className="flex h-10 items-center rounded-md border border-dashed border-border px-3 text-xs text-muted-foreground">
-                      {f.fichaId || f.itemId ? 'Calculado ao salvar' : 'Vincule uma ficha ou item de estoque'}
+                      {f.tipo === 'combo' && (f.combo ?? []).length
+                        ? 'A soma dos produtos do combo: algum ainda está sem custo'
+                        : f.fichaId || f.itemId
+                          ? 'Calculado ao salvar'
+                          : 'Vincule uma ficha ou item de estoque'}
                     </div>
                   )}
                   <details>

@@ -5,6 +5,7 @@ import { lerCustosMedios } from '../../common/custo-loja';
 import { sqlUnidade } from '../../common/filtro-unidade';
 import { FUSO_SQL, noPeriodo } from '../../common/fuso-sql';
 import { carregarEstruturaDasFichas } from '../fichas/fichas-carga';
+import { agruparProdutosDosCombos } from '../produto/custo-do-combo';
 import {
   type CadastroDeCusto,
   type DadoInformado,
@@ -61,13 +62,26 @@ export async function lerCadastroDeCusto(db: DrizzleDB, tenantId: string): Promi
   for (const f of fichas) mapa.set(f.id, { rendimento: numero(f.rendimento), margemPerda: numero(f.margemPerda), linhas: porFicha.get(f.id) ?? [] });
 
   const produtos = new Map<string, ProdutoDoCusto>();
-  for (const p of linhas(await db.execute(sql`select id::text as id, nome, tipo, ficha_id::text as ficha, preco_custo as custo from produto where tenant_id = ${tenantId}::uuid`)))
-    produtos.set(p.id, { nome: String(p.nome), tipo: String(p.tipo), fichaId: p.ficha ?? null, precoCusto: p.custo === null || p.custo === undefined ? null : numero(p.custo) });
+  for (const p of linhas(await db.execute(sql`select id::text as id, nome, tipo, ficha_id::text as ficha, preco_custo as custo, item_id::text as item, item_fator as fator from produto where tenant_id = ${tenantId}::uuid`)))
+    produtos.set(p.id, {
+      nome: String(p.nome),
+      tipo: String(p.tipo),
+      fichaId: p.ficha ?? null,
+      precoCusto: p.custo === null || p.custo === undefined ? null : numero(p.custo),
+      itemId: p.item ?? null,
+      itemFator: numero(p.fator) || 1,
+    });
   const fatores = new Map<string, number>();
   for (const v of linhas(await db.execute(sql`select id::text as id, fator_ficha as fator from produto_variacao where tenant_id = ${tenantId}::uuid`))) fatores.set(v.id, numero(v.fator));
+  // Os produtos de cada combo (o que a venda baixa): o custo do combo é a soma deles (`produto/custo-do-combo.ts`).
+  const produtosDosCombos = agruparProdutosDosCombos(
+    linhas(await db.execute(sql`
+      select combo_produto_id::text as combo, componente_produto_id::text as componente, quantidade
+        from produto_combo_item where tenant_id = ${tenantId}::uuid and deleted_at is null`)),
+  );
   // A mesma leitura da tela de fichas: o custo da loja, se houver; senão, o do cadastro.
   const custoDoItem = await lerCustosMedios(db, tenantId);
-  return { produtos, fatores, custoDaFicha: calculadoraDeFichas(mapa, custoDoItem, mesmaEmbalagem) };
+  return { produtos, fatores, custoDaFicha: calculadoraDeFichas(mapa, custoDoItem, mesmaEmbalagem), produtosDosCombos, custoDoItem };
 }
 
 // ───────────────────────────── a venda por produto ─────────────────────────────
