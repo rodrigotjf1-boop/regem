@@ -9,6 +9,7 @@ import { EventosCardapioController } from './eventos-cardapio.controller';
 import { EventosCardapioService } from './eventos-cardapio.service';
 import { DiasEspeciaisController } from './dias-especiais.controller';
 import { DiasEspeciaisService } from './dias-especiais.service';
+import { DiasEspeciaisPausaService } from './dias-especiais-pausa.service';
 import { VendasModule } from '../vendas/vendas.module';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { AtendimentoModule } from '../atendimento/atendimento.module';
@@ -61,6 +62,8 @@ import { BannerIaService } from './banner-ia.service';
     OrigemPedidoService,
     EventosCardapioService,
     DiasEspeciaisService,
+    // H3 dos dias especiais: a pausa sozinha do iFood e da 99 (só na nuvem, com DIAS_ESPECIAIS_PAUSA_AUTOMATICA=1).
+    DiasEspeciaisPausaService,
     RoboPedidoService,
     LembreteDoCarrinhoProcessor,
     AvisoDaMudancaProcessor,

@@ -64,7 +64,19 @@ export type DiaEspecial = {
   origem: string;
   criadoEm?: string;
   agendados: number;
+  /** H3: o que o iFood e a 99 vão ter no primeiro dia (vazio sem a pausa automática ligada). */
+  pausas?: { canal: 'ifood' | 'food99'; desde: string; ate: string | null }[];
 };
+
+/** O selo da pausa: "iFood e 99 pausados no dia" ou "iFood pausado das 21:00 às 23:00". */
+export function textoDasPausas(pausas: DiaEspecial['pausas']): string {
+  const p = pausas ?? [];
+  const ifood = p.filter((x) => x.canal === 'ifood');
+  const tem99 = p.some((x) => x.canal === 'food99');
+  if (ifood.length && tem99) return 'iFood e 99 pausados no dia';
+  if (ifood.length) return `iFood pausado ${ifood.map((j) => `das ${j.desde} às ${j.ate}`).join(' e ')}`;
+  return tem99 ? '99 pausada no dia' : '';
+}
 type Agendado = { id: string; numero: string | null; cliente: string | null; quando: string; total: number; forma: string | null; pago: boolean };
 
 const textoDoNormal = (n: { abre: string; fecha: string } | null) => (n ? faixaDeHoras(n.abre, n.fecha) : 'fechada');
@@ -102,7 +114,7 @@ export function DiasEspeciais({ semana, pode: podeNaTela }: { semana: SemanaDaLo
   const [pode, setPode] = useState(false);
   useEffect(() => setPode(podeNaTela && ['presidente', 'gerente'].includes(getCategoria() ?? '')), [podeNaTela]);
   const [situacao, setSituacao] = useState<Situacao>('proximos');
-  const [dados, setDados] = useState<{ contagem: { proximos: number; passados: number }; itens: DiaEspecial[] } | null>(null);
+  const [dados, setDados] = useState<{ contagem: { proximos: number; passados: number }; itens: DiaEspecial[]; pausaAutomatica: boolean } | null>(null);
   const [erro, setErro] = useState('');
   const [semResposta, setSemResposta] = useState<SemResposta | { erro: string } | null>(null);
   const [respondendo, setRespondendo] = useState('');
@@ -121,7 +133,7 @@ export function DiasEspeciais({ semana, pode: podeNaTela }: { semana: SemanaDaLo
     try {
       const r: any = await api.diasEspeciaisDoHorario(s);
       if (minha !== leitura.current) return;
-      setDados({ contagem: r?.contagem ?? { proximos: 0, passados: 0 }, itens: Array.isArray(r?.itens) ? r.itens : [] });
+      setDados({ contagem: r?.contagem ?? { proximos: 0, passados: 0 }, itens: Array.isArray(r?.itens) ? r.itens : [], pausaAutomatica: r?.pausaAutomatica === true });
     } catch (e) {
       if (minha === leitura.current) setErro(e instanceof Error && e.message ? e.message : 'Não deu para ler os dias especiais.');
     }
@@ -265,6 +277,7 @@ export function DiasEspeciais({ semana, pode: podeNaTela }: { semana: SemanaDaLo
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {e.funcionamento === 'fechada' ? <Selo tom="critico">fechada</Selo> : e.funcionamento === 'horario' ? <Selo tom="aviso">outro horário</Selo> : <Selo tom="ok">horário normal</Selo>}
                   {e.dataFim && e.dataFim !== e.data && <Selo tom="info">período</Selo>}
+                  {!!textoDasPausas(e.pausas) && <Selo quebrar>{textoDasPausas(e.pausas)}</Selo>}
                   {e.agendados > 0 && <Selo tom="aviso">{e.agendados === 1 ? '1 agendado' : `${e.agendados} agendados`}</Selo>}
                 </div>
               </div>
@@ -292,6 +305,7 @@ export function DiasEspeciais({ semana, pode: podeNaTela }: { semana: SemanaDaLo
           item={gaveta.item}
           inicial={gaveta.inicial}
           feriadoChave={gaveta.feriadoChave ?? null}
+          pausaAutomatica={!!dados?.pausaAutomatica}
           semana={semana}
           aoFechar={() => setGaveta(null)}
           aoExcluir={(e) => setExcluir(e)}
@@ -381,10 +395,11 @@ function FeriadosSemResposta({
 }
 
 // ── a gaveta de criar e editar ───────────────────────────────────────────────────────────────────────────────────
-type Form ={ data: string; dataFim: string; nome: string; funcionamento: Funcionamento; abre: string; fecha: string; conjunto: Conjunto; avisoAntes: boolean; avisoMexido: boolean };
+type Form = { data: string; dataFim: string; nome: string; funcionamento: Funcionamento; abre: string; fecha: string; conjunto: Conjunto; avisoAntes: boolean; avisoMexido: boolean; pausarCanais: boolean };
 
 function formDe(item: DiaEspecial | null): Form {
-  if (!item) return { data: '', dataFim: '', nome: '', funcionamento: 'fechada', abre: '', fecha: '', conjunto: 'todos', avisoAntes: true, avisoMexido: false };
+  // A pausa do iFood e da 99 nasce LIGADA no dia novo (decisão 5).
+  if (!item) return { data: '', dataFim: '', nome: '', funcionamento: 'fechada', abre: '', fecha: '', conjunto: 'todos', avisoAntes: true, avisoMexido: false, pausarCanais: true };
   return {
     data: item.data,
     dataFim: item.dataFim ?? '',
@@ -395,6 +410,7 @@ function formDe(item: DiaEspecial | null): Form {
     conjunto: item.conjunto,
     avisoAntes: item.avisoAntes,
     avisoMexido: true,
+    pausarCanais: item.pausarCanais !== false,
   };
 }
 
@@ -415,6 +431,7 @@ function GavetaDoDia({
   item,
   inicial,
   feriadoChave,
+  pausaAutomatica,
   semana,
   aoFechar,
   aoSalvar,
@@ -425,6 +442,8 @@ function GavetaDoDia({
   inicial?: Partial<Form>;
   /** A chave do feriado respondido (vai para `feriado_chave`: ele sai da lista dos sem resposta). */
   feriadoChave: string | null;
+  /** H3: a pausa sozinha do iFood e da 99 está ligada (a variável da distribuição) — só então a chave aparece. */
+  pausaAutomatica: boolean;
   semana: SemanaDaLoja;
   aoFechar: () => void;
   aoSalvar: () => void;
@@ -496,12 +515,12 @@ function GavetaDoDia({
       conjunto: semana.horarioUnico !== false ? 'todos' : f.conjunto,
       avisoAntes: f.funcionamento === 'normal' ? false : f.avisoAntes,
     };
-    // A edição leva o que a gaveta não mostra (a pausa dos canais é da fase H3; a ligação com um feriado), senão o servidor
-    // voltaria ao padrão: ausente não pode virar "desligado" calado (V16).
-    if (item) {
-      corpo.pausarCanais = item.pausarCanais;
-      corpo.feriadoChave = item.feriadoChave;
-    } else if (feriadoChave) corpo.feriadoChave = feriadoChave;
+    // A pausa dos canais: a chave da gaveta quando a pausa sozinha está ligada (H3); sem ela, a edição leva o valor que já
+    // estava (V16) e o dia novo vai sem o campo (o servidor usa o padrão da decisão 5). A ligação com um feriado também vai.
+    if (pausaAutomatica) corpo.pausarCanais = f.funcionamento === 'normal' ? false : f.pausarCanais;
+    else if (item) corpo.pausarCanais = item.pausarCanais;
+    if (item) corpo.feriadoChave = item.feriadoChave;
+    else if (feriadoChave) corpo.feriadoChave = feriadoChave;
     try {
       if (item) await api.editarDiaEspecialDoHorario(item.id, corpo);
       else await api.criarDiaEspecialDoHorario(corpo);
@@ -626,6 +645,21 @@ function GavetaDoDia({
           </div>
         )}
 
+        {/* H3 (decisão 5): a pausa sozinha do iFood e da 99 — só quando ela está ligada e o dia vale para o delivery. */}
+        {pausaAutomatica && f.funcionamento !== 'normal' && (semana.horarioUnico !== false || f.conjunto !== 'retirada') && (
+          <div className="flex items-start justify-between gap-3 border-t border-border pt-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">Pausar o iFood e a 99</p>
+              <p className={`text-xs ${texto2}`}>
+                {f.funcionamento === 'fechada'
+                  ? 'O iFood fica pausado nas horas em que a loja abriria, e a 99 até o fim do dia. Pela pausa do painel do Delivery: dá para reabrir lá.'
+                  : 'O iFood fica pausado nas horas da semana em que a loja não vai abrir. A 99 só pausa o dia inteiro fechado. Pela pausa do painel do Delivery: dá para reabrir lá.'}
+              </p>
+            </div>
+            <Chave ligada={f.pausarCanais} rotulo="Pausar o iFood e a 99" aoMudar={(v) => set({ pausarCanais: v })} />
+          </div>
+        )}
+
         {dataValida(f.data) && (
           <div className="space-y-2 rounded-lg bg-secondary p-3 text-sm">
             <p>
@@ -727,6 +761,9 @@ function ExcluirDia({ item, semana, aoFechar, aoExcluir }: { item: DiaEspecial; 
       <div className="space-y-3 text-sm">
         <p>
           {volta} O cardápio, o agendado e o atendente passam a usar esse horário na hora.
+          {item.pausas?.length
+            ? ' A pausa do iFood e da 99 marcada para esse dia não acontece mais; a que já estiver valendo continua até reabrir no painel do Delivery.'
+            : ''}
         </p>
         {erro && <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-3" role="alert">{erro}</p>}
       </div>

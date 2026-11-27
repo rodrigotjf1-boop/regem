@@ -46,6 +46,8 @@ function servidor() {
       { chave: 'regra:feriado:ano-novo:2027', data: '2027-01-01', nome: 'Confraternização Universal', origem: 'lei', normal: '18:00 às 00:00' },
     ],
     calendarioLido: true,
+    // H3: a pausa sozinha do iFood e da 99 (a variável da distribuição); desligada, a tela nem mostra a chave.
+    pausaAutomatica: false,
     consultas: [],
     posts: [],
     patches: [],
@@ -105,7 +107,7 @@ export default async function roteiroDiasEspeciais({ nav, base, ok, foto, largur
         S.consultas.push(p + u.search);
         if (S.falharLista) return responder(route, { statusCode: 500, message: 'Não deu para ler os dias especiais agora.' }, 500);
         const passados = u.searchParams.get('situacao') === 'passados';
-        return responder(route, { hoje: '2026-11-27', contagem: { proximos: S.proximos.length, passados: S.passados.length }, itens: passados ? S.passados : S.proximos });
+        return responder(route, { hoje: '2026-11-27', contagem: { proximos: S.proximos.length, passados: S.passados.length }, pausaAutomatica: S.pausaAutomatica, itens: passados ? S.passados : S.proximos });
       }
       if (p === '/cardapio/dias-especiais' && req.method() === 'POST') {
         S.posts.push(corpo);
@@ -335,9 +337,62 @@ export default async function roteiroDiasEspeciais({ nav, base, ok, foto, largur
     await ctx.close();
   }
 
+  // ── H3: a pausa sozinha do iFood e da 99 (o selo, a chave da gaveta e o corpo) ──
+  {
+    const S = servidor();
+    S.pausaAutomatica = true;
+    S.proximos = S.proximos.map((x) =>
+      x.id === 'd-natal'
+        ? { ...x, pausarCanais: true, pausas: [{ canal: 'ifood', desde: '18:00', ate: '00:00' }, { canal: 'food99', desde: '18:00', ate: null }] }
+        : x.id === 'd-vespera'
+          ? { ...x, pausas: [{ canal: 'ifood', desde: '21:00', ate: '23:00' }] }
+          : x,
+    );
+    const { ctx, page, erros } = await abrir(1280, 1000, S);
+    await page.waitForSelector('text=Sexta, 25/12 · Natal', { timeout: 10000 });
+    const textos = (await linhas(page).allInnerTexts()).map((t) => umaLinha(t, 400));
+    ok(/iFood pausado das 21:00 às 23:00/.test(textos[0]) && /iFood e 99 pausados no dia/.test(textos[1]), `o selo da pausa em cada dia (${textos[0].slice(-60)} | ${textos[1].slice(-60)})`);
+    // O dia novo: a chave nasce ligada (decisão 5); desligada, o corpo leva false.
+    await page.click('button:has-text("＋ Adicionar dia especial")');
+    const g = gaveta(page);
+    await g.waitFor();
+    const chave = g.locator('[role="switch"][aria-label="Pausar o iFood e a 99"]');
+    ok((await chave.count()) === 1 && (await chave.getAttribute('aria-checked')) === 'true', 'a chave "Pausar o iFood e a 99" nasce ligada');
+    await g.locator('input[type="date"]').first().fill('2026-12-31');
+    await g.locator('input[placeholder="Ex.: Natal"]').fill('Fechado para balanço');
+    await chave.click();
+    await g.locator('button:has-text("Salvar dia")').click();
+    await page.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 5000 });
+    ok(S.posts.at(-1)?.pausarCanais === false, `desligada, o corpo leva pausarCanais false (${JSON.stringify(S.posts.at(-1))})`);
+    // "Horário normal" esconde a chave (não há o que pausar).
+    await page.click('button:has-text("＋ Adicionar dia especial")');
+    await gaveta(page).locator('label:has-text("Horário normal")').click();
+    ok((await gaveta(page).locator('[role="switch"][aria-label="Pausar o iFood e a 99"]').count()) === 0, 'no "horário normal" a chave some');
+    await page.keyboard.press('Escape');
+    // Excluir o Natal diz que a pausa marcada não acontece mais.
+    await page.click('button[aria-label="Excluir Sexta, 25/12 · Natal"]');
+    ok(/A pausa do iFood e da 99 marcada para esse dia não acontece mais/.test(await page.locator('[role="alertdialog"]').innerText()), 'excluir diz o que acontece com a pausa');
+    ok(erros.length === 0, `sem erro de script (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    // Sem a pausa automática (a variável desligada): nem a chave nem o selo.
+    const { ctx, page, erros } = await abrir(1280, 1000);
+    await page.waitForSelector('text=Sexta, 25/12 · Natal', { timeout: 10000 });
+    ok(!/pausad/.test(umaLinha(await linhas(page).nth(1).innerText(), 400)), 'desligada: sem o selo da pausa');
+    await page.click('button:has-text("＋ Adicionar dia especial")');
+    ok((await gaveta(page).locator('[role="switch"][aria-label="Pausar o iFood e a 99"]').count()) === 0, 'desligada: sem a chave na gaveta');
+    ok(erros.length === 0, `sem erro de script (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
   // ── as larguras: a lista, a gaveta, o diálogo dos agendados e o de excluir ──
   for (const w of larguras) {
-    const { ctx, page, erros } = await abrir(w, 900);
+    // Com a pausa automática ligada: o selo comprido e a chave da gaveta entram na medida.
+    const SL = servidor();
+    SL.pausaAutomatica = true;
+    SL.proximos = SL.proximos.map((x) => (x.id === 'd-natal' ? { ...x, pausas: [{ canal: 'ifood', desde: '18:00', ate: '00:00' }, { canal: 'food99', desde: '18:00', ate: null }] } : x));
+    const { ctx, page, erros } = await abrir(w, 900, SL);
     await page.waitForSelector('text=Sexta, 25/12 · Natal', { timeout: 10000 });
     await page.waitForSelector('[role="status"]:has-text("Como a loja fica nesse dia?")', { timeout: 10000 });
     let achados = await medir(page);
