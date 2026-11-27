@@ -59,7 +59,10 @@ export type TipoDeAviso =
   // P1 de "Pedidos e recebimento" (protótipo aprovado em 25/11/2026, PR-2): o item recebido com "não sei" na validade.
   | 'validade_pendente'
   // P3 de "Pedidos e recebimento" (PR-6): o pedido de compra que passou da previsão de recebimento sem ser recebido.
-  | 'pedido_atrasado';
+  | 'pedido_atrasado'
+  // H2b dos dias especiais (protótipo `regem-dias-especiais.html`, "No Mister"; decisão 4): o feriado sem resposta da loja,
+  // 10 dias antes — nasce DESLIGADO.
+  | 'feriado_chegando';
 
 export interface RegraDoAviso {
   ligado: boolean;
@@ -234,6 +237,17 @@ export const TIPOS_DE_AVISO: TipoDoAviso[] = [
     descricao:
       'Pedido de compra que passou da previsão de recebimento sem ser recebido. No dia seguinte à previsão, às 10h da loja, uma vez por dia, até receber ou excluir o pedido em Estoque › Pedidos. Vai com "Já chegou" e "Mudar a previsão".',
     padrao: regra(['gerente']),
+    jaFunciona: true,
+  },
+  // H2b dos dias especiais (protótipo `regem-dias-especiais.html`, "No Mister" e "Em Mister › Avisos e relatórios"; decisão 4:
+  // a faixa da tela já pergunta sem custo, este aviso nasce DESLIGADO). Texto fixo, sem IA (`mister-avisos-escritos.ts`).
+  {
+    tipo: 'feriado_chegando',
+    grupo: 'Na loja',
+    titulo: 'Feriado chegando',
+    descricao:
+      '10 dias antes de um feriado sem resposta da loja, às 10:00, para quem pode mudar o horário. Pergunta como a loja fica, com os três botões ("Fechada" e "Horário normal" pedem o PIN pelo link). Sem custo de IA. Fora das 24 horas, vai pelo modelo de utilidade da Meta, pago como os outros avisos do Mister.',
+    padrao: regra(['presidente', 'gerente'], { ligado: false }),
     jaFunciona: true,
   },
 ];
@@ -953,6 +967,77 @@ export function situacaoDoPedidoAtrasado(p: PedidoAtrasado): Situacao {
   };
 }
 
+// ───────────────────────────── o feriado chegando (H2b dos dias especiais) ─────────────────────────────
+
+/** A hora da loja em que o aviso do feriado abre: 10 dias antes, às 10h (o protótipo, "No Mister"). */
+export const HORA_DO_AVISO_DO_FERIADO = 10;
+export const DIAS_DO_AVISO_DO_FERIADO = 10;
+
+/** O "hoje" do aviso do feriado: o dia da loja, ou o anterior antes das 10h. O feriado até 10 dias depois dele entra. */
+export function diaDoAvisoDoFeriado(agora: Date): string {
+  const hoje = dataNoFuso(agora);
+  return Number(horaNoFuso(agora).slice(0, 2)) < HORA_DO_AVISO_DO_FERIADO ? somarDias(hoje, -1) : hoje;
+}
+
+/** Um feriado sem resposta de uma empresa (`DiasEspeciaisService.semResposta`), o que a volta lê. */
+export interface FeriadoChegando {
+  tenantId: string;
+  chave: string;
+  data: string;
+  nome: string;
+  /** O horário da semana daquele dia ("18:00 às 00:00", "o dia inteiro") ou `null` (fechada). */
+  normal: string | null;
+}
+
+const NOME_DO_DIA_LONGO = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+const diaLongo = (d: string) => NOME_DO_DIA_LONGO[new Date(`${d}T12:00:00Z`).getUTCDay()];
+const porExtensoDoFeriado = (d: string) => {
+  const nome = diaLongo(d);
+  return `${nome.charAt(0).toUpperCase()}${nome.slice(1)}, ${d.slice(8, 10)}/${d.slice(5, 7)}`;
+};
+
+/**
+ * O feriado chegando. A chave é a do feriado (a mesma de `feriado_chave`): a loja respondeu (na tela, na faixa ou pelo
+ * Mister), ele sai da lista e o aviso fecha. Sem lembrete: o marco é a data do feriado (o aviso pergunta uma vez).
+ */
+export function situacaoDoFeriadoChegando(f: FeriadoChegando): Situacao {
+  return {
+    tenantId: f.tenantId,
+    unidadeId: null,
+    tipo: 'feriado_chegando',
+    chave: `feriado:${f.chave}`,
+    titulo: `${porExtensoDoFeriado(f.data)}, é ${f.nome}`,
+    detalhe: `Como a loja fica nesse dia? Até você responder, vale o horário de ${diaLongo(f.data)} (${f.normal ?? 'fechada'}).`,
+    dados: { marco: f.data, chave: f.chave, data: f.data, nome: f.nome, normal: f.normal },
+  };
+}
+
+/** Os botões do aviso do feriado: "Fechada", "Horário normal" e "Outro horário" (o protótipo). */
+export const PREFIXO_DO_FERIADO = 'fer:';
+const CHAVE_DO_FERIADO = /^[a-z_]+:[A-Za-z0-9:_-]{1,90}$/;
+export const botoesDoFeriado = (chave: unknown) =>
+  typeof chave === 'string' && CHAVE_DO_FERIADO.test(chave)
+    ? [
+        { id: `${PREFIXO_DO_FERIADO}f:${chave}`, titulo: 'Fechada' },
+        { id: `${PREFIXO_DO_FERIADO}n:${chave}`, titulo: 'Horário normal' },
+        { id: `${PREFIXO_DO_FERIADO}o:${chave}`, titulo: 'Outro horário' },
+      ]
+    : [];
+
+export function lerBotaoDoFeriado(botaoId: unknown): { acao: 'fechada' | 'normal' | 'outro'; chave: string } | null {
+  const m = /^fer:([fno]):(.+)$/.exec(String(botaoId ?? ''));
+  if (!m || !CHAVE_DO_FERIADO.test(m[2])) return null;
+  return { acao: m[1] === 'f' ? 'fechada' : m[1] === 'n' ? 'normal' : 'outro', chave: m[2] };
+}
+
+export const TEXTOS_DO_FERIADO = {
+  outro: (quando: string, nome: string) =>
+    `Qual o horário de ${quando} (${nome})? Responda aqui, por exemplo: "nesse dia abrimos das 18h às 21h". Eu mostro o que vou gravar e peço o seu PIN.`,
+  respondido: 'Esse feriado já foi respondido: o aviso fechou.',
+  naoDisponivel: 'Só o presidente e o gerente mudam o horário da loja.',
+  pelaTela: 'Responda pela tela: Delivery › Configurações › Horários, em "Próximos feriados sem resposta".',
+};
+
 /** Os botões do aviso do pedido atrasado: "Já chegou" e "Mudar a previsão" (o protótipo, "No celular"). */
 export const PREFIXO_DO_PEDIDO_ATRASADO = 'ped:';
 export const botoesDoPedidoAtrasado = (listaId: unknown) =>
@@ -1085,7 +1170,7 @@ export const botoesDoAvisoDoBoleto = (documentoId: unknown) =>
 
 /** A mensagem do aviso que abriu (WhatsApp e tela). O arquivo do ponto do mês não é alerta: vai com a pasta (protótipo). */
 export const textoDoAviso = (s: { titulo: string; detalhe?: string | null; tipo?: string }): string =>
-  `${s.tipo === 'ponto_do_mes' ? '📁' : s.tipo === 'pedido_atrasado' ? '📦' : '⚠️'} ${s.titulo}.${s.detalhe ? `\n\n${s.detalhe}` : ''}`;
+  `${s.tipo === 'ponto_do_mes' ? '📁' : s.tipo === 'pedido_atrasado' ? '📦' : s.tipo === 'feriado_chegando' ? '📅' : '⚠️'} ${s.titulo}.${s.detalhe ? `\n\n${s.detalhe}` : ''}`;
 
 /** A mensagem do lembrete (o aviso continua aberto e chegou a outro marco, como o certificado a 7 dias). */
 export const textoDoLembrete = (s: { titulo: string; detalhe?: string | null }): string => `🔔 Lembrete: ${s.titulo}.${s.detalhe ? `\n\n${s.detalhe}` : ''}`;

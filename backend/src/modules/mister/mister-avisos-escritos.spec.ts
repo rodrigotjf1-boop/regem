@@ -25,7 +25,8 @@ describe('mister — os avisos escritos: os grupos e quando', () => {
       porGrupo.get(t.grupo)!.add(String(g));
     }
     expect(Object.fromEntries([...porGrupo].map(([k, v]) => [k, [...v]]))).toEqual({
-      'Na loja': ['loja'],
+      // H2b: o "Feriado chegando" fica no texto fixo (o protótipo: "Sem IA").
+      'Na loja': ['loja', 'null'],
       'Servidor da loja': ['servidor'],
       Fiscal: ['fiscal'],
       'O próprio Mister': ['mister'],
@@ -35,6 +36,8 @@ describe('mister — os avisos escritos: os grupos e quando', () => {
     // Os grupos que o ajuste aceita são exatamente os que têm aviso escrito.
     expect([...new Set(TIPOS_DE_AVISO.map((t) => grupoEscritoDoTipo(t.tipo)).filter(Boolean))].sort()).toEqual([...GRUPOS_DE_AVISO_ESCRITO].sort());
     expect(grupoEscritoDoTipo('nao_existe')).toBeNull();
+    expect(grupoEscritoDoTipo('feriado_chegando')).toBeNull();
+    expect(grupoEscritoDoTipo('pedido_atrasado')).toBe('loja');
   });
 
   it('só ao abrir e ao escalar, e só com o grupo ligado (nasce desligado)', () => {

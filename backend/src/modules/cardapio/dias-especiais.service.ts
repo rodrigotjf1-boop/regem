@@ -9,6 +9,11 @@ import { instanteDeSaoPaulo } from '../../common/pedido-agendado';
 import { eventosDaRegra, ocorrencias } from '../perfil-cliente/calendario-regra';
 import { conferirDiaEspecial, deLinha, DIAS_A_FRENTE, type DiaEspecialConferido } from './dias-especiais';
 import { diasDoPeriodo, feriadosSemResposta, type FeriadoSugerido, type RespostaDaLoja } from './feriados-sem-resposta';
+import { pausasDoDiaEspecial } from './pausa-do-dia-especial';
+import { ehServidorLocal } from '../../common/modo';
+
+/** H3: a pausa sozinha do iFood e da 99 (`DiasEspeciaisPausaService`) só com a variável ligada — o dono liga. */
+export const pausaAutomaticaLigada = (): boolean => process.env.DIAS_ESPECIAIS_PAUSA_AUTOMATICA === '1';
 
 // O CADASTRO DOS DIAS ESPECIAIS (fase H1; mig 512): Delivery › Configurações › Horários › Dias especiais. A lista com as
 // situações (próximos e passados) e os agendados de cada dia, criar e editar em gaveta, excluir em diálogo, e os pedidos
@@ -72,17 +77,38 @@ export class DiasEspeciaisService {
         from horario_especial
        where tenant_id = ${tenantId}::uuid and unidade_id is not distinct from ${unidadeId}::uuid and deleted_at is null`);
     const cont = linhas(c)[0] ?? {};
+    // H3: a pausa sozinha do iFood e da 99 só vale na nuvem e com a variável ligada (o dono liga) — sem ela, a tela não
+    // mostra a chave nem o selo (não promete o que não acontece). As pausas de cada dia saem da MESMA regra da rotina.
+    const pausaAutomatica = pausaAutomaticaLigada() && !ehServidorLocal();
+    let semana: any[] = [];
+    if (pausaAutomatica) {
+      const cfg: any = await this.db.execute(sql`
+        select horarios from cardapio_config
+         where tenant_id = ${tenantId}::uuid and (unidade_id is not distinct from ${unidadeId}::uuid or unidade_id is null)
+         order by (unidade_id is not distinct from ${unidadeId}::uuid) desc
+         limit 1`);
+      semana = linhas(cfg)[0]?.horarios ?? [];
+    }
     return {
       hoje,
       contagem: { proximos: Number(cont.proximos) || 0, passados: Number(cont.passados) || 0 },
-      itens: linhas(r).map((x) => ({
-        ...deLinha(x),
-        feriadoChave: x.feriado_chave ?? null,
-        origem: x.origem ?? 'tela',
-        criadoPorNome: x.criado_por_nome ?? null,
-        criadoEm: x.created_at,
-        agendados: Number(x.agendados) || 0,
-      })),
+      pausaAutomatica,
+      itens: linhas(r).map((x) => {
+        const e = deLinha(x);
+        return {
+          ...e,
+          feriadoChave: x.feriado_chave ?? null,
+          origem: x.origem ?? 'tela',
+          criadoPorNome: x.criado_por_nome ?? null,
+          criadoEm: x.created_at,
+          agendados: Number(x.agendados) || 0,
+          // O que o iFood e a 99 vão ter no PRIMEIRO dia (o selo da lista); vazio sem a pausa automática ou só a retirada.
+          pausas:
+            pausaAutomatica && e.conjunto !== 'retirada'
+              ? pausasDoDiaEspecial(e, semana, e.data).map((j) => ({ canal: j.canal, desde: j.desde, ate: j.ateHora }))
+              : [],
+        };
+      }),
     };
   }
 
@@ -239,8 +265,25 @@ export class DiasEspeciaisService {
       await this.travarEmpresa(tx, user.tenantId);
       const antes = await this.linhaDaEmpresa(tx, user.tenantId, id);
       if ((antes.data_fim ?? antes.data) < hoje) throw new ConflictException('Este dia especial já passou: não se edita.');
+      // Ausente mantém (V16): o que não vem no pedido fica como está — o Mister que muda só o nome não apaga o período, a
+      // pausa dos canais, o aviso, o "vale para" nem o feriado ligado. A tela manda tudo; o Mister (C4) manda só o que muda.
+      const atual = deLinha(antes);
+      const base = {
+        data: atual.data,
+        dataFim: atual.dataFim,
+        nome: atual.nome,
+        funcionamento: atual.funcionamento,
+        abre: atual.abre,
+        fecha: atual.fecha,
+        conjunto: atual.conjunto,
+        avisoAntes: atual.avisoAntes,
+        pausarCanais: atual.pausarCanais,
+        feriadoChave: antes.feriado_chave ?? null,
+      };
+      const vem = Object.fromEntries(Object.entries(dto ?? {}).filter(([, v]) => v !== undefined));
+      // Mudou para "outro horário" sem as horas: as do dia especial (se já era outro horário) — a conferência cobra as duas.
       // Um período que já começou mantém o começo: "hoje ou à frente" vale a partir do dia dele.
-      const c = conferirDiaEspecial({ feriadoChave: antes.feriado_chave, ...dto }, antes.data < hoje ? antes.data : hoje);
+      const c = conferirDiaEspecial({ ...base, ...vem }, antes.data < hoje ? antes.data : hoje);
       if (!c.ok) throw new BadRequestException(c.erro);
       if (antes.data < hoje && c.v.data !== antes.data) throw new BadRequestException('Este período já começou: o primeiro dia não muda.');
       const v = c.v;

@@ -3235,6 +3235,42 @@ neste servidor"). Corrigido com `forwardRef`; o `app-sobe.spec.ts` passou a repr
 Ficou na tela, de propósito, o que mexe com uma pessoa, com quem acessa o quê, com o fiscal e com a operação do balcão e da
 cozinha. Para valer: `MISTER_FAZER_TAREFAS=1` (já ligada) e a avaliação real de novo.
 
+**A avaliação real de 27/11 (128 de 140) e o ERR-637:**
+- **Os 4 casos novos das ondas que erraram** (c136, c137, c139, c140): a IA não procurou no mapa. A busca dizia só "telas de
+  leitura", e o guia da tela mandava ensinar o caminho "quando pedirem uma ação que você não faz". Corrigido nas descrições:
+  - a busca também procura as TAREFAS, com exemplos das ondas;
+  - a ação pronta só serve se faz EXATAMENTE o pedido;
+  - pedido para fazer não vira passo a passo antes do mapa.
+- **Os 5 que acertavam e erraram** (c59, c70, c98, c100, c111): o Haiku varia entre rodadas; o c124, que errava, acertou.
+  Só a próxima rodada separa a variação de um defeito.
+- **Os 3 que já erravam** (c35, c128, c130) seguem iguais.
+
+### Dias especiais H2b — o feriado pelo Mister (27/11/2026; SEM migration; só na nuvem)
+
+Fase H2b do protótipo `mockups/regem-dias-especiais.html` (aba "No Mister"; decisões 4 e 8).
+
+- **3 tarefas novas** (72 no total), todas com PIN no mapa, porque fechar a loja tira venda (decisão 8):
+  - criar, mudar e excluir o dia especial do HORÁRIO (`cardapio/dias-especiais`);
+  - vão SEM o campo da loja: o dia é o do cardápio da empresa, o mesmo que Delivery › Configurações › Horários grava e lista;
+  - mudar manda só o que muda: o serviço passou a manter o resto (V16). Antes, um PATCH só com o nome apagava o período, a pausa
+    dos canais, o aviso e o "vale para";
+  - os ids e as chaves dos feriados vêm das leituras `GET cardapio/dias-especiais` e `.../sem-resposta`;
+  - não confundir com o dia especial da Escala (`/dias-especiais`), outro cadastro, com loja e botão.
+  - Valem com `MISTER_FAZER_TAREFAS=1`, como as outras.
+- **O aviso "Feriado chegando"** (`feriado_chegando`, grupo "Na loja"):
+  - **Quando e para quem:** nasce DESLIGADO e vai ao presidente e ao gerente, 10 dias antes de um feriado sem resposta, às 10h
+    da loja.
+  - **De onde vem:** é a MESMA lista da tela (`DiasEspeciaisService.semResposta`, pelo `moduleRef`), lida só nas empresas que
+    ligaram o aviso.
+  - **Texto:** fixo, sem IA (`SEMPRE_FIXO` em `mister-avisos-escritos.ts`).
+  - **Os botões:**
+    - "Fechada" e "Horário normal" propõem a MESMA tarefa de PIN da conversa (`MisterTarefasService.proporPeloBotao`), com o
+      link "Abrir no Regem";
+    - "Outro horário" pergunta o horário, e a IA propõe a tarefa;
+    - com as tarefas desligadas, o botão aponta a tela.
+  - **Quando fecha:** a loja respondeu (na tela, na faixa ou pelo Mister), o feriado sai da lista e o aviso fecha sem
+    "Resolvido". A leitura que falha numa empresa mantém o aviso aberto dela.
+
 ### C6b — pedir ao presidente (26/11/2026, #1362, NO AR; SEM migration; só na nuvem; nasce DESLIGADO, `MISTER_PEDIR_AO_PRESIDENTE=1`)
 
 - **O caso** (protótipo, "O seu perfil não pode"): o gerente pede o que o perfil dele não faz (guardar o saldo, pagar o
