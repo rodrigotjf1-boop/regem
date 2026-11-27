@@ -40,6 +40,12 @@ function servidor() {
       { id: 'p1', numero: '812', cliente: 'Cliente de exemplo A', quando: '2026-12-25T19:30', total: 74.9, forma: 'pix', pago: true },
       { id: 'p2', numero: '815', cliente: 'Cliente de exemplo B com nome comprido', quando: '2026-12-25T20:15', total: 52, forma: 'dinheiro', pago: false },
     ],
+    // H2a: os feriados sem resposta (a lista de 60 dias; a faixa pede `?dias=10` e recebe os que caem até 07/12).
+    feriados: [
+      { chave: 'calendario:c1:2026-12-02', data: '2026-12-02', nome: 'Aniversário da cidade', origem: 'calendario', normal: '18:00 às 23:00' },
+      { chave: 'regra:feriado:ano-novo:2027', data: '2027-01-01', nome: 'Confraternização Universal', origem: 'lei', normal: '18:00 às 00:00' },
+    ],
+    calendarioLido: true,
     consultas: [],
     posts: [],
     patches: [],
@@ -86,6 +92,11 @@ export default async function roteiroDiasEspeciais({ nav, base, ok, foto, largur
       const p = u.pathname.replace(/^.*\/api\/v1/, '');
       const corpo = req.postData() ? JSON.parse(req.postData()) : null;
       if (p === '/cardapio/config') return responder(route, S.config);
+      if (p === '/cardapio/dias-especiais/sem-resposta') {
+        S.consultas.push(p + u.search);
+        const ate = u.searchParams.get('dias') === '10' ? '2026-12-07' : '2027-01-31';
+        return responder(route, { hoje: '2026-11-27', ate, fontes: { calendario: S.calendarioLido }, itens: S.feriados.filter((f) => f.data <= ate) });
+      }
       if (p === '/cardapio/dias-especiais/agendados') {
         S.consultas.push(p + u.search);
         return responder(route, { itens: u.searchParams.get('de') === '2026-12-25' ? S.agendados : [] });
@@ -101,6 +112,8 @@ export default async function roteiroDiasEspeciais({ nav, base, ok, foto, largur
         if (S.recusar) return responder(route, { statusCode: 409, message: S.recusar }, 409);
         const novo = dia({ ...corpo, id: `d-novo-${S.posts.length}` });
         S.proximos = [...S.proximos, novo].sort((a, b) => a.data.localeCompare(b.data));
+        // A resposta tira o feriado da lista (o servidor: qualquer dia especial na data, ou a chave gravada).
+        S.feriados = S.feriados.filter((f) => f.chave !== corpo?.feriadoChave && f.data !== corpo?.data);
         return responder(route, novo);
       }
       const m = p.match(/^\/cardapio\/dias-especiais\/([^/]+)$/);
@@ -121,7 +134,9 @@ export default async function roteiroDiasEspeciais({ nav, base, ok, foto, largur
     await page.waitForSelector('#dias-especiais-titulo', { timeout: 20000 });
     return { ctx, page, erros, S };
   }
-  const linhas = (page) => page.locator('section[aria-labelledby="dias-especiais-titulo"] ul > li');
+  // As linhas da lista dos dias (o bloco dos feriados sem resposta tem a sua).
+  const linhas = (page) => page.locator('section[aria-labelledby="dias-especiais-titulo"] ul:not([aria-label="Feriados sem resposta"]) > li');
+  const feriadosNaTela = (page) => page.locator('ul[aria-label="Feriados sem resposta"] > li');
   const gaveta = (page) => page.locator('[role="dialog"]').last();
 
   // ── a lista ──
@@ -254,12 +269,84 @@ export default async function roteiroDiasEspeciais({ nav, base, ok, foto, largur
     await ctx.close();
   }
 
+  // ── H2a: os feriados sem resposta (a lista, as respostas, o "Outro horário…", a faixa do topo) ──
+  {
+    const { ctx, page, erros, S } = await abrir(1280, 1000);
+    await page.waitForSelector('text=Próximos feriados sem resposta', { timeout: 10000 });
+    ok(S.consultas.includes('/cardapio/dias-especiais/sem-resposta'), 'a lista lê os feriados sem resposta (60 dias)');
+    ok(S.consultas.includes('/cardapio/dias-especiais/sem-resposta?dias=10'), 'a faixa do topo lê os próximos 10 dias');
+    const sit = umaLinha(await page.locator('section[aria-labelledby="dias-especiais-titulo"] [role="group"][aria-label="Situação"]').innerText());
+    ok(/Próximos[\s/]*3.*Sem resposta[\s/]*2.*Passados[\s/]*1/.test(sit), `as três situações com a contagem (${sit})`);
+    const fs = (await feriadosNaTela(page).allInnerTexts()).map((t) => umaLinha(t, 300));
+    ok(fs.length === 2 && /Quarta, 02\/12 · Aniversário da cidade/.test(fs[0]) && /Feriado da cidade, cadastrado em Delivery › Clientes › Calendário de eventos · o normal de quarta é 18:00 às 23:00/.test(fs[0]), `o feriado da cidade com a origem e o normal (${fs[0]})`);
+    ok(/Sexta, 01\/01 · Confraternização Universal/.test(fs[1]) && /Feriado por lei/.test(fs[1]), `o feriado por lei (${fs[1]})`);
+    // a faixa do topo: o feriado dos próximos 10 dias, com o horário que vale até responder
+    const faixa = page.locator('[role="status"]:has-text("Como a loja fica nesse dia?")');
+    ok(await faixa.isVisible(), 'a faixa do topo aparece para o presidente');
+    ok(/Quarta, 02\/12, é Aniversário da cidade\. Como a loja fica nesse dia\? Até alguém responder, vale o horário de quarta \(18:00 às 23:00\)\./.test(umaLinha(await faixa.innerText())), `o texto da faixa (${umaLinha(await faixa.innerText())})`);
+    ok((await faixa.locator('a:has-text("Outro horário…")').getAttribute('href')) === '/delivery/configuracoes?aba=horarios&feriado=calendario%3Ac1%3A2026-12-02', '"Outro horário…" da faixa leva à gaveta daquele feriado');
+    await page.screenshot({ path: foto('h2a-1280-sem-resposta.png') });
+    // "Horário normal" na lista grava na hora com a chave (decisão 9) e o feriado sai
+    await page.click('button[aria-label="Horário normal em Sexta, 01/01 · Confraternização Universal"]');
+    await page.waitForFunction(() => document.querySelectorAll('ul[aria-label="Feriados sem resposta"] > li').length === 1, null, { timeout: 5000 });
+    const post1 = S.posts.at(-1);
+    ok(post1?.data === '2027-01-01' && post1.nome === 'Confraternização Universal' && post1.funcionamento === 'normal' && post1.feriadoChave === 'regra:feriado:ano-novo:2027', `"Horário normal" grava a resposta com a chave (${JSON.stringify(post1)})`);
+    // "Fechada" na FAIXA grava na hora e a faixa some
+    await faixa.locator('button:has-text("Fechada")').click();
+    await page.waitForSelector('[role="status"]:has-text("Como a loja fica nesse dia?")', { state: 'detached', timeout: 5000 });
+    const post2 = S.posts.at(-1);
+    ok(post2?.data === '2026-12-02' && post2.funcionamento === 'fechada' && post2.feriadoChave === 'calendario:c1:2026-12-02', `"Fechada" da faixa grava a resposta (${JSON.stringify(post2)})`);
+    const sumiu = await page
+      .waitForFunction(() => document.querySelectorAll('ul[aria-label="Feriados sem resposta"] > li').length === 0, null, { timeout: 5000 })
+      .then(() => true, () => false);
+    ok(sumiu, 'respondido pela faixa, a lista de Horários relê sozinha e os sem resposta somem');
+    ok(erros.length === 0, `sem erro de script (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    // "Outro horário…" pelo endereço da faixa: a gaveta abre com o dia, o nome e o horário normal daquele dia; salvar leva a chave
+    const S = servidor();
+    S.calendarioLido = false;
+    const { ctx, page, erros } = await abrir(1280, 1000, S);
+    await page.goto(base + '/delivery/configuracoes?aba=horarios&feriado=calendario%3Ac1%3A2026-12-02');
+    const g = gaveta(page);
+    await g.waitFor({ timeout: 10000 });
+    ok((await g.locator('input[type="date"]').first().inputValue()) === '2026-12-02' && (await g.locator('input[placeholder="Ex.: Natal"]').inputValue()) === 'Aniversário da cidade', 'a gaveta abre com o dia e o nome do feriado');
+    const abre = await g.locator('input[type="time"]').nth(0).inputValue();
+    const fecha = await g.locator('input[type="time"]').nth(1).inputValue();
+    ok(abre === '18:00' && fecha === '23:00' && (await g.locator('input[type="radio"]').nth(1).isChecked()), `"Outro horário" marcado, começando pelo normal de quarta (${abre}–${fecha})`);
+    await g.locator('input[type="time"]').nth(1).fill('21:00');
+    await g.locator('button:has-text("Salvar dia")').click();
+    await page.waitForSelector('[role="dialog"]', { state: 'detached', timeout: 5000 });
+    const post = S.posts.at(-1);
+    ok(post?.funcionamento === 'horario' && post.abre === '18:00' && post.fecha === '21:00' && post.feriadoChave === 'calendario:c1:2026-12-02', `salvar leva a chave do feriado (${JSON.stringify(post)})`);
+    await page.click('section[aria-labelledby="dias-especiais-titulo"] button:has-text("Sem resposta")');
+    ok(/não foi lido aqui/.test(await page.locator('section[aria-labelledby="dias-especiais-titulo"]').innerText()), 'sem o calendário (servidor da loja): a tela diz que não leu o feriado da cidade (V37)');
+    ok(erros.length === 0, `sem erro de script (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+  {
+    // a supervisão não vê a faixa (não pode mudar o horário) nem os botões dos feriados
+    const { ctx, page, erros, S } = await abrir(1024, 900, servidor(), SUPERVISAO);
+    await page.waitForSelector('text=Próximos feriados sem resposta', { timeout: 10000 });
+    ok((await page.locator('[role="status"]:has-text("Como a loja fica nesse dia?")').count()) === 0 && !S.consultas.includes('/cardapio/dias-especiais/sem-resposta?dias=10'), 'supervisão: sem a faixa e sem a leitura dela');
+    ok((await feriadosNaTela(page).locator('button').count()) === 0, 'supervisão: os feriados sem os botões de resposta');
+    ok(erros.length === 0, `sem erro de script (${erros.join(' | ')})`);
+    await ctx.close();
+  }
+
   // ── as larguras: a lista, a gaveta, o diálogo dos agendados e o de excluir ──
   for (const w of larguras) {
     const { ctx, page, erros } = await abrir(w, 900);
     await page.waitForSelector('text=Sexta, 25/12 · Natal', { timeout: 10000 });
+    await page.waitForSelector('[role="status"]:has-text("Como a loja fica nesse dia?")', { timeout: 10000 });
     let achados = await medir(page);
-    ok(!achados.length, `${w}px: a lista sem barra para o lado (${achados.join(' | ')})`);
+    ok(!achados.length, `${w}px: a lista, os feriados sem resposta e a faixa do topo sem barra para o lado (${achados.join(' | ')})`);
+    if (w === 375) await page.screenshot({ path: foto('h2a-375-faixa.png') });
+    await page.click('section[aria-labelledby="dias-especiais-titulo"] button:has-text("Sem resposta")');
+    achados = await medir(page);
+    ok(!achados.length && (await feriadosNaTela(page).count()) === 2, `${w}px: a situação "Sem resposta" (${achados.join(' | ')})`);
+    await page.click('section[aria-labelledby="dias-especiais-titulo"] button:has-text("Próximos")');
     await page.click('button[aria-label="Editar Sexta, 25/12 · Natal"]');
     await page.waitForSelector('text=2 pedidos agendados para sexta, 25/12', { timeout: 5000 });
     achados = await medir(page);

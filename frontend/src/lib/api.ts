@@ -1928,6 +1928,8 @@ export const api = {
   editarDiaEspecialDoHorario: (id: string, body: Record<string, unknown>) =>
     req(`/cardapio/dias-especiais/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   excluirDiaEspecialDoHorario: (id: string) => req(`/cardapio/dias-especiais/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Os feriados sem resposta (H2a): 60 dias na lista de Horários, 10 na faixa da tela.
+  diasEspeciaisSemResposta: (dias?: number) => req(`/cardapio/dias-especiais/sem-resposta${dias ? `?dias=${dias}` : ''}`),
   agendadosDoPeriodo: (de: string, ate?: string) =>
     req(`/cardapio/dias-especiais/agendados?de=${encodeURIComponent(de)}${ate ? `&ate=${encodeURIComponent(ate)}` : ''}`),
   // Eventos sazonais do cardápio (Natal, Black Friday, Dia de jogo…): quem tem a permissão da
