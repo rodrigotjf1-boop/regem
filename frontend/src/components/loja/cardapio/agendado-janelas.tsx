@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import type { Cardapio } from './use-cardapio';
+import { especialDoDia, faixaDeHoras } from '@/lib/dia-especial';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -11,16 +12,22 @@ import type { Cardapio } from './use-cardapio';
 // "esgotado" e não se escolhe. As janelas vêm do servidor (`agendado/janelas`), que confere tudo de novo ao receber o pedido.
 
 type Janela = { valor: string; hora: string; rotulo: string; esgotada: boolean };
+// O dia especial do dia escolhido (H1b, mig 512; `especialDoDia` é a mesma escolha do servidor): o servidor já não
+// oferece janela no dia fechado — aqui é só o porquê, e o primeiro dia oferecido pula o dia fechado.
 
 export function AgendadoJanelas({ c }: { c: Cardapio }) {
   const dias: string[] = Array.isArray(c.agendado?.dias) ? c.agendado.dias : [];
   const set = (patch: any) => c.setChk((s: any) => ({ ...s, ...patch }));
   const escolhido = String(c.chk.agendamento ?? '');
-  const [dia, setDia] = useState<string>(() => (dias.includes(escolhido.slice(0, 10)) ? escolhido.slice(0, 10) : dias[0] ?? ''));
+  const tipo = c.chk.tipo === 'entrega' ? 'entrega' : 'retirada';
+  const proximos = c.menu?.diasEspeciais?.proximos;
+  const fechadoNo = (d: string) => especialDoDia(proximos, d, tipo)?.funcionamento === 'fechada';
+  // O primeiro dia oferecido pula o dia fechado (o Natal não abre a lista com "nenhum horário").
+  const [dia, setDia] = useState<string>(() => (dias.includes(escolhido.slice(0, 10)) ? escolhido.slice(0, 10) : dias.find((d) => !fechadoNo(d)) ?? dias[0] ?? ''));
   const [janelas, setJanelas] = useState<Janela[] | null>(null);
   const [erro, setErro] = useState(false);
   const leitura = useRef(0);
-  const tipo = c.chk.tipo === 'entrega' ? 'entrega' : 'retirada';
+  const especial = dia ? especialDoDia(proximos, dia, tipo) : null;
 
   // Só a resposta da leitura mais nova vale (V64): trocar o dia ou o tipo no meio de uma leitura não mostra a velha.
   const carregar = useCallback(async () => {
@@ -59,7 +66,17 @@ export function AgendadoJanelas({ c }: { c: Cardapio }) {
             const v = e.target.value;
             if (dias.includes(v)) setDia(v);
           }}
+          aria-describedby={especial ? 'lp-agendado-especial' : undefined}
         />
+        {especial && (
+          <p id="lp-agendado-especial" className="c-note" role="status">
+            {especial.funcionamento === 'fechada'
+              ? `Neste dia a loja está fechada (${especial.nome}). Escolha outro dia.`
+              : especial.abre && especial.fecha
+                ? `Neste dia a loja abre ${faixaDeHoras(especial.abre, especial.fecha)} (${especial.nome}).`
+                : null}
+          </p>
+        )}
       </div>
       <div className="c-f" data-campo="agendamento">
         <span className="c-lab" id="lp-agendado-horario">
@@ -75,7 +92,7 @@ export function AgendadoJanelas({ c }: { c: Cardapio }) {
         ) : janelas === null ? (
           <p className="c-note" role="status">Carregando os horários…</p>
         ) : !janelas.length ? (
-          <p className="c-note">Nenhum horário livre neste dia. Escolha outro dia.</p>
+          <p className="c-note">{especial?.funcionamento === 'fechada' ? 'Nenhum horário: a loja está fechada neste dia.' : 'Nenhum horário livre neste dia. Escolha outro dia.'}</p>
         ) : (
           <div className="m-chips" role="group" aria-labelledby="lp-agendado-horario">
             {janelas.map((j) => (

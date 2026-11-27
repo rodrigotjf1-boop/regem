@@ -30,6 +30,7 @@ import { localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
 import { INDICADO_PARA, ROTULO_TEMPLATE, TEMPLATES, templateDe } from '@/components/loja/cardapio/tipos-template';
 import { FraseDeCautela } from '@/components/delivery/frase-de-cautela';
 import { PedidoAgendadoAjustes } from '@/components/delivery/pedido-agendado-ajustes';
+import { DiasEspeciais } from '@/components/delivery/dias-especiais';
 import { GavetaDestinoDoBanner, resumoDoDestino } from '@/components/delivery/gaveta-destino-do-banner';
 import { GavetaBannerIa } from '@/components/delivery/gaveta-banner-ia';
 
@@ -764,6 +765,8 @@ export function ConfigPanel({
                       </div>
                     )}
                     <SalvarBar onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
+                    {/* Os dias especiais (H1b, mig 512): gravam pelas próprias rotas, sem o "Salvar" da semana. */}
+                    <DiasEspeciais semana={loja} pode={isGestor} />
                   </Secao>
                 )}
 
@@ -1124,7 +1127,8 @@ function Horarios({ value, onChange, pode }: { value: any[]; onChange: (h: any[]
         const longa = min > 18 * 60;
         return (
           <div key={d} className="rounded-lg border border-border p-2 text-sm">
-            <div className="flex items-center gap-2">
+            {/* Quebra a linha no estreito (320 px): os dois campos de hora não cabiam ao lado do dia (V45). */}
+            <div className="flex flex-wrap items-center gap-2">
               <label className="flex w-24 items-center gap-2">
                 <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={!!h.ativo} onChange={(e) => set(d, { ativo: e.target.checked })} />
                 <span className="font-medium">{nome}</span>
