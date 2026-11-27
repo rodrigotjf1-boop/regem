@@ -9,6 +9,11 @@ Como ler: **Hoje** é a marca do mapa; **Proposta** só aparece quando proponho 
 > (43 com as da C4a). Ficaram fora, de propósito: o que já tem ação pronta, as alterações que trocam o formulário inteiro, o que
 > pede um colaborador, o "submeter checklist" e os campos de foto (`docs/plano-mister.md` § "C4 Onda 1"). As Ondas 2 a 4 abrem
 > depois, uma de cada vez.
+>
+> **27/11/2026 — Onda 2 aberta.** 14 tarefas novas de delivery e cardápio (57 no total). O aviso e a situação "vindos da loja"
+> viraram `interna` (só a credencial do servidor da loja). Ficaram fora, de propósito: as mudanças de situação do pedido (o id
+> só vem com dado de cliente), o pedido manual, as rotas que trocam a lista inteira, criar e editar complemento e opção, a
+> troca de códigos PDV em massa, a configuração do delivery e a conferência com os apps (`docs/plano-mister.md` § "C4 Onda 2").
 
 ## Onda 1 — a rotina da loja (botão) — 68 funções, 3 com troca proposta
 

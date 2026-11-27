@@ -3160,6 +3160,32 @@ neste servidor"). Corrigido com `forwardRef`; o `app-sobe.spec.ts` passou a repr
   - a avaliação: c134 (o show de Natal no calendário) e c135 (o checklist da abertura do salão), 135 perguntas.
 - **Depois:** as Ondas 2, 3 e 4 da lista, uma de cada vez, e a avaliação real de novo (as instruções mudaram).
 
+### C4 Onda 2 — delivery e cardápio (27/11/2026; SEM migration; só na nuvem; vale com `MISTER_FAZER_TAREFAS=1`)
+
+- **14 tarefas novas** (57 no total), cada uma seguida até a linha do serviço (V40):
+  - delivery: estender a pausa de um canal (cardápio, iFood, 99; 10 a 30 minutos, a rota diz o que vale em cada um) e o Pix
+    prioritário do cardápio (Mercado Pago, PagBank, Rede);
+  - categorias: mudar o nome, a descrição ou se está no ar, e excluir (os produtos ficam sem categoria);
+  - produtos: excluir (PIN), duplicar (a cópia nasce sem código PDV e fora dos apps) e vender sem saldo (sim/não);
+  - opções reutilizáveis: pausa por canal, preço no app (PIN), preço na etapa (PIN, os dois ids no caminho), excluir, excluir
+    várias e o custo de várias (PIN); excluir a etapa de complementos.
+- **Uma correção do mapa:** o aviso e a situação "vindos da loja" (`delivery/aviso-da-loja`, `delivery/status-da-loja`)
+  estavam como botão, mas só a credencial do servidor da loja abre essas rotas. Viraram `interna`. Agora: le 264 · botao 146 ·
+  pin 82 · tela 179 · interna 634.
+- **Fora desta onda, de propósito:**
+  - o que já tem ação pronta (pausar e reabrir canal, aceitar, pronto e despachar pedido, pausar e reativar produto, mudar o
+    preço, criar categoria e produto, promoção, mudar o produto);
+  - as mudanças de situação do PEDIDO: o id só vem pela lista de pedidos, que tem dado de cliente. O caminho é uma ação pronta
+    pelo número, como aceitar e despachar;
+  - o pedido manual (dado de cliente, V10-4);
+  - as rotas que trocam a lista inteira (faixas, direcionamento, os complementos do produto, reordenar categorias);
+  - criar e editar complemento e opção: o código PDV, o controle de estoque e a ligação andam juntos (V49);
+  - a troca de códigos PDV em massa (V57), a configuração do delivery (formulário inteiro) e a conferência com os apps.
+- **Os testes:** as marcas (PIN e botão), as duas rotas da loja como `interna` e fora das tarefas, nenhuma mudança de pedido,
+  estender com canal e minutos, os dois ids no caminho com a vírgula, o sim/não e o custo em massa; a trava do mapa (toda
+  tarefa passa pelo `JwtAuthGuard`); a avaliação: c136 (estender a pausa do iFood) e c137 (o Pix pelo Mercado Pago), 137
+  perguntas.
+
 ### C6b — pedir ao presidente (26/11/2026, #1362, NO AR; SEM migration; só na nuvem; nasce DESLIGADO, `MISTER_PEDIR_AO_PRESIDENTE=1`)
 
 - **O caso** (protótipo, "O seu perfil não pode"): o gerente pede o que o perfil dele não faz (guardar o saldo, pagar o

@@ -10,6 +10,8 @@
 // "prosseguir para as 4 ondas" do dono sobre `docs/mister-c4-marcas.md`): 29 viraram `interna` (credencial, aparelho, rotina
 // técnica, dado de pessoa), 6 viraram `tela` e 10 passaram de botão para `pin` (apagam o que tem histórico, emitem nota, mexem
 // no ponto, em candidato ou geram a escala). Depois da revisão (com as 5 dos dias especiais, H1a): le 264 · botao 148 · pin 82 · tela 179 · interna 632.
+// Na Onda 2 (27/11/2026), o aviso e a situação "vindos da loja" (`delivery/aviso-da-loja`, `delivery/status-da-loja`) viraram
+// `interna`: só a credencial do servidor da loja abre essas rotas. Agora: le 264 · botao 146 · pin 82 · tela 179 · interna 634.
 //
 // As marcas:
 //   le       — só lê: o Mister pode consultar (C3), com a permissão do perfil de quem pergunta e o bilhete de uma chamada
@@ -832,7 +834,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'POST /api/v1/contagem/execucoes/{id}/salvar', marca: 'botao', frase: 'contagem: salvar' },
   { rota: 'POST /api/v1/contagem/listas', marca: 'botao', frase: 'contagem: criar lista' },
   { rota: 'POST /api/v1/contagem/listas/{id}/iniciar', marca: 'botao', frase: 'contagem: iniciar' },
-  { rota: 'POST /api/v1/delivery/aviso-da-loja', marca: 'botao', frase: 'delivery loja: aviso da loja' },
+  { rota: 'POST /api/v1/delivery/aviso-da-loja', marca: 'interna', frase: 'delivery loja: aviso da loja' },
   { rota: 'POST /api/v1/delivery/backfill-valores', marca: 'interna', frase: 'delivery: backfill valores' },
   { rota: 'POST /api/v1/delivery/ingest', marca: 'interna', frase: 'delivery: ingest' },
   { rota: 'POST /api/v1/delivery/integracoes/{canal}/testar-pix', marca: 'interna', frase: 'delivery: testar pix' },
@@ -859,7 +861,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'POST /api/v1/delivery/pedidos/{id}/sem-contato', marca: 'botao', frase: 'delivery: avisar sem contato' },
   { rota: 'POST /api/v1/delivery/pedidos/{id}/voltar', marca: 'botao', frase: 'delivery: voltar' },
   { rota: 'POST /api/v1/delivery/simular', marca: 'interna', frase: 'delivery: simular' },
-  { rota: 'POST /api/v1/delivery/status-da-loja', marca: 'botao', frase: 'delivery loja: status da loja' },
+  { rota: 'POST /api/v1/delivery/status-da-loja', marca: 'interna', frase: 'delivery loja: status da loja' },
   { rota: 'POST /api/v1/delivery/totem-conclui-pronto', marca: 'interna', frase: 'delivery: totem conclui pronto' },
   { rota: 'POST /api/v1/delivery/totem-dinheiro', marca: 'interna', frase: 'delivery: totem dinheiro' },
   { rota: 'POST /api/v1/delivery/totem-modo', marca: 'interna', frase: 'delivery: totem modo' },
