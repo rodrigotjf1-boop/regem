@@ -169,6 +169,7 @@ Decreto 12.955/2026 (RCBS); Resolução CGIBS nº 6/2026 (RIBS).
 | **05/10/2026 HML · 03/11/2026 PROD** | NT 2026.006 — grupo **`YC gPgtoVinc`** + evento **110300** (split payment). **Não está no pacote de schemas atual** → nova troca de XSD | todos |
 | **01/01/2027** | Grupo IBS/CBS obrigatório para **Simples/MEI** (rejeição a partir de **04/01/2027**) | **CRT 1/2/4 — a maioria dos bares e restaurantes** |
 | **01/01/2027** | **CBS cheia**; **PIS e COFINS extintos**; IPI a zero; **Imposto Seletivo** começa. `pIBSUF` e `pIBSMun` passam a **0,05%** cada | todos |
+| **02/12/2026 · 01/01/2027** | **iFood: o subsídio do iFood no carrinho e no item vira DESCONTO na nota** (comunicado aos parceiros recebido em 27/11/2026; a documentação de Detalhes do Pedido para Restaurantes é atualizada em 02/12/2026; vale a partir de 01/01/2027, com o cronograma de transição ainda a ser comunicado) → **§4.4** | pedidos do iFood |
 | **2029-2032** | ICMS e ISS reduzidos a 9/10, 8/10, 7/10 e 6/10; IBS sobe na mesma medida | todos |
 | **01/01/2033** | **ICMS e ISS extintos**. Só IBS + CBS + IS | todos |
 
@@ -214,6 +215,58 @@ Senado até 30/10/2026; Senado fixa até 15/12/2026. → **`pCBS` é dado de tab
 **LC 214, art. 341-G, VI** (incluído pela LC 227/2026): **desenvolver, fornecer ou instalar** software
 que emita documento fiscal fora dos requisitos da legislação → **150 UPF por equipamento**.
 Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
+
+### 4.4 iFood: o subsídio do iFood vira desconto na nota (a partir de 01/01/2027)
+
+**O comunicado** (e-mail do iFood aos desenvolvedores parceiros, recebido pelo dono em 27/11/2026; motivo declarado: EC
+132/2023 e LC 214/2025 — a base do IVA é o valor efetivamente cobrado). No array `benefits[]` do Detalhes do Pedido
+(Orders), cada benefício traz `target` (`CART`, `ITEM` com `targetId`, `PROGRESSIVE_DISCOUNT_ITEM` ou `DELIVERY_FEE`) e
+`sponsorshipValues[]` (`name`, `value`). A partir de **01/01/2027**:
+
+| Patrocinador × alvo | Até 31/12/2026 (hoje) | A partir de 01/01/2027 |
+|---|---|---|
+| `IFOOD` em `CART`, `ITEM` ou `PROGRESSIVE_DISCOUNT_ITEM` | forma de pagamento (o iFood "paga" e repassa) | **DESCONTO** no documento fiscal — **não** é mais pagamento |
+| `MERCHANT` (a loja) | desconto | desconto (não muda) |
+| `EXTERNAL` (indústria) e `CHAIN` (rede) | não é desconto da nota | não muda — **não** descontar |
+| qualquer um em `DELIVERY_FEE` | fora da nota | fora da nota (não muda) |
+
+**O repasse à loja não muda** (mesma fórmula; o iFood continua custeando o subsídio). A documentação de Restaurantes no
+Developer Portal sai em **02/12/2026**; o iFood avisou que **o cronograma de transição será comunicado em seguida** e que a
+reforma pode trazer novas mudanças na Merchant API. Status das datas: `OFICIAL` (comunicado do canal), cronograma de
+transição `NÃO CONFIRMADO`.
+
+**Como o Regem faz hoje** (a regra atual da documentação do iFood):
+- `delivery/adapters.ts` (`adaptarIfood`) grava cada patrocínio de cada benefício em `pedido_externo.descontos` (jsonb), com
+  `quemBanca`: `loja` (MERCHANT), `marketplace` (**IFOOD, EXTERNAL e CHAIN juntos**) ou `indefinido`; `alvo` = o `target`.
+  O payload inteiro fica em `pedido_externo.raw` (mig 039) — dá para recalcular pedidos antigos.
+- `fiscal/destinatario.ts` (`valoresFiscaisDoPedido`): o desconto da nota = só o bancado pela **loja**, fora o de
+  `DELIVERY_FEE`. O bancado pelo marketplace não entra (a base fica cheia, porque a loja recebe no repasse).
+- `nfce-xml.builder.ts`: `vNF = vProd − vDesc + vFrete + vOutro`, com **um** `detPag` no valor da nota. Hoje o subsídio
+  do iFood entra embutido nesse pagamento.
+- `common/faturamento.ts` (`descontoLojaProduto`) segue a mesma regra no faturamento gerencial; `desconto_marketplace`
+  "volta no repasse".
+
+**O que muda no Regem (plano — implementar contra a documentação de 02/12, regra V20):**
+1. **Adaptador:** guardar em cada linha de `descontos` o patrocinador como veio (`IFOOD`, `MERCHANT`, `EXTERNAL`, `CHAIN`) e o
+   `targetId` — hoje IFOOD, EXTERNAL e CHAIN viram o mesmo `marketplace` e a regra nova precisa separá-los. Jsonb, sem
+   migration; `quemBanca` continua como está (o faturamento e o repasse dependem dele).
+2. **Nota:** desconto fiscal = o da loja (como hoje) **+ o do IFOOD em `CART`, `ITEM` ou `PROGRESSIVE_DISCOUNT_ITEM`**, nos
+   pedidos da vigência em diante. `ITEM` vai no `vDesc` **do item** do `targetId` (o desconto de item não se rateia — importa
+   para a segregação do regime de bar e restaurante, §4.2); `CART` se rateia como hoje. `EXTERNAL`, `CHAIN` e `DELIVERY_FEE`
+   nunca. O `detPag` acompanha o `vNF` novo (o cliente pagou o líquido).
+3. **Vigência como dado, não literal:** data de início configurável na distribuição (padrão 01/01/2027 00:00 de Brasília,
+   pela data do pedido), porque o cronograma de transição ainda não saiu.
+4. **Faturamento gerencial e conferência do repasse: não mudam** — o dinheiro que entra é o mesmo. O total da nota do pedido
+   do iFood fica menor que o faturamento pelo valor do subsídio; o relatório que compara os dois explica a diferença.
+5. **Testes** com os exemplos do comunicado (CART R$ 10,00 IFOOD; ITEM R$ 4,99 IFOOD + MERCHANT R$ 0,00; DELIVERY_FEE;
+   EXTERNAL e CHAIN) e um pedido de cada lado da data de vigência.
+6. **Contador da loja:** confirmar o tratamento contábil do subsídio que o iFood paga no repasse (deixa de estar dentro da
+   venda da nota). Não é decisão do sistema.
+
+**Na reforma:** o `vDesc` sai da base do IBS/CBS em todos os anos (base da skill `cupom-fiscal`, ref. 09 §4) — o subsídio do
+iFood como desconto **reduz a base** da nota. O Simples entra no IBS/CBS em 2027 (§4, calendário). Fora deste comunicado:
+**99Food e Keeta** (adaptadores próprios; vigiar se mandarem o mesmo aviso) e o canal **MultiCategoria** do iFood (mercado,
+farmácia — `sponsorshipLiability` `OWN`/`PARTNER`), que não é o nosso ramo.
 
 ---
 
@@ -609,6 +662,7 @@ por inutilização — nunca reusado.
 | **B3** | **Transportador na logística do marketplace** (P27) — hoje declaramos a própria loja em toda entrega com `indPres=4` | Depende do B1 |
 | **B4** | **Lista completa das séries já em uso** no estabelecimento | Da Eclética (ou do portal da SEFAZ). É o que destrava o A2 |
 | **B5** | **Quem documenta qual venda: Regem ou Eclética** | Da loja. Hoje a Eclética já emite NFC-e para este CNPJ. Se a mesma venda passar pelos dois sistemas, saem **duas notas para uma venda** — receita em dobro no Simples. Antes de ligar a emissão automática em produção, cada canal (balcão, totem, delivery próprio, marketplace) precisa ter **um** emissor definido. **O interruptor existe desde 24/09/2026**: Configuração fiscal → Terminais que emitem NFC-e |
+| **B6** | **Subsídio do iFood como desconto na nota a partir de 01/01/2027** (§4.4) — separar o patrocinador no adaptador, levar o IFOOD de `CART`/`ITEM`/`PROGRESSIVE_DISCOUNT_ITEM` ao `vDesc` (o de item no próprio item), vigência configurável, testes com os exemplos do comunicado | Do iFood: a documentação de Restaurantes (02/12/2026) e o **cronograma de transição** (ainda não comunicado). Do contador da loja: o tratamento contábil do subsídio pago no repasse |
 
 ### C. Pronto, mas ainda não nas lojas
 
@@ -672,6 +726,7 @@ por inutilização — nunca reusado.
 
 | Data | O que mudou |
 |---|---|
+| 27/11/2026 | **Comunicado do iFood: o subsídio do iFood vira desconto na nota a partir de 01/01/2027** (§4.4, pendência B6). Registrado o comunicado, como o Regem trata hoje (o IFOOD junto com EXTERNAL e CHAIN como `marketplace`, fora do `vDesc`) e o plano: patrocinador separado no adaptador, IFOOD de carrinho e de item no `vDesc` (o de item no próprio item), vigência configurável, faturamento e repasse sem mudança, testes com os exemplos do comunicado. Implementar contra a documentação de 02/12/2026. Sem código neste registro. |
 | 28/09/2026 | **Token do IBPT do lojista — opcional** (mig 292, decisão do dono). O manual do IBPT (0.13, §3.3) diz que o token do webservice é do EMPRESÁRIO, que o entrega a quem faz o sistema. Então a Configuração fiscal ganhou a seção "Tributos aproximados no cupom": mostra a tabela em uso e, opcionalmente, recebe o token do lojista com o passo a passo do site do IBPT (conta de pessoa física → empresa com o CNPJ do estabelecimento → copiar o token). O token é testado na hora com o CNPJ do emitente (recusado = não guarda), fica cifrado em `fiscal_credencial` (só na nuvem; a tela vê os 4 últimos) e alimenta uma tabela PRÓPRIA da empresa (`ibpt_versao.tenant_id`): todo dia a nuvem consulta a API do IBPT só pelos NCMs dos produtos dela, com descrição/valor genéricos. A emissão usa a própria quando ela cobre TODOS os NCMs da nota; senão, a da Regem inteira — uma nota nunca cita duas fontes. O servidor da loja recebe a própria em `GET /fiscal/ibpt/:uf/propria` (404 apaga a cópia local). Sem token, nada muda. |
 | 26/09/2026 | **Valor aproximado dos tributos (Lei 12.741) pela tabela do IBPT** (mig 291). A nota passa a ter `vTotTrib` por item (M02) e no total (W16a, a soma dos itens — rejeição 685) e a frase no `infCpl`, que a Divisão IX do DANFE imprime ("Trib aprox R$ X Federal e R$ Y Estadual (Lei 12.741/12). Fonte: <fonte> <chave>" — citar fonte e chave é condição de uso da tabela). Cálculo: percentual da tabela vigente da UF do emitente pelo NCM, federal nacional (origem 0, 3, 4, 5) ou importados (as demais), sobre o item menos o desconto rateado, truncado (sugestão do IBPT); entrega, outras despesas e a linha da taxa de serviço (NCM 00000000) ficam fora. Os valores ficam gravados na nota e a reimpressão usa os gravados. Tabela vencida ou ausente: a nota sai sem os valores (termo do IBPT, cl. 5ª) e a venda segue. A tabela é da distribuição, sem empresa: enviada no console (aba Atualizações, o ZIP como vem do site), baixada pelo servidor da loja (`GET /fiscal/ibpt/:uf`, token de sync, a cada 6 h), com verificador diário na telemetria. Pesquisa das fontes do IBPT na base da skill `cupom-fiscal`, §5.7. Pendentes D6 e D7. |
 | 24/09/2026 | **Venda do totem: a compra só termina com o cupom fiscal na mão** (sem migration). Caminho próprio do totem (`emitirParaTotem`) com o contrato de quatro casos — `nao_emitida` com etapa, cStat, motivo e `repete`; a cozinha só recebe depois da nota e a venda sem nota é desfeita; autorização com prazo TOTAL de 10 s; a repetição devolve a mesma nota (esperando a primeira, ou assumindo se ela morreu); `falha-impressao` cancela a autorizada (110111) e **agenda** o cancelamento da de contingência, que não se inutiliza; job de 2 min resolve cancelamento sem resposta pela consulta. **Certificado vencido barrado no pré-voo** em todos os caminhos — reproduzido: o TLS cai como `ECONNRESET` e a venda entrava em contingência com QR assinado por certificado vencido (ERR-099). |
