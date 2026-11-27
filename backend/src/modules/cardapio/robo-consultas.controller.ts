@@ -6,6 +6,7 @@ import { CardapioService } from './cardapio.service';
 import { buscarNoCardapio, pontoDaLocalizacao, resumoDaLoja, taxaDoBairro, taxaDoEndereco } from './robo-consultas';
 import { categoriasPorPapel, procurarNoCardapio } from './robo-busca';
 import { aplicarNoResumo } from './situacao-da-loja';
+import { situacaoAgoraParaAsInstrucoes } from './situacao-agora';
 import { fluxoComFerramentas26, instrucoesDoChat, instrucoesDoDirect, instrucoesDoMessenger, instrucoesDosComentarios, instrucoesDoRobo } from './robo-instrucoes';
 import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect, ehChaveDoMessenger } from '../../common/conversa-do-robo';
 
@@ -158,6 +159,21 @@ export class RoboConsultasController {
     if (canal === 'chat') return instrucoesDoChat({ loja, jeito, conhecimento, plataforma: chat?.plataforma ?? 'ifood', teste: !!teste }, fluxo);
     if (canal === 'messenger') return instrucoesDoMessenger({ loja, jeito, assuntos, conhecimento }, fluxo);
     if (canal === 'direct') return instrucoesDoDirect({ loja, jeito, assuntos, conhecimento }, fluxo);
-    return instrucoesDoRobo({ loja, jeito, assuntos, conhecimento, printAjuda, pedidoAgendado, ferramentas26: fluxoComFerramentas26(versaoDoFluxo) }, fluxo);
+    // A situação da loja AGORA (27/11, ERR-629): o que está aberto e as formas de pagamento, lidos nesta mensagem com o
+    // veredito conferido — a mesma do `consultar_loja`. Falhou a conferência: o bloco sai só com o cardápio (nunca derruba
+    // as instruções).
+    // A mesma entrada do `consultar_loja`: aberta pelo horário e sem a loja fechada à mão nem pausada (`resumoDaLoja`).
+    const abertaParaConferir = !!(menu as any)?.abertaAgora && (menu as any)?.loja?.aberto !== false && !(menu as any)?.pausa;
+    let conferida: Awaited<ReturnType<CardapioService['situacaoConferida']>> | null = null;
+    try {
+      conferida = await this.service.situacaoConferida(token, abertaParaConferir);
+    } catch {
+      conferida = null;
+    }
+    const agora = situacaoAgoraParaAsInstrucoes(menu, conferida);
+    return instrucoesDoRobo(
+      { loja, jeito, assuntos, conhecimento, printAjuda, pedidoAgendado, ferramentas26: fluxoComFerramentas26(versaoDoFluxo), agora },
+      fluxo,
+    );
   }
 }

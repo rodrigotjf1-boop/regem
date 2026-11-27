@@ -15,6 +15,7 @@ import { ProdutoService } from '../produto/produto.service';
 import { VendasService } from '../vendas/vendas.service';
 import { CardapioService } from './cardapio.service';
 import { RoboPedidoService } from './robo-pedido.service';
+import { situacaoAgoraParaAsInstrucoes } from './situacao-agora';
 import { comTravaDaEmpresa, migrationJaCriada, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { emSaoPaulo } from '../../common/pedido-agendado';
 
@@ -210,6 +211,7 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(visto.cliente).toMatchObject({ conhecido: false, nome: null });
     expect(visto.enderecosSalvos).toEqual([]);
     expect(visto.pedido.proximo.campo).toBe('itens');
+    expect(visto.chaveDaMemoria).toBeUndefined(); // ERR-629: sem cadastro, a memória fica na chave de sempre
 
     // X-Bacon já com o adicional: os extras dele não se perguntam de novo.
     let r: any = await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'xbacon', adicionais: ['bacon'] });
@@ -330,6 +332,8 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(depois.cliente).toEqual({ conhecido: true, nome: 'Ana Maria' });
     expect(depois.enderecosSalvos).toEqual([{ n: 1, endereco: 'Rua A, 10 · Centro · ref: casa 2, portão azul' }]);
     expect(depois.ultimoEndereco).toBe(1);
+    // ERR-629: a chave da memória é a do último pedido — o pedido seguinte começa sem a conversa deste.
+    expect(depois.chaveDaMemoria).toBe(String(ped.id).replace(/-/g, '').slice(0, 12));
     // O WhatsApp sem o nono dígito é o MESMO cliente (ERR-134).
     const sem9: any = await robo.ver(await l.ctx('552187654321'));
     expect(sem9.cliente).toEqual({ conhecido: true, nome: 'Ana Maria' });
@@ -610,6 +614,27 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(r.cupons).toEqual([{ codigo: 'ABERTO', desconto: '10% de desconto (até R$ 15,00)', pedidoMinimo: 'R$ 30,00' }]);
     expect(r.fidelidade).toEqual([]); // a loja sem fidelidade ligada
     expect(r.comoResponder).toContain('Liste o que veio');
+  });
+
+  // ERR-629 (teste do dono, 27/11): o atendente seguiu com o horário e as formas de pagamento que tinha na memória. As
+  // instruções passam a trazer a situação de AGORA, lida do menu — até que horas cada tipo recebe, pelo conjunto do tipo.
+  it('a situação de agora: até que horas a entrega e a retirada recebem (cada uma pelo seu horário) e o Pix nas formas', async () => {
+    const l = await loja();
+    const dia = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })).getDay();
+    await q(
+      `update cardapio_config set horario_unico = false, horarios = $2::jsonb, horarios_retirada = $3::jsonb where tenant_id = $1`,
+      [l.t, JSON.stringify([{ dia, abre: '00:00', fecha: '23:59', ativo: true }]), JSON.stringify([{ dia, abre: '00:00', fecha: '23:58', ativo: true }])],
+    );
+    const menu: any = await cardapio.menu(l.token);
+    expect(menu.fechaAs).toEqual({ entrega: '23:59', retirada: '23:58' });
+    const bloco = situacaoAgoraParaAsInstrucoes(menu, null);
+    expect(bloco).toContain('- Entrega: aberta, recebe pedido até 23:59.');
+    expect(bloco).toContain('- Retirada: aberta, recebe pedido até 23:58.');
+    expect(bloco).toContain('- Formas de pagamento pela conversa agora: Pix, Dinheiro, Cartão na entrega.');
+    // A loja muda o horário: a mensagem seguinte já lê o novo (o menu não guarda nada).
+    await q(`update cardapio_config set horarios_retirada = $2::jsonb where tenant_id = $1`, [l.t, JSON.stringify([{ dia: (dia + 1) % 7, abre: '19:00', fecha: '23:00', ativo: true }])]);
+    const depois = situacaoAgoraParaAsInstrucoes(await cardapio.menu(l.token), null);
+    expect(depois).toMatch(/- Retirada: fechada agora \(abre .*19:00\)\./);
   });
 
   // Bloco 1b do plano de 31/10/2026 (pedido do dono): "antes do pagamento verificar saldo e perguntar se quer usar para

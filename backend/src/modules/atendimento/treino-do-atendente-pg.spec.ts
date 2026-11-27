@@ -366,12 +366,22 @@ descrever('treinar o atendente (Postgres)', () => {
     await expect(consultas.loja(chaveDoTeste(id), undefined, undefined, 'senha-errada')).rejects.toThrow(UnauthorizedException);
   });
 
+  // A situação da loja AGORA (ERR-629, .f39) é estado lido na hora — aberta ou fechada, e a hora de agora —, não instrução:
+  // as comparações entre duas chamadas a deixam de fora (e conferem que ela está lá).
+  const semAgora = (texto: string) => {
+    expect(texto).toContain('SITUAÇÃO DA LOJA AGORA');
+    return texto
+      .split('\n\n')
+      .filter((p) => !p.startsWith('SITUAÇÃO DA LOJA AGORA'))
+      .join('\n\n');
+  };
+
   it('as instruções com `teste:`: as do CANAL do teste, com o perfil dele — o de fora do horário com "simular fora do horário" (a mesma função)', async () => {
     await roboConfig('atendente_perfis', JSON.stringify({ whatsapp: { perfil: 'cordial', foraDoHorario: 'objetivo' }, direct: { perfil: 'gentil' } }));
     const instr = async (instancia: string) => (await consultas.instrucoes('2', instancia, undefined, undefined, SENHA)) as any;
     const doNumero = await instr(INST); // o WhatsApp de verdade (a equipe "Sempre": atendendo)
     const w = await instr(chaveDoTeste(await novoTeste('whatsapp')));
-    expect(w).toEqual(doNumero); // idênticas às do canal de verdade
+    expect({ ...w, texto: semAgora(w.texto) }).toEqual({ ...doNumero, texto: semAgora(doNumero.texto) }); // idênticas às do canal de verdade
     expect(w.texto).toContain('CORDIAL');
     const fora = await instr(chaveDoTeste(await novoTeste('whatsapp', true)));
     expect(fora.texto).toContain('OBJETIVO');
@@ -379,7 +389,7 @@ descrever('treinar o atendente (Postgres)', () => {
     // com a equipe fora DE VERDADE, o número dá o mesmo texto do teste com "simular fora do horário"
     await roboConfig('equipe_atende', 'loja');
     await horarios(JANELA_LONGE);
-    expect((await instr(INST)).texto).toBe(fora.texto);
+    expect(semAgora((await instr(INST)).texto)).toBe(semAgora(fora.texto));
     const d = await instr(chaveDoTeste(await novoTeste('direct')));
     expect(d).toMatchObject({ canal: 'instagram' });
     expect(d.texto).toContain('no Direct do Instagram');
@@ -399,8 +409,8 @@ descrever('treinar o atendente (Postgres)', () => {
     }
     // tirando a seção, o texto de antes
     const com = await instr(INST);
-    const partes = com.split('\n\n');
-    expect(partes.filter((p) => !p.startsWith(TITULO_DO_CONHECIMENTO)).join('\n\n')).toBe(semNada.w);
+    const partes = semAgora(com).split('\n\n');
+    expect(partes.filter((p) => !p.startsWith(TITULO_DO_CONHECIMENTO)).join('\n\n')).toBe(semAgora(semNada.w));
   });
 
   // ───────────────────────── o "chamar atendente" simulado ─────────────────────────

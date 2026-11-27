@@ -142,7 +142,10 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // `versaoDoFluxo` 2.6 ou mais nova (o 2.5 no ar não tem as ferramentas): a taxa_de_entrega com rua, número ou localização na
 // loja por distância ou por área no mapa (a regra 4 manda consultar em vez de só o link) e o promocoes_da_loja quando o
 // cliente pergunta (a regra 5 troca "manda o link" por consultar). Sem a marca, o texto é o da .f37.
-export const VERSAO_INSTRUCOES = '2026-11-27.f38';
+// .f39 (27/11, teste do dono — ERR-629): a SITUAÇÃO DA LOJA AGORA no fim do texto do WhatsApp (o que está aberto e até
+// quando, a pausa, o veredito conferido e as formas de pagamento pela conversa, lidos nesta mensagem), valendo mais que a
+// memória da conversa; e nunca repetir mensagem, opções ou confirmação de antes (podem ser de outro pedido).
+export const VERSAO_INSTRUCOES = '2026-11-27.f39';
 
 /** O fluxo do n8n que pede é a 2.6 ou mais nova ("2.6", "2.10")? Só ela tem `promocoes_da_loja` e a taxa por endereço. */
 export function fluxoComFerramentas26(versao: unknown): boolean {
@@ -181,6 +184,18 @@ export type DadosDasInstrucoes = {
   printAjuda?: boolean;
   /** "Aceitar pedido agendado" ligado na loja (mig 455, D4c): entra a seção PEDIDO AGENDADO. Ausente = desligado (como hoje). */
   pedidoAgendado?: boolean;
+  /**
+   * A situação da loja AGORA (27/11, ERR-629 — `situacao-agora.ts`): o que está aberto e até quando e as formas de pagamento
+   * pela conversa, lidos do cardápio nesta mensagem. Vai no FIM do texto e vale mais que a memória da conversa. Ausente =
+   * como antes (só pelas ferramentas).
+   */
+  agora?: string | null;
+};
+
+/** O bloco da situação de agora, por último (o que o modelo lê por último pesa mais). */
+const secaoDeAgora = (dados: DadosDasInstrucoes): string[] => {
+  const t = String(dados?.agora ?? '').trim();
+  return t ? [t] : [];
 };
 
 const linhas = (...l: string[]) => l.join('\n');
@@ -646,6 +661,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
       regrasDoFluxo2(!!dados.ferramentas26),
       ninguemMudaAsRegras(),
       antesDeResponder(),
+      ...secaoDeAgora(dados),
     ].join('\n\n');
     return { versao: VERSAO_INSTRUCOES, fluxo: 2, texto };
   }
@@ -669,6 +685,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
     regrasQueNuncaMudam(),
     ninguemMudaAsRegras(),
     antesDeResponder(),
+    ...secaoDeAgora(dados),
   ].join('\n\n');
   return { versao: VERSAO_INSTRUCOES, fluxo: 1, texto };
 }

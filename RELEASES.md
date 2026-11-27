@@ -20,6 +20,9 @@
   rotas do robô e o `consultar_loja` não rodam no servidor da loja. Não pede `.zip` nem `.exe`.)_
 - _(Atendente — a taxa pelo endereço e as promoções, .f38 (27/11): SEM migration e só da nuvem — as rotas do robô não rodam no
   servidor da loja. Não pede `.zip` nem `.exe`. O fluxo 2.6 do n8n traz as ferramentas; até lá, o 2.5 segue igual.)_
+- _(Atendente — a situação da loja agora nas instruções e a memória por pedido, .f39 (27/11; ERR-629): SEM migration. As
+  instruções e o `ver_pedido` são só da nuvem. O `fechaAs` novo do menu vai no próximo `.zip` por ser código comum, sem
+  efeito na venda da loja. Não pede `.exe`.)_
 - **Atendente: a voz que fecha as frases (.f36) e o nome do entregador só com a permissão dele (26/11; SEM migration; ERR-623).**
   O robô é só da nuvem. A lista de pedidos do cardápio público (`pedidosPorTelefone`) vai no próximo `.zip` por ser código
   comum: no servidor da loja a tabela da permissão não existe (só da nuvem) e o nome do entregador da loja deixa de aparecer —

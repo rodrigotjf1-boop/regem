@@ -1712,12 +1712,16 @@ export class CardapioService {
       local: this.estaAberta(cfg, 'local'),
     };
     const geral = this.estaAberta(cfg);
+    // Até que horas cada tipo recebe pedido AGORA (27/11, o atendente: "o horário de delivery tinha encerrado, eu alterei e
+    // ele não buscou"): a janela de hoje do conjunto do tipo — o "Aberta até" do cardápio só olha o horário da entrega.
+    const fechaAs = (t: 'entrega' | 'retirada'): string | null => (aberto[t] ? (this.janelaAtual(this.horariosDoTipo(cfg, t))?.fecha ?? null) : null);
     if (!pausa || !(geral || aberto.entrega || aberto.retirada || aberto.local)) {
       return {
         abertaAgora: geral,
         abertoPorTipo: aberto,
         horarioLabel: this.horarioLabel(cfg),
         proximaAbertura: { entrega: this.proximaAbertura(cfg, 'entrega'), retirada: this.proximaAbertura(cfg, 'retirada') },
+        fechaAs: { entrega: fechaAs('entrega'), retirada: fechaAs('retirada') },
         pausa: null,
       };
     }
