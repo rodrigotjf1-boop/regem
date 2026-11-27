@@ -25,22 +25,56 @@ export const TEXTOS_DAS_TAREFAS = {
   semLoja: 'Diga em qual loja (a empresa tem mais de uma).',
   pergunta: (resumo: string) => `Vou fazer:\n${resumo}\n\nToque em "Autorizar" em até ${PRAZO_DA_TAREFA_MIN} minutos para eu fazer.`,
   siga: 'O "Vou fazer" e os botões vão logo depois da sua resposta: diga em uma frase o que vai acontecer quando a pessoa tocar em "Autorizar". Nada foi feito ainda.',
+  /** C4 Onda 1: a tarefa de PIN vai com o link "Abrir no Regem". */
+  link: (resumo: string, hora: string) => `Vou fazer:\n${resumo}\n\nPara valer, autorize no Regem com o seu PIN. O pedido vale até ${hora}.`,
+  sigaDoPin: 'Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN. Nada muda sem o PIN; nunca peça o PIN na conversa. Não diga que fez.',
   feita: (frase: string) => `feito: ${frase.charAt(0).toLowerCase()}${frase.slice(1)}.`,
 } as const;
 
+/** Como a IA lê o tipo de cada campo. */
+const TIPO_PARA_A_IA: Partial<Record<CampoDaTarefa['tipo'], string>> = {
+  id: 'id (de uma leitura; nunca invente)',
+  ids: 'lista de ids (de uma leitura; nunca invente)',
+  data: 'data AAAA-MM-DD',
+  hora: 'hora HH:MM',
+  numero: 'número (pode ter casas: 2.5)',
+  booleano: 'true ou false',
+  lista: 'lista de itens, cada um com os campos de "itens"',
+};
+
+/** O que a IA recebe de cada campo: o tipo, se é obrigatório, as opções e, na lista, os campos de cada item. */
+function campoParaAIa(c: CampoDaTarefa): Record<string, unknown> {
+  return {
+    nome: c.nome,
+    tipo: TIPO_PARA_A_IA[c.tipo] ?? c.tipo,
+    rotulo: c.rotulo,
+    ...(c.obrigatorio ? { obrigatorio: true } : {}),
+    ...(c.opcoes ? { opcoes: Object.keys(c.opcoes) } : {}),
+    ...(c.min !== undefined ? { min: c.min } : {}),
+    ...(c.max !== undefined ? { max: c.max } : {}),
+    ...(c.tipo === 'lista' && c.itens ? { itens: c.itens.filter((x) => x.tipo !== 'loja').map(campoParaAIa) } : {}),
+    ...((c.tipo === 'lista' || c.tipo === 'ids') && c.maxItens ? { maxItens: c.maxItens } : {}),
+  };
+}
+
 /** O que a IA recebe de uma tarefa (na busca): os campos com o tipo, se é obrigatório e as opções. */
 export function camposParaAIa(t: TarefaAberta): Array<Record<string, unknown>> {
-  return t.campos
-    .filter((c) => c.tipo !== 'loja')
-    .map((c) => ({
-      nome: c.nome,
-      tipo: c.tipo === 'id' ? 'id (de uma leitura; nunca invente)' : c.tipo === 'data' ? 'data AAAA-MM-DD' : c.tipo === 'hora' ? 'hora HH:MM' : c.tipo,
-      rotulo: c.rotulo,
-      ...(c.obrigatorio ? { obrigatorio: true } : {}),
-      ...(c.opcoes ? { opcoes: Object.keys(c.opcoes) } : {}),
-      ...(c.min !== undefined ? { min: c.min } : {}),
-      ...(c.max !== undefined ? { max: c.max } : {}),
-    }));
+  return t.campos.filter((c) => c.tipo !== 'loja').map(campoParaAIa);
+}
+
+/**
+ * C4 Onda 1: a tarefa de PIN na página do link — o título pela frase do mapa e as linhas do "Vou fazer" gravado (montado pelo
+ * Regem, nunca pela IA).
+ */
+export function apresentacaoDaTarefa(par: { frase?: unknown; resumo?: unknown }): { titulo: string; itens: string[]; detalhe: string | null; valor: number | null; botao: string } {
+  const frase = String(par.frase ?? '').trim();
+  const linhas = String(par.resumo ?? '')
+    .split('\n')
+    .slice(1)
+    .map((l) => l.replace(/^\s*[•–-]\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 20);
+  return { titulo: frase ? `Autorizar: ${frase.charAt(0).toLowerCase()}${frase.slice(1)}?` : 'Autorizar o pedido do Mister?', itens: linhas, detalhe: null, valor: null, botao: 'Autorizar' };
 }
 
 /** As tarefas abertas (para a busca), com a frase do mapa. */
@@ -90,7 +124,7 @@ function nomeNaOrigem(id: string, origem: unknown[]): string | null {
 export interface PedidoDaTarefa {
   f: FuncaoDoMapa;
   t: TarefaAberta;
-  metodo: 'POST' | 'PUT' | 'PATCH';
+  metodo: 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   caminho: string;
   corpo: Record<string, unknown>;
   /** O "Vou fazer", montado pelo Regem. */
@@ -107,7 +141,7 @@ export function pedidoDaTarefa(entrada: unknown, loja: { unidadeId: string | nul
   const t = tarefaAberta(en.rota);
   const f = t ? funcaoDoMapa(t.rota) : undefined;
   if (!t || !f || (f.marca !== 'botao' && f.marca !== 'pin')) return { erro: TEXTOS_DAS_TAREFAS.fora };
-  const [metodo, base] = f.rota.split(' ') as ['POST' | 'PUT' | 'PATCH', string];
+  const [metodo, base] = f.rota.split(' ') as ['POST' | 'PUT' | 'PATCH' | 'DELETE', string];
 
   const params = (en.parametros && typeof en.parametros === 'object' && !Array.isArray(en.parametros) ? en.parametros : {}) as Record<string, unknown>;
   let caminho = base;
@@ -122,15 +156,37 @@ export function pedidoDaTarefa(entrada: unknown, loja: { unidadeId: string | nul
   }
 
   const dados = (en.campos && typeof en.campos === 'object' && !Array.isArray(en.campos) ? en.campos : {}) as Record<string, unknown>;
-  const conhecidos = new Map(t.campos.map((c) => [c.nome, c]));
+  // A exclusão vai com o corpo `{}` (ou só os campos que a rota pede, como o motivo): o campo que a tarefa não tem é recusado.
+  const r = conferirCampos(t.campos, dados, origem, loja.unidadeId, '•');
+  if ('erro' in r) return r;
+  const resumo = [`${f.frase}.`, ...linhas, ...r.linhas].join('\n');
+  return { f, t, metodo, caminho, corpo: r.corpo, resumo };
+}
+
+/** Quantas linhas de uma lista o "Vou fazer" mostra (o resto vira "e mais N"). */
+const ITENS_NO_RESUMO = 12;
+
+/**
+ * Os campos de um nível (a tarefa, ou um item de uma lista): nenhum desconhecido, os obrigatórios presentes, cada um do tipo
+ * certo; a loja da conversa no campo `loja`. Devolve o corpo e as linhas do "Vou fazer".
+ */
+function conferirCampos(
+  campos: readonly CampoDaTarefa[],
+  dados: Record<string, unknown>,
+  origem: unknown[],
+  lojaId: string | null,
+  marca: string,
+): { corpo: Record<string, unknown>; linhas: string[] } | { erro: string } {
+  const conhecidos = new Map(campos.map((c) => [c.nome, c]));
   for (const k of Object.keys(dados)) {
     const c = conhecidos.get(k);
-    if (!c || c.tipo === 'loja') return { erro: `Esta tarefa não tem o campo "${k}". Os campos são: ${t.campos.filter((x) => x.tipo !== 'loja').map((x) => x.nome).join(', ') || 'nenhum'}.` };
+    if (!c || c.tipo === 'loja') return { erro: `Esta tarefa não tem o campo "${k}". Os campos são: ${campos.filter((x) => x.tipo !== 'loja').map((x) => x.nome).join(', ') || 'nenhum'}.` };
   }
   const corpo: Record<string, unknown> = {};
-  for (const c of t.campos) {
+  const linhas: string[] = [];
+  for (const c of campos) {
     if (c.tipo === 'loja') {
-      if (loja.unidadeId) corpo[c.nome] = loja.unidadeId;
+      if (lojaId) corpo[c.nome] = lojaId;
       else if (c.obrigatorio) return { erro: TEXTOS_DAS_TAREFAS.semLoja };
       continue;
     }
@@ -139,20 +195,69 @@ export function pedidoDaTarefa(entrada: unknown, loja: { unidadeId: string | nul
       if (c.obrigatorio) return { erro: `Falta "${c.rotulo}" (${c.nome}).` };
       continue;
     }
+    if (c.tipo === 'lista') {
+      const max = c.maxItens ?? 50;
+      if (!Array.isArray(v) || !v.length || v.length > max) return { erro: `"${c.rotulo}" (${c.nome}) precisa ser uma lista de 1 a ${max} itens.` };
+      const itens: Record<string, unknown>[] = [];
+      linhas.push(`${marca} ${c.rotulo}: ${v.length} ${v.length === 1 ? 'item' : 'itens'}`);
+      for (let i = 0; i < v.length; i++) {
+        const x = v[i];
+        if (!x || typeof x !== 'object' || Array.isArray(x)) return { erro: `"${c.rotulo}": o item ${i + 1} precisa ter os campos ${(c.itens ?? []).map((y) => y.nome).join(', ')}.` };
+        const sub = conferirCampos(c.itens ?? [], x as Record<string, unknown>, origem, lojaId, '');
+        if ('erro' in sub) return { erro: `"${c.rotulo}", item ${i + 1}: ${sub.erro}` };
+        itens.push(sub.corpo);
+        if (i < ITENS_NO_RESUMO) linhas.push(`   – ${sub.linhas.map((l) => l.replace(/^\s*/, '')).join(' · ')}`);
+      }
+      if (v.length > ITENS_NO_RESUMO) linhas.push(`   – e mais ${v.length - ITENS_NO_RESUMO}`);
+      corpo[c.nome] = itens;
+      continue;
+    }
     const r = valorDoCampo(c, v);
     if ('erro' in r) return r;
     corpo[c.nome] = r.valor;
-    const mostrado = c.tipo === 'opcao' ? c.opcoes![r.valor as string] : c.tipo === 'id' ? (nomeNaOrigem(String(r.valor), origem) ?? `…${String(r.valor).slice(-6)}`) : String(r.valor);
-    linhas.push(`• ${c.rotulo}: ${mostrado}`);
+    const nomeDoId = (id: string) => nomeNaOrigem(id, origem) ?? `…${id.slice(-6)}`;
+    const mostrado =
+      c.tipo === 'opcao'
+        ? c.opcoes![r.valor as string]
+        : c.tipo === 'id'
+          ? nomeDoId(String(r.valor))
+          : c.tipo === 'ids'
+            ? (r.valor as string[]).map(nomeDoId).join(', ')
+            : c.tipo === 'booleano'
+              ? (r.valor ? 'sim' : 'não')
+              : c.tipo === 'numero'
+                ? Number(r.valor).toLocaleString('pt-BR', { maximumFractionDigits: 4 })
+                : String(r.valor);
+    linhas.push(`${marca ? `${marca} ` : ''}${c.rotulo}: ${mostrado}`);
   }
-  const resumo = [`${f.frase}.`, ...linhas].join('\n');
-  return { f, t, metodo, caminho, corpo, resumo };
+  return { corpo, linhas };
 }
 
 /** O valor de um campo, conferido e normalizado pelo tipo. */
 function valorDoCampo(c: CampoDaTarefa, v: unknown): { valor: unknown } | { erro: string } {
   const ruim = (como: string) => ({ erro: `"${c.rotulo}" (${c.nome}) precisa ser ${como}.` });
   switch (c.tipo) {
+    case 'numero': {
+      // "2,5" vira 2.5; nada de milhar ("1.234,5" não passa: a IA manda o número).
+      const n = typeof v === 'number' ? v : typeof v === 'string' && /^-?\d+([.,]\d+)?$/.test(v.trim()) ? Number(v.trim().replace(',', '.')) : NaN;
+      if (!Number.isFinite(n) || (c.min !== undefined && n < c.min) || (c.max !== undefined && n > c.max))
+        return ruim(`um número${c.min !== undefined ? ` de ${c.min}` : ''}${c.max !== undefined ? ` até ${c.max}` : ''}`);
+      return { valor: Math.round(n * 1e6) / 1e6 };
+    }
+    case 'booleano': {
+      if (typeof v === 'boolean') return { valor: v };
+      const s = String(v).trim().toLowerCase();
+      if (s === 'true' || s === 'sim') return { valor: true };
+      if (s === 'false' || s === 'nao' || s === 'não') return { valor: false };
+      return ruim('true ou false');
+    }
+    case 'ids': {
+      const max = c.maxItens ?? 50;
+      if (!Array.isArray(v) || !v.length || v.length > max) return ruim(`uma lista de 1 a ${max} ids que uma leitura trouxe`);
+      const ids = v.map((x) => String(x).trim().toLowerCase());
+      if (ids.some((x) => !UUID.test(x))) return ruim('uma lista de ids que uma leitura trouxe');
+      return { valor: [...new Set(ids)] };
+    }
     case 'texto': {
       if (typeof v !== 'string' && typeof v !== 'number') return ruim('um texto');
       const s = String(v).replace(/\s+/g, ' ').trim();

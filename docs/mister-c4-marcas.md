@@ -4,6 +4,12 @@ Versão 10, fase C4 (`docs/plano-mister.md`). O mapa do Regem tem 265 funções 
 
 Como ler: **Hoje** é a marca do mapa; **Proposta** só aparece quando proponho trocar — "fora do Mister" (credencial, aparelho, rotina técnica ou dado de pessoa), "só na tela" (o Mister manda o link) ou "PIN" (mexe em dinheiro, fiscal, pessoas ou apaga o que tem histórico). As ações prontas do Mister (aceitar e despachar pedido, pausar canal e produto, mudar preço, movimentar estoque, cadastrar insumo e fornecedor, criar e concluir tarefa, trocar turno, folga, contar estoque, fechar caixa, sangria, pagar e lançar conta, cupom, produto e categoria) já funcionam e não dependem desta lista.
 
+> **27/11/2026 — revisão aplicada e Onda 1 aberta.** O dono mandou "prosseguir para as 4 ondas": as propostas da coluna
+> "Proposta" das quatro ondas entraram no mapa (29 fora do Mister, 6 só na tela, 10 para PIN). A Onda 1 abriu 35 tarefas novas
+> (43 com as da C4a). Ficaram fora, de propósito: o que já tem ação pronta, as alterações que trocam o formulário inteiro, o que
+> pede um colaborador, o "submeter checklist" e os campos de foto (`docs/plano-mister.md` § "C4 Onda 1"). As Ondas 2 a 4 abrem
+> depois, uma de cada vez.
+
 ## Onda 1 — a rotina da loja (botão) — 68 funções, 3 com troca proposta
 
 | Área | Tarefa | Hoje | Proposta |

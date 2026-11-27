@@ -113,7 +113,7 @@ import { TarefaDefService } from '../tarefa/tarefa-def.service';
 import { ProdutoService } from '../produto/produto.service';
 import { TEXTOS_DAS_ACOES } from './mister-acoes';
 import { PROCEDIMENTO_DO_PEDIDO, TEXTOS_DO_PEDIDO } from './mister-pedido';
-import { TEXTOS_DAS_TAREFAS } from './mister-tarefas';
+import { PROCEDIMENTO_DA_TAREFA, TEXTOS_DAS_TAREFAS } from './mister-tarefas';
 import { MisterTarefasService } from './mister-tarefas.service';
 import { MisterPinFaladoService } from './mister-pin-falado.service';
 import { TEXTOS_DO_PIN_FALADO } from './mister-pin-falado';
@@ -4207,6 +4207,9 @@ export function testesDoMisterComPostgres(): void {
         // C4a: a busca lê "busca"; a tarefa, "rota" e "campos".
         c132: { busca: 'pedido de manutenção', rota: 'POST /api/v1/manutencao', campos: { titulo: 'Coifa da cozinha pingando', prioridade: 'alta' } },
         c133: { busca: 'criar setor', rota: 'POST /api/v1/setores', campos: { nome: 'Bar' } },
+        // C4 Onda 1: a data e a hora conferidas pelo tipo do campo; a loja do checklist vem do contexto.
+        c134: { busca: 'evento no calendário da loja', rota: 'POST /api/v1/calendario-da-loja/eventos', campos: { nome: 'Show de Natal', tipo: 'show', dia: '2026-12-24', hora: '21:00' } },
+        c135: { busca: 'criar checklist', rota: 'POST /api/v1/checklists', campos: { nome: 'Abertura do salão' } },
         c110: { acao: 'pausar_campanha', campanhaDaConversa: 'frete grátis' },
         c111: { acao: 'repetir_campanha', campanhaDaConversa: 'a última' },
         c108: { acao: 'criar_produto', nomeDoProduto: 'Smash Duplo Bacon', precoDoProduto: 34.9, categoriaDoProduto: 'Burgers' },
@@ -14336,6 +14339,49 @@ export function testesDoMisterComPostgres(): void {
           await propostasDasAcoes.responder(`prop:${id2}:sim`, quem(tel, 'ana', 'presidente'));
           expect(await esperarFim(id2)).toMatchObject({ situacao: 'nao_deu', resultado: expect.stringContaining('a tela recusou: Descreva o que está com defeito.') });
         } finally {
+          if (antes === undefined) delete process.env.MISTER_FAZER_TAREFAS;
+          else process.env.MISTER_FAZER_TAREFAS = antes;
+        }
+      });
+
+      it('C4 Onda 1: a tarefa marcada "pin" — sai com o link (sem botões), o "Autorizar" montado à mão não faz, e só o PIN na página faz o DELETE como a pessoa', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        await modulo(A, true);
+        const pinsAntes = await q(`select pin_hash from colaborador where id = $1`, [pessoa.ana]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        const escritas: any[] = [];
+        const telasDeMentira = { escrever: async (e: any, metodo: string, caminho: string, corpo: any, loja: any) => (escritas.push({ quem: e.colaboradorId, metodo, caminho, corpo, loja }), { status: 200, mensagem: '', dados: { ok: true } }) };
+        const tarefas = new MisterTarefasService(db, ferramentas, propostasDasAcoes, telasDeMentira as any, numero, auditoria);
+        tarefas.onModuleInit();
+        const antes = process.env.MISTER_FAZER_TAREFAS;
+        process.env.MISTER_FAZER_TAREFAS = '1';
+        const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          const alvo = randomUUID();
+          const r = await ferramentas.executar(e, 'fazer_no_regem', { rota: 'DELETE /api/v1/estoque/itens/{id}', parametros: { id: alvo } });
+          expect(r.ok).toBe(true);
+          expect(r.dados.siga).toBe(TEXTOS_DAS_TAREFAS.sigaDoPin);
+          expect(r.mensagens ?? []).toEqual([]);
+          expect(r.proposta).toMatchObject({ procedimento: PROCEDIMENTO_DA_TAREFA, nivel: 'pin', botoes: [] });
+          expect(r.proposta!.pergunta).toContain('autorize no Regem com o seu PIN');
+          const [linha] = await q(`select nivel, situacao from mister_proposta where id = $1`, [r.proposta!.id]);
+          expect(linha).toEqual({ nivel: 'pin', situacao: 'proposta' });
+          // O botão montado à mão não autoriza a de PIN.
+          await propostasDasAcoes.responder(`prop:${r.proposta!.id}:sim`, quem(tel, 'ana', 'presidente'));
+          await new Promise((res) => setTimeout(res, 200));
+          expect(escritas).toEqual([]);
+          // O link mostra o que vai ser feito; o PIN certo faz o DELETE como a Ana, com o corpo vazio.
+          const c = codigo(await propostasDasAcoes.enviarLink(r.proposta!.id, pessoa.ana, tel, r.proposta!.pergunta));
+          expect(c).toHaveLength(32);
+          const vista = await propostasDasAcoes.verPeloLink(c);
+          expect(vista).toMatchObject({ titulo: expect.any(String) });
+          await propostasDasAcoes.autorizarPeloLink(c, '2580');
+          expect(await esperarFim(r.proposta!.id)).toMatchObject({ situacao: 'feita' });
+          expect(escritas).toEqual([{ quem: pessoa.ana, metodo: 'DELETE', caminho: `/api/v1/estoque/itens/${alvo}`, corpo: {}, loja: expect.anything() }]);
+        } finally {
+          await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, pinsAntes[0]?.pin_hash ?? null]);
           if (antes === undefined) delete process.env.MISTER_FAZER_TAREFAS;
           else process.env.MISTER_FAZER_TAREFAS = antes;
         }

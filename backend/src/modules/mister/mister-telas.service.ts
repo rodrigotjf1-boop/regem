@@ -228,7 +228,7 @@ export class MisterTelasService {
    */
   async escrever(
     e: EscopoDoMister,
-    metodo: 'POST' | 'PUT' | 'PATCH',
+    metodo: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     caminho: string,
     corpo: Record<string, unknown>,
     lojaAtual: string | null,
