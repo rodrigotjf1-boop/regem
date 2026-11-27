@@ -1583,9 +1583,13 @@ export class MisterFerramentasService {
       left join fornecedor f on f.id = t.fornecedor_id
       where t.tenant_id = ${e.tenantId} and t.status = 'aberto' ${sqlUnidade('t.unidade_id', loja.atual)} ${filtro}`;
     const totais = linhas(await this.db.execute(sql`select t.tipo, count(*)::int as n, coalesce(sum(t.valor), 0) as v, ${colunas} ${de} and t.tipo in ('pagar', 'receber') group by t.tipo`));
+    // O código do boleto lançado por foto (o documento do Mister que virou esta conta): a linha digitável e o Pix copia e cola
+    // lidos e conferidos na foto — para a pessoa pedir "me manda o código do boleto da JFC" e pagar.
     const proximas = linhas(
       await this.db.execute(sql`
-        select t.descricao, f.nome as fornecedor, t.valor, t.vencimento::text as vencimento
+        select t.descricao, f.nome as fornecedor, t.valor, t.vencimento::text as vencimento, t.foto_ref is not null as "temFoto",
+               (select d.linha_digitavel from mister_documento d where d.titulo_id = t.id and d.tenant_id = t.tenant_id order by d.criado_em desc limit 1) as "linhaDigitavel",
+               (select d.dados ->> 'pix' from mister_documento d where d.titulo_id = t.id and d.tenant_id = t.tenant_id order by d.criado_em desc limit 1) as pix
         ${de} and t.tipo = 'pagar'
         order by t.vencimento asc nulls last, t.created_at desc, t.id
         limit 12`),
@@ -1614,6 +1618,10 @@ export class MisterFerramentasService {
           valor: dinheiro(p.valor),
           vencimento: p.vencimento ? diaMes(String(p.vencimento)) : null,
           situacao: situacao(p.vencimento ? String(p.vencimento) : null),
+          // O código para pagar: só com os valores liberados (o mesmo de quem vê a conta na tela).
+          ...(e.verValores && p.linhaDigitavel ? { linhaDigitavel: String(p.linhaDigitavel).slice(0, 60) } : {}),
+          ...(e.verValores && p.pix ? { pixCopiaECola: String(p.pix).slice(0, 512) } : {}),
+          ...(p.temFoto ? { fotoGuardada: true } : {}),
         })),
         ...(e.verValores ? {} : { aviso: SEM_VALORES }),
       },

@@ -30,6 +30,7 @@ import { DOCUMENTO_ABERTO_H, lerInformado } from './mister-documento-conversa';
 import { PdfDoDocumento, gerarPdfDoDocumento, nomeDoPdf } from './documento-pdf';
 import { MisterNumeroService } from './mister-numero.service';
 import { Resposta } from './mister.regras';
+import { MidiaService } from '../midia/midia.service';
 
 const DIAS_DA_LISTA = [7, 30, 90] as const;
 /** Para achar o boleto pelo nome dito (M3g): minúsculas, sem acento. */
@@ -132,7 +133,25 @@ export class MisterDocumentosService implements OnModuleInit {
     @Optional() private readonly auditoria?: AuditoriaService,
     // M3b: a nota do fornecedor (a leitura dos itens, as perguntas e o lançamento pelo recebimento) mora à parte.
     @Optional() private readonly notas?: MisterNotasService,
+    // 27/11/2026 (pedido do dono): a foto do boleto, da conta ou da nota fica guardada na conta a pagar que o Mister lança.
+    @Optional() private readonly midia?: MidiaService,
   ) {}
+
+  /**
+   * Guarda a foto (imagem; o PDF fica de fora) na mídia da empresa e devolve o endereço, que vai para a conta a pagar no
+   * lançamento (`foto_ref`, o mesmo campo da tela). Nunca derruba a leitura: sem a mídia, a conta entra sem a foto.
+   */
+  private async guardarFoto(tenantId: string, buffer: Buffer, tipo: string): Promise<string | null> {
+    if (!this.midia || !tipo.startsWith('image/')) return null;
+    try {
+      const r: any = await this.midia.uploadBuffer(tenantId, buffer);
+      const url = typeof r === 'string' ? r : (r?.url ?? r?.publicUrl ?? null);
+      return typeof url === 'string' && url ? url.slice(0, 500) : null;
+    } catch (e: any) {
+      this.logger.warn(`documento de ${tenantId.slice(0, 8)}: a foto não foi guardada — ${e?.message ?? e}`);
+      return null;
+    }
+  }
 
   /** A foto e os botões chegam pela entrada do WhatsApp, que mora no módulo de baixo. */
   onModuleInit(): void {
@@ -216,12 +235,17 @@ export class MisterDocumentosService implements OnModuleInit {
     }
     const fornecedor = await this.fornecedorDe(quem.tenantId, leitura.cnpj, leitura.beneficiario);
     const decisao = decidirDocumento(leitura, !!fornecedor, await this.modoDoBoleto(quem.tenantId));
+    // 27/11/2026: a leitura que vira conta (boleto, conta, nota) guarda a foto, para ela ir à conta a pagar no lançamento.
+    const fotoRef =
+      decisao.acao === 'perguntar' || decisao.acao === 'confirmar' || decisao.acao === 'lancar' || (decisao.acao === 'nota' && this.notas?.ligadas())
+        ? await this.guardarFoto(quem.tenantId, arquivo.buffer, tipo)
+        : null;
 
     switch (decisao.acao) {
       case 'nota':
         // M3b: com as notas ligadas, a leitura dos itens e a conversa (sempre pergunta antes de lançar).
         if (this.notas?.ligadas()) {
-          await this.notas.receber(quem, wamid, bloco, this.modelo());
+          await this.notas.receber(quem, wamid, bloco, this.modelo(), fotoRef);
           return true;
         }
         await this.registrar(quem, wamid, { tipo: 'nota', situacao: 'recusado', motivo: 'nota' });
@@ -236,11 +260,11 @@ export class MisterDocumentosService implements OnModuleInit {
         await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.outraFoto(decisao.porque) });
         return true;
       case 'perguntar':
-        await this.registrar(quem, wamid, { tipo: decisao.dados.tipo, situacao: 'falta', motivo: decisao.falta.join(','), dados: decisao.dados, fornecedorId: fornecedor });
+        await this.registrar(quem, wamid, { tipo: decisao.dados.tipo, situacao: 'falta', motivo: decisao.falta.join(','), dados: decisao.dados, fornecedorId: fornecedor, fotoRef });
         await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.perguntar(decisao.falta) });
         return true;
       case 'confirmar': {
-        const id = await this.registrar(quem, wamid, { tipo: decisao.dados.tipo, situacao: 'confirmar', motivo: decisao.porque, dados: decisao.dados, fornecedorId: fornecedor });
+        const id = await this.registrar(quem, wamid, { tipo: decisao.dados.tipo, situacao: 'confirmar', motivo: decisao.porque, dados: decisao.dados, fornecedorId: fornecedor, fotoRef });
         if (!id) return true;
         await this.falar(quem.telefone, {
           texto: FRASES_DO_DOCUMENTO.confirmar(decisao.dados, decisao.porque),
@@ -249,7 +273,7 @@ export class MisterDocumentosService implements OnModuleInit {
         return true;
       }
       case 'lancar': {
-        const id = await this.registrar(quem, wamid, { tipo: decisao.dados.tipo, situacao: 'confirmar', motivo: 'sozinho', dados: decisao.dados, fornecedorId: fornecedor });
+        const id = await this.registrar(quem, wamid, { tipo: decisao.dados.tipo, situacao: 'confirmar', motivo: 'sozinho', dados: decisao.dados, fornecedorId: fornecedor, fotoRef });
         if (!id) return true;
         const titulo = await this.lancar(id, quem.tenantId, quem.colaboradorId, quem.unidadeId);
         if (!titulo) {
@@ -800,7 +824,7 @@ export class MisterDocumentosService implements OnModuleInit {
       await this.db.execute(sql`
         update mister_documento set situacao = 'lancado', respondido_em = now(), atualizado_em = clock_timestamp()
          where id = ${documentoId}::uuid and tenant_id = ${tenantId}::uuid and situacao = 'confirmar'
-        returning tipo, valor_centavos as "valorCentavos", vencimento::text as vencimento, beneficiario, fornecedor_id::text as "fornecedorId"`),
+        returning tipo, valor_centavos as "valorCentavos", vencimento::text as vencimento, beneficiario, fornecedor_id::text as "fornecedorId", dados ->> 'fotoRef' as "fotoRef"`),
     );
     if (!d || d.valorCentavos == null) return null;
     try {
@@ -814,6 +838,8 @@ export class MisterDocumentosService implements OnModuleInit {
           valor: Number(d.valorCentavos) / 100,
           vencimento: d.vencimento ?? undefined,
           fornecedorId: d.fornecedorId ?? undefined,
+          // 27/11/2026: a foto do boleto ou da conta, guardada na leitura, fica na conta a pagar (a mesma da tela).
+          ...(d.fotoRef ? { fotoRef: d.fotoRef } : {}),
         } as any,
         unidadeId,
         { origem: 'mister' },
@@ -832,7 +858,7 @@ export class MisterDocumentosService implements OnModuleInit {
   private async registrar(
     quem: QuemMandou,
     wamid: string | null,
-    r: { tipo: string; situacao: string; motivo: string; dados?: DadosDoLancamento; fornecedorId?: string | null },
+    r: { tipo: string; situacao: string; motivo: string; dados?: DadosDoLancamento; fornecedorId?: string | null; fotoRef?: string | null },
   ): Promise<string | null> {
     const d = r.dados;
     const [linha] = linhas(
@@ -842,7 +868,7 @@ export class MisterDocumentosService implements OnModuleInit {
         values (${quem.tenantId}::uuid, ${quem.unidadeId}::uuid, ${quem.colaboradorId}::uuid, ${quem.telefone.slice(-4)}, ${wamid},
                 ${r.tipo}, ${r.situacao}, ${r.motivo}, ${d?.valorCentavos ?? null}, ${d?.vencimento ?? null}::date, ${d?.beneficiario ?? null},
                 ${r.fornecedorId ?? null}::uuid, ${d?.boleto?.linhaDigitavel ?? null}, ${d?.boleto?.codigoDeBarras ?? null},
-                ${JSON.stringify(d ? { origem: d.origem, vencimento: d.vencimento, cnpj: d.cnpj, ...(d.pix ? { pix: d.pix } : {}) } : {})}::jsonb)
+                ${JSON.stringify(d ? { origem: d.origem, vencimento: d.vencimento, cnpj: d.cnpj, ...(d.pix ? { pix: d.pix } : {}), ...(r.fotoRef ? { fotoRef: r.fotoRef } : {}) } : {})}::jsonb)
         on conflict (wamid) where wamid is not null do nothing
         returning id::text as id`),
     );

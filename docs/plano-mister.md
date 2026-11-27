@@ -984,6 +984,12 @@ decisões (todas as recomendadas; detalhe no changelog de `docs/decisoes-design.
   loja; 3 dias, 1 dia ou só no dia), com a linha digitável e o "Já paguei" — e o pagar/estornar da tela uma vez só (ERR-506).
 - **Parte 4b (sem migration):** "Ver o PDF" (na conversa e na gaveta), o PDF com o código de barras desenhado (ITF), o envio
   de documento pelo número do Mister e o Pix copia e cola IMPRESSO (a IA transcreve, o CRC16 confere).
+- **Parte 5 — o código e a foto na conta (27/11/2026, pedido do dono; ERR-634; sem migration):** a pergunta pela conversa
+  ("qual o código do boleto da X?") traz a linha digitável e o Pix copia e cola guardados no documento: a ferramenta
+  `contas_a_pagar_e_receber` junta o `mister_documento` da conta, só para quem vê valores, e a descrição manda o código
+  inteiro, sozinho numa linha. Antes, só o aviso de vencimento juntava o documento, e o Mister respondia que não conseguia
+  extrair o código. A foto (só imagem; o PDF não) vai ao Storage e fica no documento (`dados.fotoRef`), na conta a pagar
+  (`titulo_financeiro.foto_ref`) e no recebimento da nota (`nota_foto_ref`). Se o Storage falha, lança sem a foto.
 - **Falta da M3a:** só o Pix que vem apenas em QR (sem o texto impresso) — ler QR sem IA pede uma biblioteca nova de imagem
   no backend; decisão do dono.
 
