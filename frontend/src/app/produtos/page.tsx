@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken, podeVerFinanceiro } from '@/lib/api';
+import { valorOpcionalDaEdicao } from '@/lib/campo-opcional';
 import { toast } from '@/lib/toast';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -76,6 +77,9 @@ export default function ProdutosPage() {
   const [com99, setCom99] = useState(false);
   const [ondeVende, setOndeVende] = useState<OndeVende>(ONDE_VENDE_NOVO);
   const [antesDeVenda, setAntesDeVenda] = useState<EstadoDeVenda | null>(null);
+  // O custo manual e o preço promocional como vieram do servidor: esvaziar o campo LIMPA (manda null); vazio que já era
+  // vazio não manda nada (ERR-636, `lib/campo-opcional.ts`).
+  const valoresAntes = useRef<{ precoCusto: string; precoPromocional: string }>({ precoCusto: '', precoPromocional: '' });
 
   // categoria rápida
   const [catNome, setCatNome] = useState('');
@@ -114,6 +118,7 @@ export default function ProdutosPage() {
 
   function novo() {
     setEditId(null);
+    valoresAntes.current = { precoCusto: '', precoPromocional: '' };
     setF(vazio());
     setOndeVende(ONDE_VENDE_NOVO);
     setAntesDeVenda(null);
@@ -206,6 +211,7 @@ export default function ProdutosPage() {
       // "Custo (calculado)" ficava sempre em "Calculado ao salvar" ao editar.
       const daLista: any = (produtos as any[]).find((x) => x.id === id);
       setAntesDeVenda(estadoDeVenda(p));
+      valoresAntes.current = { precoCusto: String(p.precoCusto ?? ''), precoPromocional: String(p.precoPromocional ?? '') };
       setEditId(id);
       setModalAba('info');
       setFormAberto(true);
@@ -304,8 +310,8 @@ export default function ProdutosPage() {
         tipo: f.tipo,
         unidadeMedida: f.unidadeMedida || 'unidade',
         precoVenda: Number(String(f.precoVenda).replace(',', '.')) || 0,
-        precoCusto:
-          f.precoCusto !== '' ? Number(String(f.precoCusto).replace(',', '.')) : undefined,
+        // Esvaziar o custo manual volta ao custo calculado (null limpa no servidor; ausente mantinha o 0 — ERR-636).
+        precoCusto: valorOpcionalDaEdicao(f.precoCusto, valoresAntes.current.precoCusto),
         controlaEstoque: f.controlaEstoque,
         validadeDias: f.validadeDias !== '' ? Number(f.validadeDias) : undefined,
         controlaValidade: f.controlaValidade,
@@ -315,7 +321,7 @@ export default function ProdutosPage() {
         setorProducaoId: f.setorProducaoId || undefined,
         tempoPreparoMin: f.tempoPreparoMin !== '' ? Number(f.tempoPreparoMin) : undefined,
         imagemRef: f.imagemRef || undefined,
-        precoPromocional: f.precoPromocional !== '' ? Number(String(f.precoPromocional).replace(',', '.')) : undefined,
+        precoPromocional: valorOpcionalDaEdicao(f.precoPromocional, valoresAntes.current.precoPromocional),
         disponivelCardapio: f.disponivelCardapio,
         disponivelBalcao: f.disponivelBalcao,
         destaque: f.destaque,
