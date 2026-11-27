@@ -113,3 +113,24 @@ begin
     end if;
   end loop;
 end $$;
+
+-- A conferência no MESMO Run: cada entrada errada que existe neste banco termina com UMA correção (ou ficou de fora por um ajuste
+-- feito à mão depois). Senão, nada desta migration fica.
+do $$
+declare
+  v_problema text;
+begin
+  select string_agg(m.id::text, ', ') into v_problema
+    from movimento_estoque m
+   where m.id in ('1707f0dc-b243-4fd2-be86-4d8a8d4d90df', '69223773-6eb3-4fbd-b7c8-e7bb9ef7324e', '98472980-d267-4fb5-b659-5f50c74d018e',
+                  '63b39197-babf-4e99-9f9d-a799115457af', 'e7725689-ca7e-4781-9b07-4e0b38d2ca06')
+     and m.tipo = 'entrada'
+     and (select count(*) from movimento_estoque c where c.id = md5('err628:' || m.id::text)::uuid) <> 1
+     and not exists (
+       select 1 from movimento_estoque x
+        where x.tenant_id = m.tenant_id and x.item_id = m.item_id and x.tipo = 'ajuste' and x.created_at > m.created_at
+          and x.id <> md5('err628:' || m.id::text)::uuid);
+  if v_problema is not null then
+    raise exception 'ERR-628: a correção não fechou para a entrada %', v_problema;
+  end if;
+end $$;
