@@ -159,3 +159,53 @@ describe('C4 Onda 1 · os campos novos e a exclusão', () => {
     });
   });
 });
+
+describe('C4 Onda 2 · delivery e cardápio', () => {
+  const ID2 = '33333333-3333-4333-8333-333333333333';
+  const marca = (rota: string) => (pedidoDaTarefa({ rota, parametros: { id: ID, opcaoId: ID2 }, campos: {} }, LOJA) as any).f?.marca ?? funcaoDoMapa(rota)?.marca;
+
+  it('as marcas: excluir o produto, o preço do complemento no app e na etapa e o custo em massa pedem o PIN; o resto é botão', () => {
+    for (const r of ['DELETE /api/v1/produtos/{id}', 'PUT /api/v1/produtos/opcoes/{id}/preco-canal', 'PUT /api/v1/produtos/complementos-catalogo/{id}/opcoes/{opcaoId}/preco', 'PATCH /api/v1/produtos/opcoes/massa/preco']) {
+      expect([r, funcaoDoMapa(r)?.marca]).toEqual([r, 'pin']);
+    }
+    for (const r of ['POST /api/v1/delivery/pausas/estender', 'PATCH /api/v1/delivery/pix-prioritario', 'DELETE /api/v1/produtos/categorias/{id}', 'POST /api/v1/produtos/{id}/duplicar', 'DELETE /api/v1/produtos/opcoes/{id}']) {
+      expect([r, funcaoDoMapa(r)?.marca]).toEqual([r, 'botao']);
+    }
+    expect(marca('DELETE /api/v1/produtos/{id}')).toBe('pin');
+  });
+
+  it('o aviso e a situação "vindos da loja" são da credencial do servidor da loja: interna e fora das tarefas', () => {
+    for (const r of ['POST /api/v1/delivery/aviso-da-loja', 'POST /api/v1/delivery/status-da-loja']) {
+      expect(funcaoDoMapa(r)?.marca).toBe('interna');
+      expect(TAREFAS_ABERTAS.some((t) => t.rota === r)).toBe(false);
+    }
+    // As mudanças de situação do pedido ficam com as ações prontas (o id do pedido só vem com dado de cliente).
+    expect(TAREFAS_ABERTAS.some((t) => t.rota.startsWith('POST /api/v1/delivery/pedidos'))).toBe(false);
+  });
+
+  it('estender a pausa: o canal da lista e os minutos de 10 a 30', () => {
+    const e = pedidoDaTarefa({ rota: 'POST /api/v1/delivery/pausas/estender', campos: { canal: 'food99', minutos: 20 } }, LOJA) as any;
+    expect([e.metodo, e.caminho, e.corpo]).toEqual(['POST', '/api/v1/delivery/pausas/estender', { canal: 'food99', minutos: 20 }]);
+    expect(e.resumo).toContain('Canal: 99');
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/delivery/pausas/estender', campos: { canal: 'regem', minutos: 10 } }, LOJA)).toHaveProperty('erro', expect.stringContaining('cardapio'));
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/delivery/pausas/estender', campos: { canal: 'ifood', minutos: 60 } }, LOJA)).toHaveProperty('erro', expect.stringContaining('Mais minutos'));
+  });
+
+  it('o preço do complemento na etapa: os dois ids no caminho e a vírgula vira ponto', () => {
+    const p = pedidoDaTarefa({ rota: 'PUT /api/v1/produtos/complementos-catalogo/{id}/opcoes/{opcaoId}/preco', parametros: { id: ID, opcaoId: ID2 }, campos: { valor: '4,50' } }, LOJA) as any;
+    expect([p.metodo, p.caminho, p.corpo]).toEqual(['PUT', `/api/v1/produtos/complementos-catalogo/${ID}/opcoes/${ID2}/preco`, { valor: 4.5 }]);
+    expect(pedidoDaTarefa({ rota: 'PUT /api/v1/produtos/complementos-catalogo/{id}/opcoes/{opcaoId}/preco', parametros: { id: ID }, campos: { valor: 4.5 } }, LOJA)).toHaveProperty('erro', expect.stringContaining('opcaoId'));
+    expect(pedidoDaTarefa({ rota: 'PUT /api/v1/produtos/opcoes/{id}/preco-canal', parametros: { id: ID }, campos: { canal: 'regem', valor: 3 } }, LOJA)).toHaveProperty('erro', expect.stringContaining('99food'));
+  });
+
+  it('vender sem saldo e a pausa da opção pedem o sim ou não; o custo em massa pede a lista e o valor', () => {
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/produtos/{id}/permite-negativo', parametros: { id: ID } }, LOJA)).toHaveProperty('erro', expect.stringContaining('Vender sem saldo'));
+    const n = pedidoDaTarefa({ rota: 'POST /api/v1/produtos/{id}/permite-negativo', parametros: { id: ID }, campos: { ativo: false } }, LOJA) as any;
+    expect(n.corpo).toEqual({ ativo: false });
+    const o = pedidoDaTarefa({ rota: 'PUT /api/v1/produtos/opcoes/{id}/pausa-canal', parametros: { id: ID }, campos: { canal: '99food', pausado: true } }, LOJA) as any;
+    expect(o.corpo).toEqual({ canal: '99food', pausado: true });
+    expect(pedidoDaTarefa({ rota: 'PATCH /api/v1/produtos/opcoes/massa/preco', campos: { ids: [ID, ID2] } }, LOJA)).toHaveProperty('erro', expect.stringContaining('Custo'));
+    const m = pedidoDaTarefa({ rota: 'PATCH /api/v1/produtos/opcoes/massa/preco', campos: { ids: [ID, ID2], precoCusto: 1.25 } }, LOJA) as any;
+    expect(m.corpo).toEqual({ ids: [ID, ID2], precoCusto: 1.25 });
+  });
+});

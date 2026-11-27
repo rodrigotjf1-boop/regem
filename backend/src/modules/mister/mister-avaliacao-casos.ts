@@ -1603,6 +1603,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // C4 Onda 1 (27/11): as tarefas novas do mapa — o evento do calendário (data e hora) e o checklist da loja.
   { id: 'c134', pergunta: 'Coloca no calendário da loja: dia 24/12 tem show de Natal às 21h.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['Natal'] },
   { id: 'c135', pergunta: 'Cria um checklist novo chamado Abertura do salão.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['Abertura do salão'] },
+  // C4 Onda 2 (27/11): delivery e cardápio — estender a pausa que já está valendo e o Pix prioritário do cardápio.
+  { id: 'c136', pergunta: 'Estende a pausa do iFood por mais 10 minutos.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['iFood', '10'] },
+  { id: 'c137', pergunta: 'Muda o Pix do cardápio para sair pelo Mercado Pago.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['Mercado Pago'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────
