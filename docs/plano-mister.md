@@ -3129,6 +3129,37 @@ neste servidor"). Corrigido com `forwardRef`; o `app-sobe.spec.ts` passou a repr
   as áreas seguintes entram do mesmo jeito.
 - **Para ligar:** `MISTER_LER_TELAS=1` (a busca) e `MISTER_FAZER_TAREFAS=1`, depois da avaliação real.
 
+### C4 Onda 1 — a rotina da loja (27/11/2026; SEM migration; só na nuvem; vale com `MISTER_FAZER_TAREFAS=1`)
+
+- **O pedido do dono:** "prosseguir para as 4 ondas", sobre a lista `docs/mister-c4-marcas.md`, com a avaliação de 26/11 (129 de
+  133).
+- **As marcas revisadas** (`mapa-do-regem.ts`), as propostas da lista inteira aplicadas de uma vez:
+  - 29 viraram `interna`: credencial, aparelho, rotina técnica ou dado de pessoa;
+  - 6 viraram `tela`;
+  - 10 passaram de botão para `pin`: apagam o que tem histórico, emitem nota, mexem no ponto ou em candidato, ou geram a escala.
+  - Depois da revisão (com as 5 dos dias especiais, H1a): le 264 · botao 148 · pin 82 · tela 179 · interna 632.
+- **As 35 tarefas novas** (`tarefas-abertas.ts`, agora 43 com as 8 da C4a): estoque, pedidos de compra (o que faltou, receber
+  com a lista de itens), recebimento, fornecedores, fichas técnicas (criar, campos simples, ingredientes, embalagem), contagem,
+  tarefas do dia, checklists (criar, itens, publicar), manutenção (decisão de 15 dias, excluir), desperdício, tipos de
+  ocorrência, vistorias, calendário da loja e as exclusões de dias especiais, picos, setores, turnos e funções.
+- **Os tipos de campo novos** (`mister-tarefas.ts`): número com casas (a vírgula vira ponto), sim/não, lista de ids e LISTA de
+  itens (cada item com os seus campos, conferidos como os de fora, até `maxItens`).
+- **A exclusão:** `DELETE` com o corpo `{}`, ou com o que a rota pede (o motivo de excluir a tarefa do dia). O bilhete do Mister
+  aceita o método DELETE e o guarda confere método, caminho e corpo como na escrita.
+- **A tarefa de PIN:** a marca `pin` do mapa sai com o link "Abrir no Regem" (nível pin, sem botões), como as ações de PIN; a
+  página mostra o que vai ser feito (`apresentacaoDaTarefa`) e só o PIN certo faz. O gerente também pode pedir as tarefas da
+  empresa dele. Pela conexão por QR Code, a de PIN funciona (o link), a de botão não.
+- **Fora desta onda, de propósito:** o que já tem ação pronta com conferência própria; as alterações que ZERAM o que não vem (a
+  tela manda o formulário inteiro: lista de contagem, dia especial, função, pico, turno, evento, tarefa do dia); o que pede um
+  colaborador (V10-4); o "submeter checklist" (só a supervisão) e os campos de foto.
+- **Os testes:**
+  - a conferência dos tipos novos, a lista, o número, o sim/não, os ids, a exclusão e a marca de cada tarefa;
+  - de ponta a ponta com Postgres e HTTP: o DELETE pelo bilhete apaga a certa, o bilhete do GET não apaga, o do DELETE não serve
+    a outro registro e o gerente sem permissão recebe 403;
+  - pela proposta: a tarefa de PIN sai com o link, o botão montado à mão não faz e só o PIN na página faz o DELETE como a pessoa;
+  - a avaliação: c134 (o show de Natal no calendário) e c135 (o checklist da abertura do salão), 135 perguntas.
+- **Depois:** as Ondas 2, 3 e 4 da lista, uma de cada vez, e a avaliação real de novo (as instruções mudaram).
+
 ### C6b — pedir ao presidente (26/11/2026, #1362, NO AR; SEM migration; só na nuvem; nasce DESLIGADO, `MISTER_PEDIR_AO_PRESIDENTE=1`)
 
 - **O caso** (protótipo, "O seu perfil não pode"): o gerente pede o que o perfil dele não faz (guardar o saldo, pagar o

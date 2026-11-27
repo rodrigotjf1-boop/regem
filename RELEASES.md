@@ -47,6 +47,9 @@
   (`auth/bilhete-do-mister.ts`) passa a guardar o método e o resumo do corpo, e o `JwtAuthGuard` confere os dois na escrita. Vai
   no próximo `.zip` só por ser código comum: no servidor da loja nenhum bilhete é emitido, o cabeçalho dá 401 e o resto não
   muda. Não pede `.exe`.
+- _(Mister C4 Onda 1 — a rotina da loja pelo mapa (27/11): SEM migration. As marcas revisadas e as 35 tarefas novas são só da
+  nuvem. O bilhete aceita o método DELETE: vai no próximo `.zip` por ser código comum, sem efeito no servidor da loja (lá
+  nenhum bilhete é emitido). Não pede `.exe`.)_
 - **Mister C7 — aprender pela tarefa feita (26/11; mig 508, só na nuvem).** O `sync-daemon.mjs` ganhou `mister_aprendizado` na
   lista das tabelas só da nuvem (SO_NUVEM). Na loja não muda nada: a tabela não existe no banco dela e nada a escreve. Vai no
   próximo `.exe` por ter tocado o `sync-daemon` (sem pressa; o daemon antigo não lê a tabela).

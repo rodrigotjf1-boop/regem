@@ -8,7 +8,7 @@ import { createHash, randomBytes } from 'node:crypto';
 // módulos ligados, a loja (`@UnidadeAtual`) e o filtro da empresa em toda consulta.
 //
 //  • O bilhete vale UMA chamada, por 30 segundos, para UM caminho exato (com a consulta) e UM método — GET na leitura (C3); na
-//    tarefa (C4), POST/PUT/PATCH com o resumo do corpo EXATO que o Mister mandou. O primeiro uso o gasta, dê certo ou não. São
+//    tarefa (C4), POST/PUT/PATCH/DELETE com o resumo do corpo EXATO que o Mister mandou (na exclusão, `{}`). O primeiro uso o gasta, dê certo ou não. São
 //    32 bytes aleatórios: não se adivinha, e só existe na memória deste processo.
 //  • Não é sessão nem token: não abre o tempo real, não entra em "Sair", não serve em outro servidor. No servidor da loja
 //    (onde o Mister não roda) a lista fica vazia, e quem mandar o cabeçalho recebe 401.
@@ -28,7 +28,7 @@ export interface Bilhete {
    * C4 (fazer uma tarefa): o método que o bilhete abre (sem ele, GET) e o resumo (sha-256) do corpo EXATO que o Mister mandou —
    * a escrita só passa com o mesmo método, o mesmo caminho e o mesmo corpo.
    */
-  metodo?: 'GET' | 'POST' | 'PUT' | 'PATCH';
+  metodo?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   corpoHash?: string | null;
   vence: number;
 }

@@ -1600,6 +1600,9 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // Versão 10, C4a (26/11): o que nenhuma ação pronta faz — procurar a tarefa no mapa e propor com os campos.
   { id: 'c132', pergunta: 'Abre um pedido de manutenção: a coifa da cozinha está pingando, prioridade alta.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['coifa'] },
   { id: 'c133', pergunta: 'Cria um setor novo chamado Bar.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['Bar'] },
+  // C4 Onda 1 (27/11): as tarefas novas do mapa — o evento do calendário (data e hora) e o checklist da loja.
+  { id: 'c134', pergunta: 'Coloca no calendário da loja: dia 24/12 tem show de Natal às 21h.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['Natal'] },
+  { id: 'c135', pergunta: 'Cria um checklist novo chamado Abertura do salão.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['Abertura do salão'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

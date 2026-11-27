@@ -156,6 +156,31 @@ descrever('o bilhete do Mister lê a tela como a pessoa (Postgres e HTTP de verd
     expect(bilhetesVivos()).toBe(0);
   });
 
+  it('C4 Onda 1: a exclusão pela API com o bilhete do DELETE — apaga a certa; o bilhete do GET não apaga e o do DELETE não serve a outra loja', async () => {
+    const a = await empresa('presidente', {});
+    const [{ id: alvo }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja a apagar') returning id`, [a.t]);
+    const [{ id: outra }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja que fica') returning id`, [a.t]);
+    // O bilhete do GET não abre o DELETE.
+    const doGet = emitirBilhete({ tenantId: a.t, colaboradorId: a.id, caminho: `/api/v1/unidades/${alvo}` });
+    const del1 = await fetch(`${base}/api/v1/unidades/${alvo}`, { method: 'DELETE', headers: { [CABECALHO_DO_BILHETE]: doGet, 'content-type': 'application/json' }, body: '{}' });
+    expect(del1.status).toBe(401);
+    // O bilhete do DELETE de uma loja não apaga outra.
+    const deUma = emitirBilhete({ tenantId: a.t, colaboradorId: a.id, caminho: `/api/v1/unidades/${alvo}`, metodo: 'DELETE', corpoHash: resumoDoCorpo({}) });
+    const del2 = await fetch(`${base}/api/v1/unidades/${outra}`, { method: 'DELETE', headers: { [CABECALHO_DO_BILHETE]: deUma, 'content-type': 'application/json' }, body: '{}' });
+    expect(del2.status).toBe(401);
+    expect(await q(`select id from unidade where tenant_id = $1 and deleted_at is not null`, [a.t])).toEqual([]);
+    // Pelo caminho do Mister: apaga a certa, e só ela.
+    const r = await telas.escrever(escopo(a), 'DELETE', `/api/v1/unidades/${alvo}`, {}, null);
+    expect(r?.status).toBe(200);
+    expect(await q(`select id from unidade where tenant_id = $1 and deleted_at is not null`, [a.t])).toEqual([{ id: alvo }]);
+    // O gerente: a mesma trava da tela (403), e nada apagado.
+    const g = await empresa('gerente', {});
+    const [{ id: daG }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja do gerente') returning id`, [g.t]);
+    expect((await telas.escrever(escopo(g, 'gerente'), 'DELETE', `/api/v1/unidades/${daG}`, {}, null))?.status).toBe(403);
+    expect(await q(`select 1 from unidade where id = $1 and deleted_at is null`, [daG])).toHaveLength(1);
+    expect(bilhetesVivos()).toBe(0);
+  });
+
   it('com a sessão do PIN pendente, a leitura espera o PIN e nem chama a API', async () => {
     const a = await empresa('presidente', {});
     expect(await telas.ler({ ...escopo(a), pinPendente: true }, { rota: 'GET /api/v1/unidades' }, LOJA)).toEqual(recusaDaTela(TEXTOS_DAS_TELAS.esperaOPin));

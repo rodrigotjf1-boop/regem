@@ -59,7 +59,7 @@ import { apresentacaoDaCampanha } from './mister-acoes-campanha';
 import { ACOES_DE_PIN, TEXTOS_DAS_ACOES, apresentacaoDaBaixa, apresentacaoDoHorario, apresentacaoDoPreco, ehAcaoDoMister, ehDadoInformado } from './mister-acoes';
 import { PROCEDIMENTO_DO_PLANO, RESULTADO_DO_PLANO_TROCADO, TEXTOS_DO_PLANO } from './mister-plano';
 import { PROCEDIMENTO_DO_PEDIDO, TEXTOS_DO_PEDIDO, quemPediu, resumoGuardado } from './mister-pedido';
-import { PROCEDIMENTO_DA_TAREFA } from './mister-tarefas';
+import { PROCEDIMENTO_DA_TAREFA, apresentacaoDaTarefa } from './mister-tarefas';
 import { TEXTOS_DO_PIN_FALADO, pinFaladoLigado } from './mister-pin-falado';
 import { IaEmpresaService } from '../ia/ia-empresa.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
@@ -937,11 +937,13 @@ export class MisterPropostasService implements OnModuleInit {
     if ((p.procedimento === 'incluir_marcacao' || p.procedimento === 'desconsiderar_marcacao') && p.parametros?.colaboradorAlvo) apresentacao = apresentacaoDoPonto(p.parametros);
     if (p.procedimento === 'promocao_do_produto' && p.parametros?.produtoId) apresentacao = apresentacaoDaPromocao(p.parametros);
     if (p.procedimento === 'repetir_campanha' && p.parametros?.campanhaId) apresentacao = apresentacaoDaCampanha(p.parametros);
+    // C4 Onda 1: a tarefa de PIN pelo mapa mostra o "Vou fazer" montado pelo Regem.
+    if (p.procedimento === PROCEDIMENTO_DA_TAREFA && p.parametros?.resumo) apresentacao = apresentacaoDaTarefa(p.parametros);
     return {
       estado: estadoDoLink(p),
       empresa: String(p.empresa ?? ''),
       ...apresentacao,
-      pedidoPor: `Pedido pelo Mister às ${horaNoFuso(new Date(p.criadaEm))}, para ${nome}${p.procedimento === 'abrir_sessao' || ehAcaoDoMister(p.procedimento) ? '' : ' (presidente)'}.`,
+      pedidoPor: `Pedido pelo Mister às ${horaNoFuso(new Date(p.criadaEm))}, para ${nome}${p.procedimento === 'abrir_sessao' || p.procedimento === PROCEDIMENTO_DA_TAREFA || ehAcaoDoMister(p.procedimento) ? '' : ' (presidente)'}.`,
       valeAte: new Date(p.venceEm).toISOString(),
       valeAteHora: horaNoFuso(new Date(p.venceEm)),
       restam: tentativasQueRestam(p.pinErros),
@@ -1217,7 +1219,8 @@ export class MisterPropostasService implements OnModuleInit {
 }
 
 /** Os procedimentos de PIN que o gerente autoriza, com o PIN dele: a sessão e as ações de PIN que ele mesmo pediu. */
-const PROCEDIMENTOS_DO_GERENTE: readonly string[] = ['abrir_sessao', 'ligar_pin_falado', ...ACOES_DE_PIN];
+// C4 Onda 1: a tarefa de PIN pelo mapa (o gerente pode pedir; a API confere o perfil dele de novo na escrita).
+const PROCEDIMENTOS_DO_GERENTE: readonly string[] = ['abrir_sessao', 'ligar_pin_falado', PROCEDIMENTO_DA_TAREFA, ...ACOES_DE_PIN];
 
 /** M6j: o perfil gravado com a ação (quem pediu); as outras propostas são do presidente. */
 const perfilDe = (p: { parametros?: any }): string => (p.parametros?.nivel === 'gerente' ? 'gerente' : 'presidente');
