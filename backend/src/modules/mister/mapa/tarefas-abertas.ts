@@ -14,10 +14,13 @@
 //
 // C4 Onda 2 (27/11/2026): delivery e cardápio — estender a pausa, o Pix prioritário, categorias, produtos (excluir com PIN,
 // duplicar, vender sem saldo) e as opções reutilizáveis (pausa e preço por canal, preço na etapa, excluir, custo em massa).
+//
+// C4 Onda 3 (27/11/2026): cozinha e ponto — as ordens de produção (criar, liberar, iniciar, cancelar com PIN), limpar a fila
+// da cozinha (PIN, só de uma loja) e o fechamento do ponto do mês (o tipo `mes`, AAAA-MM).
 
 import { UNIDADES_ESTOQUE } from '../../estoque/unidades';
 
-export type TipoDoCampo = 'texto' | 'inteiro' | 'numero' | 'booleano' | 'data' | 'hora' | 'id' | 'ids' | 'opcao' | 'lista' | 'loja';
+export type TipoDoCampo = 'texto' | 'inteiro' | 'numero' | 'booleano' | 'data' | 'hora' | 'mes' | 'id' | 'ids' | 'opcao' | 'lista' | 'loja';
 
 export interface CampoDaTarefa {
   /** O nome no corpo da rota. */
@@ -429,6 +432,52 @@ export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
     ],
   },
   { rota: 'DELETE /api/v1/produtos/complementos-catalogo/{id}', campos: [] },
+
+  // ───────────── C4 Onda 3 (27/11/2026): cozinha e ponto ─────────────
+  // Fora desta onda, de propósito: a ESCALA e os ajustes e marcações do PONTO (cada um é de uma pessoa — V10-4; trocar turno,
+  // folga e a marcação esquecida já são ações prontas); os CANDIDATOS das vagas (dado de pessoa) e os QR das vagas (a lista
+  // deles tem dado de pessoa); a configuração do KDS (cores, avisos, fluxo, produtos, rota, destinos, senha — trocam a lista
+  // inteira); avançar e "visto" no cartão da cozinha (são do KDS, na tela da cozinha); CONCLUIR a ordem (pede o PIN de quem
+  // produziu, a assinatura); cancelar o pedido em produção (pede a senha de um gestor); a recorrência da ordem; classificar
+  // o lançamento do banco (já é ação pronta).
+  // Ordens de produção (os ids vêm de "Ordens de produção"; a ficha, de "Fichas técnicas").
+  {
+    rota: 'POST /api/v1/ordens-producao',
+    campos: [
+      { nome: 'fichaId', tipo: 'id', rotulo: 'Ficha técnica', obrigatorio: true },
+      { nome: 'quantidadePlanejada', tipo: 'numero', rotulo: 'Quantidade', obrigatorio: true, min: 0.001, max: 100000 },
+      { nome: 'unidade', tipo: 'opcao', rotulo: 'Unidade', opcoes: UNIDADES },
+      { nome: 'dataProducao', tipo: 'data', rotulo: 'Dia da produção', obrigatorio: true },
+      { nome: 'horaInicio', tipo: 'hora', rotulo: 'Começa às' },
+      { nome: 'horaFim', tipo: 'hora', rotulo: 'Termina às' },
+      { nome: 'setorId', tipo: 'id', rotulo: 'Setor' },
+      { nome: 'itemSaidaId', tipo: 'id', rotulo: 'Produto que sai' },
+      { nome: 'liberar', tipo: 'booleano', rotulo: 'Já liberada para a cozinha' },
+      { nome: 'obs', tipo: 'texto', rotulo: 'Observação', maxLetras: 300 },
+      { nome: 'unidadeId', tipo: 'loja', rotulo: 'Loja' },
+    ],
+  },
+  { rota: 'POST /api/v1/ordens-producao/{id}/liberar', campos: [] },
+  { rota: 'POST /api/v1/ordens-producao/{id}/iniciar', campos: [] },
+  {
+    // PIN no mapa. O motivo a rota não exige; o Mister pede, para a auditoria dizer por quê.
+    rota: 'POST /api/v1/ordens-producao/{id}/cancelar',
+    campos: [{ nome: 'motivo', tipo: 'texto', rotulo: 'Motivo', obrigatorio: true, maxLetras: 200 }],
+  },
+  {
+    // A cozinha: tira da tela do KDS todos os cartões de agora (manda "pronto" aos canais) — PIN no mapa. A loja é OBRIGATÓRIA:
+    // sem ela, a rota limparia a fila de todas as lojas.
+    rota: 'POST /api/v1/producao/fila/limpar',
+    campos: [
+      { nome: 'setorId', tipo: 'id', rotulo: 'Só o setor' },
+      { nome: 'unidadeId', tipo: 'loja', rotulo: 'Loja', obrigatorio: true },
+    ],
+  },
+  // Ponto: o fechamento do mês (as pendências de todos; o espelho vai pela tela).
+  {
+    rota: 'POST /api/v1/ponto/fechamentos/gerar',
+    campos: [{ nome: 'competencia', tipo: 'mes', rotulo: 'Mês', obrigatorio: true }],
+  },
 ];
 
 /** A tarefa aberta da rota pedida, ou undefined. */
