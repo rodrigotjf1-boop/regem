@@ -169,6 +169,27 @@ try {
     assert.equal(p.linhasDoPedido(itens, { s: { quantidade: '3', custoUnitario: '0.33' } })[0].valor, 0.99); // em centavos, sem sujeira de conta
   });
 
+  caso('duplicar: produto novo (sem id), nome "(cópia)", sem marca, sem a ficha e o custo do original; o resto igual', () => {
+    const orig = {
+      id: 'x1', nome: 'Queijo cheddar fatiado', nomeComercial: 'Barra de cheddar', marcas: ['Marca Alfa'], marca: 'Marca Alfa',
+      unidadeMedida: 'fatia', categoriaItemId: 'c1', fornecedorIds: ['f1'], setorIds: ['s1'], estoqueMinimo: 10,
+      conversoes: [{ unidadeDe: 'pacote', fator: 50, unidadePara: 'fatia' }], fichaId: 'ficha1', fichaNome: 'Ficha',
+      custoMedio: 1.2, custoFicha: 1.1, minimoPorLoja: true, alergenos: { leite: 'contem' },
+    };
+    const c = p.copiaParaDuplicar(orig);
+    assert.equal(c.id, undefined);
+    assert.equal(c.nome, 'Queijo cheddar fatiado (cópia)');
+    assert.deepEqual(c.marcas, []);
+    assert.equal(c.marca, null);
+    assert.equal(c.fichaId, null);
+    assert.equal(c.custoMedio, undefined);
+    assert.equal(c.minimoPorLoja, undefined);
+    for (const k of ['nomeComercial', 'unidadeMedida', 'categoriaItemId', 'fornecedorIds', 'setorIds', 'estoqueMinimo', 'conversoes', 'alergenos'])
+      assert.deepEqual(c[k], orig[k], k);
+    assert.equal(orig.id, 'x1'); // o original não muda
+    assert.equal(p.marcasDe(c).length, 0); // a gaveta começa sem marca
+  });
+
   console.log(`\ncheck:marcas — ${n} grupos de casos, todos certos.`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

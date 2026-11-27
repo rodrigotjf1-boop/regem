@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, ChevronDown, Download, Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { ArrowUpDown, ChevronDown, Copy, Download, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { api, getCategoria, podePerm } from '@/lib/api';
 import { baixarArquivo } from '@/lib/baixar-arquivo';
 import { toast } from '@/lib/toast';
@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Dialogo } from '@/components/ui/sobreposto';
-import { marcasConhecidas, marcasDe, nomeDeApoio, nomeDeCompra, textoDeBusca } from '@/lib/produto-compra';
+import { copiaParaDuplicar, marcasConhecidas, marcasDe, nomeDeApoio, nomeDeCompra, textoDeBusca } from '@/lib/produto-compra';
 import type { ListaDeUnidades } from '@/lib/unidade-da-lista';
 import { ProdutoForm, equivalencia, type FichaDoProduto } from './produto-form';
 import { ImportarProdutos } from './importar-produtos';
@@ -64,7 +64,7 @@ export function ProdutosSecao({
   const [listaDeUnidades, setListaDeUnidades] = useState<ListaDeUnidades | null>(null);
   // Fichas técnicas, para o campo "feito na loja" do cadastro; `null` = não carregou.
   const [fichas, setFichas] = useState<FichaDoProduto[] | null>(null);
-  const [form, setForm] = useState<{ item?: any } | null>(null);
+  const [form, setForm] = useState<{ item?: any; chave?: string } | null>(null);
   const [movimentar, setMovimentar] = useState<any>(null);
   const [excluir, setExcluir] = useState<any>(null);
   const [importar, setImportar] = useState(false);
@@ -209,6 +209,11 @@ export function ProdutosSecao({
         {podeEditar && (
           <button type="button" className={neutro} title="Editar" aria-label={`Editar ${i.nome}`} onClick={() => setForm({ item: i })}>
             <Pencil className="h-4 w-4" aria-hidden="true" /><span className={rotulo}>Editar</span>
+          </button>
+        )}
+        {podeCriar && (
+          <button type="button" className={neutro} title="Duplicar" aria-label={`Duplicar ${i.nome}`} onClick={() => setForm({ item: copiaParaDuplicar(i), chave: `duplicar-${i.id}` })}>
+            <Copy className="h-4 w-4" aria-hidden="true" /><span className={rotulo}>Duplicar</span>
           </button>
         )}
         {podeExcluir && (
@@ -358,7 +363,7 @@ export function ProdutosSecao({
 
       {form && (
         <ProdutoForm
-          key={form.item?.id ?? 'novo'}
+          key={form.chave ?? form.item?.id ?? 'novo'}
           item={form.item}
           categorias={categorias}
           fornecedores={fornecedores}

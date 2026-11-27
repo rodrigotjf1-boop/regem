@@ -9,6 +9,13 @@ describe('unidades de medida do estoque', () => {
     for (const u of UNIDADES_ESTOQUE) expect(normalizarUnidade(u)).toBe(u);
   });
 
+  it('a fatia (pedido do dono, 27/11/2026: "não tem opção de fatia, somente fita") é da lista, e "fatias" cai nela', () => {
+    expect(UNIDADES_ESTOQUE).toContain('fatia');
+    expect(normalizarUnidade('Fatias')).toBe('fatia');
+    expect(normalizarUnidade('fatia')).toBe('fatia');
+    expect(normalizarUnidade('fita')).toBe('fita'); // a fita continua sendo outra unidade
+  });
+
   it('reconhece o que as lojas já gravaram em texto livre', () => {
     expect(normalizarUnidade('L')).toBe('litro');
     expect(normalizarUnidade('pacotes')).toBe('pacote');
