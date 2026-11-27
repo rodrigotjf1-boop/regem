@@ -19,7 +19,8 @@ const MAX_FATOR = 100_000;
 export type AlteracaoDoDocumento =
   | { linha: number; tipo: 'corrigir'; descricao?: string; quantidade?: number; valorTotalCentavos?: number }
   | { linha: number; tipo: 'ligar'; insumo: string }
-  | { linha: number; tipo: 'conversao'; quantoNoEstoque: number }
+  /** ERR-628: `medida` = a medida em que a pessoa disse o número ("24 unidades"); o Regem converte pelo cadastro do insumo. */
+  | { linha: number; tipo: 'conversao'; quantoNoEstoque: number; medida?: string }
   | { linha: number; tipo: 'fora' }
   | { linha: number; tipo: 'cadastrar'; nome?: string; unidade?: string };
 
@@ -52,7 +53,9 @@ export function lerAlteracoes(entrada: unknown): { alteracoes: AlteracaoDoDocume
       alteracoes.push({ linha, tipo: 'ligar', insumo });
     } else if (a?.tipo === 'conversao') {
       if (!positivo(a.quanto_no_estoque, MAX_FATOR)) return { erro: `Linha ${linha}: diga quanto do estoque entra por 1 unidade da nota.` };
-      alteracoes.push({ linha, tipo: 'conversao', quantoNoEstoque: a.quanto_no_estoque });
+      const medida = a.medida !== undefined && a.medida !== null ? emTexto(a.medida).slice(0, 20) : '';
+      if (medida && !/\p{L}/u.test(medida)) return { erro: `Linha ${linha}: a medida precisa ser o nome dela (caixa, unidade, kg…).` };
+      alteracoes.push({ linha, tipo: 'conversao', quantoNoEstoque: a.quanto_no_estoque, ...(medida ? { medida } : {}) });
     } else if (a?.tipo === 'corrigir') {
       const c: Extract<AlteracaoDoDocumento, { tipo: 'corrigir' }> = { linha, tipo: 'corrigir' };
       if (a.descricao !== undefined && a.descricao !== null) {
@@ -183,7 +186,12 @@ function situacaoDaLinha(it: ItemNoMister): string {
   if (it.estado === 'fora') return 'fora do estoque';
   if (it.estado === 'item') {
     // Versão 9, O1: a proposta da IA, para a pessoa confirmar ("sim" liga a ela).
-    if (it.propostaDaIa && it.sugestoes?.[0]) return `falta confirmar: é o ${limpo(it.sugestoes[0].nome, 40)}?`;
+    if (it.propostaDaIa && it.sugestoes?.[0]) {
+      // ERR-628: a conta que vale com a proposta vai junto ("sim" confirma as duas).
+      const s = it.sugestoes[0];
+      const conta = typeof it.fatorProposto === 'number' && s.unidade ? ` (1 ${limpo(it.unidade, 12) || 'unidade'} = ${qtd(it.fatorProposto)} ${limpo(s.unidade, 12)})` : '';
+      return `falta confirmar: é o ${limpo(s.nome, 40)}${conta}?`;
+    }
     return `falta dizer qual insumo é${it.nomeNovo ? ` (ou cadastrar ${limpo(it.nomeNovo, 40)})` : ''}`;
   }
   const de = limpo(it.unidade, 12) || 'unidade';
@@ -203,17 +211,26 @@ export function linhaCurtaDoItem(it: ItemNoMister, i: number, verValores: boolea
   return `  ${i + 1}. ${limpo(it.descricao, 56)} (${qtd(Number(it.quantidade) || 0)} ${limpo(it.unidade, 8)}${valor}) → ${situacaoDaLinha(it)}`;
 }
 
-/** O que a ferramenta devolve no "ver". */
-export function linhasParaOAgente(n: NotaNoMister, verValores: boolean) {
-  return n.itens.map((it, i) => ({
-    linha: i + 1,
-    produto: limpo(it.descricao, 90),
-    quantidade: it.quantidade,
-    unidade: limpo(it.unidade, 12) || null,
-    ...(verValores && it.valorTotalCentavos ? { valorTotal: it.valorTotalCentavos / 100 } : {}),
-    situacao: situacaoDaLinha(it),
-    ...(it.estado === 'item' && it.sugestoes?.length ? { insumosParecidos: it.sugestoes.map((s) => limpo(s.nome)) } : {}),
-  }));
+/**
+ * O que a ferramenta devolve no "ver". ERR-628: `cadastros` = o que o cadastro diz da embalagem de cada insumo ("1 caixa = 24
+ * unidade"), para a IA separar "quanto entra no estoque" do "que vem dentro da caixa" (o dono explicou "1 UN = 1 caixa, e 1 caixa
+ * = 24 unidades no Regem", e a conversa gravou 24 caixas por UN).
+ */
+export function linhasParaOAgente(n: NotaNoMister, verValores: boolean, cadastros: Map<string, { unidade: string; conversoes: string[] }> = new Map()) {
+  return n.itens.map((it, i) => {
+    const insumoId = it.insumoId ?? (it.estado === 'item' && it.propostaDaIa ? it.sugestoes?.[0]?.id : null);
+    const c = insumoId ? cadastros.get(insumoId) : undefined;
+    return {
+      linha: i + 1,
+      produto: limpo(it.descricao, 90),
+      quantidade: it.quantidade,
+      unidade: limpo(it.unidade, 12) || null,
+      ...(verValores && it.valorTotalCentavos ? { valorTotal: it.valorTotalCentavos / 100 } : {}),
+      situacao: situacaoDaLinha(it),
+      ...(c ? { estoqueContaEm: limpo(c.unidade, 20), ...(c.conversoes.length ? { noCadastro: c.conversoes.map((x) => limpo(x, 50)) } : {}) } : {}),
+      ...(it.estado === 'item' && it.sugestoes?.length ? { insumosParecidos: it.sugestoes.map((s) => limpo(s.nome)) } : {}),
+    };
+  });
 }
 
 /** O que foi gravado, em uma frase por linha: é o que o agente repete. */

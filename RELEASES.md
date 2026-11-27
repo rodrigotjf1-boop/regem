@@ -39,6 +39,9 @@
   pede `.zip` nem `.exe`.)_
 - _(Mister C10c — imagem na conversa: mig 509 só da nuvem (a coluna em `mister_conversa_config`, já SO_NUVEM) e as rotas do
   Mister são `@CloudOnly()`. Não pede `.zip` nem `.exe`.)_
+- _(ERR-628 — a nota por foto no Mister (a fração de embalagem pergunta, o "Aceitar as sugestões" vale para a linha inteira, "Os
+  itens entram no estoque?", a conversão com a medida dita, a foto nova da mesma nota): SEM migration e só da nuvem. Não pede
+  `.zip` nem `.exe`.)_
 
 ## Última release: `1.30.16` — gerada em 26/11/2026 da `origin/main` `d6249543`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 223.038.515 bytes, SHA-256 `0c4ad6d66a7feb8e1138e6da911ed1c0ce770a8ccfa1818c57b1d2cfa9f5bd96`), pelo `build-release.ps1` (preflight OK; o único aviso = o carimbo do `.iss`; Node 24.22.1; ponte 0.8.0; `undici` 7.30.2 no pacote) e Inno 7 (1.076 s); entregue ao dono em `Documentos\Regem - release 1.30.16 (26-11)` com o `LEIA-ME.txt` (instalar por cima no servidor com a loja fechada — de casa pela Área de Trabalho Remota pelo i7, ou na loja); **sem `.zip`** e nada publicado no console — a loja que só atualiza pelo ícone segue na 1.30.14 até um `.zip`; **INSTALADA no servidor da loja piloto em 26/11 às 18:57**, com a loja fechada, de casa (o instalador aberto na tela do servidor por uma tarefa agendada interativa, removida no fim; o dono seguiu o assistente e fez o login do C&O). Conferido: o `/ping` na 1.30.16 com o banco, os 5 serviços de pé, a ponte 0.8.0 (6 processos, 1,5% de CPU, 413 MB), a hora pelo `a.ntp.br`, o `edge_status` na 1.30.16 em `sync_ok`. A Área de Trabalho Remota ligada para a instalação voltou ao estado de antes (não chegou a ser usada)
 
