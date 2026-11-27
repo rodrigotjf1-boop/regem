@@ -209,3 +209,53 @@ describe('C4 Onda 2 · delivery e cardápio', () => {
     expect(m.corpo).toEqual({ ids: [ID, ID2], precoCusto: 1.25 });
   });
 });
+
+describe('C4 Onda 3 · cozinha e ponto', () => {
+  it('as marcas: cancelar a ordem e limpar a fila pedem o PIN; criar, liberar, iniciar e o fechamento do ponto são de botão', () => {
+    for (const r of ['POST /api/v1/ordens-producao/{id}/cancelar', 'POST /api/v1/producao/fila/limpar']) expect([r, funcaoDoMapa(r)?.marca]).toEqual([r, 'pin']);
+    for (const r of ['POST /api/v1/ordens-producao', 'POST /api/v1/ordens-producao/{id}/liberar', 'POST /api/v1/ordens-producao/{id}/iniciar', 'POST /api/v1/ponto/fechamentos/gerar']) {
+      expect([r, funcaoDoMapa(r)?.marca]).toEqual([r, 'botao']);
+    }
+  });
+
+  it('fora de propósito: a escala e o ponto de uma pessoa, os candidatos, concluir a ordem (PIN de quem produziu) e o cartão do KDS', () => {
+    const abertas = new Set(TAREFAS_ABERTAS.map((t) => t.rota));
+    for (const r of [
+      'POST /api/v1/escala',
+      'POST /api/v1/escala/gerar',
+      'POST /api/v1/ponto/ajuste',
+      'POST /api/v1/ponto/marcacao-manual',
+      'PATCH /api/v1/vagas/candidatos/{id}/situacao',
+      'POST /api/v1/ordens-producao/{id}/concluir',
+      'POST /api/v1/producao/pedidos/{id}/avancar',
+      'POST /api/v1/producao/pedidos/{id}/cancelar',
+      'PUT /api/v1/producao/kds/rota',
+    ]) {
+      expect([r, abertas.has(r)]).toEqual([r, false]);
+    }
+  });
+
+  it('a ordem de produção: a ficha, a quantidade e o dia; a loja vem da conversa; cancelar pede o motivo', () => {
+    const o = pedidoDaTarefa({ rota: 'POST /api/v1/ordens-producao', campos: { fichaId: ID, quantidadePlanejada: '2,5', unidade: 'kg', dataProducao: '2026-11-28', liberar: true } }, LOJA) as any;
+    expect(o.corpo).toEqual({ fichaId: ID, quantidadePlanejada: 2.5, unidade: 'kg', dataProducao: '2026-11-28', liberar: true, unidadeId: LOJA.unidadeId });
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/ordens-producao', campos: { fichaId: ID, quantidadePlanejada: 0, dataProducao: '2026-11-28' } }, LOJA)).toHaveProperty('erro', expect.stringContaining('Quantidade'));
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/ordens-producao', campos: { fichaId: ID, quantidadePlanejada: 1, dataProducao: '2026-11-28', colaboradorId: ID } }, LOJA)).toHaveProperty('erro', expect.stringContaining('"colaboradorId"'));
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/ordens-producao/{id}/cancelar', parametros: { id: ID } }, LOJA)).toHaveProperty('erro', expect.stringContaining('Motivo'));
+  });
+
+  it('limpar a fila só de uma loja: sem a loja da conversa, recusa', () => {
+    const l = pedidoDaTarefa({ rota: 'POST /api/v1/producao/fila/limpar' }, LOJA) as any;
+    expect(l.corpo).toEqual({ unidadeId: LOJA.unidadeId });
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/producao/fila/limpar' }, { unidadeId: null })).toEqual({ erro: TEXTOS_DAS_TAREFAS.semLoja });
+  });
+
+  it('o fechamento do ponto: o mês AAAA-MM, conferido aqui (a rota troca o mês torto pelo anterior, calada)', () => {
+    const f = pedidoDaTarefa({ rota: 'POST /api/v1/ponto/fechamentos/gerar', campos: { competencia: '2026-10' } }, LOJA) as any;
+    expect(f.corpo).toEqual({ competencia: '2026-10' });
+    expect(f.resumo).toContain('Mês: 10/2026');
+    for (const ruim of ['2026-13', '10/2026', '2026-1', 'outubro']) {
+      expect(pedidoDaTarefa({ rota: 'POST /api/v1/ponto/fechamentos/gerar', campos: { competencia: ruim } }, LOJA)).toHaveProperty('erro', expect.stringContaining('AAAA-MM'));
+    }
+    expect(camposParaAIa(TAREFAS_ABERTAS.find((t) => t.rota === 'POST /api/v1/ponto/fechamentos/gerar')!)).toEqual([{ nome: 'competencia', tipo: 'mês AAAA-MM', rotulo: 'Mês', obrigatorio: true }]);
+  });
+});

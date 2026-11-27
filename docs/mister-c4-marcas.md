@@ -14,6 +14,11 @@ Como ler: **Hoje** é a marca do mapa; **Proposta** só aparece quando proponho 
 > viraram `interna` (só a credencial do servidor da loja). Ficaram fora, de propósito: as mudanças de situação do pedido (o id
 > só vem com dado de cliente), o pedido manual, as rotas que trocam a lista inteira, criar e editar complemento e opção, a
 > troca de códigos PDV em massa, a configuração do delivery e a conferência com os apps (`docs/plano-mister.md` § "C4 Onda 2").
+>
+> **27/11/2026 — Onda 3 aberta.** 6 tarefas novas (63 no total): as ordens de produção (criar, liberar, iniciar, cancelar com
+> PIN), limpar a fila da cozinha (PIN, só de uma loja) e o fechamento do ponto do mês. Ficaram fora, de propósito: a escala e o
+> ponto de cada pessoa, os candidatos e os QR das vagas, a configuração do KDS, avançar e "visto" no cartão, concluir a ordem
+> (PIN de quem produziu), cancelar o pedido em produção, a recorrência e o banco (`docs/plano-mister.md` § "C4 Onda 3").
 
 ## Onda 1 — a rotina da loja (botão) — 68 funções, 3 com troca proposta
 

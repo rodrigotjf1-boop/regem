@@ -55,6 +55,7 @@
   nenhum bilhete é emitido). Não pede `.exe`.)_
 - _(Mister C4 Onda 2 — delivery e cardápio pelo mapa (27/11): SEM migration e só da nuvem — o mapa e as tarefas do Mister. Não
   pede `.zip` nem `.exe`.)_
+- _(Mister C4 Onda 3 — cozinha e ponto pelo mapa (27/11): SEM migration e só da nuvem. Não pede `.zip` nem `.exe`.)_
 - **Mister C7 — aprender pela tarefa feita (26/11; mig 508, só na nuvem).** O `sync-daemon.mjs` ganhou `mister_aprendizado` na
   lista das tabelas só da nuvem (SO_NUVEM). Na loja não muda nada: a tabela não existe no banco dela e nada a escreve. Vai no
   próximo `.exe` por ter tocado o `sync-daemon` (sem pressa; o daemon antigo não lê a tabela).
