@@ -13,6 +13,13 @@
 ## Acumulado (NÃO empacotado) — próxima release (1.30.17)
 
 - _(o #1360, Mister C6a, entrou na `main` logo depois do corte da 1.30.16 e não está no `.exe`; é só da nuvem; o #1362, C6b, também)_
+- **Custo manual, pausa por estoque e custo do combo (27/11; #1393 e #1394; mig 514 — JÁ aplicada na nuvem, só nuvem; ERR-635,
+  ERR-636, V122).** Desligar "Controla estoque" tira a pausa por estoque na hora, em todas as lojas; o "Override manual" vazio
+  limpa o custo; as importações (Anota Aí, Cardápio Web) não gravam mais 0 no custo; o custo do combo é a soma dos produtos do
+  combo (lista, Curva ABC, Mister). **Vai no `.zip`**: o servidor da loja também salva o produto e calcula o custo — até lá,
+  desligar o controle pelo servidor da loja ainda espera a próxima baixa ("Reativar estoque" resolve na hora). Não pede `.exe`.
+- _(Códigos PDV dos adicionais pelo Anota Aí, mig 513 (#1389, 27/11): só dados da nuvem, já aplicada; o servidor da loja recebe
+  os códigos pela sincronização do cadastro. Não pede `.zip` nem `.exe`.)_
 - **Dias especiais do horário da loja — H1a, o servidor (27/11; mig 512 `horario_especial`, que SINCRONIZA nos dois
   sentidos).** Pede `.zip` (a regra do horário de uma data vale no servidor da loja: o aberto agora e o agendado) **e
   `.exe`** (o `sync-daemon.mjs` ganhou a tabela no `PUSH_TABLES`). Até o `.zip`, o servidor da loja segue pelo horário da
