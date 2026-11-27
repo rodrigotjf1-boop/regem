@@ -1919,6 +1919,17 @@ export const api = {
   cardapioConfig: () => req('/cardapio/config'),
   setCardapioConfig: (body: Record<string, unknown>) =>
     req('/cardapio/config', { method: 'PUT', body: JSON.stringify(body) }),
+  // Os dias especiais do horário da loja (H1, mig 512): Delivery › Configurações › Horários › Dias especiais. (O
+  // `diasEspeciais` acima é outro: o feriado da escala.)
+  diasEspeciaisDoHorario: (situacao: 'proximos' | 'passados' = 'proximos') =>
+    req(`/cardapio/dias-especiais${situacao === 'passados' ? '?situacao=passados' : ''}`),
+  criarDiaEspecialDoHorario: (body: Record<string, unknown>) =>
+    req('/cardapio/dias-especiais', { method: 'POST', body: JSON.stringify(body) }),
+  editarDiaEspecialDoHorario: (id: string, body: Record<string, unknown>) =>
+    req(`/cardapio/dias-especiais/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  excluirDiaEspecialDoHorario: (id: string) => req(`/cardapio/dias-especiais/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  agendadosDoPeriodo: (de: string, ate?: string) =>
+    req(`/cardapio/dias-especiais/agendados?de=${encodeURIComponent(de)}${ate ? `&ate=${encodeURIComponent(ate)}` : ''}`),
   // Eventos sazonais do cardápio (Natal, Black Friday, Dia de jogo…): quem tem a permissão da
   // loja vê a agenda; só o presidente grava (o servidor recusa os demais).
   cardapioEventos: () => req('/cardapio/eventos'),

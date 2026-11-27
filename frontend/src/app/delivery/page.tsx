@@ -135,6 +135,13 @@ export default function DeliveryPage() {
   const [tipoFiltro, setTipoFiltro] = useState<'todos' | 'entrega' | 'retirada'>('todos');
   // "Agendados" (mig 455): a situação que mostra só os pedidos agendados que ainda não entraram em preparo.
   const [soAgendados, setSoAgendados] = useState(false);
+  // "Ver os agendados" dos dias especiais (Configurações › Horários) abre o painel com a situação ligada:
+  // `/delivery?situacao=agendados`. Lido depois de montar (a página é pré-renderizada no build).
+  useEffect(() => {
+    try {
+      if (new URLSearchParams(window.location.search).get('situacao') === 'agendados') setSoAgendados(true);
+    } catch { /* endereço sem consulta */ }
+  }, []);
   const [novoPedido, setNovoPedido] = useState(false);
   // A pausa dos pedidos por canal (mig 392): as faixas e o "⏸ Pausar" leem daqui.
   const pausas = usePausas(true);

@@ -5,6 +5,7 @@ import type { Cardapio } from './use-cardapio';
 import { brl, extrasDe, Foto, Ic, Logo, pctDesconto, Preco, seloDe } from './partes';
 import { EvFaixa, EvIcone, EvTopo } from '../eventos/contexto';
 import { avisoDaPausa } from '@/lib/pausa-dos-pedidos';
+import { fraseDaVolta, textosDoOutroHorario } from '@/lib/dia-especial';
 import { ComDestaque, ContadorDaPausa, MensagemComDestaque } from '@/components/delivery/pausa/aviso-da-pausa';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
@@ -23,6 +24,9 @@ function statusLoja(c: Cardapio): string {
   if (c.situacao === 'so_entrega') return `Só entrega · retirada${volta(c.proximaAbertura.retirada)}`;
   // Pedidos pausados no painel (mig 392): "Pedidos pausados até 21:40" sem o "Fechada agora" na frente.
   if (c.situacao === 'fechada' && c.menu?.pausa && rot) return rot;
+  // O dia especial fechado (H1b, mig 512): "Fechado hoje · Natal".
+  const hoje = diaEspecialDeHoje(c);
+  if (c.situacao === 'fechada' && hoje?.funcionamento === 'fechada') return `Fechado hoje · ${hoje.nome}`;
   if (c.situacao === 'fechada') return rot && rot !== 'Fechada' ? `Fechada agora · ${rot.charAt(0).toLowerCase()}${rot.slice(1)}` : 'Fechada agora';
   return rot ?? 'Aberta';
 }
@@ -61,10 +65,68 @@ function AvisoDaPausaNaVitrine({ c }: { c: Cardapio }) {
 }
 const classeSituacao = (c: Cardapio) => (c.situacao === 'fechada' ? 'fechada' : c.situacao === 'aberta' ? '' : 'retirada');
 
-/** Aviso do topo da vitrine quando a loja está só com um tipo ou fechada. */
+// ── os dias especiais do horário (H1b, mig 512; protótipo `regem-dias-especiais.html`, "Para o cliente") ─────────────
+// O servidor manda em `menu.diasEspeciais` o dia especial de hoje e o aviso dos próximos 3 dias (`situacaoDosDiasEspeciais`).
+type DiaEspecialDeHoje = { nome: string; funcionamento: 'fechada' | 'horario'; abre: string | null; fecha: string | null };
+function diaEspecialDeHoje(c: Cardapio): DiaEspecialDeHoje | null {
+  const h = c.menu?.diasEspeciais?.hoje;
+  return h && typeof h.nome === 'string' && (h.funcionamento === 'fechada' || h.funcionamento === 'horario') ? h : null;
+}
+
+/** O aviso de um dia especial que vem aí (3 dias antes): "Sexta, 25/12, estaremos fechados (Natal)." */
+function AvisoDoDiaQueVem({ c }: { c: Cardapio }) {
+  const texto = c.menu?.diasEspeciais?.aviso?.texto;
+  if (typeof texto !== 'string' || !texto) return null;
+  return (
+    <div className="p-aviso" role="status">
+      <Ic n="clock" s={18} />
+      <div>
+        <b>{texto}</b>
+      </div>
+    </div>
+  );
+}
+
+/** O dia de hoje com outro horário: "Hoje abrimos das 18:00 às 21:00 · Horário especial de Véspera de Natal." */
+function AvisoDoOutroHorario({ c, hoje }: { c: Cardapio; hoje: DiaEspecialDeHoje }) {
+  const t = textosDoOutroHorario(hoje.nome, String(hoje.abre), String(hoje.fecha));
+  const fechada = c.situacao === 'fechada';
+  return (
+    <div className={`p-aviso ${fechada ? 'fechada' : ''}`} role="status">
+      <Ic n="clock" s={18} />
+      <div>
+        <b>{t.titulo}</b>
+        <span>
+          {t.texto}
+          {fechada && c.soAgendado ? ' Monte seu pedido e agende o horário.' : ''}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Aviso do topo da vitrine quando a loja está só com um tipo ou fechada, e os dias especiais. */
 function AvisoLoja({ c }: { c: Cardapio }) {
-  if (c.situacao === 'aberta' || c.isServico) return null;
+  if (c.isServico) return null;
   if (c.situacao === 'fechada' && c.menu?.pausa) return <AvisoDaPausaNaVitrine c={c} />;
+  const hoje = diaEspecialDeHoje(c);
+  if (hoje?.funcionamento === 'horario' && hoje.abre && hoje.fecha && (c.situacao === 'aberta' || c.situacao === 'fechada')) return <AvisoDoOutroHorario c={c} hoje={hoje} />;
+  if (c.situacao === 'fechada' && hoje?.funcionamento === 'fechada') {
+    const volta = c.proximaAbertura.entrega ?? c.proximaAbertura.retirada;
+    return (
+      <div className="p-aviso fechada" role="status">
+        <Ic n="clock" s={18} />
+        <div>
+          <b>Fechado hoje · {hoje.nome}</b>
+          <span>
+            {volta ? fraseDaVolta(volta) : ''}
+            {c.soAgendado ? `${volta ? ' ' : ''}Monte seu pedido e agende o horário.` : ''}
+          </span>
+        </div>
+      </div>
+    );
+  }
+  if (c.situacao === 'aberta') return <AvisoDoDiaQueVem c={c} />;
   const end = c.loja?.endereco?.texto;
   let titulo = '';
   let texto = '';
@@ -84,13 +146,17 @@ function AvisoLoja({ c }: { c: Cardapio }) {
         : 'Você pode ver o cardápio; os pedidos voltam quando a loja abrir.';
   }
   return (
-    <div className={`p-aviso ${c.situacao === 'fechada' ? 'fechada' : ''}`} role="status">
-      <Ic n={c.situacao === 'fechada' ? 'clock' : 'store'} s={18} />
-      <div>
-        <b>{titulo}</b>
-        {texto && <span>{texto}</span>}
+    <>
+      <div className={`p-aviso ${c.situacao === 'fechada' ? 'fechada' : ''}`} role="status">
+        <Ic n={c.situacao === 'fechada' ? 'clock' : 'store'} s={18} />
+        <div>
+          <b>{titulo}</b>
+          {texto && <span>{texto}</span>}
+        </div>
       </div>
-    </div>
+      {/* Fechada agora (fora do horário) ou só um tipo: o aviso do dia especial que vem aí aparece embaixo. */}
+      <AvisoDoDiaQueVem c={c} />
+    </>
   );
 }
 
