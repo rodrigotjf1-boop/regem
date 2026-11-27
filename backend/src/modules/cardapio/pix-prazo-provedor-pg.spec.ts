@@ -185,4 +185,45 @@ descrever('prazo do Pix do Mercado Pago e do PagBank (Postgres)', () => {
     await cardapio.expirarPixNaoPagos(); // a trava soltou: a volta seguinte roda (e não há mais o que fazer neste pedido)
     expect(chamadasDe(p.pagamento)).toEqual(['mp GET']);
   });
+
+  // ERR-627 (26/11/2026): o pedido pela conversa do WhatsApp não tem a página perguntando "já pagou?"; sem o aviso do
+  // provedor, quem pagou só entrava ao mandar o comprovante ou no prazo de 10 min. Agora, a cada minuto, o Regem pergunta.
+  it('conferência de minuto: o Pix pago SEM o aviso entra em até 1 min; o não pago espera; fora dos 15 min, não pergunta', async () => {
+    const t = await loja();
+    const mpPago = await aguardando(t, 'mercadopago', 'pago', 2);
+    const pbPago = await aguardando(t, 'pagseguro', 'pago', 3);
+    const pendente = await aguardando(t, 'mercadopago', 'pendente', 2);
+    const fora = await aguardando(t, 'mercadopago', 'fora', 2);
+    const antigo = await aguardando(t, 'mercadopago', 'pago', 16); // fica para o prazo (que também pergunta antes de cancelar)
+    await cardapio.conferirPixDoProvedor();
+    expect(await ler(mpPago.id)).toMatchObject({ status: 'novo', pago: true, status_pagamento: 'aprovado' });
+    expect(await ler(pbPago.id)).toMatchObject({ status: 'novo', pago: true, status_pagamento: 'aprovado' });
+    expect(await ler(pendente.id)).toMatchObject({ status: 'novo', pago: false, status_pagamento: 'aguardando' });
+    expect(await ler(fora.id)).toMatchObject({ status: 'novo', pago: false, status_pagamento: 'aguardando' }); // sem resposta: nada muda
+    expect(await ler(antigo.id)).toMatchObject({ pago: false });
+    expect(chamadasDe(antigo.pagamento)).toEqual([]);
+    // Nunca cancela nem manda cancelar a cobrança (isso é do prazo de 10 min).
+    expect(chamadasDe(pendente.pagamento)).toEqual(['mp GET']);
+    // O já aprovado sai da lista: a volta seguinte não pergunta de novo.
+    await cardapio.conferirPixDoProvedor();
+    expect(chamadasDe(mpPago.pagamento)).toEqual(['mp GET']);
+    expect(chamadasDe(pbPago.pagamento)).toEqual(['pagbank GET']);
+  });
+
+  it('conferência de minuto: loja sem o token do provedor não pergunta; no servidor da loja não roda', async () => {
+    const t = await loja([]);
+    const p = await aguardando(t, 'mercadopago', 'pago', 2);
+    await cardapio.conferirPixDoProvedor();
+    expect(chamadasDe(p.pagamento)).toEqual([]);
+    expect(await ler(p.id)).toMatchObject({ pago: false });
+    const t2 = await loja();
+    const p2 = await aguardando(t2, 'mercadopago', 'pago', 2);
+    process.env.EDGE_MODE = 'true';
+    try {
+      await cardapio.conferirPixDoProvedor();
+    } finally {
+      delete process.env.EDGE_MODE;
+    }
+    expect(chamadasDe(p2.pagamento)).toEqual([]);
+  });
 });

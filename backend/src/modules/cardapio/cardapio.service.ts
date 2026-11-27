@@ -3889,6 +3889,70 @@ export class CardapioService {
     return decisao;
   }
 
+  /** Lote da conferência de minuto do Mercado Pago e do PagBank (os mais novos primeiro). Estático para o teste. */
+  static LOTE_PIX_PROVEDOR = 100;
+  private conferindoPixProvedor = false;
+
+  /**
+   * A cada minuto (no segundo 30, fora do minuto da Rede), SÓ NA NUVEM: confere os PIX do Mercado Pago e do PagBank ainda
+   * aguardando, dos últimos 15 min, e aprova os pagos (26/11/2026, ERR-627). O pedido feito pela CONVERSA do WhatsApp não
+   * tem a página do pedido perguntando "já pagou?" a cada poucos segundos; sem o aviso do provedor (que pode nunca chegar —
+   * ERR-454), o pedido de quem pagou só entrava quando o cliente mandava o comprovante ou no prazo de 10 min. O aviso do
+   * provedor continua sendo o caminho principal; isto é a rede de segurança. Mesma aprovação de todos (`aprovarPagamento`,
+   * idempotente e travada). Um pendente antigo não tranca a fila (V84): o lote é dos mais novos, e o prazo confere o resto.
+   */
+  @Cron('30 * * * * *')
+  async conferirPixDoProvedor() {
+    if (ehServidorLocal() || this.conferindoPixProvedor) return;
+    this.conferindoPixProvedor = true;
+    try {
+      const desde = new Date(Date.now() - 15 * 60 * 1000);
+      const lista = await this.db
+        .select({ id: pedidoExterno.id, tenantId: pedidoExterno.tenantId, provedor: pedidoExterno.gatewayProvider, pid: pedidoExterno.gatewayPaymentId })
+        .from(pedidoExterno)
+        .where(
+          and(
+            eq(pedidoExterno.status, 'novo'),
+            isNull(pedidoExterno.comandaId),
+            eq(pedidoExterno.statusPagamento, 'aguardando'),
+            inArray(pedidoExterno.gatewayProvider, ['mercadopago', 'pagseguro']),
+            gte(pedidoExterno.criadoEm, desde),
+          ),
+        )
+        .orderBy(desc(pedidoExterno.criadoEm))
+        .limit(CardapioService.LOTE_PIX_PROVEDOR);
+      // Uma leitura do token por empresa e provedor; consultas em grupos de 8 (cada uma com o tempo-limite do provedor).
+      const tokens = new Map<string, Promise<string | null>>();
+      const tokenDe = (tenantId: string, provedor: string) => {
+        const k = `${tenantId}:${provedor}`;
+        if (!tokens.has(k))
+          tokens.set(k, (provedor === 'pagseguro' ? this.resolvePagseguroToken(tenantId) : this.resolveMpToken(tenantId)).then((t) => t || null).catch(() => null));
+        return tokens.get(k)!;
+      };
+      const conferir = async (p: (typeof lista)[number]) => {
+        try {
+          if (!p.pid) return;
+          const t = await tokenDe(p.tenantId, String(p.provedor));
+          if (!t) return;
+          const pago =
+            p.provedor === 'pagseguro'
+              ? (await consultarPagamentoPagBank(t, p.pid)).status === 'paid'
+              : (await consultarPagamentoMP(t, p.pid)).status === 'approved';
+          if (!pago) return;
+          await this.aprovarPagamento(p.tenantId, p.id);
+          this.logger.log(`PIX ${p.provedor}: pago no provedor sem o aviso dele — aprovado na conferência de minuto (pedido ${p.id})`);
+        } catch (e) {
+          this.logger.warn(`PIX ${p.provedor}: conferência do pedido ${p.id} falhou: ${e instanceof Error ? e.message : e}`);
+        }
+      };
+      for (let i = 0; i < lista.length; i += 8) await Promise.all(lista.slice(i, i + 8).map(conferir));
+    } catch (e) {
+      this.logger.warn(`PIX do provedor: conferência de minuto falhou: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      this.conferindoPixProvedor = false;
+    }
+  }
+
   /** Lote da conferência de minuto (os mais novos primeiro). Estático para o teste da V84 usar um lote pequeno. */
   static LOTE_PIX_REDE = 200;
   private conferindoPixRede = false;

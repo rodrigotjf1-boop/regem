@@ -13,6 +13,9 @@
 ## Acumulado (NÃO empacotado) — próxima release (1.30.17)
 
 - _(o #1360, Mister C6a, entrou na `main` logo depois do corte da 1.30.16 e não está no `.exe`; é só da nuvem; o #1362, C6b, também)_
+- **Atendente: pôr item no pedido pago, Pix confirmado sem comprovante e o estorno no aviso de cancelado (26/11; SEM migration;
+  ERR-626, ERR-627).** A versão do servidor e a conferência de minuto do Pix são só da nuvem. O texto do aviso de cancelado vai no
+  próximo `.zip` por ser código comum (o servidor da loja que monta o aviso ganha a frase do estorno). Não pede `.exe`.
 - **Atendente: a voz que fecha as frases (.f36) e o nome do entregador só com a permissão dele (26/11; SEM migration; ERR-623).**
   O robô é só da nuvem. A lista de pedidos do cardápio público (`pedidosPorTelefone`) vai no próximo `.zip` por ser código
   comum: no servidor da loja a tabela da permissão não existe (só da nuvem) e o nome do entregador da loja deixa de aparecer —

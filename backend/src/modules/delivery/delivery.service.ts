@@ -3569,20 +3569,33 @@ export class DeliveryService {
     return versaoQueAplica(await this.versaoDoServidorDaLoja(tenantId, unidadeId)) ? 'servidor' : 'servidor_antigo';
   }
 
-  /** A versão do servidor desta loja que mandou sinal nos últimos minutos (o mesmo prazo do "servidor ligado"). */
+  /**
+   * A versão do servidor desta loja que mandou sinal nos últimos minutos (o mesmo prazo do "servidor ligado"). Lê as DUAS
+   * fontes do `edgeAtivo` (ERR-626): o estado AO VIVO (`edge_status`, uma linha por servidor, a cada batida) e o histórico
+   * (`edge_heartbeat`). Antes lia só o histórico — que desde a mig 264 é AMOSTRADO a cada 30 min: em ~27 de cada 30 minutos a
+   * versão vinha nula com o servidor ligado, a loja virava "servidor antigo" e o robô respondia "a mudança é feita pela
+   * equipe" (e a tela da nuvem recusava alterar o pedido). Cada fonte à parte: a que não tem a coluna não derruba a outra.
+   */
   private async versaoDoServidorDaLoja(tenantId: string, unidadeId: string | null): Promise<string | null> {
-    try {
-      const r: any = await this.db.execute(sql`
-        select versao from edge_heartbeat
-         where tenant_id = ${tenantId} and versao is not null
-           and recebido_em >= now() - make_interval(mins => ${EDGE_JANELA_MIN})
-           ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}
-         order by recebido_em desc limit 1`);
-      return ((r.rows ?? r)[0]?.versao as string | undefined) ?? null;
-    } catch (e: any) {
-      if (e?.code === '42P01' || e?.code === '42703') return null; // banco sem a telemetria da frota
-      throw e;
-    }
+    const ler = async (tabela: 'edge_status' | 'edge_heartbeat'): Promise<{ versao: string; recebido_em: unknown } | null> => {
+      try {
+        const r: any = await this.db.execute(sql`
+          select versao, recebido_em from ${sql.raw(tabela)}
+           where tenant_id = ${tenantId} and versao is not null
+             and recebido_em >= now() - make_interval(mins => ${EDGE_JANELA_MIN})
+             ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}
+           order by recebido_em desc limit 1`);
+        return (r.rows ?? r)[0] ?? null;
+      } catch (e: any) {
+        if (e?.code === '42P01' || e?.code === '42703') return null; // banco sem a telemetria da frota
+        throw e;
+      }
+    };
+    const [vivo, historico] = await Promise.all([ler('edge_status'), ler('edge_heartbeat')]);
+    const maisNova = [vivo, historico]
+      .filter((x): x is { versao: string; recebido_em: unknown } => !!x)
+      .sort((a, b) => new Date(String(b.recebido_em)).getTime() - new Date(String(a.recebido_em)).getTime())[0];
+    return maisNova?.versao ?? null;
   }
 
   /**
@@ -4693,7 +4706,13 @@ export class DeliveryService {
         };
       }
       case 'entregue': return { titulo: 'Pedido entregue', texto: `Seu pedido${ref} foi entregue. Bom apetite! 💛` };
-      case 'cancelado': return { titulo: 'Pedido cancelado', texto: `Seu pedido${ref} foi cancelado.${motivo}` };
+      case 'cancelado': {
+        // Pago no Pix ONLINE (o cardápio, o robô): o estorno é automático — todo cancelado pago assim entra na fila do
+        // `EstornoPixService` (a cada minuto, sem ajuste; o cancelamento já trava depois de 89 dias). O cliente fica sabendo
+        // no mesmo aviso (pedido do dono, 26/11/2026). O modelo da Meta (fora das 24 h) tem o texto fixo e não leva.
+        const estorno = pagoNoPixOnline(ped) ? ' O valor pago no Pix será estornado automaticamente, para a mesma conta de onde saiu.' : '';
+        return { titulo: 'Pedido cancelado', texto: `Seu pedido${ref} foi cancelado.${motivo}${estorno}` };
+      }
       case 'atrasado': return { titulo: 'Pedido atrasando', texto: `Seu pedido${ref} está levando mais tempo que o previsto. Pedimos desculpas — já estamos correndo para concluir. 🙏` };
       case 'chegando': {
         // O nome e o contato do entregador só vêm quando ELE autorizou no app ("Compartilhar meu contato").

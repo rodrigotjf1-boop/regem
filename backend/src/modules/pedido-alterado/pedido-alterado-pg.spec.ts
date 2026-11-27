@@ -59,6 +59,8 @@ descrever('pedido alterado pela equipe (Postgres real)', () => {
         });
     // A versão do servidor da loja (a telemetria da frota, na nuvem): a alteração pedida na nuvem só vai ao servidor que aplica.
     await pool.query(`alter table edge_heartbeat add column if not exists versao text`);
+    // O estado AO VIVO do servidor também tem a versão (na nuvem, `edge_status.versao`) — ERR-626.
+    await pool.query(`alter table edge_status add column if not exists versao text`);
     const tem = async (t: string) => (await q(`select to_regclass(current_schema() || '.' || $1) is not null as ok`, [t]))[0].ok;
     if (!(await tem('entregador_chegada'))) await pool.query(comTravaDaEmpresa(readFileSync(join(MIGRATIONS, '201_entregador_chegada.sql'), 'utf8')));
     // A fila de comandos para o servidor da loja (só nuvem): a mig 124 cria, a 269 põe o destino e os dados.
@@ -439,6 +441,37 @@ descrever('pedido alterado pela equipe (Postgres real)', () => {
     // A gaveta mostra "esperando a loja" (ainda dentro da validade).
     const [h] = (await delivery.alteracoesDoPedido(l.t, p.id) as any).alteracoes;
     expect(h).toMatchObject({ situacao: 'pedida', vencida: false });
+  });
+
+  // ERR-626 (26/11/2026, teste do dono: "o atendente disse que somente com a equipe"): o histórico (`edge_heartbeat`) é
+  // AMOSTRADO a cada 30 min desde a mig 264; o estado ao vivo fica em `edge_status`. A versão lida só do histórico vinha nula
+  // em ~27 de cada 30 minutos com o servidor ligado — a loja virava "servidor antigo" e a mudança ia para a equipe.
+  it('a versão do servidor vem do estado AO VIVO: com o histórico de 20 min atrás, a alteração segue para o servidor', async () => {
+    const l = await loja();
+    const p = await pedidoAceito(l);
+    // a batida de agora (o estado ao vivo) com a versão; o histórico com a última amostra de 20 min atrás
+    // (no banco do CI a `edge_status` pode ser a da mig 264, com `equipamento_id` obrigatório — a situacao-da-loja-pg faz igual)
+    const comEquipamento = (await q(
+      `select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'edge_status' and column_name = 'equipamento_id'`,
+    )).length > 0;
+    await q(
+      comEquipamento
+        ? `insert into edge_status (equipamento_id, tenant_id, unidade_id, versao, recebido_em) values (gen_random_uuid(), $1, $2, '1.30.16', now())`
+        : `insert into edge_status (tenant_id, unidade_id, versao, recebido_em) values ($1, $2, '1.30.16', now())`,
+      [l.t, l.u],
+    );
+    await q(`insert into edge_heartbeat (tenant_id, unidade_id, versao, recebido_em) values ($1,$2,'1.30.16', now() - interval '20 minutes')`, [l.t, l.u]);
+    try {
+      expect(await delivery.quemAplicaAlteracao(l.t, l.u)).toBe('servidor');
+      const r: any = await delivery.alterar(equipe(l), p.id, { idAlteracao: randomUUID(), adicionar: [{ produtoId: l.agua }] });
+      expect(r).toMatchObject({ pedida: true });
+      // o estado ao vivo numa versão que não aplica: recusa (a versão mais nova das duas fontes vale)
+      await q(`update edge_status set versao = '1.30.12' where tenant_id = $1`, [l.t]);
+      expect(await delivery.quemAplicaAlteracao(l.t, l.u)).toBe('servidor_antigo');
+    } finally {
+      await q(`delete from edge_status where tenant_id = $1`, [l.t]);
+      await q(`delete from edge_heartbeat where tenant_id = $1`, [l.t]);
+    }
   });
 
   it('o servidor da loja grava a pedida do comando (uma vez), aplica pelo mesmo caminho da equipe e não aplica duas vezes', async () => {
