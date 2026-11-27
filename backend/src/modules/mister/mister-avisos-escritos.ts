@@ -28,7 +28,10 @@ const GRUPO_ESCRITO: Record<string, GrupoDeAvisoEscrito> = {
   Fiscal: 'fiscal',
   'O próprio Mister': 'mister',
 };
+/** Os avisos que ficam SEMPRE no texto fixo, mesmo no grupo escrito (o protótipo diz "Sem IA: o texto é fixo"). */
+const SEMPRE_FIXO = new Set<string>(['feriado_chegando']);
 export function grupoEscritoDoTipo(tipo: string): GrupoDeAvisoEscrito | null {
+  if (SEMPRE_FIXO.has(tipo)) return null;
   const t = TIPOS_DE_AVISO.find((x) => x.tipo === tipo);
   return (t && GRUPO_ESCRITO[t.grupo]) ?? null;
 }

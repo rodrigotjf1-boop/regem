@@ -40,7 +40,8 @@ import { FERRAMENTAS, FERRAMENTA_DO_QUE_FALTA, INSTRUCOES_DO_MISTER, TETOS, TEXT
 import { MisterAgenteService } from './mister-agente.service';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
 import { MisterAvisosService } from './mister-avisos.service';
-import { TEXTOS_DO_PEDIDO_ATRASADO } from './mister-avisos.regras';
+import { TEXTOS_DO_FERIADO, TEXTOS_DO_PEDIDO_ATRASADO } from './mister-avisos.regras';
+import { DiasEspeciaisService } from '../cardapio/dias-especiais.service';
 import { AvisosNaTelaService } from './avisos-na-tela.service';
 import { MisterAvisosHistoricoService } from './mister-avisos-historico.service';
 import { MAX_TENTATIVAS_CONSULTA_DA_NOTA } from '../fiscal/fiscal.service';
@@ -4440,7 +4441,9 @@ export function testesDoMisterComPostgres(): void {
       // põe em "Documentos e dinheiro").
       // E o da validade pendente (P1 de "Pedidos e recebimento", 25/11): no fim, ao gerente; a tela o põe em "Na loja".
       // E o do pedido atrasado (P3, 25/11): também ao gerente, em "Na loja".
-      expect(tela.avisos).toHaveLength(16);
+      expect(tela.avisos).toHaveLength(17);
+      // H2b dos dias especiais: o "Feriado chegando", DESLIGADO, ao presidente e ao gerente.
+      expect(tela.avisos[16]).toMatchObject({ tipo: 'feriado_chegando', grupo: 'Na loja', padrao: true, regra: { ligado: false, destinos: ['presidente', 'gerente'], parametro: null } });
       expect(tela.avisos[14]).toMatchObject({ tipo: 'validade_pendente', grupo: 'Na loja', padrao: true, regra: { ligado: true, destinos: ['gerente'], parametro: null } });
       expect(tela.avisos[15]).toMatchObject({ tipo: 'pedido_atrasado', grupo: 'Na loja', padrao: true, regra: { ligado: true, destinos: ['gerente'], parametro: null } });
       expect(tela.avisos[11]).toMatchObject({ tipo: 'ponto_do_mes', grupo: 'Pessoas e ponto', regra: { ligado: true, destinos: ['presidente'], parametro: null } });
@@ -14302,6 +14305,82 @@ export function testesDoMisterComPostgres(): void {
           await q(`delete from compra_lista where id = any($1::uuid[])`, [listas]);
           await q(`delete from item_estoque where id = any($1::uuid[])`, [itens]);
           await q(`delete from fornecedor where id = any($1::uuid[])`, [forns]);
+        }
+      });
+
+      // H2b dos dias especiais (protótipo `regem-dias-especiais.html`, "No Mister"): o aviso "Feriado chegando" — nasce desligado;
+      // ligado, o feriado sem resposta em até 10 dias abre com os três botões; "Fechada" propõe o dia especial com o PIN pelo
+      // link (a tarefa da conversa); respondido, o aviso fecha sem "Resolvido" e o botão diz que já foi respondido.
+      it('H2b: o "Feriado chegando" — desligado nada; ligado, o feriado da Escala abre com os botões; "Fechada" manda o link do PIN; respondido, fecha calado', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        await modulo(A, true);
+        const dias = new DiasEspeciaisService(db, auditoria);
+        const telasDeMentira = { escrever: async () => ({ status: 201, mensagem: '', dados: { id: randomUUID() } }) };
+        const tarefas = new MisterTarefasService(db, ferramentas, propostasDasAcoes, telasDeMentira as any, numero, auditoria);
+        tarefas.onModuleInit();
+        const refAntes = (avisos as any).moduleRef;
+        (avisos as any).moduleRef = { get: (c: any) => (c === DiasEspeciaisService ? dias : c === MisterTarefasService ? tarefas : null) };
+        const envAntes = process.env.MISTER_FAZER_TAREFAS;
+        const hoje = hojeISO();
+        const d5 = somarDias(hoje, 5);
+        const nome = `Feriado H2b ${MARCA}`;
+        const AS_10 = new Date(`${hoje}T10:30:00-03:00`);
+        let feriadoId = '';
+        try {
+          [{ id: feriadoId }] = await q(`insert into dia_especial (tenant_id, unidade_id, data, tipo, nome) values ($1, null, $2, 'feriado', $3) returning id::text as id`, [A, d5, nome]);
+          const chave = `escala:${feriadoId}:${d5}`;
+          const doTeste = (ss: any[]) => ss.filter((s) => s.tipo === 'feriado_chegando' && s.dados?.nome === nome);
+          // Desligado (o padrão): nada.
+          expect(doTeste(await avisos.situacoes([A], AS_10))).toEqual([]);
+          await q(`insert into mister_aviso_regra (tenant_id, tipo, ligado, destinos, parametro) values ($1, 'feriado_chegando', true, '{presidente}', null)`, [A]);
+          const [s] = doTeste(await avisos.situacoes([A], AS_10));
+          expect(s).toMatchObject({ chave: `feriado:${chave}`, titulo: expect.stringContaining(`, é ${nome}`), dados: { chave, data: d5, nome } });
+          await avisos.volta([A], AS_10);
+          const aviso = async () => (await q(`select situacao from mister_aviso where tenant_id = $1 and tipo = 'feriado_chegando' and chave = $2`, [A, `feriado:${chave}`]))[0];
+          expect(await aviso()).toMatchObject({ situacao: 'aberto' });
+
+          // "Outro horário" pergunta o horário; "Fechada" com as tarefas desligadas aponta a tela.
+          delete process.env.MISTER_FAZER_TAREFAS;
+          numero.pedidos.length = 0;
+          expect(await avisos.tocouNoFeriado(`fer:o:${chave}`, quem(tel, 'ana', 'presidente'))).toBe(true);
+          expect(await avisos.tocouNoFeriado(`fer:f:${chave}`, quem(tel, 'ana', 'presidente'))).toBe(true);
+          const textos = numero.enviadas.filter((m) => m.para === tel).map((m) => m.texto);
+          expect(textos[0]).toContain(`(${nome})? Responda aqui`);
+          expect(textos[1]).toContain(TEXTOS_DO_FERIADO.pelaTela);
+          // Ligadas: "Fechada" manda o "Vou fazer" com o link do PIN — a mesma tarefa da conversa, sem loja, com a chave.
+          process.env.MISTER_FAZER_TAREFAS = '1';
+          numero.pedidos.length = 0;
+          expect(await avisos.tocouNoFeriado(`fer:f:${chave}`, quem(tel, 'ana', 'presidente'))).toBe(true);
+          const [link] = numero.enviadas.filter((m) => m.para === tel);
+          expect(link.texto).toContain('Vou fazer:');
+          expect(link.texto).toContain('Como a loja fica: fechada o dia todo');
+          expect(link.link?.url).toMatch(/\/m\//);
+          const [prop] = await q(
+            `select procedimento, nivel, parametros from mister_proposta where tenant_id = $1 and parametros ->> 'caminho' = '/api/v1/cardapio/dias-especiais' order by criada_em desc limit 1`,
+            [A],
+          );
+          expect(prop).toMatchObject({ procedimento: 'fazer_no_regem', nivel: 'pin', parametros: { loja: null, corpo: { data: d5, nome, funcionamento: 'fechada', feriadoChave: chave } } });
+          // Outra empresa não é deste aviso.
+          expect(await avisos.tocouNoFeriado(`fer:f:${chave}`, { telefone: tel, vinculos: [{ ...quem(tel, 'ana', 'presidente').vinculos[0], tenantId: randomUUID() }], wamid: null } as any)).toBe(false);
+
+          // Respondido (o dia especial gravado, como o PIN faria): a situação some, o aviso fecha SEM "Resolvido".
+          await dias.criar({ tenantId: A, colaboradorId: null, categoria: 'presidente' } as any, null, { data: d5, nome, funcionamento: 'fechada', feriadoChave: chave });
+          expect(doTeste(await avisos.situacoes([A], AS_10))).toEqual([]);
+          numero.pedidos.length = 0;
+          await avisos.volta([A], AS_10);
+          expect((await aviso()).situacao).not.toBe('aberto');
+          expect(numero.enviadas.filter((m) => m.para === tel && /Resolvido/.test(m.texto))).toEqual([]);
+          await avisos.tocouNoFeriado(`fer:n:${chave}`, quem(tel, 'ana', 'presidente'));
+          expect(numero.enviadas.filter((m) => m.para === tel).map((m) => m.texto)).toEqual([TEXTOS_DO_FERIADO.respondido]);
+        } finally {
+          (avisos as any).moduleRef = refAntes;
+          if (envAntes === undefined) delete process.env.MISTER_FAZER_TAREFAS;
+          else process.env.MISTER_FAZER_TAREFAS = envAntes;
+          await q(`delete from horario_especial where tenant_id = $1 and nome = $2`, [A, nome]);
+          if (feriadoId) await q(`delete from dia_especial where id = $1`, [feriadoId]);
+          await q(`delete from mister_aviso_regra where tenant_id = $1 and tipo = 'feriado_chegando'`, [A]);
+          await q(`delete from mister_aviso where tenant_id = $1 and tipo = 'feriado_chegando'`, [A]);
         }
       });
 
