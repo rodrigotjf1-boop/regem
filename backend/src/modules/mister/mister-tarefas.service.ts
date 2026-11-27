@@ -12,7 +12,7 @@ import { MisterNumeroService } from './mister-numero.service';
 import { botoesDaProposta } from './mister-procedimentos';
 import { MisterPropostasService, type PropostaPendente } from './mister-propostas.service';
 import { horaNoFuso } from '../../common/data';
-import { PRAZO_DA_TAREFA_MIN, PROCEDIMENTO_DA_TAREFA, TEXTOS_DAS_TAREFAS, pedidoDaTarefa, tarefasNoMister } from './mister-tarefas';
+import { PRAZO_DA_TAREFA_MIN, PROCEDIMENTO_DA_TAREFA, TEXTOS_DAS_TAREFAS, pedidoDaTarefa, sigaDaTarefa, tarefasNoMister } from './mister-tarefas';
 import { MisterTelasService } from './mister-telas.service';
 import { PEDIDO_MAX, textoAprendido } from './mister-aprendizado';
 
@@ -79,11 +79,11 @@ export class MisterTarefasService implements OnModuleInit {
           pergunta: TEXTOS_DAS_TAREFAS.link(p.resumo, horaNoFuso(new Date(prop.venceEm))),
           botoes: [],
         };
-        return { ok: true, dados: { oQueVouFazer: p.resumo, siga: TEXTOS_DAS_TAREFAS.sigaDoPin }, proposta };
+        return { ok: true, dados: { oQueVouFazer: p.resumo, siga: sigaDaTarefa(p.f.marca) }, proposta };
       }
       return {
         ok: true,
-        dados: { oQueVouFazer: p.resumo, siga: TEXTOS_DAS_TAREFAS.siga },
+        dados: { oQueVouFazer: p.resumo, siga: sigaDaTarefa(p.f.marca) },
         mensagens: [{ texto: TEXTOS_DAS_TAREFAS.pergunta(p.resumo), botoes: botoesDaProposta(prop.id) }],
       };
     } catch (err: any) {

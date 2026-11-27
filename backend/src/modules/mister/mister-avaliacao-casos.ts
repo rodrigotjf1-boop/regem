@@ -31,7 +31,7 @@ import { montarNoticias, pedidoDasNoticias } from './mister-noticias';
 import { montarLinks, pedidoDoLink } from './mister-abrir';
 import { TEXTOS_DAS_TELAS, pedidoDaLeitura, procurarTelas, recusaDaTela, resultadoDaLeitura } from './mister-telas.service';
 import { MOTIVO_NAO_TEM, SIGA_DO_QUE_FALTA, comMotivo } from './mister-motivo';
-import { TEXTOS_DAS_TAREFAS, pedidoDaTarefa } from './mister-tarefas';
+import { pedidoDaTarefa, sigaDaTarefa } from './mister-tarefas';
 import { TEXTOS_DO_PIN_FALADO } from './mister-pin-falado';
 import { recusaPeloPerfil } from './mister-acoes-perfil';
 import { perfilPadrao } from '../../auth/permissoes';
@@ -913,7 +913,7 @@ export function executarNaAvaliacao(nome: unknown, entrada: unknown, perfil: Per
       // C4: a MESMA conferência do pedido e o "Vou fazer" do Regem; na avaliação nada é proposto nem feito.
       const p = pedidoDaTarefa(en, { unidadeId: LOJA_ID_DA_AVALIACAO }, origemDe(en.__origem).resultados);
       if ('erro' in p) return recusa(p.erro);
-      return ok({ oQueVouFazer: p.resumo, siga: TEXTOS_DAS_TAREFAS.siga });
+      return ok({ oQueVouFazer: p.resumo, siga: sigaDaTarefa(p.f.marca) });
     }
     case 'ler_no_regem': {
       const p = pedidoDaLeitura(en);

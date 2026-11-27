@@ -31,6 +31,15 @@ export const TEXTOS_DAS_TAREFAS = {
   feita: (frase: string) => `feito: ${frase.charAt(0).toLowerCase()}${frase.slice(1)}.`,
 } as const;
 
+/**
+ * O "siga" que volta à IA depois do "Vou fazer": a tarefa de PIN fala do link que pede o PIN; a de botão, do "Autorizar".
+ * A conversa (`MisterTarefasService.propor`) e a avaliação usam esta MESMA função — a avaliação devolvia sempre o do botão,
+ * e as perguntas de PIN (c139, c140) reprovavam sem a IA ter errado (ERR-639).
+ */
+export function sigaDaTarefa(marca: string): string {
+  return marca === 'pin' ? TEXTOS_DAS_TAREFAS.sigaDoPin : TEXTOS_DAS_TAREFAS.siga;
+}
+
 /** Como a IA lê o tipo de cada campo. */
 const TIPO_PARA_A_IA: Partial<Record<CampoDaTarefa['tipo'], string>> = {
   id: 'id (de uma leitura; nunca invente)',
