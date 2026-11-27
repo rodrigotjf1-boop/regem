@@ -13,6 +13,10 @@
 ## Acumulado (NÃO empacotado) — próxima release (1.30.17)
 
 - _(o #1360, Mister C6a, entrou na `main` logo depois do corte da 1.30.16 e não está no `.exe`; é só da nuvem; o #1362, C6b, também)_
+- **Atendente: a voz que fecha as frases (.f36) e o nome do entregador só com a permissão dele (26/11; SEM migration; ERR-623).**
+  O robô é só da nuvem. A lista de pedidos do cardápio público (`pedidosPorTelefone`) vai no próximo `.zip` por ser código
+  comum: no servidor da loja a tabela da permissão não existe (só da nuvem) e o nome do entregador da loja deixa de aparecer —
+  o lado seguro. Não pede `.exe`.
 - _(Atendente — o Pix pela conversa, instruções .f35 (26/11): SEM migration e só da nuvem — a conversa do robô, o registro e a
   cobrança do Pix rodam na nuvem. Não pede `.zip` nem `.exe`.)_
 - _(Atendente — menos espera e o "digitando…" renovado (26/11): SEM migration e só da nuvem — a entrada do WhatsApp e a resposta

@@ -14,6 +14,7 @@ import { anotarNaMemoria, chaveDaMemoria } from './robo-do-outro-lado';
 import { pedidosParaORobo } from './pedidos-do-robo';
 import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect, ehChaveDoMessenger, lerConversa } from '../../common/conversa-do-robo';
 import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
+import { comNomeDoEntregadorParaOCliente } from '../../common/entregador-para-o-cliente';
 
 /**
  * O telefone das consultas do robô (16/11/2026 — o documento do dono, "separação de acesso: vincular ferramentas ao
@@ -1155,6 +1156,7 @@ export class WhatsappService {
         statusPagamento: pedidoExterno.statusPagamento,
         tipo: pedidoExterno.tipo,
         total: pedidoExterno.total,
+        entregadorId: pedidoExterno.entregadorId,
         entregadorNome: pedidoExterno.entregadorNome,
         criadoEm: pedidoExterno.criadoEm,
       })
@@ -1170,7 +1172,9 @@ export class WhatsappService {
       )
       .orderBy(desc(pedidoExterno.criadoEm))
       .limit(5);
-    return pedidosParaORobo(rows.map((r) => ({ ...r, statusTexto: this.textoStatusPedido(r) })));
+    // O nome do entregador da loja só com a permissão dele (a regra do rastreio — `common/entregador-para-o-cliente.ts`).
+    const comNome = await comNomeDoEntregadorParaOCliente(this.db, cfg.tenantId, rows);
+    return pedidosParaORobo(comNome.map((r) => ({ ...r, statusTexto: this.textoStatusPedido(r) })));
   }
 
   async resolver(instancia: string, secret: string, numero?: string) {

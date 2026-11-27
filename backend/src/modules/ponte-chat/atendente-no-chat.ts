@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { sql, type SQL } from 'drizzle-orm';
+import { entregadoresQueCompartilham, nomeDoEntregadorParaOCliente } from '../../common/entregador-para-o-cliente';
 import { ehServidorLocal } from '../../common/modo';
 import { chaveDoChat, ehChaveDoChat, idDaChaveDoChat } from '../../common/conversa-do-robo';
 import { uuidDeChave } from '../../common/id-deterministico';
@@ -667,11 +668,15 @@ export async function pedidoDaConversaDoChat(db: any, chaves: unknown[]) {
   const [p] = linhas(
     await db.execute(sql`
       select pe.numero, pe.display_id as "displayId", pe.status, pe.status_pagamento as "statusPagamento", pe.tipo, pe.total,
-             pe.entregador_nome as "entregadorNome", pe.criado_em as "criadoEm", pe.despachado_em as "despachadoEm",
-             pe.cliente_nome as cliente, pe.canal, pe.raw
+             pe.entregador_id as "entregadorId", pe.entregador_nome as "entregadorNome", pe.criado_em as "criadoEm",
+             pe.despachado_em as "despachadoEm", pe.cliente_nome as cliente, pe.canal, pe.raw
         from pedido_externo pe where pe.tenant_id = ${c.tenantId}::uuid and pe.id = ${c.pedidoId}::uuid`),
   );
   if (!p) return null;
+  // O nome do entregador da loja só com a permissão dele (a regra do rastreio — `common/entregador-para-o-cliente.ts`); o id
+  // não segue adiante.
+  p.entregadorNome = nomeDoEntregadorParaOCliente(p, await entregadoresQueCompartilham(db, c.tenantId, [p.entregadorId]));
+  delete p.entregadorId;
   return { conversa: c, linha: p, doRobo: pedidoDaLinha(p, c.canal, c.cliente) as PedidoDoRobo };
 }
 
