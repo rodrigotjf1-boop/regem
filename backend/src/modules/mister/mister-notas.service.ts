@@ -1003,8 +1003,8 @@ export class MisterNotasService implements OnModuleInit {
   }
 
   /** ERR-628: a unidade do estoque e o que o cadastro diz da embalagem de cada insumo das linhas (o "ver" mostra à IA). */
-  private async cadastrosDasLinhas(tenantId: string, nota: NotaNoMister): Promise<Map<string, { unidade: string; conversoes: string[] }>> {
-    const m = new Map<string, { unidade: string; conversoes: string[] }>();
+  private async cadastrosDasLinhas(tenantId: string, nota: NotaNoMister): Promise<Map<string, { unidade: string; conversoes: string[]; nomeComercial: string | null }>> {
+    const m = new Map<string, { unidade: string; conversoes: string[]; nomeComercial: string | null }>();
     const ids = [
       ...new Set(nota.itens.map((it) => it.insumoId ?? (it.estado === 'item' && it.propostaDaIa ? it.sugestoes?.[0]?.id : null)).filter((x): x is string => !!x)),
     ];
@@ -1012,11 +1012,16 @@ export class MisterNotasService implements OnModuleInit {
     try {
       const lidos = linhas(
         await this.db.execute(sql`
-          select id::text as id, unidade_medida as "unidadeMedida" from item_estoque
+          select id::text as id, unidade_medida as "unidadeMedida", nome_comercial as "nomeComercial" from item_estoque
            where tenant_id = ${tenantId}::uuid and id in (${sql.join(ids.map((x) => sql`${x}::uuid`), sql`, `)})`),
       );
       const conv = await this.conversoes(tenantId, ids);
-      for (const l of lidos) m.set(String(l.id), { unidade: String(l.unidadeMedida), conversoes: cadastroDaEmbalagem(String(l.unidadeMedida), conv.get(String(l.id)) ?? []) });
+      for (const l of lidos)
+        m.set(String(l.id), {
+          unidade: String(l.unidadeMedida),
+          conversoes: cadastroDaEmbalagem(String(l.unidadeMedida), conv.get(String(l.id)) ?? []),
+          nomeComercial: l.nomeComercial ? String(l.nomeComercial) : null,
+        });
     } catch (e: any) {
       // O "ver" nunca cai por isto: sem o cadastro, as linhas vão como antes.
       this.logger.warn(`o cadastro das linhas da nota não veio — ${e?.message ?? e}`);
@@ -1205,7 +1210,7 @@ export class MisterNotasService implements OnModuleInit {
           }
           const conv = (await this.conversoes(e.tenantId, [achado.insumo.id], tx)).get(achado.insumo.id) ?? [];
           const fator = fatorParaEstoque(unidadeImpressa(it.unidade), achado.insumo.unidadeMedida, conv);
-          Object.assign(it, { insumoId: achado.insumo.id, insumoNome: achado.insumo.nome, unidadeDoEstoque: achado.insumo.unidadeMedida, fator, fatorProposto: null, fatorConfirmado: false, estado: fator == null ? 'fator' : 'ligado', sugestoes: [], duvida: null, pelaIa: false, propostaDaIa: false });
+          Object.assign(it, { insumoId: achado.insumo.id, insumoNome: achado.insumo.nome, insumoNomeComercial: achado.insumo.nomeComercial ?? null, unidadeDoEstoque: achado.insumo.unidadeMedida, fator, fatorProposto: null, fatorConfirmado: false, estado: fator == null ? 'fator' : 'ligado', sugestoes: [], duvida: null, pelaIa: false, propostaDaIa: false });
         }
       }
       // O cadastro novo que a pessoa pediu: o mesmo serviço da tela (Estoque › Produtos). Com o nome já cadastrado, liga a ele.
@@ -1214,7 +1219,7 @@ export class MisterNotasService implements OnModuleInit {
         const it = nota.itens[a.linha - 1];
         const nome = a.nome ?? it.nomeNovo ?? it.descricao;
         const ja = acharInsumo(nome, insumos);
-        let insumo: { id: string; nome: string; unidadeMedida: string };
+        let insumo: { id: string; nome: string; nomeComercial?: string | null; unidadeMedida: string };
         if ('insumo' in ja) insumo = ja.insumo;
         else {
           try {
@@ -1233,7 +1238,7 @@ export class MisterNotasService implements OnModuleInit {
         }
         const conv = (await this.conversoes(e.tenantId, [insumo.id], tx)).get(insumo.id) ?? [];
         const fator = fatorParaEstoque(unidadeImpressa(it.unidade), insumo.unidadeMedida, conv);
-        Object.assign(it, { insumoId: insumo.id, insumoNome: insumo.nome, unidadeDoEstoque: insumo.unidadeMedida, fator, fatorProposto: null, fatorConfirmado: false, estado: fator == null ? 'fator' : 'ligado', sugestoes: [], duvida: null, pelaIa: false, propostaDaIa: false });
+        Object.assign(it, { insumoId: insumo.id, insumoNome: insumo.nome, insumoNomeComercial: insumo.nomeComercial ?? null, unidadeDoEstoque: insumo.unidadeMedida, fator, fatorProposto: null, fatorConfirmado: false, estado: fator == null ? 'fator' : 'ligado', sugestoes: [], duvida: null, pelaIa: false, propostaDaIa: false });
       }
       // Versão 10, C1a: o total, os itens que faltaram (sem insumo: a pergunta de cada um segue pelo caminho de sempre) e o
       // "lançar mesmo com a soma diferente" (o mesmo do botão "Lançar assim").
