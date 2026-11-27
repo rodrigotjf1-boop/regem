@@ -145,7 +145,9 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // .f39 (27/11, teste do dono — ERR-629): a SITUAÇÃO DA LOJA AGORA no fim do texto do WhatsApp (o que está aberto e até
 // quando, a pausa, o veredito conferido e as formas de pagamento pela conversa, lidos nesta mensagem), valendo mais que a
 // memória da conversa; e nunca repetir mensagem, opções ou confirmação de antes (podem ser de outro pedido).
-export const VERSAO_INSTRUCOES = '2026-11-27.f39';
+// .f40 (27/11, dias especiais — H1, mig 512): o bloco "agora" traz o dia especial de hoje e os dos próximos 30 dias; feriado
+// que não está na lista segue o horário daquele dia da semana (decisão 3 do protótipo aprovado).
+export const VERSAO_INSTRUCOES = '2026-11-27.f40';
 
 /** O fluxo do n8n que pede é a 2.6 ou mais nova ("2.6", "2.10")? Só ela tem `promocoes_da_loja` e a taxa por endereço. */
 export function fluxoComFerramentas26(versao: unknown): boolean {

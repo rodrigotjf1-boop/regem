@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { linhaDoAtendente } from './dias-especiais';
 
 // AS CONSULTAS DO ROBÔ (Fase 2 do robô de WhatsApp, 29/10/2026) — resumos do cardápio público (`CardapioService.menu`)
 // no tamanho que um modelo de linguagem lê sem se perder: a mesma fonte do cardápio online, então preço, esgotado,
@@ -94,6 +95,8 @@ export function resumoDaLoja(menu: any, linkCardapio: string, agora: Date = new 
     horario: menu?.horarioLabel ?? null,
     proximaAbertura: menu?.proximaAbertura ?? null,
     horariosDaSemana: horariosDaSemana(menu?.horarios),
+    // Os dias especiais dos próximos 30 dias (H1, mig 512): nestas datas vale este horário, não o da semana.
+    diasEspeciais: (Array.isArray(menu?.diasEspeciais?.proximos) ? menu.diasEspeciais.proximos : []).map(linhaDoAtendente),
     // Fechada à mão OU com os pedidos pausados no painel do Delivery (mig 392).
     pausadaPelaLoja: loja.aberto === false || !!menu?.pausa,
     // A pausa dos pedidos (mig 392): o motivo e a volta, para o atendente explicar ao cliente — sem ela, null. `frase` vem

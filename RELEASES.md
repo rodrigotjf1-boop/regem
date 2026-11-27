@@ -13,6 +13,10 @@
 ## Acumulado (NÃO empacotado) — próxima release (1.30.17)
 
 - _(o #1360, Mister C6a, entrou na `main` logo depois do corte da 1.30.16 e não está no `.exe`; é só da nuvem; o #1362, C6b, também)_
+- **Dias especiais do horário da loja — H1a, o servidor (27/11; mig 512 `horario_especial`, que SINCRONIZA nos dois
+  sentidos).** Pede `.zip` (a regra do horário de uma data vale no servidor da loja: o aberto agora e o agendado) **e
+  `.exe`** (o `sync-daemon.mjs` ganhou a tabela no `PUSH_TABLES`). Até o `.zip`, o servidor da loja segue pelo horário da
+  semana — a tabela que ele ainda não tem dá "nenhum dia especial" (42P01 = nenhum). A tela (H1b) vem em outro PR.
 - **Atendente: pôr item no pedido pago, Pix confirmado sem comprovante e o estorno no aviso de cancelado (26/11; SEM migration;
   ERR-626, ERR-627).** A versão do servidor e a conferência de minuto do Pix são só da nuvem. O texto do aviso de cancelado vai no
   próximo `.zip` por ser código comum (o servidor da loja que monta o aviso ganha a frase do estorno). Não pede `.exe`.
@@ -49,8 +53,8 @@
   `.zip` nem `.exe`.)_
 - _(mig 510 — a correção da nota da Rucas lançada em 27/11 com a conta errada (ERR-628): `@cloud-only`, só dados. A loja recebe o
   ajuste, o custo médio e o pedido pelo sync, sem `.zip` nem `.exe`.)_
-- **ERR-630 — o custo médio com o saldo contado sem custo (27/11; mig 511, só da nuvem).** `custoMedioPonderado`
-  (`common/regras-negocio.ts`): custo médio 0 com saldo = custo desconhecido, e a entrada vale sozinha. A mig 511 refez o custo dos
+- **ERR-630 — o custo médio com o saldo contado sem custo (27/11; mig 512, só da nuvem).** `custoMedioPonderado`
+  (`common/regras-negocio.ts`): custo médio 0 com saldo = custo desconhecido, e a entrada vale sozinha. A mig 512 refez o custo dos
   insumos na nuvem, e a loja recebe pelo sync. Vai no próximo `.zip`: o servidor da loja calcula o custo dos recebimentos feitos
   nele, e até lá continua ponderando o saldo sem custo como R$ 0. Não pede `.exe`.
 

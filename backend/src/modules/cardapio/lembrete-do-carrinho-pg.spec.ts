@@ -30,7 +30,8 @@ descrever('lembrete do pedido parado no robô (Postgres)', () => {
   const evolution: any = { enviar: async (t: string, para: string, texto: string) => void enviados.push({ via: 'qr', t, para, texto }) };
   const cloud: any = { enviarTexto: async (t: string, para: string, texto: string) => void enviados.push({ via: 'oficial', t, para, texto }) };
   let aberta = true;
-  const cardapio: any = { lojaAbertaAgora: () => aberta };
+  // O falso reproduz o real (V108): a configuração passa pelos dias especiais (H1, mig 512) antes do "aberta agora?".
+  const cardapio: any = { lojaAbertaAgora: () => aberta, comDiasEspeciais: async (cfg: any) => ({ ...cfg, diasEspeciais: [] }) };
   const rotina = new LembreteDoCarrinhoProcessor(db, cardapio, evolution, cloud);
   const auditados: any[] = [];
   const ajustes = new WhatsappProvedorService(db, { registrar: async (a: any) => void auditados.push(a) } as any, {} as any, {} as any);

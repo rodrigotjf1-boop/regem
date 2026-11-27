@@ -146,7 +146,9 @@ import { sinalDoServidor, vereditoDaLoja, type SinalDoCanal, type SituacaoConfer
 import { atrasoDaCozinha, tempoAgoraDoTipo, type AmostraDaCozinha, type TempoAgora } from './tempo-de-espera';
 import { gravarOrigemPedido, medicaoDeAnuncios } from './origem-pedido';
 import { escolhaNoCheckout, promocoesDaLoja } from './promocoes-cardapio';
-import { TIPOS_EVENTO_FUNIL, ehTemplateCardapio, proximaAberturaDe, templateDoCardapio } from './menu-themes';
+import { TIPOS_EVENTO_FUNIL, ehTemplateCardapio, templateDoCardapio } from './menu-themes';
+import { aberturaDeAgora, especiaisDoTipo, proximaAberturaDaData, type DiaEspecialDoHorario } from '../../common/horario-da-data';
+import { faixaDoCardapio, lerDiasEspeciais, situacaoDosDiasEspeciais } from './dias-especiais';
 import { ehEventoCardapio, eventoEmPrevia, eventoNoAr, lerEventos } from './eventos-cardapio';
 import type { Distancia } from '../atendimento/endereco-depois-que-saiu';
 import { InstagramService } from '../instagram/instagram.service';
@@ -1514,7 +1516,9 @@ export class CardapioService {
       .where(eq(cardapioConfig.token, token));
     if (!cfg || !cfg.ativo)
       throw new NotFoundException('Cardápio indisponível.');
-    return cfg;
+    // Com os dias especiais da loja (H1, mig 512): todo caminho público (o cardápio, o agendado, o pedido e o robô) passa
+    // por aqui e lê o horário da data com a MESMA regra.
+    return this.comDiasEspeciais(cfg);
   }
 
   // Esgotado automático: para cada produto que controla estoque, resolve os
@@ -1688,11 +1692,30 @@ export class CardapioService {
     return (cfg.horarios ?? []) as any[];
   }
 
+  /**
+   * Os dias especiais da loja que valem para o tipo do pedido (H1, mig 512): lidos junto com a configuração (`comDiasEspeciais`).
+   * A configuração que não os trouxe (um caminho que não passou por lá) segue só pelo horário da semana, como antes.
+   */
+  private especiaisDoTipo(cfg: any, tipo?: string): DiaEspecialDoHorario[] {
+    return especiaisDoTipo(cfg?.diasEspeciais, tipo);
+  }
+
+  /** A configuração com os dias especiais da loja (de ontem a 60 dias): a mesma regra para o cardápio, o agendado e o pedido. */
+  async comDiasEspeciais<T extends { tenantId: string; unidadeId?: string | null }>(cfg: T): Promise<T & { diasEspeciais: DiaEspecialDoHorario[] }> {
+    const { de, ate } = faixaDoCardapio();
+    // Sem conseguir ler (V11: com o aviso no log), o cardápio segue pelo horário da semana, como antes — como a pausa e os
+    // alérgenos no `menu`.
+    const diasEspeciais = await lerDiasEspeciais(this.db, cfg.tenantId, cfg.unidadeId ?? null, de, ate).catch((e: any) => {
+      this.logger.warn(`dias especiais não lidos (${e?.message ?? e}); segue pelo horário da semana`);
+      return [] as DiaEspecialDoHorario[];
+    });
+    return { ...cfg, diasEspeciais };
+  }
+
   private estaAberta(cfg: any, tipo?: string): boolean {
     if (cfg.aberto === false) return false;
-    const hs = this.horariosDoTipo(cfg, tipo);
-    if (!Array.isArray(hs) || hs.length === 0) return true;
-    return !!this.janelaAtual(hs);
+    // O horário de HOJE (H1): o do dia especial, senão o da semana; sem horário cadastrado, o dia inteiro.
+    return !!aberturaDeAgora(this.horariosDoTipo(cfg, tipo), this.especiaisDoTipo(cfg, tipo));
   }
 
   /** A loja está aberta agora? A MESMA regra do cardápio online (o interruptor da loja e os horários). */
@@ -1714,7 +1737,11 @@ export class CardapioService {
     const geral = this.estaAberta(cfg);
     // Até que horas cada tipo recebe pedido AGORA (27/11, o atendente: "o horário de delivery tinha encerrado, eu alterei e
     // ele não buscou"): a janela de hoje do conjunto do tipo — o "Aberta até" do cardápio só olha o horário da entrega.
-    const fechaAs = (t: 'entrega' | 'retirada'): string | null => (aberto[t] ? (this.janelaAtual(this.horariosDoTipo(cfg, t))?.fecha ?? null) : null);
+    const fechaAs = (t: 'entrega' | 'retirada'): string | null => {
+      if (!aberto[t]) return null;
+      const a = aberturaDeAgora(this.horariosDoTipo(cfg, t), this.especiaisDoTipo(cfg, t));
+      return a && a !== 'dia_inteiro' ? a.fecha : null;
+    };
     if (!pausa || !(geral || aberto.entrega || aberto.retirada || aberto.local)) {
       return {
         abertaAgora: geral,
@@ -1749,29 +1776,8 @@ export class CardapioService {
     };
   }
 
-  // Janela de funcionamento que cobre AGORA (ou null). Uma janela que vira a
-  // meia-noite (ex.: 18:00–02:00) pertence ao dia em que ABRE — então, depois da
-  // meia-noite, quem vale é a janela de ONTEM, não a de hoje.
-  private janelaAtual(hs: any[]): any | null {
-    const { dia, hhmm } = this.agoraSp();
-    const doDia = (d: number) => hs.filter((h) => Number(h.dia) === d && h.ativo && h.abre && h.fecha);
-    // Começou hoje: mesmo dia, ou o trecho antes da meia-noite de uma janela virada.
-    const hoje = doDia(dia).find((h) =>
-      h.fecha > h.abre ? hhmm >= h.abre && hhmm <= h.fecha : hhmm >= h.abre,
-    );
-    if (hoje) return hoje;
-    // Começou ontem e ainda não fechou (madrugada): só janelas que viram a meia-noite.
-    const ontem = (dia + 6) % 7;
-    return doDia(ontem).find((h) => h.fecha <= h.abre && hhmm <= h.fecha) ?? null;
-  }
-
-  private agoraSp(): { dia: number; hhmm: string } {
-    const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-    return {
-      dia: agora.getDay(), // 0=Dom … 6=Sáb
-      hhmm: `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`,
-    };
-  }
+  // A janela de funcionamento que cobre AGORA mora em `common/horario-da-data.ts` (`aberturaDeAgora`, H1): uma janela que
+  // vira a meia-noite pertence ao dia em que ABRE, e o dia especial vale no lugar do dia da semana.
 
   // Distância de ROTA (OSRM self-hosted) loja→cliente em KM, p/ o frete por raio (item 5).
   // Usa a mesma infra OSRM_URL do app do entregador. FALLBACK: sem OSRM_URL / fora / fora
@@ -1840,31 +1846,23 @@ export class CardapioService {
 
   private proximaAbertura(cfg: any, tipo: string): string | null {
     if (cfg.aberto === false || this.estaAberta(cfg, tipo)) return null;
-    return proximaAberturaDe(this.horariosDoTipo(cfg, tipo), this.agoraSp());
+    // Pelos dias especiais (H1): pula o dia fechado e o período inteiro ("15/01 18:00" quando passa de 6 dias).
+    return proximaAberturaDaData(this.horariosDoTipo(cfg, tipo), this.especiaisDoTipo(cfg, tipo));
   }
 
   // Rótulo de horário para o cabeçalho: "Aberta até 23:00" ou "Abre às 18:00"
-  // (com dia abreviado quando não for hoje). null quando não há horários.
+  // (com dia abreviado quando não for hoje). null quando não há horários (nem dia especial).
   private horarioLabel(cfg: any): string | null {
     if (cfg.aberto === false) return 'Fechada';
     const hs = (cfg.horarios ?? []) as any[];
-    if (!Array.isArray(hs) || hs.length === 0) return null;
-    const { dia, hhmm } = this.agoraSp();
-    const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
-    if (this.estaAberta(cfg)) {
-      const win = this.janelaAtual(hs);
-      return win ? `Aberta até ${win.fecha}` : 'Aberta';
-    }
-    // Fechada: procura a próxima abertura (hoje mais tarde, senão próximos dias).
-    for (let d = 0; d < 7; d++) {
-      const cd = (dia + d) % 7;
-      const wins = hs
-        .filter((h) => Number(h.dia) === cd && h.ativo && h.abre && h.fecha)
-        .filter((h) => d > 0 || h.abre > hhmm)
-        .sort((a, b) => (a.abre < b.abre ? -1 : 1));
-      if (wins.length) return d === 0 ? `Abre às ${wins[0].abre}` : `Abre ${DIAS[cd]} ${wins[0].abre}`;
-    }
-    return 'Fechada';
+    const esp = this.especiaisDoTipo(cfg, 'entrega');
+    if ((!Array.isArray(hs) || hs.length === 0) && !esp.length) return null;
+    const agora = aberturaDeAgora(hs, esp);
+    if (agora) return agora === 'dia_inteiro' ? 'Aberta' : `Aberta até ${agora.fecha}`;
+    // Fechada: a próxima abertura (hoje mais tarde, senão os próximos dias, pulando os dias especiais fechados).
+    const p = proximaAberturaDaData(hs, esp);
+    if (!p) return 'Fechada';
+    return p.includes(' ') ? `Abre ${p}` : `Abre às ${p}`;
   }
 
   // Faixas de atacado (mig 184) por produto: só as com desconto > 0, ordenadas.
@@ -2058,6 +2056,7 @@ export class CardapioService {
     ]);
     const janelas = janelasDoDia({
       horarios: this.horariosDoTipo(cfg, tipoDoPedido),
+      especiais: this.especiaisDoTipo(cfg, tipoDoPedido),
       dia: escolhido,
       agora,
       antecedenciaMin: ajustes.antecedenciaMin,
@@ -2186,6 +2185,7 @@ export class CardapioService {
       ajustes,
       valor: lido.valor,
       horarios: this.horariosDoTipo(cfg, tipoAg),
+      especiais: this.especiaisDoTipo(cfg, tipoAg),
       agora: new Date(),
       preparoMin,
       ocupacao,
@@ -2573,6 +2573,9 @@ export class CardapioService {
       // até 21:40". `proximaAbertura`: quando cada tipo volta ("18:00" ou "sex 18:00"; null = aberto agora, sem horário
       // ou fechado à mão) — a tela usa em "entrega a partir das 18:00". `pausa`: o motivo e a volta, ou null.
       ...this.situacaoComPausa(cfg, await pausaDoCardapio),
+      // Os dias especiais (H1, mig 512): o de hoje ("Fechado hoje · Natal", "Hoje abrimos das 18:00 às 21:00"), o aviso dos
+      // próximos 3 dias com o texto pronto e os próximos 30 dias (o "Para quando?" e o atendente).
+      diasEspeciais: situacaoDosDiasEspeciais((cfg as any).diasEspeciais ?? []),
       // Evento sazonal no ar (Natal, Black Friday, Dia de jogo…) ou `null`. A tela só enfeita.
       evento: await this.eventoDoCardapio(cfg, previaEvento),
       // Contexto para o robô/atendimento (o n8n lê tudo com o token):
@@ -2856,6 +2859,7 @@ export class CardapioService {
       ajustes: { ...ajustesDoAgendado(cfg), ativo: true }, // o pedido já é agendado: desligar o ajuste não prende quem já marcou
       valor,
       horarios: this.horariosDoTipo(cfg, p.tipo),
+      especiais: this.especiaisDoTipo(cfg, p.tipo),
       agora: new Date(),
       preparoMin: preparoDoTipo(cfg, p.tipo),
       ocupacao,
@@ -2919,7 +2923,7 @@ export class CardapioService {
 
   /** As janelas para a LOJA (painel): as do dia do tipo do pedido, sem contar o próprio pedido na ocupação. */
   async janelasDoAgendadoDaLoja(tenantId: string, unidadeId: string | null, dia: unknown, tipo: unknown, pedidoId?: string) {
-    const cfg = await this.configRaw(tenantId, unidadeId);
+    const cfg = await this.configRaw(tenantId, unidadeId).then((c) => (c ? this.comDiasEspeciais(c) : c));
     if (!cfg) throw new NotFoundException('Cardápio não configurado.');
     const r = await this.janelasDoAgendado({ ...cfg, agendadoAtivo: true }, dia, tipo);
     if (!pedidoId) return r;
@@ -2930,7 +2934,7 @@ export class CardapioService {
 
   /** A loja muda o horário (painel — G6: a qualquer momento antes de sair), com quem mudou na auditoria. */
   async mudarHorarioDaLoja(tenantId: string, unidadeId: string | null, pedidoId: string, valor: unknown, ator: { id: string | null; perfil: string | null }) {
-    const cfg = await this.configRaw(tenantId, unidadeId);
+    const cfg = await this.configRaw(tenantId, unidadeId).then((c) => (c ? this.comDiasEspeciais(c) : c));
     if (!cfg) throw new NotFoundException('Cardápio não configurado.');
     return this.mudarHorarioDoAgendado(cfg, pedidoId, valor, { origem: 'loja', atorId: ator.id, atorPerfil: ator.perfil });
   }
@@ -4748,6 +4752,7 @@ export class CardapioService {
         ajustes: ajustesDoAgendado(cfg),
         valor: dto.agendamento,
         horarios: this.horariosDoTipo(cfg, tipoAg),
+        especiais: this.especiaisDoTipo(cfg, tipoAg),
         agora: new Date(),
         preparoMin: preparoDoTipo(cfg, tipoAg),
         ocupacao,

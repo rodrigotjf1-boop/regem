@@ -16,6 +16,9 @@ import { VendasService } from '../vendas/vendas.service';
 import { CardapioService } from './cardapio.service';
 import { RoboPedidoService } from './robo-pedido.service';
 import { situacaoAgoraParaAsInstrucoes } from './situacao-agora';
+import { DiasEspeciaisService } from './dias-especiais.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { agoraEmSaoPaulo } from '../../common/horario-da-data';
 import { comTravaDaEmpresa, migrationJaCriada, repetirNaCorridaDeCatalogo } from '../../common/corrida-de-catalogo';
 import { emSaoPaulo } from '../../common/pedido-agendado';
 
@@ -614,6 +617,44 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(r.cupons).toEqual([{ codigo: 'ABERTO', desconto: '10% de desconto (até R$ 15,00)', pedidoMinimo: 'R$ 30,00' }]);
     expect(r.fidelidade).toEqual([]); // a loja sem fidelidade ligada
     expect(r.comoResponder).toContain('Liste o que veio');
+  });
+
+  // Os dias especiais (H1, mig 512; protótipo aprovado em 27/11/2026): o dia fechado HOJE fecha o cardápio e o robô pela
+  // MESMA regra; o cadastro recusa o dia que se cruza; editar e excluir valem na hora; tudo vai à auditoria.
+  it('dias especiais: hoje fechado fecha o cardápio e o robô; o dia que se cruza é recusado; editar e excluir valem na hora', async () => {
+    const l = await loja();
+    const c = await l.ctx();
+    const hoje = agoraEmSaoPaulo().dia;
+    const dias = new DiasEspeciaisService(db, new AuditoriaService(db));
+    const quem: any = { tenantId: l.t, colaboradorId: null, categoria: 'presidente' };
+    expect(((await cardapio.menu(l.token)) as any).abertaAgora).toBe(true); // sem horário cadastrado: o dia inteiro
+
+    const criado: any = await dias.criar(quem, l.u, { data: hoje, nome: 'Natal de teste', funcionamento: 'fechada' });
+    let menu: any = await cardapio.menu(l.token);
+    expect(menu.abertaAgora).toBe(false);
+    expect(menu.abertoPorTipo).toEqual({ entrega: false, retirada: false, local: false });
+    expect(menu.diasEspeciais.hoje).toEqual({ nome: 'Natal de teste', funcionamento: 'fechada', abre: null, fecha: null });
+    expect(menu.diasEspeciais.proximos.map((p: any) => p.nome)).toEqual(['Natal de teste']);
+    // o robô recusa a retirada pela mesma regra (a recusa traz o pedido como está)
+    await robo.mexerNosItens(c, { acao: 'adicionar', produto: 'Coca lata', quantidade: 1 });
+    expect((await robo.definirEntrega(c, { tipo: 'retirada' })) as any).toMatchObject({ ok: false, motivo: 'fechado' });
+
+    // o mesmo dia de novo: recusado (409), com o nome do que já existe
+    await expect(dias.criar(quem, l.u, { data: hoje, nome: 'Outro', funcionamento: 'fechada' })).rejects.toThrow(/Já há um dia especial em .*\(Natal de teste\)/);
+    const lista: any = await dias.listar(l.t, l.u);
+    expect(lista.contagem).toEqual({ proximos: 1, passados: 0 });
+    expect(lista.itens[0]).toMatchObject({ id: criado.id, nome: 'Natal de teste', funcionamento: 'fechada', agendados: 0, avisoAntes: true });
+
+    // outro horário que cobre o dia inteiro: aberto de novo; excluir: o horário da semana (aqui, o dia inteiro)
+    await dias.editar(quem, criado.id, { data: hoje, nome: 'Natal de teste', funcionamento: 'horario', abre: '00:00', fecha: '23:59' });
+    menu = await cardapio.menu(l.token);
+    expect(menu.abertoPorTipo.retirada).toBe(true);
+    expect(menu.fechaAs).toEqual({ entrega: '23:59', retirada: '23:59' });
+    await dias.excluir(quem, criado.id);
+    expect(((await cardapio.menu(l.token)) as any).diasEspeciais).toEqual({ hoje: null, aviso: null, proximos: [] });
+    expect((await robo.definirEntrega(c, { tipo: 'retirada' })) as any).toMatchObject({ ok: true });
+    const acoes = (await q(`select acao from audit_log where tenant_id = $1 and entidade_tipo = 'horario_especial' order by seq`, [l.t])).map((x: any) => x.acao);
+    expect(acoes).toEqual(['dia_especial_criado', 'dia_especial_alterado', 'dia_especial_excluido']);
   });
 
   // ERR-629 (teste do dono, 27/11): o atendente seguiu com o horário e as formas de pagamento que tinha na memória. As

@@ -19,6 +19,8 @@ export const DIAS_A_FRENTE = [0, 1, 2, 3, 7] as const;
 export const LIMITES_POR_JANELA = [2, 3, 4, 6, 8, null] as const;
 export const PADRAO = { antecedenciaMin: 45, dias: 1, limite: 4 as number | null };
 
+import { aberturasDoDia, especialDaData, type DiaEspecialDoHorario } from './horario-da-data';
+
 const OFFSET_SP = '-03:00';
 const MIN = 60_000;
 
@@ -77,19 +79,22 @@ export function diasPermitidos(agora: Date, dias: number): string[] {
  * vai até a madrugada seguinte) e o fim de madrugada do horário de ontem que virou a meia-noite. Sem horário cadastrado =
  * o dia inteiro (a mesma regra do cardápio: sem horários, sempre aberta).
  */
-export function trechosDoDia(horarios: HorarioDoDia[] | null | undefined, dia: string): Array<{ inicio: Date; fim: Date }> {
-  const lista = Array.isArray(horarios) ? horarios : [];
+export function trechosDoDia(
+  horarios: HorarioDoDia[] | null | undefined,
+  dia: string,
+  especiais?: readonly DiaEspecialDoHorario[] | null,
+): Array<{ inicio: Date; fim: Date }> {
   const em = (d: string, hhmm: string) => instanteDeSaoPaulo(`${d}T${hhmm}`)!;
-  if (!lista.length) return [{ inicio: em(dia, '00:00'), fim: em(somarDiasAoDia(dia, 1), '00:00') }];
-  const semana = emSaoPaulo(em(dia, '12:00')).semana;
-  const ontem = (semana + 6) % 7;
-  const validos = lista.filter((h) => h && h.ativo !== false && /^\d{2}:\d{2}$/.test(String(h.abre)) && /^\d{2}:\d{2}$/.test(String(h.fecha)));
+  // Os dias especiais (H1, `horario-da-data.ts`): as aberturas que COMEÇAM na data são as do dia especial, senão as da
+  // semana; a madrugada da abertura de ontem que virou a meia-noite continua de ontem.
+  const hoje = aberturasDoDia(horarios, especiais, dia);
+  if (hoje === 'dia_inteiro') return [{ inicio: em(dia, '00:00'), fim: em(somarDiasAoDia(dia, 1), '00:00') }];
+  const ontem = aberturasDoDia(horarios, especiais, somarDiasAoDia(dia, -1));
   const out: Array<{ inicio: Date; fim: Date }> = [];
-  for (const h of validos.filter((x) => Number(x.dia) === ontem && String(x.fecha) <= String(x.abre)))
-    out.push({ inicio: em(dia, '00:00'), fim: em(dia, String(h.fecha)) });
-  for (const h of validos.filter((x) => Number(x.dia) === semana)) {
-    const vira = String(h.fecha) <= String(h.abre);
-    out.push({ inicio: em(dia, String(h.abre)), fim: vira ? em(somarDiasAoDia(dia, 1), String(h.fecha)) : em(dia, String(h.fecha)) });
+  for (const h of ontem === 'dia_inteiro' ? [] : ontem.filter((x) => x.fecha <= x.abre)) out.push({ inicio: em(dia, '00:00'), fim: em(dia, h.fecha) });
+  for (const h of hoje) {
+    const vira = h.fecha <= h.abre;
+    out.push({ inicio: em(dia, h.abre), fim: vira ? em(somarDiasAoDia(dia, 1), h.fecha) : em(dia, h.fecha) });
   }
   return out.filter((t) => t.fim.getTime() > t.inicio.getTime());
 }
@@ -117,8 +122,14 @@ export type Janela = {
  * encostam ou se cruzam — senão a janela das 00:00 (e as primeiras da madrugada, na loja das 18h às 02h) sumia, porque o
  * preparo dela começa antes da meia-noite, no trecho do "outro dia".
  */
-export function trechosContinuos(horarios: HorarioDoDia[] | null | undefined, dia: string): Array<{ inicio: Date; fim: Date }> {
-  const todos = [...trechosDoDia(horarios, somarDiasAoDia(dia, -1)), ...trechosDoDia(horarios, dia)].sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
+export function trechosContinuos(
+  horarios: HorarioDoDia[] | null | undefined,
+  dia: string,
+  especiais?: readonly DiaEspecialDoHorario[] | null,
+): Array<{ inicio: Date; fim: Date }> {
+  const todos = [...trechosDoDia(horarios, somarDiasAoDia(dia, -1), especiais), ...trechosDoDia(horarios, dia, especiais)].sort(
+    (a, b) => a.inicio.getTime() - b.inicio.getTime(),
+  );
   const out: Array<{ inicio: Date; fim: Date }> = [];
   for (const t of todos) {
     const ult = out[out.length - 1];
@@ -138,13 +149,15 @@ export function janelasDoDia(p: {
   limite: number | null;
   ocupacao?: Map<string, number>;
   pausaAte?: Date | null;
+  /** Os dias especiais da loja, já do tipo do pedido (H1): o dia fechado não oferece janela. */
+  especiais?: readonly DiaEspecialDoHorario[] | null;
 }): Janela[] {
   const passo = JANELA_MIN * MIN;
   const preparo = Math.max(0, Number(p.preparoMin) || 0) * MIN;
   const minimo = p.agora.getTime() + Math.max(p.antecedenciaMin * MIN, preparo);
   const vistos = new Set<string>();
   const out: Janela[] = [];
-  for (const t of trechosContinuos(p.horarios, p.dia)) {
+  for (const t of trechosContinuos(p.horarios, p.dia, p.especiais)) {
     let ini = Math.max(t.inicio.getTime() + preparo, minimo);
     if (p.pausaAte) ini = Math.max(ini, p.pausaAte.getTime() + preparo);
     ini = Math.ceil(ini / passo) * passo; // na grade de 15 min (São Paulo tem deslocamento de horas inteiras)
@@ -191,6 +204,7 @@ export function conferirHorario(p: {
   preparoMin: number;
   ocupacao?: Map<string, number>;
   pausaAte?: Date | null;
+  especiais?: readonly DiaEspecialDoHorario[] | null;
 }): ConferenciaDoHorario {
   const nao = (motivo: Extract<ConferenciaDoHorario, { ok: false }>['motivo'], mensagem: string, sugestoes: Janela[] = []) =>
     ({ ok: false, motivo, mensagem, sugestoes }) as const;
@@ -201,7 +215,21 @@ export function conferirHorario(p: {
   const dia = valor.slice(0, 10);
   if (!diasPermitidos(p.agora, p.ajustes.dias).includes(dia))
     return nao('dia', p.ajustes.dias === 0 ? 'O pedido agendado vale só para hoje.' : `O pedido agendado vale até ${p.ajustes.dias === 1 ? 'amanhã' : `${p.ajustes.dias} dias à frente`}.`);
-  const janelas = janelasDoDia({ horarios: p.horarios, dia, agora: p.agora, antecedenciaMin: p.ajustes.antecedenciaMin, preparoMin: p.preparoMin, limite: p.ajustes.limite, ocupacao: p.ocupacao, pausaAte: p.pausaAte });
+  const janelas = janelasDoDia({
+    horarios: p.horarios,
+    dia,
+    agora: p.agora,
+    antecedenciaMin: p.ajustes.antecedenciaMin,
+    preparoMin: p.preparoMin,
+    limite: p.ajustes.limite,
+    ocupacao: p.ocupacao,
+    pausaAte: p.pausaAte,
+    especiais: p.especiais,
+  });
+  // O dia especial fechado (H1): a recusa diz o porquê — "No dia 25/12 (Natal) a loja está fechada."
+  const especial = especialDaData(p.especiais, dia);
+  if (!janelas.length && especial?.funcionamento === 'fechada')
+    return nao('fora', `No dia ${dia.slice(8, 10)}/${dia.slice(5, 7)} (${especial.nome}) a loja está fechada. Escolha outro dia.`);
   const j = janelas.find((x) => x.valor === valor);
   if (!j) return nao('fora', `O horário das ${valor.slice(11)} não está disponível. Escolha outro.`, janelasMaisPerto(janelas, valor));
   if (j.esgotada) return nao('esgotada', `O horário das ${j.hora} já encheu. Escolha outro.`, janelasMaisPerto(janelas, valor));
