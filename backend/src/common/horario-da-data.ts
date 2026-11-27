@@ -67,7 +67,11 @@ export function especiaisDoTipo(especiais: readonly DiaEspecialDoHorario[] | nul
   return (Array.isArray(especiais) ? especiais : []).filter((e) => e && (e.conjunto === 'todos' || e.conjunto === c));
 }
 
-/** O dia especial que cobre a data (já filtrado pelo tipo). Dois cobrindo a mesma data: vale o de início mais recente. */
+/**
+ * O dia especial que cobre a data (já filtrado pelo tipo). Dois cobrindo a mesma data: vale o de início mais recente; com o
+ * mesmo início (o par que nasce da loja e da nuvem — sem índice único, ERR-640), vale o que veio PRIMEIRO na lista: a
+ * leitura (`lerDiasEspeciais`) põe o alterado por último na frente, e a ordenação aqui é estável.
+ */
 export function especialDaData(especiais: readonly DiaEspecialDoHorario[] | null | undefined, dia: string): DiaEspecialDoHorario | null {
   const cobre = (Array.isArray(especiais) ? especiais : []).filter(
     (e) => e && DATA.test(e.data) && e.data <= dia && (e.dataFim && DATA.test(e.dataFim) ? e.dataFim : e.data) >= dia,

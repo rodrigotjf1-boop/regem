@@ -51,6 +51,10 @@ export function deLinha(r: any): DiaEspecialDoHorario {
  * Os dias especiais da loja que tocam a faixa [de, ate] (só os que valem). A loja de um cardápio com loja vê os dela e os
  * da empresa toda (V4); o cardápio sem loja, os da empresa. Sem a tabela (o servidor da loja antes da mig 512): nenhum —
  * vale o horário da semana, como antes.
+ *
+ * A ORDEM decide o empate: a tabela sincroniza nos dois sentidos e não tem índice único (ERR-640, mig 515) — o mesmo dia
+ * criado na loja e na nuvem vira um par. No mesmo dia, o alterado por último vem primeiro (o `updated_at` viaja com a
+ * linha), e `especialDaData` (e o espelho da tela, `especialDoDia`) fica com o primeiro: as duas pontas escolhem o mesmo.
  */
 export async function lerDiasEspeciais(db: any, tenantId: string, unidadeId: string | null, de: string, ate: string): Promise<DiaEspecialDoHorario[]> {
   try {
@@ -62,7 +66,7 @@ export async function lerDiasEspeciais(db: any, tenantId: string, unidadeId: str
          and (unidade_id is not distinct from ${unidadeId}::uuid or unidade_id is null)
          and deleted_at is null
          and data <= ${ate}::date and coalesce(data_fim, data) >= ${de}::date
-       order by data`);
+       order by data, updated_at desc, id desc`);
     return linhas(r).map(deLinha);
   } catch (e: any) {
     if (e?.code === '42P01' || e?.cause?.code === '42P01') return [];

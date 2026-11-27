@@ -86,7 +86,9 @@ export type EspecialDoMenu = { data: string; dataFim: string | null; nome: strin
 /**
  * O dia especial que vale num dia para o tipo do pedido — a mesma escolha do servidor (`especiaisDoTipo` +
  * `especialDaData`): os da loja toda e os do tipo; dois cobrindo o dia, o de início mais recente (o servidor recusa os que
- * se cruzam, então é o caso raro). Os próximos 30 dias vêm no menu (`diasEspeciais.proximos`).
+ * se cruzam, então é o caso raro). Com o mesmo início (o par que nasce da loja e da nuvem, ERR-640), o primeiro da lista:
+ * o servidor manda o alterado por último na frente e a ordenação é estável. Os próximos 30 dias vêm no menu
+ * (`diasEspeciais.proximos`).
  */
 export function especialDoDia(proximos: unknown, dia: string, tipo: 'entrega' | 'retirada'): EspecialDoMenu | null {
   const lista = (Array.isArray(proximos) ? proximos : []) as EspecialDoMenu[];

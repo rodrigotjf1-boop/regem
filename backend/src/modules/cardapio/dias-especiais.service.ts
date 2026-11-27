@@ -69,7 +69,7 @@ export class DiasEspeciaisService {
         from horario_especial h
        where h.tenant_id = ${tenantId}::uuid and h.unidade_id is not distinct from ${unidadeId}::uuid and h.deleted_at is null
          and ${situacao === 'passados' ? sql`coalesce(h.data_fim, h.data) < ${hoje}::date` : sql`coalesce(h.data_fim, h.data) >= ${hoje}::date`}
-       order by ${situacao === 'passados' ? sql`h.data desc` : sql`h.data`}
+       order by ${situacao === 'passados' ? sql`h.data desc` : sql`h.data`}, h.updated_at desc, h.id desc
        limit 200`);
     const c: any = await this.db.execute(sql`
       select count(*) filter (where coalesce(data_fim, data) >= ${hoje}::date)::int as proximos,

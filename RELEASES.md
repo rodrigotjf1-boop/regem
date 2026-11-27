@@ -24,6 +24,9 @@
   sentidos).** Pede `.zip` (a regra do horário de uma data vale no servidor da loja: o aberto agora e o agendado) **e
   `.exe`** (o `sync-daemon.mjs` ganhou a tabela no `PUSH_TABLES`). Até o `.zip`, o servidor da loja segue pelo horário da
   semana — a tabela que ele ainda não tem dá "nenhum dia especial" (42P01 = nenhum). A tela (H1b) vem em outro PR.
+- **Dias especiais sem o índice único do dia (27/11; mig 515 — só `drop index if exists` — e a 512 corrigida; ERR-640).**
+  Vai no mesmo `.zip` da H1a: a loja recebe a 512 já sem o índice (a reaplicação a cada atualização não o recria) e a 515
+  não faz nada lá. Não pede `.exe`.
 - **Dias especiais — H1b, a tela e o cardápio (27/11; sem migration).** Delivery › Configurações › Horários com a lista e a
   gaveta, as faixas do cardápio e o dia fechado no "Para quando?". Vai no mesmo `.zip` da H1a (o app que o servidor da loja
   serve); não pede `.exe` além do da H1a.

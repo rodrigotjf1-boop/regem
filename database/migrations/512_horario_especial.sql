@@ -46,10 +46,13 @@ create table if not exists horario_especial (
 -- A leitura do cardápio: os dias de uma loja numa faixa de datas (só os que valem).
 create index if not exists idx_horario_especial_loja
   on horario_especial (tenant_id, unidade_id, data) where deleted_at is null;
--- A segunda trava contra o mesmo dia duas vezes para o mesmo horário (o serviço confere os períodos que se cruzam, V24).
-create unique index if not exists ux_horario_especial_dia
-  on horario_especial (tenant_id, coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid), data, conjunto)
-  where deleted_at is null;
+-- SEM índice único do dia (ERR-640, exceção da V24): a tabela sincroniza nos DOIS sentidos — o mesmo dia criado na loja e
+-- na nuvem antes do sync teria ids diferentes e o lote bateria no 23505 para sempre. Quem impede o dia repetido é o
+-- serviço (a conferência dos períodos que se cruzam DENTRO da transação, com a trava da empresa); o par que nasce das duas
+-- pontas fica visível na lista e a leitura escolhe sempre o mesmo (o mais recente). Este arquivo criava
+-- `ux_horario_especial_dia` (27/11) e o servidor da loja reaplica TODAS as migrations a cada atualização: por isso o índice
+-- saiu daqui (senão voltaria a cada atualização — e com um par na loja, o 23505 abortaria a atualização inteira); a 515
+-- tira o índice de quem já tinha rodado este arquivo (a nuvem).
 create index if not exists idx_horario_especial_sync on horario_especial (tenant_id, updated_at, id);
 
 -- A mudança propaga pelo sync: o mesmo carimbo das outras tabelas sincronizadas (respeita `regem.sync`, mig 259).
@@ -87,9 +90,8 @@ select 'colunas (19)',
                                'conjunto', 'pausar_canais', 'aviso_antes', 'feriado_chave', 'origem', 'criado_por',
                                'criado_por_nome', 'created_at', 'updated_at', 'deleted_at')) = 19
 union all
-select 'índices (loja, dia, sync)',
+select 'índices (loja, sync)',
        to_regclass(current_schema() || '.idx_horario_especial_loja') is not null
-       and to_regclass(current_schema() || '.ux_horario_especial_dia') is not null
        and to_regclass(current_schema() || '.idx_horario_especial_sync') is not null
 union all
 select 'gatilhos (carimbo, exclusão e os 3 do marcador)',

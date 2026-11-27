@@ -2,12 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../db/schema';
-import { agoraEmSaoPaulo } from '../../common/horario-da-data';
+import { agoraEmSaoPaulo, especiaisDoTipo, especialDaData } from '../../common/horario-da-data';
 import { instanteNoFuso } from '../../common/pausa-do-canal';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import { DiasEspeciaisService } from './dias-especiais.service';
 import { DiasEspeciaisPausaService } from './dias-especiais-pausa.service';
+import { lerDiasEspeciais } from './dias-especiais';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -142,5 +143,34 @@ descrever('a pausa sozinha do iFood e da 99 no dia especial (Postgres)', () => {
       { canal: 'ifood', desde: '18:00', ate: '23:00' },
       { canal: 'food99', desde: '18:00', ate: null },
     ]);
+  });
+
+  it('o mesmo dia criado na nuvem e na loja (o par que o sync junta): grava sem 23505, as duas pontas leem o mesmo e a pausa sai uma vez (ERR-640)', async () => {
+    const { t, quem } = await loja();
+    const naNuvem = await dias.criar(quem, null, { data: hoje, nome: 'Feito na nuvem', funcionamento: 'fechada' });
+    // O mesmo dia chegando da outra ponta pelo sync: id de lá, alterado antes. Com o índice único da 512, era 23505 para
+    // sempre (o lote do sync travado).
+    const daLoja = randomUUID();
+    await q(
+      `insert into horario_especial (id, tenant_id, unidade_id, data, nome, funcionamento, conjunto, updated_at)
+       values ($1, $2, null, $3::date, 'Feito na loja', 'fechada', 'todos', now() - interval '1 hour')`,
+      [daLoja, t, hoje],
+    );
+    let lista = await lerDiasEspeciais(db, t, null, hoje, hoje);
+    expect(lista.map((e) => e.nome)).toEqual(['Feito na nuvem', 'Feito na loja']); // o alterado por último na frente
+    expect(especialDaData(especiaisDoTipo(lista, 'entrega'), hoje)?.nome).toBe('Feito na nuvem');
+    // A loja muda o dela depois: passa a valer o da loja (o updated_at viaja com a linha, então a nuvem lê igual).
+    await q(`update horario_especial set nome = 'Mudado na loja' where id = $1`, [daLoja]);
+    lista = await lerDiasEspeciais(db, t, null, hoje, hoje);
+    expect(lista[0].nome).toBe('Mudado na loja');
+    expect(especialDaData(especiaisDoTipo(lista, 'retirada'), hoje)?.nome).toBe('Mudado na loja');
+    // A tela mostra os dois (exclua um) — na mesma ordem.
+    expect((await dias.listar(t, null)).itens.map((e: any) => e.nome)).toEqual(['Mudado na loja', 'Feito na nuvem']);
+    // A mesma ponta segue recusando o dia repetido: a conferência do serviço, com a trava da empresa (V24).
+    await expect(dias.criar(quem, null, { data: hoje, nome: 'De novo', funcionamento: 'fechada' })).rejects.toThrow('Já há um dia especial');
+    // A rotina da pausa: os dois pedem a mesma pausa, ela sai uma vez por canal.
+    const r = await rotina.volta(as('17:30'), [t]);
+    expect(r.map((x) => x.resultado)).toEqual(['pausado', 'pausado']);
+    expect(naNuvem.id).toBeTruthy();
   });
 });

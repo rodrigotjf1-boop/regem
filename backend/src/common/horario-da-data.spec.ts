@@ -39,6 +39,12 @@ describe('o horário de uma data (dias especiais)', () => {
     const abreNoMeio = esp({ data: '2027-01-15', funcionamento: 'horario', abre: '19:00', fecha: '22:00', nome: 'Evento' });
     expect(especialDaData([ferias, abreNoMeio], '2027-01-15')?.nome).toBe('Evento');
     expect(especialDaData([ferias, abreNoMeio], '2027-01-16')?.nome).toBe('Férias');
+    // O par do mesmo dia (loja e nuvem, sem índice único — ERR-640): vale o primeiro da lista, que a leitura ordena pelo
+    // alterado por último; a ordenação é estável.
+    const a = esp({ nome: 'A' });
+    const b = esp({ nome: 'B', funcionamento: 'horario', abre: '19:00', fecha: '22:00' });
+    expect(especialDaData([a, b], '2026-12-25')?.nome).toBe('A');
+    expect(especialDaData([b, a], '2026-12-25')?.nome).toBe('B');
   });
 
   it('o conjunto: o especial só da entrega não fecha a retirada (e o consumo no local segue a retirada)', () => {
