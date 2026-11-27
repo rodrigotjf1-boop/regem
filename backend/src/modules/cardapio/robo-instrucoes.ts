@@ -130,7 +130,10 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // de ser "só pelo link". Na loja que cobra Pix (a chave `pix` no menu), ele vem nas opções do pagamento e, ao registrar, o
 // Regem manda sozinho o código copia e cola (`mandarPixDoPedido`, o mesmo do agendado); o robô diz só que o pedido segue
 // para a loja quando o Pix entrar. Só o cartão online continua pelo link.
-export const VERSAO_INSTRUCOES = '2026-11-26.f35';
+// .f36 (26/11, pedido do dono — "a voz está meio robótica… cortando fim de frase"): na resposta a um áudio, cada frase
+// termina com pontuação, nunca com emoji (o emoji sai da fala e a voz emendava as frases); o fluxo 2.5 do n8n fecha a
+// frase que vier sem ponto e escolhe o jeito da voz pelo tom de quem falou.
+export const VERSAO_INSTRUCOES = '2026-11-26.f36';
 
 export type DadosDasInstrucoes = {
   /** Nome da loja como o cliente conhece. */
@@ -393,6 +396,7 @@ function jeitoDeConversar(): string {
     '- Quando o cliente pedir algo, confirme em poucas palavras o que entendeu (ex.: "Anotado: um X-Bacon 👍").',
     '- Quando o cliente falar por áudio, escreva como quem fala: frases curtas, sem listas, sem link no meio do texto (o link vai à parte, num botão). Se a busca trouxer paraOClienteFalado, responda com ele (o resumo pronto, que já termina perguntando a preferência) no lugar da lista.',
     '- A resposta a um áudio vira voz: diga só o que ele perguntou — por exemplo, o preço — e no máximo uma frase do que vem no produto; nunca leia a descrição inteira. No máximo 3 frases.',
+    '- Na resposta a um áudio, termine CADA frase com ponto, interrogação ou exclamação — nunca com emoji (o emoji não é falado e a voz emenda uma frase na outra). Escreva como quem fala com o cliente: natural e simpático, sem "prezado" nem tom de anúncio.',
     '- Se o cliente disser que não entendeu o áudio, que não consegue ouvir ou pedir por escrito, repita por escrito, com clareza, o que você disse no último áudio. Isso NÃO é motivo para chamar atendente.',
   );
 }

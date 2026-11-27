@@ -61,6 +61,10 @@ descrever('os avisos ao entregador (Postgres)', () => {
     delete process.env.EDGE_MODE; // como NUVEM
     process.env.CARDAPIO_PUBLIC_URL = 'https://app.dmsregem.com';
     await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIG('391_avisos_ao_entregador.sql'), 'utf8'))));
+    // A permissão do entregador (mig 208, só da nuvem): o aviso pelo WhatsApp da loja lê `entregador_preferencia` — sem ela, a
+    // consulta falha e o aviso "não sai". A spec dependia de OUTRA suíte criar a tabela antes (no banco novo da loja, 2 de 6
+    // falhavam; no CI passava pela ordem — ERR-624).
+    await repetirNaCorridaDeCatalogo(() => pool.query(comTravaDaEmpresa(readFileSync(MIG('208_entregador_preferencia.sql'), 'utf8'))));
     // A marca do acerto do entregador (mig 207, só da nuvem): "Minhas entregas" e os ganhos deixam de fora o já acertado.
     await repetirNaCorridaDeCatalogo(() =>
       pool.query(comTravaDaEmpresa('alter table pedido_externo add column if not exists entregador_fechamento_id uuid')),

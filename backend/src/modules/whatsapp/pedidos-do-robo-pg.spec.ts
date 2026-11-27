@@ -96,4 +96,72 @@ descrever('os pedidos que o robô vê (Postgres)', () => {
     for (const tel of ['ig:17841400000000001', 'fb:2400000000000001'])
       expect(await wa.statusPedidoBot(INST, SENHA, tel, '9101')).toMatchObject({ encontrado: false });
   });
+
+  // 26/11/2026: o nome do entregador ia ao robô sem a permissão dele — agora a regra do rastreio
+  // (`common/entregador-para-o-cliente.ts`): o da loja só com "compartilhar contato"; o da plataforma, como veio.
+  it('o nome do entregador da loja só vai ao robô com a permissão dele; o da plataforma vai como veio', async () => {
+    // Sem a tabela da permissão (só da nuvem, mig 208 — o banco do teste é o da loja): ninguém compartilhou, o nome não vai.
+    const semTabela = !(await q(`select to_regclass('entregador_preferencia') as t`))[0].t;
+    if (semTabela) {
+      const T0 = (await q(`insert into empresa (nome) values ('teste entregador sem tabela') returning id`))[0].id;
+      empresas.push(T0);
+      const INST0 = `inst-${randomUUID()}`;
+      await q(`insert into cardapio_config (tenant_id, unidade_id, token, ativo, nome_publico, evolution_instancia) values ($1, null, $2, true, 'Loja 0', $3)`, [
+        T0,
+        `tok-${randomUUID()}`,
+        INST0,
+      ]);
+      await q(
+        `insert into pedido_externo (tenant_id, canal, client_ref, display_id, cliente_nome, cliente_telefone, tipo, itens, total, forma_pagamento, status, entregador_id, entregador_nome)
+         values ($1,'cardapio',$2,'8001','Cliente','21987654321','entrega','[]'::jsonb,30,'entrega','despachado',$3,'Carlos da loja'),
+                ($1,'cardapio',$4,'8002','Cliente','21987654321','entrega','[]'::jsonb,30,'entrega','despachado',null,'Entregador iFood')`,
+        [T0, `ref-${randomUUID()}`, randomUUID(), `ref-${randomUUID()}`],
+      );
+      const sem: any[] = await wa.pedidosPorTelefoneBot(INST0, SENHA, CLIENTE);
+      expect(sem.map((p) => [String(p.displayId), p.entregadorNome]).sort()).toEqual([['8001', null], ['8002', 'Entregador iFood']]);
+      expect(sem.every((p) => !('entregadorId' in p))).toBe(true); // o id do entregador não sai
+      // A tabela como a mig 208 cria (outra suíte do mesmo banco pode criar junto: a repetida não conta).
+      await q(
+        `create table if not exists entregador_preferencia (colaborador_id uuid primary key, tenant_id uuid not null,
+           compartilha_contato boolean not null default false, atualizado_em timestamptz not null default now())`,
+      ).catch((e: any) => {
+        if (!['42P07', '23505'].includes(e?.code)) throw e;
+      });
+    }
+    const T2 = (await q(`insert into empresa (nome) values ('teste entregador do robo') returning id`))[0].id;
+    empresas.push(T2);
+    const INST2 = `inst-${randomUUID()}`;
+    await q(`insert into cardapio_config (tenant_id, unidade_id, token, ativo, nome_publico, evolution_instancia) values ($1, null, $2, true, 'Loja 2', $3)`, [
+      T2,
+      `tok-${randomUUID()}`,
+      INST2,
+    ]);
+    const semPermissao = randomUUID();
+    const comPermissao = randomUUID();
+    const deOutraEmpresa = randomUUID();
+    await q(`insert into entregador_preferencia (colaborador_id, tenant_id, compartilha_contato) values ($1,$2,false), ($3,$2,true), ($4,$5,true)`, [
+      semPermissao,
+      T2,
+      comPermissao,
+      deOutraEmpresa,
+      T, // a permissão é de OUTRA empresa: não vale aqui
+    ]);
+    const despachado = (displayId: string, nome: string, entregadorId: string | null) =>
+      q(
+        `insert into pedido_externo (tenant_id, canal, client_ref, display_id, cliente_nome, cliente_telefone, tipo, itens, total, forma_pagamento, status, entregador_id, entregador_nome)
+         values ($1,'cardapio',$2,$3,'Cliente',$4,'entrega','[]'::jsonb,30,'entrega','despachado',$5,$6)`,
+        [T2, `ref-${randomUUID()}`, displayId, '21987654321', entregadorId, nome],
+      );
+    await despachado('8101', 'Carlos da loja', semPermissao);
+    await despachado('8102', 'Bruna da loja', comPermissao);
+    await despachado('8103', 'Rafa de outra empresa', deOutraEmpresa);
+    await despachado('8104', 'Entregador iFood', null);
+    const lista: any[] = await wa.pedidosPorTelefoneBot(INST2, SENHA, CLIENTE);
+    const nomeDe = (n: string) => lista.find((p) => String(p.displayId) === n)?.entregadorNome ?? null;
+    expect(nomeDe('8101')).toBeNull();
+    expect(nomeDe('8102')).toBe('Bruna da loja');
+    expect(nomeDe('8103')).toBeNull();
+    expect(nomeDe('8104')).toBe('Entregador iFood');
+    await q(`delete from entregador_preferencia where colaborador_id = any($1::uuid[])`, [[semPermissao, comPermissao, deOutraEmpresa]]);
+  });
 });

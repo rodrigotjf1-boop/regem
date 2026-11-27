@@ -11,6 +11,7 @@ import {
 import { perfilLigado } from '../../common/segmentos-do-perfil';
 import { metaDoFunil } from '../perfil-cliente/interacoes-do-cardapio';
 import { segredoDoRoboOk } from '../../common/segredo-robo';
+import { comNomeDoEntregadorParaOCliente } from '../../common/entregador-para-o-cliente';
 import { areaDaLinha, areaDoPonto, conferirAreas, recusaDaArea, type AreaDesenhada } from './area-de-entrega';
 import {
   ajusteRepetidoDaLinha,
@@ -2650,6 +2651,7 @@ export class CardapioService {
         status: pedidoExterno.status,
         tipo: pedidoExterno.tipo,
         total: pedidoExterno.total,
+        entregadorId: pedidoExterno.entregadorId,
         entregadorNome: pedidoExterno.entregadorNome,
         criadoEm: pedidoExterno.criadoEm,
       })
@@ -2671,7 +2673,9 @@ export class CardapioService {
       despachado: 'saiu para entrega', concluido: 'entregue', cancelado: 'cancelado',
     };
     const estimativaMin = cfg.tempoEntregaMin != null ? Number(cfg.tempoEntregaMin) : null;
-    return rows.map((r) => ({
+    // O nome do entregador da loja só com a permissão dele (a regra do rastreio — `common/entregador-para-o-cliente.ts`).
+    const comNome = await comNomeDoEntregadorParaOCliente(this.db, cfg.tenantId, rows);
+    return comNome.map((r) => ({
       ...r,
       statusTexto: LABEL[r.status] ?? r.status,
       estimativaMin: ['novo', 'confirmado', 'pronto', 'despachado'].includes(r.status) ? estimativaMin : null,
