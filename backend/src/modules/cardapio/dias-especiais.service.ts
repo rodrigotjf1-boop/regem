@@ -239,8 +239,25 @@ export class DiasEspeciaisService {
       await this.travarEmpresa(tx, user.tenantId);
       const antes = await this.linhaDaEmpresa(tx, user.tenantId, id);
       if ((antes.data_fim ?? antes.data) < hoje) throw new ConflictException('Este dia especial já passou: não se edita.');
+      // Ausente mantém (V16): o que não vem no pedido fica como está — o Mister que muda só o nome não apaga o período, a
+      // pausa dos canais, o aviso, o "vale para" nem o feriado ligado. A tela manda tudo; o Mister (C4) manda só o que muda.
+      const atual = deLinha(antes);
+      const base = {
+        data: atual.data,
+        dataFim: atual.dataFim,
+        nome: atual.nome,
+        funcionamento: atual.funcionamento,
+        abre: atual.abre,
+        fecha: atual.fecha,
+        conjunto: atual.conjunto,
+        avisoAntes: atual.avisoAntes,
+        pausarCanais: atual.pausarCanais,
+        feriadoChave: antes.feriado_chave ?? null,
+      };
+      const vem = Object.fromEntries(Object.entries(dto ?? {}).filter(([, v]) => v !== undefined));
+      // Mudou para "outro horário" sem as horas: as do dia especial (se já era outro horário) — a conferência cobra as duas.
       // Um período que já começou mantém o começo: "hoje ou à frente" vale a partir do dia dele.
-      const c = conferirDiaEspecial({ feriadoChave: antes.feriado_chave, ...dto }, antes.data < hoje ? antes.data : hoje);
+      const c = conferirDiaEspecial({ ...base, ...vem }, antes.data < hoje ? antes.data : hoje);
       if (!c.ok) throw new BadRequestException(c.erro);
       if (antes.data < hoje && c.v.data !== antes.data) throw new BadRequestException('Este período já começou: o primeiro dia não muda.');
       const v = c.v;

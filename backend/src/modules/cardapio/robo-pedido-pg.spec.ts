@@ -657,6 +657,30 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(acoes).toEqual(['dia_especial_criado', 'dia_especial_alterado', 'dia_especial_excluido']);
   });
 
+  // H2b: o Mister (C4) muda o dia especial mandando só o que muda — o serviço mantém o resto (V16): o período, a pausa, o
+  // aviso, o "vale para" e o feriado ligado não voltam ao padrão.
+  it('dias especiais: mudar só o nome ou só a hora mantém o resto; virar "outro horário" sem as horas é recusado', async () => {
+    const l = await loja();
+    const hoje = agoraEmSaoPaulo().dia;
+    const dia = (n: number) => q(`select to_char($1::date + $2::int, 'YYYY-MM-DD') as d`, [hoje, n]).then((r) => r[0].d as string);
+    const [d10, d12] = [await dia(10), await dia(12)];
+    const dias = new DiasEspeciaisService(db, new AuditoriaService(db));
+    const quem: any = { tenantId: l.t, colaboradorId: null, categoria: 'presidente' };
+    const criado: any = await dias.criar(quem, l.u, {
+      data: d10, dataFim: d12, nome: 'Reforma de teste', funcionamento: 'fechada', conjunto: 'entrega', avisoAntes: false, pausarCanais: false, feriadoChave: 'escala:teste',
+    });
+    const linha = async () =>
+      (await q(`select to_char(data_fim, 'YYYY-MM-DD') as fim, nome, funcionamento, abre, fecha, conjunto, aviso_antes, pausar_canais, feriado_chave from horario_especial where id = $1`, [criado.id]))[0];
+    await dias.editar(quem, criado.id, { nome: 'Reforma da cozinha de teste' });
+    expect(await linha()).toEqual({ fim: d12, nome: 'Reforma da cozinha de teste', funcionamento: 'fechada', abre: null, fecha: null, conjunto: 'entrega', aviso_antes: false, pausar_canais: false, feriado_chave: 'escala:teste' });
+    // virar "outro horário" sem as horas: recusado (nada muda)
+    await expect(dias.editar(quem, criado.id, { funcionamento: 'horario' })).rejects.toThrow(/hora em que abre/);
+    await dias.editar(quem, criado.id, { funcionamento: 'horario', abre: '18:00', fecha: '21:00' });
+    // depois, só a hora de fechar: a de abrir fica
+    await dias.editar(quem, criado.id, { fecha: '22:00' });
+    expect(await linha()).toMatchObject({ fim: d12, funcionamento: 'horario', abre: '18:00', fecha: '22:00', conjunto: 'entrega', aviso_antes: false, pausar_canais: false });
+  });
+
   // H2a: os feriados sem resposta — o da Escala (o de uma pessoa não conta), o do calendário do Marketing (só da nuvem: no
   // banco sem a tabela, `fontes.calendario` é falso), a janela de 10 e de 60 dias, e o que o dia especial já respondeu
   // (o "horário normal" também, decisão 9) não volta.

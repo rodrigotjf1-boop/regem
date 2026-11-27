@@ -1,5 +1,8 @@
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { DiasEspeciaisService } from '../cardapio/dias-especiais.service';
+import { MisterTarefasService } from './mister-tarefas.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -59,6 +62,13 @@ import {
   botoesDoPedidoAtrasado,
   lerBotaoDoPedidoAtrasado,
   PREFIXO_DO_PEDIDO_ATRASADO,
+  DIAS_DO_AVISO_DO_FERIADO,
+  PREFIXO_DO_FERIADO,
+  TEXTOS_DO_FERIADO,
+  botoesDoFeriado,
+  diaDoAvisoDoFeriado,
+  lerBotaoDoFeriado,
+  situacaoDoFeriadoChegando,
   TEXTOS_DO_PEDIDO_ATRASADO,
   HORA_DO_AVISO_DO_BOLETO,
   TurnoDoPonto,
@@ -127,7 +137,7 @@ const MODULO = 'mister';
  * (o resumo não fala do que mudou depois), o arquivo do ponto do mês (mandado à contabilidade, ou passou o dia 5) e os do
  * gasto do WhatsApp (G2: fecham na virada do mês — não há o que resolver).
  */
-const SEM_RESOLVIDO: string[] = ['boleto_vencendo', 'ponto_esquecido', 'ponto_do_mes', 'gasto_whatsapp', 'franquia_atendimento', 'telefone_ligado', 'acesso_encerrado'];
+const SEM_RESOLVIDO: string[] = ['boleto_vencendo', 'ponto_esquecido', 'ponto_do_mes', 'gasto_whatsapp', 'franquia_atendimento', 'telefone_ligado', 'acesso_encerrado', 'feriado_chegando'];
 /** Pedido "esperando" para o aviso do servidor sem sinal: aceito ou por aceitar, das últimas 3 horas. */
 const PEDIDO_ESPERANDO_H = 3;
 
@@ -198,12 +208,86 @@ export class MisterAvisosService implements OnModuleInit {
     // Sem eles, o texto fixo de sempre.
     @Optional() private readonly ia?: IaEmpresaService,
     @Optional() private readonly conversa?: MisterConversaConfigService,
+    // H2b dos dias especiais: a lista dos feriados sem resposta (o serviço da tela) e a tarefa com PIN do botão — pegos na
+    // hora (`strict: false`), para não fechar um ciclo entre os módulos.
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {}
+
+  private diasEspeciais(): DiasEspeciaisService | null {
+    try {
+      return this.moduleRef?.get(DiasEspeciaisService, { strict: false }) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private tarefas(): MisterTarefasService | null {
+    try {
+      return this.moduleRef?.get(MisterTarefasService, { strict: false }) ?? null;
+    } catch {
+      return null;
+    }
+  }
 
   /** O toque em "Ver o que fazer" chega pela entrada do WhatsApp, que mora no módulo de baixo: ela chama este serviço. */
   onModuleInit(): void {
     this.entrada?.registrarToque('aviso', (id, quem) => this.mostrarPeloToque(id, quem));
     this.entrada?.registrarBotao(PREFIXO_DO_PEDIDO_ATRASADO, (botaoId, quem) => this.tocouNoPedidoAtrasado(botaoId, quem));
+    this.entrada?.registrarBotao(PREFIXO_DO_FERIADO, (botaoId, quem) => this.tocouNoFeriado(botaoId, quem));
+  }
+
+  /**
+   * H2b dos dias especiais: o toque em "Fechada", "Horário normal" ou "Outro horário" do aviso "Feriado chegando". Só quem
+   * pode mudar o horário (presidente e gerente da empresa do aviso). "Fechada" e "Horário normal" propõem o dia especial com
+   * a MESMA tarefa de PIN da conversa (o link "Abrir no Regem"); "Outro horário" pergunta o horário (a IA propõe a tarefa
+   * com o PIN). O feriado já respondido diz que o aviso fechou. Devolve false quando o botão não é deste aviso.
+   */
+  async tocouNoFeriado(botaoId: string, quem: QuemTocou): Promise<boolean> {
+    const b = lerBotaoDoFeriado(botaoId);
+    if (!b) return false;
+    const avisos = linhas(
+      await this.db.execute(sql`
+        select tenant_id::text as "tenantId", situacao, dados
+          from mister_aviso
+         where tipo = 'feriado_chegando' and chave = ${`feriado:${b.chave}`}
+           and tenant_id in (${sql.join((quem.vinculos.length ? quem.vinculos.map((x) => x.tenantId) : ['00000000-0000-0000-0000-000000000000']).map((t) => sql`${t}::uuid`), sql`, `)})
+         order by (situacao = 'aberto') desc, aberto_em desc
+         limit 1`),
+    );
+    const a = avisos[0];
+    const v = a ? quem.vinculos.find((x) => x.tenantId === a.tenantId) : undefined;
+    if (!a || !v) return false;
+    const dados = (a.dados ?? {}) as { data?: string; nome?: string };
+    const enviar = async (texto: string) => {
+      try {
+        await this.numero.enviar(quem.telefone, { texto });
+      } catch (e: any) {
+        this.logger.warn(`a resposta ao botão do feriado não saiu — ${e?.message ?? e}`);
+      }
+    };
+    if (v.nivel !== 'presidente' && v.nivel !== 'gerente') {
+      await enviar(TEXTOS_DO_FERIADO.naoDisponivel);
+      return true;
+    }
+    if (a.situacao !== 'aberto' || !dados.data || !dados.nome) {
+      await enviar(TEXTOS_DO_FERIADO.respondido);
+      return true;
+    }
+    const quando = `${['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'][new Date(`${dados.data}T12:00:00Z`).getUTCDay()]}, ${dados.data.slice(8, 10)}/${dados.data.slice(5, 7)}`;
+    if (b.acao === 'outro') {
+      await enviar(TEXTOS_DO_FERIADO.outro(quando, dados.nome));
+      return true;
+    }
+    const tarefas = this.tarefas();
+    const r = tarefas
+      ? await tarefas.proporPeloBotao(
+          { tenantId: a.tenantId, colaboradorId: v.colaboradorId, nivel: v.nivel, telefone: quem.telefone },
+          'POST /api/v1/cardapio/dias-especiais',
+          { data: dados.data, nome: String(dados.nome).slice(0, 40), funcionamento: b.acao, feriadoChave: b.chave },
+        )
+      : ({ ok: false, texto: TEXTOS_DO_FERIADO.pelaTela } as const);
+    if (!r.ok) await enviar(r.texto === TEXTOS_DO_FERIADO.pelaTela ? r.texto : `${r.texto}\n\n${TEXTOS_DO_FERIADO.pelaTela}`);
+    return true;
   }
 
   /**
@@ -274,7 +358,8 @@ export class MisterAvisosService implements OnModuleInit {
     const doLigado = a.situacao === 'aberto' && a.tipo === 'telefone_ligado' && v!.nivel === 'presidente' ? botoesDoTelefoneLigado(a.dados) : [];
     // P3: o pedido atrasado ainda aberto — quem recebe ganha "Já chegou" e "Mudar a previsão".
     const doAtraso = a.situacao === 'aberto' && a.tipo === 'pedido_atrasado' ? botoesDoPedidoAtrasado(a.dados?.listaId) : [];
-    const botoes = doBoleto.length ? doBoleto : doPonto.length ? doPonto : doLigado.length ? doLigado : doAtraso;
+    const doFeriado = a.situacao === 'aberto' && a.tipo === 'feriado_chegando' ? botoesDoFeriado(a.dados?.chave) : [];
+    const botoes = doBoleto.length ? doBoleto : doPonto.length ? doPonto : doLigado.length ? doLigado : doAtraso.length ? doAtraso : doFeriado;
     try {
       await this.numero.enviar(
         quem.telefone,
@@ -558,6 +643,10 @@ export class MisterAvisosService implements OnModuleInit {
     } catch (e: any) {
       if (!semTabela(e)) throw e;
     }
+    // 13) O feriado chegando (H2b dos dias especiais): nasce DESLIGADO — só nas empresas que ligaram. A lista é a MESMA da tela
+    //     (`DiasEspeciaisService.semResposta`), até 10 dias depois do "hoje" do aviso (vira às 10h). Respondido (na tela, na
+    //     faixa ou pelo Mister), o feriado sai da lista e o aviso fecha.
+    fora.push(...(await this.feriadosChegando(so, agora)));
     // 11) O gasto do WhatsApp oficial (G2 do protótipo `mockups/regem-whatsapp-gasto.html`; mig 445/446): o gasto do mês
     //     que a nuvem guardou lendo a Meta, contra os valores de cada empresa, e a franquia do atendimento de cada número.
     fora.push(...(await this.gastosDoWhatsapp(so, agora)));
@@ -759,6 +848,50 @@ export class MisterAvisosService implements OnModuleInit {
    *     não andou: o aviso só resolve quando o pedido anda (ou é cancelado, concluído ou apagado). O título fica com o
    *     tempo com que o aviso abriu, mesmo que a empresa mude o tempo depois.
    */
+  /** As empresas com o "Feriado chegando" ligado e os feriados delas sem resposta na janela do aviso (H2b). */
+  private async feriadosChegando(so: (col: string) => ReturnType<typeof sql>, agora: Date): Promise<Situacao[]> {
+    const dias = this.diasEspeciais();
+    if (!dias) return [];
+    let empresas: any[];
+    try {
+      empresas = linhas(
+        await this.db.execute(sql`
+          select r.tenant_id::text as "tenantId"
+            from mister_aviso_regra r
+            join empresa emp on emp.id = r.tenant_id and emp.deleted_at is null
+           where r.tipo = 'feriado_chegando' and r.ligado ${so('r.tenant_id')}
+           limit 500`),
+      );
+    } catch (e: any) {
+      if (semTabela(e)) return [];
+      throw e;
+    }
+    const ate = somarDias(diaDoAvisoDoFeriado(agora), DIAS_DO_AVISO_DO_FERIADO);
+    const fora: Situacao[] = [];
+    for (const { tenantId } of empresas) {
+      try {
+        const r = await dias.semResposta(tenantId, null, DIAS_DO_AVISO_DO_FERIADO + 1);
+        for (const f of r.itens) if (f.data <= ate) fora.push(situacaoDoFeriadoChegando({ tenantId, chave: f.chave, data: f.data, nome: f.nome, normal: f.normal }));
+      } catch (e: any) {
+        // Uma empresa que falha não derruba as outras (nem os outros avisos) — e o aviso dela que está aberto CONTINUA: a
+        // situação sumir é "respondido", e a leitura que falhou não é resposta (nem fecha, nem reabre e manda de novo).
+        this.logger.warn(`feriados sem resposta da empresa ${tenantId.slice(0, 8)} não lidos — ${e?.message ?? e}`);
+        const abertos = linhas(
+          await this.db.execute(sql`
+            select dados from mister_aviso
+             where tenant_id = ${tenantId}::uuid and tipo = 'feriado_chegando' and situacao = 'aberto'
+             limit 50`),
+        );
+        for (const a of abertos) {
+          const d = (a.dados ?? {}) as Record<string, any>;
+          if (typeof d.chave === 'string' && typeof d.data === 'string' && typeof d.nome === 'string')
+            fora.push(situacaoDoFeriadoChegando({ tenantId, chave: d.chave, data: d.data, nome: d.nome, normal: d.normal ?? null }));
+        }
+      }
+    }
+    return fora;
+  }
+
   private async pedidosParados(so: (col: string) => ReturnType<typeof sql>): Promise<Situacao[]> {
     let lidos: any[];
     let continuam: any[];
@@ -1265,7 +1398,8 @@ export class MisterAvisosService implements OnModuleInit {
         const doLigado = ehAvisoDeSeguranca(a.tipo) && (a.tipo as string) === 'telefone_ligado' && l.nivel === 'presidente' ? botoesDoTelefoneLigado(a.dados) : [];
         // P3: o pedido atrasado — "Já chegou" e "Mudar a previsão" a quem recebe.
         const doAtraso = a.tipo === 'pedido_atrasado' ? botoesDoPedidoAtrasado((a.dados as any)?.listaId) : [];
-        const botoes = doBoleto.length ? doBoleto : doPonto.length ? doPonto : doLigado.length ? doLigado : doAtraso;
+        const doFeriado = a.tipo === 'feriado_chegando' ? botoesDoFeriado((a.dados as any)?.chave) : [];
+        const botoes = doBoleto.length ? doBoleto : doPonto.length ? doPonto : doLigado.length ? doLigado : doAtraso.length ? doAtraso : doFeriado;
         await this.numero.enviar(
           l.telefone,
           comProposta ? { texto: `${texto}\n\n${proposta.pergunta}`, botoes: proposta.botoes } : botoes.length ? { texto, botoes } : { texto },

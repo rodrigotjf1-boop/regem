@@ -23,6 +23,8 @@
 - **Dias especiais — H2a, os feriados sem resposta (27/11; sem migration).** A rota nova e a faixa do topo valem também no
   servidor da loja (lei e Escala; o feriado da cidade só pela internet). Vai no mesmo `.zip` da H1a; não pede `.exe` além
   do da H1a.
+- **Dias especiais — H2b, o feriado pelo Mister (27/11; sem migration).** O Mister e o aviso são só da nuvem; o PATCH que
+  mantém o que não veio (V16) vale também no servidor da loja e vai no mesmo `.zip` da H1a. Não pede `.exe`.
 - **Atendente: pôr item no pedido pago, Pix confirmado sem comprovante e o estorno no aviso de cancelado (26/11; SEM migration;
   ERR-626, ERR-627).** A versão do servidor e a conferência de minuto do Pix são só da nuvem. O texto do aviso de cancelado vai no
   próximo `.zip` por ser código comum (o servidor da loja que monta o aviso ganha a frase do estorno). Não pede `.exe`.

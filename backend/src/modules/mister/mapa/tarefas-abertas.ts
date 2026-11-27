@@ -54,6 +54,22 @@ export interface TarefaAberta {
 const PRIORIDADES = { baixa: 'baixa', normal: 'normal', alta: 'alta', critica: 'crítica' } as const;
 const SITUACOES_DA_MANUTENCAO = { aberto: 'aberto', em_andamento: 'em andamento', concluido_parcial: 'concluído em parte', concluido: 'concluído', cancelado: 'cancelado' } as const;
 const TIPOS_DE_DIA = { feriado: 'feriado', ferias: 'férias', evento: 'evento', folga: 'folga', outro: 'outro' } as const;
+// O dia especial do horário (H2b): os nomes exatos que `conferirDiaEspecial` aceita.
+const COMO_A_LOJA_FICA = { fechada: 'fechada o dia todo', horario: 'outro horário', normal: 'horário normal (só confirma)' } as const;
+const VALE_PARA = { todos: 'delivery e retirada', entrega: 'só o delivery', retirada: 'só a retirada' } as const;
+function camposDoDiaEspecial(criar: boolean): readonly CampoDaTarefa[] {
+  return [
+    { nome: 'data', tipo: 'data', rotulo: 'Dia', obrigatorio: criar },
+    { nome: 'dataFim', tipo: 'data', rotulo: 'Até (para um período)' },
+    { nome: 'nome', tipo: 'texto', rotulo: 'Nome que o cliente vê', obrigatorio: criar, maxLetras: 40 },
+    { nome: 'funcionamento', tipo: 'opcao', rotulo: 'Como a loja fica', obrigatorio: criar, opcoes: COMO_A_LOJA_FICA },
+    { nome: 'abre', tipo: 'hora', rotulo: 'Abre às' },
+    { nome: 'fecha', tipo: 'hora', rotulo: 'Fecha às' },
+    { nome: 'conjunto', tipo: 'opcao', rotulo: 'Vale para', opcoes: VALE_PARA },
+    { nome: 'avisoAntes', tipo: 'booleano', rotulo: 'Avisar no cardápio 3 dias antes' },
+    { nome: 'feriadoChave', tipo: 'texto', rotulo: 'Feriado respondido (a chave da lista "sem resposta")', maxLetras: 80 },
+  ];
+}
 
 // C4 Onda 1: as opções de cada rota, como os DTOs as aceitam (nomes exatos).
 /** A lista fechada de unidades do estoque (`estoque/unidades.ts`): a mesma que o serviço confere. */
@@ -131,6 +147,14 @@ export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
       { nome: 'descricao', tipo: 'texto', rotulo: 'Detalhes', maxLetras: 300 },
     ],
   },
+  // O DIA ESPECIAL DO HORÁRIO DA LOJA (H2b dos dias especiais, mig 512; protótipo `regem-dias-especiais.html`, "No Mister" —
+  // decisão 8: PIN no mapa, como mudar o horário da semana, porque fechar a loja tira venda). Diferente do de cima (o da
+  // Escala). SEM o campo da loja: é o dia do cardápio da empresa, o mesmo que Delivery › Configurações › Horários grava e
+  // lista. Mudar manda só o que muda (o serviço mantém o resto — V16). Os ids e as chaves dos feriados vêm das leituras
+  // `GET cardapio/dias-especiais` e `.../sem-resposta`. A pausa do iFood e da 99 é da H3.
+  { rota: 'POST /api/v1/cardapio/dias-especiais', campos: camposDoDiaEspecial(true) },
+  { rota: 'PATCH /api/v1/cardapio/dias-especiais/{id}', campos: camposDoDiaEspecial(false) },
+  { rota: 'DELETE /api/v1/cardapio/dias-especiais/{id}', campos: [] },
   {
     rota: 'POST /api/v1/janelas-pico',
     campos: [
