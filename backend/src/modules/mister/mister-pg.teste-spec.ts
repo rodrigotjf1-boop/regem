@@ -7717,6 +7717,26 @@ export function testesDoMisterComPostgres(): void {
           expect(auditados.filter((a) => a.acao === 'mister_documento_esquecido').length).toBeGreaterThanOrEqual(2);
         });
 
+        // ERR-633 (27/11, a nota da Mechto): o dono ligou pelo nome comercial ("Pão gold mix Prime"); a resposta só trazia o nome do
+        // cadastro ("Pao Brioche com gergelim mesclado") e a IA achou que o Regem tinha ligado a outro produto.
+        it('ligar pelo nome comercial: a resposta e o "ver" trazem os dois nomes do mesmo produto', async () => {
+          const [{ id: pao }] = await q(
+            `insert into item_estoque (tenant_id, nome, nome_comercial, unidade_medida) values ($1, 'Pao Brioche gergelim doc', 'Pão gold mix doc', 'caixa') returning id::text as id`,
+            [A],
+          );
+          try {
+            const id = await documento([itemDaNota({ descricao: 'PAO HB BRIOCHE ROYAL 360', quantidade: 57 })]);
+            const r: any = await notas.ferramentaDoDocumento(escopoDe(), { acao: 'alterar', alteracoes: [{ linha: 1, tipo: 'ligar', insumo: 'pão gold mix doc' }] });
+            expect(r.ok).toBe(true);
+            expect(r.dados.feito[0]).toContain('Pao Brioche gergelim doc (o mesmo produto que na compra se chama "Pão gold mix doc")');
+            expect((await lida(id)).dados.nota.itens[0]).toMatchObject({ insumoId: pao, insumoNomeComercial: 'Pão gold mix doc' });
+            const ver: any = await notas.ferramentaDoDocumento(escopoDe(), { acao: 'ver' });
+            expect(ver.dados.linhas[0]).toMatchObject({ estoqueContaEm: 'caixa', nomeNaCompra: 'Pão gold mix doc' });
+          } finally {
+            await q(`update item_estoque set deleted_at = now() where id = $1`, [pao]);
+          }
+        });
+
         it('a linha ligada que a embalagem contradiz volta a perguntar pela conta', async () => {
           const id = await documento([
             itemDaNota({ descricao: 'HAMBURGUER CX BOVINO 56G 36un', quantidade: 120, valorUnitarioCentavos: 3399, valorTotalCentavos: 407880, insumoId: ids.c120, insumoNome: 'Carne 120gr doc', unidadeDoEstoque: 'caixa', fator: 1 / 36, estado: 'ligado' }),

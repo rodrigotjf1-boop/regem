@@ -196,12 +196,24 @@ function situacaoDaLinha(it: ItemNoMister): string {
   }
   const de = limpo(it.unidade, 12) || 'unidade';
   const para = limpo(it.unidadeDoEstoque, 12);
+  const insumo = nomeDoInsumo(it);
   if (it.estado === 'fator') {
     return typeof it.fatorProposto === 'number'
-      ? `${limpo(it.insumoNome, 40)}, falta confirmar: 1 ${de} = ${qtd(it.fatorProposto)} ${para}`
-      : `${limpo(it.insumoNome, 40)}, falta a conversão de ${de} para ${para}`;
+      ? `${insumo}, falta confirmar: 1 ${de} = ${qtd(it.fatorProposto)} ${para}`
+      : `${insumo}, falta a conversão de ${de} para ${para}`;
   }
-  return `${limpo(it.insumoNome, 40)} (1 ${de} = ${qtd(Number(it.fator) || 0)} ${para})${it.pelaIa ? ', ligado pela IA' : ''}`;
+  return `${insumo} (1 ${de} = ${qtd(Number(it.fator) || 0)} ${para})${it.pelaIa ? ', ligado pela IA' : ''}`;
+}
+
+/**
+ * O insumo ligado: o nome do cadastro (o das fichas) e, quando há, o nome comercial (o de compra) — ERR-633: ligado pelo nome
+ * comercial ("Pão gold mix Prime"), a resposta mostrava só o do cadastro ("Pao Brioche com gergelim mesclado"), e a IA achou
+ * que o Regem tinha ligado a outro produto, desfez a conversa e disse ao dono que não conseguiu.
+ */
+function nomeDoInsumo(it: ItemNoMister): string {
+  const nome = limpo(it.insumoNome, 40);
+  const naCompra = limpo(it.insumoNomeComercial, 40);
+  return naCompra && normal(naCompra) !== normal(nome) ? `${nome} (o mesmo produto que na compra se chama "${naCompra}")` : nome;
 }
 
 /** A linha curta do bloco "TRABALHO EM ANDAMENTO". O número é o que a ferramenta recebe. */
@@ -216,7 +228,7 @@ export function linhaCurtaDoItem(it: ItemNoMister, i: number, verValores: boolea
  * unidade"), para a IA separar "quanto entra no estoque" do "que vem dentro da caixa" (o dono explicou "1 UN = 1 caixa, e 1 caixa
  * = 24 unidades no Regem", e a conversa gravou 24 caixas por UN).
  */
-export function linhasParaOAgente(n: NotaNoMister, verValores: boolean, cadastros: Map<string, { unidade: string; conversoes: string[] }> = new Map()) {
+export function linhasParaOAgente(n: NotaNoMister, verValores: boolean, cadastros: Map<string, { unidade: string; conversoes: string[]; nomeComercial?: string | null }> = new Map()) {
   return n.itens.map((it, i) => {
     const insumoId = it.insumoId ?? (it.estado === 'item' && it.propostaDaIa ? it.sugestoes?.[0]?.id : null);
     const c = insumoId ? cadastros.get(insumoId) : undefined;
@@ -227,7 +239,7 @@ export function linhasParaOAgente(n: NotaNoMister, verValores: boolean, cadastro
       unidade: limpo(it.unidade, 12) || null,
       ...(verValores && it.valorTotalCentavos ? { valorTotal: it.valorTotalCentavos / 100 } : {}),
       situacao: situacaoDaLinha(it),
-      ...(c ? { estoqueContaEm: limpo(c.unidade, 20), ...(c.conversoes.length ? { noCadastro: c.conversoes.map((x) => limpo(x, 50)) } : {}) } : {}),
+      ...(c ? { estoqueContaEm: limpo(c.unidade, 20), ...(c.nomeComercial ? { nomeNaCompra: limpo(c.nomeComercial, 60) } : {}), ...(c.conversoes.length ? { noCadastro: c.conversoes.map((x) => limpo(x, 50)) } : {}) } : {}),
       ...(it.estado === 'item' && it.sugestoes?.length ? { insumosParecidos: it.sugestoes.map((s) => limpo(s.nome)) } : {}),
     };
   });
