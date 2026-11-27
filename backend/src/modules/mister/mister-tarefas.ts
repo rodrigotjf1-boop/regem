@@ -37,6 +37,7 @@ const TIPO_PARA_A_IA: Partial<Record<CampoDaTarefa['tipo'], string>> = {
   ids: 'lista de ids (de uma leitura; nunca invente)',
   data: 'data AAAA-MM-DD',
   hora: 'hora HH:MM',
+  mes: 'mês AAAA-MM',
   numero: 'número (pode ter casas: 2.5)',
   booleano: 'true ou false',
   lista: 'lista de itens, cada um com os campos de "itens"',
@@ -227,7 +228,9 @@ function conferirCampos(
               ? (r.valor ? 'sim' : 'não')
               : c.tipo === 'numero'
                 ? Number(r.valor).toLocaleString('pt-BR', { maximumFractionDigits: 4 })
-                : String(r.valor);
+                : c.tipo === 'mes'
+                  ? String(r.valor).split('-').reverse().join('/')
+                  : String(r.valor);
     linhas.push(`${marca ? `${marca} ` : ''}${c.rotulo}: ${mostrado}`);
   }
   return { corpo, linhas };
@@ -277,6 +280,12 @@ function valorDoCampo(c: CampoDaTarefa, v: unknown): { valor: unknown } | { erro
     case 'hora': {
       const s = String(v).trim().slice(0, 5);
       if (!HORA.test(s)) return ruim('uma hora HH:MM');
+      return { valor: s };
+    }
+    case 'mes': {
+      // C4 Onda 3: a competência AAAA-MM. Conferida aqui porque a rota do fechamento troca o mês torto pelo anterior, calada.
+      const s = String(v).trim();
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(s)) return ruim('um mês AAAA-MM');
       return { valor: s };
     }
     case 'id': {

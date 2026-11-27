@@ -3186,6 +3186,29 @@ neste servidor"). Corrigido com `forwardRef`; o `app-sobe.spec.ts` passou a repr
   tarefa passa pelo `JwtAuthGuard`); a avaliação: c136 (estender a pausa do iFood) e c137 (o Pix pelo Mercado Pago), 137
   perguntas.
 
+### C4 Onda 3 — cozinha e ponto (27/11/2026; SEM migration; só na nuvem; vale com `MISTER_FAZER_TAREFAS=1`)
+
+- **6 tarefas novas** (63 no total), seguidas até a linha do serviço:
+  - ordens de produção: criar (a ficha, a quantidade, o dia, a unidade, o horário, o setor, o produto que sai, já liberada,
+    a observação; a loja vem da conversa), liberar, iniciar e cancelar (PIN; o motivo é pedido pelo Mister para a auditoria);
+  - limpar a fila da cozinha (PIN): tira da tela do KDS os cartões de agora e manda "pronto" aos canais. A loja é obrigatória,
+    porque sem ela a rota limparia a fila de todas as lojas;
+  - o fechamento do ponto do mês: as pendências de todos (o espelho continua pela tela).
+- **O tipo de campo novo `mes`** (AAAA-MM), mostrado como "10/2026" no "Vou fazer". A rota do fechamento troca o mês torto
+  pelo mês anterior sem dizer nada; por isso o Mister confere antes.
+- **Fora desta onda, de propósito:**
+  - a escala e os ajustes e marcações do ponto (cada um é de uma pessoa, V10-4; trocar turno, folga e a marcação esquecida
+    já são ações prontas);
+  - os candidatos das vagas (dado de pessoa) e os QR das vagas (a lista deles tem dado de pessoa);
+  - a configuração do KDS (cores, avisos, fluxo, produtos, rota, destinos, senha): trocam a lista inteira;
+  - avançar e "visto" no cartão da cozinha: são do KDS, na tela da cozinha;
+  - concluir a ordem: pede o PIN de quem produziu, como assinatura;
+  - cancelar o pedido em produção (pede a senha de um gestor), a recorrência da ordem e classificar o lançamento do banco
+    (já é ação pronta).
+- **Os testes:** as marcas, o que fica fora, a ordem com a quantidade com vírgula e a loja da conversa, o colaborador recusado,
+  o motivo do cancelamento, limpar a fila sem loja recusado, o mês conferido (quatro formas tortas) e descrito à IA; a
+  avaliação: c138 (o fechamento de outubro) e c139 (limpar a fila do KDS com o PIN), 139 perguntas.
+
 ### C6b — pedir ao presidente (26/11/2026, #1362, NO AR; SEM migration; só na nuvem; nasce DESLIGADO, `MISTER_PEDIR_AO_PRESIDENTE=1`)
 
 - **O caso** (protótipo, "O seu perfil não pode"): o gerente pede o que o perfil dele não faz (guardar o saldo, pagar o
