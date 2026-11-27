@@ -78,6 +78,37 @@ try {
       assert.ok(t.includes('lerValorDigitado'), `${arq} não usa lerValorDigitado`);
     }
   });
+  // Campo de valor OPCIONAL na edição do produto (custo manual, preço promocional — ERR-636): esvaziar limpa (null),
+  // vazio que já era vazio não manda nada, e o valor que volta do banco ("1.200" = 1,2) não vira mil e duzentos.
+  const jsC = ts.transpileModule(readFileSync(join(aqui, '..', 'src', 'lib', 'campo-opcional.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  writeFileSync(join(tmp, 'campo.mjs'), jsC);
+  const { valorOpcionalDaEdicao, numeroDoCampo } = await import(pathToFileURL(join(tmp, 'campo.mjs')).href);
+  caso('campo opcional: esvaziado limpa (null); já vazio = ausente; digitado = o número', () => {
+    assert.equal(valorOpcionalDaEdicao('', '0'), null); // o custo 0 da importação: apagar o campo LIMPA
+    assert.equal(valorOpcionalDaEdicao('', '12.50'), null);
+    assert.equal(valorOpcionalDaEdicao('  ', 7), null);
+    assert.equal(valorOpcionalDaEdicao('', ''), undefined); // produto novo ou campo que já era vazio: não manda nada
+    assert.equal(valorOpcionalDaEdicao('', null), undefined);
+    assert.equal(valorOpcionalDaEdicao('', undefined), undefined);
+    assert.equal(valorOpcionalDaEdicao('8,5', ''), 8.5);
+    assert.equal(valorOpcionalDaEdicao('0', '3'), 0); // zero DIGITADO vale (custo zero de propósito)
+    assert.equal(valorOpcionalDaEdicao('abc', '3'), undefined); // erro de digitação não apaga o guardado
+  });
+  caso('campo opcional: o valor do banco volta igual (ponto decimal, nunca milhar)', () => {
+    assert.equal(numeroDoCampo('1.200'), 1.2); // o numeric do Postgres; lerValorDigitado leria 1200
+    assert.equal(valorOpcionalDaEdicao('1.200', '1.200'), 1.2);
+    assert.equal(numeroDoCampo('12.5000'), 12.5);
+    assert.equal(numeroDoCampo(3), 3);
+    assert.equal(numeroDoCampo(''), null);
+    assert.ok(Number.isNaN(numeroDoCampo('1,2,3')));
+  });
+  caso('a tela do produto manda o custo e a promoção pelo campo opcional', () => {
+    const t = readFileSync(join(aqui, '..', 'src', 'app', 'produtos', 'page.tsx'), 'utf8');
+    assert.ok(/precoCusto: valorOpcionalDaEdicao\(f\.precoCusto, valoresAntes\.current\.precoCusto\)/.test(t), 'custo manual');
+    assert.ok(/precoPromocional: valorOpcionalDaEdicao\(f\.precoPromocional, valoresAntes\.current\.precoPromocional\)/.test(t), 'preço promocional');
+  });
   console.log(`check:valor — ${n} casos ok`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });

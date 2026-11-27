@@ -2524,14 +2524,36 @@ export class ProdutoService {
     // Preço na 99 e "está na 99" (mig 401): ausente mantém; só com o direito `precos_na_99` ligado.
     Object.assign(patch, await this.campos99(tenantId, dto));
 
-    const [row] = await this.db
-      .update(produto)
-      .set(patch)
-      .where(and(eq(produto.id, id), eq(produto.tenantId, tenantId)))
-      .returning();
-    if (!row) throw new NotFoundException('Produto não encontrado');
+    // DESLIGAR o controle de estoque tira a pausa por estoque na hora — a do produto e a de TODAS as lojas, como o
+    // "Reativar estoque" (`permiteNegativo`). Produto que não controla estoque nunca esgota por saldo (`computeEsgotados`),
+    // mas a pausa só saía no próximo `sincronizarEsgotados`, que roda numa baixa de estoque — e, na loja com servidor
+    // local, só no servidor: desligado pela nuvem com a loja fechada, o produto seguia "esgotado" (ERR-635).
+    const desligouEstoque = dto.controlaEstoque === false;
+    if (desligouEstoque) {
+      patch.pausadoEstoque = false;
+      patch.pausaMotivo = null;
+    }
+    const { row, pausasLiberadas } = await this.db.transaction(async (tx: any) => {
+      const [r] = await tx
+        .update(produto)
+        .set(patch)
+        .where(and(eq(produto.id, id), eq(produto.tenantId, tenantId)))
+        .returning();
+      if (!r) throw new NotFoundException('Produto não encontrado');
+      let liberadas: string[] = [];
+      if (desligouEstoque) {
+        // `updated_at` anda (também pelo gatilho de carimbo da mig 262) para a pausa desfeita descer ao servidor da loja.
+        const res: any = await tx.execute(sql`
+          update produto_pausa_estoque set pausado = false, motivo = null, updated_at = now()
+           where tenant_id = ${tenantId} and produto_id = ${id} and pausado = true and deleted_at is null
+          returning id`);
+        liberadas = ((res?.rows ?? res) as any[]).map((x) => String(x.id));
+      }
+      return { row: r, pausasLiberadas: liberadas };
+    });
     // Flash-sync: edição local reflete no cardápio ONLINE em segundos (edge → nuvem).
     void this.flash.flashProdutos([id]);
+    if (pausasLiberadas.length) void this.flash.flashPausas?.(pausasLiberadas);
 
     // Substitui variações/combo quando enviados (edição completa).
     // SOFT-delete (mig 242): as duas tabelas sincronizam para o servidor local por delta

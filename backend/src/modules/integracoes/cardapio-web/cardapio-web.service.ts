@@ -6,6 +6,7 @@ import { integracao } from '../../../db/schema';
 import { DeliveryService } from '../../delivery/delivery.service';
 import { mapStatusExterno } from '../../delivery/adapters';
 import { fetchExterno } from '../../../common/fetch-externo';
+import { custoDaImportacao } from '../../../common/custo-importado';
 import { mesclarNoConfigDaIntegracao } from '../config-da-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -596,7 +597,7 @@ export class CardapioWebService {
         } else {
           const ins: any = await this.db.execute(sql`
             insert into produto (tenant_id,nome,tipo,unidade_medida,preco_venda,controla_estoque,vai_para_producao,ativo,selos,disponivel_cardapio,destaque,disponivel_balcao,pausado_estoque,permite_negativo,categoria_id,codigo,setor_producao_id,descricao,imagem_ref,preco_custo)
-            values (${tenantId},${it.name},'simples',${(it.unit_type || 'un').toLowerCase()},${preco},false,true,true,'[]'::jsonb,true,false,true,false,false,${catId},${codigo},${setor},${it.description ?? null},${img},${Number(it.cost_price) || 0})
+            values (${tenantId},${it.name},'simples',${(it.unit_type || 'un').toLowerCase()},${preco},false,true,true,'[]'::jsonb,true,false,true,false,false,${catId},${codigo},${setor},${it.description ?? null},${img},${custoDaImportacao(it.cost_price)})
             returning id`);
           prodId = (ins?.rows ?? ins)?.[0]?.id ?? null;
           nProd++;
