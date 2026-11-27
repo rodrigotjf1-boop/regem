@@ -50,6 +50,16 @@ export class RoboPedidoController {
     return this.service.pedidoNoTeste(String(segredo ?? '').trim(), instancia);
   }
 
+  /**
+   * "Tem promoção? Tem cupom?" (item 5, 27/11): os cupons que ESTE cliente pode usar agora e os planos da fidelidade. Na
+   * conversa de teste, no chat do iFood e da 99 e nos comentários (sem ficha de telefone), a recusa de sempre.
+   */
+  @Get('promocoes')
+  @Throttle(LIMITE)
+  async promocoes(@Query() q: any, @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string, @Headers(CABECALHO_CONVERSA) ficha?: string) {
+    return (await this.recusaNoTeste(segredo, q)) ?? this.service.promocoes(await this.contexto(segredo, ficha, q));
+  }
+
   /** Quem é o cliente (nome, cliente novo?), os endereços salvos numerados e o pedido em montagem. */
   @Get('pedido')
   @Throttle(LIMITE)

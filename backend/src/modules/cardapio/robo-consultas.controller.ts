@@ -3,10 +3,10 @@ import { Throttle } from '@nestjs/throttler';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { CABECALHO_SEGREDO_ROBO, segredoDaChamada } from '../../common/segredo-robo';
 import { CardapioService } from './cardapio.service';
-import { buscarNoCardapio, resumoDaLoja, taxaDoBairro } from './robo-consultas';
+import { buscarNoCardapio, pontoDaLocalizacao, resumoDaLoja, taxaDoBairro, taxaDoEndereco } from './robo-consultas';
 import { categoriasPorPapel, procurarNoCardapio } from './robo-busca';
 import { aplicarNoResumo } from './situacao-da-loja';
-import { instrucoesDoChat, instrucoesDoDirect, instrucoesDoMessenger, instrucoesDosComentarios, instrucoesDoRobo } from './robo-instrucoes';
+import { fluxoComFerramentas26, instrucoesDoChat, instrucoesDoDirect, instrucoesDoMessenger, instrucoesDosComentarios, instrucoesDoRobo } from './robo-instrucoes';
 import { ehChaveDeTeste, ehChaveDoChat, ehChaveDoComentario, ehChaveDoDirect, ehChaveDoMessenger } from '../../common/conversa-do-robo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -80,8 +80,22 @@ export class RoboConsultasController {
     @Query('phoneNumberId') phoneNumberId?: string,
     @Query('secret') secret?: string,
     @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
+    // Item 4 (27/11): na loja por distância ou por área no mapa, o endereço (rua e número) ou a localização do WhatsApp
+    // ("[localização] lat,lng") passam pela MESMA conta do cardápio e do `definir_entrega` — sem montar pedido.
+    @Query('rua') rua?: string,
+    @Query('numero') numero?: string,
+    @Query('localizacao') localizacao?: string,
   ) {
-    const { menu } = await this.cardapio(segredoDaChamada(segredo, secret), instancia, phoneNumberId);
+    const { token, menu } = await this.cardapio(segredoDaChamada(segredo, secret), instancia, phoneNumberId);
+    const porPonto = menu?.loja?.areaModo === 'raio' || menu?.loja?.areaModo === 'mapa';
+    const ponto = pontoDaLocalizacao(localizacao);
+    const r = String(rua ?? '').trim().slice(0, 120);
+    const n = String(numero ?? '').trim().slice(0, 20);
+    if (porPonto && (ponto || (r && n))) {
+      const cfg = await this.service.resolver(token);
+      const t = await this.service.taxaDeEntrega(cfg, ponto ? { lat: ponto.lat, lng: ponto.lng } : { rua: r, numero: n }, 0);
+      return taxaDoEndereco(menu, t);
+    }
     return taxaDoBairro(menu, String(bairro ?? '').slice(0, 80));
   }
 
@@ -95,6 +109,8 @@ export class RoboConsultasController {
     @Query('phoneNumberId') phoneNumberId?: string,
     @Query('secret') secret?: string,
     @Headers(CABECALHO_SEGREDO_ROBO) segredo?: string,
+    // A versão do fluxo do n8n (27/11): a 2.6 tem `promocoes_da_loja` e a taxa por endereço — só ela recebe o texto delas.
+    @Query('versaoDoFluxo') versaoDoFluxo?: string,
   ) {
     const { token, menu } = await this.cardapio(segredoDaChamada(segredo, secret), instancia, phoneNumberId);
     const loja = (menu as any)?.loja?.nome ?? null;
@@ -142,6 +158,6 @@ export class RoboConsultasController {
     if (canal === 'chat') return instrucoesDoChat({ loja, jeito, conhecimento, plataforma: chat?.plataforma ?? 'ifood', teste: !!teste }, fluxo);
     if (canal === 'messenger') return instrucoesDoMessenger({ loja, jeito, assuntos, conhecimento }, fluxo);
     if (canal === 'direct') return instrucoesDoDirect({ loja, jeito, assuntos, conhecimento }, fluxo);
-    return instrucoesDoRobo({ loja, jeito, assuntos, conhecimento, printAjuda, pedidoAgendado }, fluxo);
+    return instrucoesDoRobo({ loja, jeito, assuntos, conhecimento, printAjuda, pedidoAgendado, ferramentas26: fluxoComFerramentas26(versaoDoFluxo) }, fluxo);
   }
 }
