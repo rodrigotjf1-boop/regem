@@ -64,6 +64,7 @@ import { TotemAPagarIcone } from '@/components/pdv/totem-a-pagar-icone';
 import { ClienteChegouAviso } from '@/components/pdv/cliente-chegou-aviso';
 import { AlertaDeAtendimento, SinoDoAtendimento } from '@/components/atendimento/alerta-de-atendimento';
 import { ChipDeAvisos, FaixaDeAvisos, LeitorDeAvisos } from '@/components/mister/faixa-de-avisos';
+import { FaixaDoFeriado } from '@/components/delivery/faixa-do-feriado';
 import { useUiPrefs } from '@/hooks/use-ui-prefs';
 import { AccountMenu } from './account-menu';
 import { UnidadeSeletor } from './unidade-seletor';
@@ -545,6 +546,9 @@ export function Shell({
         )}
         {!fill && !!cat && <FaixaSemNuvem />}
         {!fill && !!cat && <FaixaDeAvisos />}
+        {/* O feriado sem resposta (H2a dos dias especiais): 10 dias antes, só para quem pode mudar o horário (as rotas
+            `cardapio/dias-especiais` gravam com presidente e gerente e a permissão da loja). */}
+        {!fill && (cat === 'presidente' || cat === 'gerente') && temPerm('loja', perms, cat === 'presidente') && <FaixaDoFeriado ativo />}
         {/* Modo fill (sem topbar): hambúrguer flutuante p/ o menu no mobile
             (some no desktop via .shell-burger). */}
         {fill && (

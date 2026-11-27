@@ -20,6 +20,14 @@
 - **Dias especiais — H1b, a tela e o cardápio (27/11; sem migration).** Delivery › Configurações › Horários com a lista e a
   gaveta, as faixas do cardápio e o dia fechado no "Para quando?". Vai no mesmo `.zip` da H1a (o app que o servidor da loja
   serve); não pede `.exe` além do da H1a.
+- **Dias especiais — H2a, os feriados sem resposta (27/11; sem migration).** A rota nova e a faixa do topo valem também no
+  servidor da loja (lei e Escala; o feriado da cidade só pela internet). Vai no mesmo `.zip` da H1a; não pede `.exe` além
+  do da H1a.
+- **Dias especiais — H3, o iFood e a 99 pausados sozinhos (27/11; sem migration).** A rotina é só da nuvem (e nasce
+  desligada: `DIAS_ESPECIAIS_PAUSA_AUTOMATICA=1`); a lista dos dias especiais ganha os campos novos também no servidor da
+  loja (lá a chave não aparece). Vai no mesmo `.zip` da H1a. Não pede `.exe`.
+- **Dias especiais — H2b, o feriado pelo Mister (27/11; sem migration).** O Mister e o aviso são só da nuvem; o PATCH que
+  mantém o que não veio (V16) vale também no servidor da loja e vai no mesmo `.zip` da H1a. Não pede `.exe`.
 - **Atendente: pôr item no pedido pago, Pix confirmado sem comprovante e o estorno no aviso de cancelado (26/11; SEM migration;
   ERR-626, ERR-627).** A versão do servidor e a conferência de minuto do Pix são só da nuvem. O texto do aviso de cancelado vai no
   próximo `.zip` por ser código comum (o servidor da loja que monta o aviso ganha a frase do estorno). Não pede `.exe`.
@@ -52,6 +60,11 @@
   nenhum bilhete é emitido). Não pede `.exe`.)_
 - _(Mister C4 Onda 2 — delivery e cardápio pelo mapa (27/11): SEM migration e só da nuvem — o mapa e as tarefas do Mister. Não
   pede `.zip` nem `.exe`.)_
+- _(Mister C4 Onda 3 — cozinha e ponto pelo mapa (27/11): SEM migration e só da nuvem. Não pede `.zip` nem `.exe`.)_
+- _(Mister C4 Onda 4 — dinheiro e fiscal pelo mapa, tudo com PIN (27/11): SEM migration e só da nuvem. Não pede `.zip` nem
+  `.exe`.)_
+- _(ERR-637 — o Mister procura no mapa as tarefas para fazer (as instruções e as descrições das ferramentas) (27/11): SEM
+  migration e só da nuvem. Não pede `.zip` nem `.exe`.)_
 - **Mister C7 — aprender pela tarefa feita (26/11; mig 508, só na nuvem).** O `sync-daemon.mjs` ganhou `mister_aprendizado` na
   lista das tabelas só da nuvem (SO_NUVEM). Na loja não muda nada: a tabela não existe no banco dela e nada a escreve. Vai no
   próximo `.exe` por ter tocado o `sync-daemon` (sem pressa; o daemon antigo não lê a tabela).

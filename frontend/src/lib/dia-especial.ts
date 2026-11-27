@@ -24,6 +24,18 @@ export function somarDias(d: string, n: number): string {
 /** Quantos dias de `de` a `ate`, contando os dois (12/01 a 14/01 = 3). */
 export const diasEntre = (de: string, ate: string) => Math.round((meioDia(ate).getTime() - meioDia(de).getTime()) / 86_400_000) + 1;
 
+// ── "mudou": a faixa do topo e a lista de Horários releem quando uma das duas grava ───────────────────────────────
+// A faixa (no Shell) e a lista (em Configurações) são peças separadas na mesma tela: responder numa e a outra ficar com o
+// feriado velho confunde. Quem grava avisa; quem mostra relê.
+export const EVENTO_DIAS_ESPECIAIS = 'regem:dias-especiais-mudou';
+export function avisarQueMudou(): void {
+  try {
+    window.dispatchEvent(new Event(EVENTO_DIAS_ESPECIAIS));
+  } catch {
+    /* fora do navegador */
+  }
+}
+
 // ── os textos ────────────────────────────────────────────────────────────────────────────────────────────────────
 /** "das 18:00 às 21:00" — com a virada da meia-noite; a mesma frase do servidor (`faixaDeHoras`). */
 export const faixaDeHoras = (abre: string, fecha: string) => `das ${abre} às ${fecha}${fecha <= abre ? ' do dia seguinte' : ''}`;

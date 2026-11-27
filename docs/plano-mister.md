@@ -3186,6 +3186,91 @@ neste servidor"). Corrigido com `forwardRef`; o `app-sobe.spec.ts` passou a repr
   tarefa passa pelo `JwtAuthGuard`); a avaliação: c136 (estender a pausa do iFood) e c137 (o Pix pelo Mercado Pago), 137
   perguntas.
 
+### C4 Onda 3 — cozinha e ponto (27/11/2026; SEM migration; só na nuvem; vale com `MISTER_FAZER_TAREFAS=1`)
+
+- **6 tarefas novas** (63 no total), seguidas até a linha do serviço:
+  - ordens de produção: criar (a ficha, a quantidade, o dia, a unidade, o horário, o setor, o produto que sai, já liberada,
+    a observação; a loja vem da conversa), liberar, iniciar e cancelar (PIN; o motivo é pedido pelo Mister para a auditoria);
+  - limpar a fila da cozinha (PIN): tira da tela do KDS os cartões de agora e manda "pronto" aos canais. A loja é obrigatória,
+    porque sem ela a rota limparia a fila de todas as lojas;
+  - o fechamento do ponto do mês: as pendências de todos (o espelho continua pela tela).
+- **O tipo de campo novo `mes`** (AAAA-MM), mostrado como "10/2026" no "Vou fazer". A rota do fechamento troca o mês torto
+  pelo mês anterior sem dizer nada; por isso o Mister confere antes.
+- **Fora desta onda, de propósito:**
+  - a escala e os ajustes e marcações do ponto (cada um é de uma pessoa, V10-4; trocar turno, folga e a marcação esquecida
+    já são ações prontas);
+  - os candidatos das vagas (dado de pessoa) e os QR das vagas (a lista deles tem dado de pessoa);
+  - a configuração do KDS (cores, avisos, fluxo, produtos, rota, destinos, senha): trocam a lista inteira;
+  - avançar e "visto" no cartão da cozinha: são do KDS, na tela da cozinha;
+  - concluir a ordem: pede o PIN de quem produziu, como assinatura;
+  - cancelar o pedido em produção (pede a senha de um gestor), a recorrência da ordem e classificar o lançamento do banco
+    (já é ação pronta).
+- **Os testes:** as marcas, o que fica fora, a ordem com a quantidade com vírgula e a loja da conversa, o colaborador recusado,
+  o motivo do cancelamento, limpar a fila sem loja recusado, o mês conferido (quatro formas tortas) e descrito à IA; a
+  avaliação: c138 (o fechamento de outubro) e c139 (limpar a fila do KDS com o PIN), 139 perguntas.
+
+### C4 Onda 4 — dinheiro e fiscal, tudo com PIN (27/11/2026; SEM migration; só na nuvem; vale com `MISTER_FAZER_TAREFAS=1`)
+
+- **6 tarefas novas** (69 no total). Só entra o que DESFAZ ou ENCERRA com trava no serviço, mais a contingência fiscal:
+  - cancelar uma conta: só a conta em aberto (a paga é recusada; estorne antes);
+  - estornar uma conta paga: volta a aberta com o lançamento inverso, uma vez só (a troca condicional vem antes do lançamento);
+  - ativar ou desativar uma forma de pagamento;
+  - transmitir à SEFAZ as notas que saíram em contingência;
+  - encerrar um plano de fidelidade ou de cashback (ele passa a "finalizando" e para de juntar).
+- **Fora desta onda, de propósito:**
+  - o que já é ação pronta (lançar e pagar conta, fechar o caixa, sangria, cupom, pagar o entregador);
+  - o caixa do terminal (abrir, movimentar, reconciliar; o caixa é o do terminal, V7) e a venda do PDV (comandas, mesas,
+    balcão, acertos): a operação é no balcão;
+  - as pessoas e os acessos (colaboradores, perfis, contadores): dado de pessoa e "quem acessa o quê" ficam na tela;
+  - as lojas e a configuração da empresa;
+  - criar e mudar forma de pagamento, conta e plano: formulários com as regras de cada tela;
+  - emitir, cancelar e inutilizar nota: efeito fiscal na hora;
+  - a consulta da SEFAZ e da nota: uma consulta com PIN não vale a pena, e a lista de notas tem dado de cliente;
+  - o prêmio de desculpas e o cancelamento do atendimento: são do caso, na Central.
+- **Os testes:** as seis com o PIN (no mapa e no pedido), as dezesseis fora, a conta com o corpo vazio e o campo a mais
+  recusado, e a forma de pagamento com o sim/não; a trava do mapa (todas passam pelo `JwtAuthGuard`); a avaliação: c140 (as
+  notas em contingência), 140 perguntas.
+
+**As 4 ondas da C4 abertas em 27/11/2026:** 69 tarefas pelo mapa (8 da C4a e 61 das ondas), além das 43 ações prontas.
+Ficou na tela, de propósito, o que mexe com uma pessoa, com quem acessa o quê, com o fiscal e com a operação do balcão e da
+cozinha. Para valer: `MISTER_FAZER_TAREFAS=1` (já ligada) e a avaliação real de novo.
+
+**A avaliação real de 27/11 (128 de 140) e o ERR-637:**
+- **Os 4 casos novos das ondas que erraram** (c136, c137, c139, c140): a IA não procurou no mapa. A busca dizia só "telas de
+  leitura", e o guia da tela mandava ensinar o caminho "quando pedirem uma ação que você não faz". Corrigido nas descrições:
+  - a busca também procura as TAREFAS, com exemplos das ondas;
+  - a ação pronta só serve se faz EXATAMENTE o pedido;
+  - pedido para fazer não vira passo a passo antes do mapa.
+- **Os 5 que acertavam e erraram** (c59, c70, c98, c100, c111): o Haiku varia entre rodadas; o c124, que errava, acertou.
+  Só a próxima rodada separa a variação de um defeito.
+- **Os 3 que já erravam** (c35, c128, c130) seguem iguais.
+
+### Dias especiais H2b — o feriado pelo Mister (27/11/2026; SEM migration; só na nuvem)
+
+Fase H2b do protótipo `mockups/regem-dias-especiais.html` (aba "No Mister"; decisões 4 e 8).
+
+- **3 tarefas novas** (72 no total), todas com PIN no mapa, porque fechar a loja tira venda (decisão 8):
+  - criar, mudar e excluir o dia especial do HORÁRIO (`cardapio/dias-especiais`);
+  - vão SEM o campo da loja: o dia é o do cardápio da empresa, o mesmo que Delivery › Configurações › Horários grava e lista;
+  - mudar manda só o que muda: o serviço passou a manter o resto (V16). Antes, um PATCH só com o nome apagava o período, a pausa
+    dos canais, o aviso e o "vale para";
+  - os ids e as chaves dos feriados vêm das leituras `GET cardapio/dias-especiais` e `.../sem-resposta`;
+  - não confundir com o dia especial da Escala (`/dias-especiais`), outro cadastro, com loja e botão.
+  - Valem com `MISTER_FAZER_TAREFAS=1`, como as outras.
+- **O aviso "Feriado chegando"** (`feriado_chegando`, grupo "Na loja"):
+  - **Quando e para quem:** nasce DESLIGADO e vai ao presidente e ao gerente, 10 dias antes de um feriado sem resposta, às 10h
+    da loja.
+  - **De onde vem:** é a MESMA lista da tela (`DiasEspeciaisService.semResposta`, pelo `moduleRef`), lida só nas empresas que
+    ligaram o aviso.
+  - **Texto:** fixo, sem IA (`SEMPRE_FIXO` em `mister-avisos-escritos.ts`).
+  - **Os botões:**
+    - "Fechada" e "Horário normal" propõem a MESMA tarefa de PIN da conversa (`MisterTarefasService.proporPeloBotao`), com o
+      link "Abrir no Regem";
+    - "Outro horário" pergunta o horário, e a IA propõe a tarefa;
+    - com as tarefas desligadas, o botão aponta a tela.
+  - **Quando fecha:** a loja respondeu (na tela, na faixa ou pelo Mister), o feriado sai da lista e o aviso fecha sem
+    "Resolvido". A leitura que falha numa empresa mantém o aviso aberto dela.
+
 ### C6b — pedir ao presidente (26/11/2026, #1362, NO AR; SEM migration; só na nuvem; nasce DESLIGADO, `MISTER_PEDIR_AO_PRESIDENTE=1`)
 
 - **O caso** (protótipo, "O seu perfil não pode"): o gerente pede o que o perfil dele não faz (guardar o saldo, pagar o

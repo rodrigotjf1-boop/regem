@@ -651,3 +651,27 @@ describe('o certificado da nota fiscal na consulta dos canais e integrações', 
     expect(regrasDoAgente.FERRAMENTAS.find((f) => f.name === 'canais_e_integracoes')?.description).toContain('Canal sem pedido há algum tempo não quer dizer canal desligado');
   });
 });
+
+// A avaliação de 27/11 (128 de 140): nos quatro casos novos das ondas da C4 (estender a pausa, o Pix prioritário, limpar a
+// fila, a contingência), a IA não procurou no mapa — usou uma ação parecida, o guia da tela ou uma consulta. A busca dizia só
+// "telas de leitura" e o guia mandava "quando pedirem uma ação que você não faz".
+describe('fazer pelo mapa primeiro (a avaliação de 27/11)', () => {
+  const descricao = (nome: string) => regrasDoAgente.FERRAMENTAS.find((f) => f.name === nome)?.description ?? '';
+
+  it('a instrução: a ação pronta só serve se faz EXATAMENTE o pedido; pedido para fazer não vira passo a passo antes do mapa', () => {
+    expect(regrasDoAgente.INSTRUCOES_DO_MISTER).toContain('quando nenhuma ação pronta (propor_acao) faz EXATAMENTE o pedido, procure a tarefa com procurar_no_regem');
+    expect(regrasDoAgente.INSTRUCOES_DO_MISTER).toContain('estender uma pausa que já vale não é pausar de novo');
+    expect(regrasDoAgente.INSTRUCOES_DO_MISTER).toContain('Pedido para fazer não se responde com o passo a passo da tela (como_usar_o_regem)');
+  });
+
+  it('a busca diz que também traz as TAREFAS, com exemplos das ondas', () => {
+    expect(descricao('procurar_no_regem')).toContain('Também PROCURA as tarefas que dá para FAZER pelo mapa');
+    expect(descricao('procurar_no_regem')).toContain('"transmitir notas em contingência"');
+    expect(descricao('fazer_no_regem')).toContain('faz EXATAMENTE o pedido');
+  });
+
+  it('o guia da tela só entra para uma ação depois da ação pronta e do mapa', () => {
+    expect(descricao('como_usar_o_regem')).toContain('só DEPOIS de conferir que nenhuma ação pronta faz o pedido e que procurar_no_regem não trouxe a tarefa');
+    expect(descricao('como_usar_o_regem')).not.toContain('quando pedirem uma ação que você não faz, para dizer onde ela é feita');
+  });
+});

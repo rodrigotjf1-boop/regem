@@ -124,4 +124,35 @@ export class MisterTarefasService implements OnModuleInit {
     if (r.status === 400 || r.status === 409 || r.status === 422) return { feita: false, texto: `a tela recusou${r.mensagem ? `: ${r.mensagem}` : '.'} Nada foi feito.` };
     return { feita: false, texto: 'não deu agora no Regem. Nada foi feito; tente de novo daqui a pouco.' };
   }
+
+  /**
+   * H2b dos dias especiais: a tarefa proposta por um BOTÃO de aviso ("Feriado chegando" → "Fechada" ou "Horário normal"), não
+   * pela IA — a MESMA conferência (`pedidoDaTarefa`), a mesma proposta e o mesmo link do PIN; a execução é a de sempre
+   * (`executar`, pela rota da tela). Só tarefa de PIN, sem loja (a da conversa não existe aqui). `ok` = o link saiu.
+   */
+  async proporPeloBotao(
+    q: { tenantId: string; colaboradorId: string; nivel: string; telefone: string },
+    rota: string,
+    campos: Record<string, unknown>,
+  ): Promise<{ ok: true } | { ok: false; texto: string }> {
+    if (!tarefasNoMister()) return { ok: false, texto: TEXTOS_DAS_TAREFAS.fora };
+    if (q.nivel !== 'presidente' && q.nivel !== 'gerente') return { ok: false, texto: TEXTOS_DAS_ACOES.soGestor };
+    const p = pedidoDaTarefa({ rota, campos }, { unidadeId: null });
+    if ('erro' in p) return { ok: false, texto: p.erro };
+    if (p.f.marca !== 'pin') return { ok: false, texto: TEXTOS_DAS_TAREFAS.fora };
+    const chave = createHash('sha256').update(`${p.caminho}|${JSON.stringify(p.corpo)}`).digest('hex').slice(0, 32);
+    const avisoId = uuidDeChave('mister:tarefa:', q.tenantId, ':', q.colaboradorId, ':', p.f.rota, ':', chave);
+    const prop = await this.propostas.gravarDaConversa(
+      q.tenantId,
+      null,
+      avisoId,
+      PROCEDIMENTO_DA_TAREFA,
+      'pin',
+      { colaboradorId: q.colaboradorId, nivel: q.nivel, rota: p.f.rota, metodo: p.metodo, caminho: p.caminho, corpo: p.corpo, loja: null, frase: p.f.frase, resumo: p.resumo },
+      PRAZO_DA_TAREFA_MIN,
+    );
+    if (!prop) return { ok: false, texto: 'Essa mesma tarefa já foi autorizada e está em andamento; o resultado chega na conversa.' };
+    const url = await this.propostas.enviarLink(prop.id, q.colaboradorId, q.telefone, TEXTOS_DAS_TAREFAS.link(p.resumo, horaNoFuso(new Date(prop.venceEm))));
+    return url ? { ok: true } : { ok: false, texto: 'Não consegui preparar o link do PIN agora. Responda pela tela: Delivery › Configurações › Horários.' };
+  }
 }

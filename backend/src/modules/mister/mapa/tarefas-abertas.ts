@@ -14,10 +14,16 @@
 //
 // C4 Onda 2 (27/11/2026): delivery e cardápio — estender a pausa, o Pix prioritário, categorias, produtos (excluir com PIN,
 // duplicar, vender sem saldo) e as opções reutilizáveis (pausa e preço por canal, preço na etapa, excluir, custo em massa).
+//
+// C4 Onda 3 (27/11/2026): cozinha e ponto — as ordens de produção (criar, liberar, iniciar, cancelar com PIN), limpar a fila
+// da cozinha (PIN, só de uma loja) e o fechamento do ponto do mês (o tipo `mes`, AAAA-MM).
+//
+// C4 Onda 4 (27/11/2026): dinheiro e fiscal, tudo com PIN — cancelar e estornar a conta, ativar a forma de pagamento,
+// transmitir a contingência fiscal e encerrar os planos de fidelidade e cashback.
 
 import { UNIDADES_ESTOQUE } from '../../estoque/unidades';
 
-export type TipoDoCampo = 'texto' | 'inteiro' | 'numero' | 'booleano' | 'data' | 'hora' | 'id' | 'ids' | 'opcao' | 'lista' | 'loja';
+export type TipoDoCampo = 'texto' | 'inteiro' | 'numero' | 'booleano' | 'data' | 'hora' | 'mes' | 'id' | 'ids' | 'opcao' | 'lista' | 'loja';
 
 export interface CampoDaTarefa {
   /** O nome no corpo da rota. */
@@ -48,6 +54,22 @@ export interface TarefaAberta {
 const PRIORIDADES = { baixa: 'baixa', normal: 'normal', alta: 'alta', critica: 'crítica' } as const;
 const SITUACOES_DA_MANUTENCAO = { aberto: 'aberto', em_andamento: 'em andamento', concluido_parcial: 'concluído em parte', concluido: 'concluído', cancelado: 'cancelado' } as const;
 const TIPOS_DE_DIA = { feriado: 'feriado', ferias: 'férias', evento: 'evento', folga: 'folga', outro: 'outro' } as const;
+// O dia especial do horário (H2b): os nomes exatos que `conferirDiaEspecial` aceita.
+const COMO_A_LOJA_FICA = { fechada: 'fechada o dia todo', horario: 'outro horário', normal: 'horário normal (só confirma)' } as const;
+const VALE_PARA = { todos: 'delivery e retirada', entrega: 'só o delivery', retirada: 'só a retirada' } as const;
+function camposDoDiaEspecial(criar: boolean): readonly CampoDaTarefa[] {
+  return [
+    { nome: 'data', tipo: 'data', rotulo: 'Dia', obrigatorio: criar },
+    { nome: 'dataFim', tipo: 'data', rotulo: 'Até (para um período)' },
+    { nome: 'nome', tipo: 'texto', rotulo: 'Nome que o cliente vê', obrigatorio: criar, maxLetras: 40 },
+    { nome: 'funcionamento', tipo: 'opcao', rotulo: 'Como a loja fica', obrigatorio: criar, opcoes: COMO_A_LOJA_FICA },
+    { nome: 'abre', tipo: 'hora', rotulo: 'Abre às' },
+    { nome: 'fecha', tipo: 'hora', rotulo: 'Fecha às' },
+    { nome: 'conjunto', tipo: 'opcao', rotulo: 'Vale para', opcoes: VALE_PARA },
+    { nome: 'avisoAntes', tipo: 'booleano', rotulo: 'Avisar no cardápio 3 dias antes' },
+    { nome: 'feriadoChave', tipo: 'texto', rotulo: 'Feriado respondido (a chave da lista "sem resposta")', maxLetras: 80 },
+  ];
+}
 
 // C4 Onda 1: as opções de cada rota, como os DTOs as aceitam (nomes exatos).
 /** A lista fechada de unidades do estoque (`estoque/unidades.ts`): a mesma que o serviço confere. */
@@ -125,6 +147,14 @@ export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
       { nome: 'descricao', tipo: 'texto', rotulo: 'Detalhes', maxLetras: 300 },
     ],
   },
+  // O DIA ESPECIAL DO HORÁRIO DA LOJA (H2b dos dias especiais, mig 512; protótipo `regem-dias-especiais.html`, "No Mister" —
+  // decisão 8: PIN no mapa, como mudar o horário da semana, porque fechar a loja tira venda). Diferente do de cima (o da
+  // Escala). SEM o campo da loja: é o dia do cardápio da empresa, o mesmo que Delivery › Configurações › Horários grava e
+  // lista. Mudar manda só o que muda (o serviço mantém o resto — V16). Os ids e as chaves dos feriados vêm das leituras
+  // `GET cardapio/dias-especiais` e `.../sem-resposta`. A pausa do iFood e da 99 é da H3.
+  { rota: 'POST /api/v1/cardapio/dias-especiais', campos: camposDoDiaEspecial(true) },
+  { rota: 'PATCH /api/v1/cardapio/dias-especiais/{id}', campos: camposDoDiaEspecial(false) },
+  { rota: 'DELETE /api/v1/cardapio/dias-especiais/{id}', campos: [] },
   {
     rota: 'POST /api/v1/janelas-pico',
     campos: [
@@ -429,6 +459,76 @@ export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
     ],
   },
   { rota: 'DELETE /api/v1/produtos/complementos-catalogo/{id}', campos: [] },
+
+  // ───────────── C4 Onda 3 (27/11/2026): cozinha e ponto ─────────────
+  // Fora desta onda, de propósito: a ESCALA e os ajustes e marcações do PONTO (cada um é de uma pessoa — V10-4; trocar turno,
+  // folga e a marcação esquecida já são ações prontas); os CANDIDATOS das vagas (dado de pessoa) e os QR das vagas (a lista
+  // deles tem dado de pessoa); a configuração do KDS (cores, avisos, fluxo, produtos, rota, destinos, senha — trocam a lista
+  // inteira); avançar e "visto" no cartão da cozinha (são do KDS, na tela da cozinha); CONCLUIR a ordem (pede o PIN de quem
+  // produziu, a assinatura); cancelar o pedido em produção (pede a senha de um gestor); a recorrência da ordem; classificar
+  // o lançamento do banco (já é ação pronta).
+  // Ordens de produção (os ids vêm de "Ordens de produção"; a ficha, de "Fichas técnicas").
+  {
+    rota: 'POST /api/v1/ordens-producao',
+    campos: [
+      { nome: 'fichaId', tipo: 'id', rotulo: 'Ficha técnica', obrigatorio: true },
+      { nome: 'quantidadePlanejada', tipo: 'numero', rotulo: 'Quantidade', obrigatorio: true, min: 0.001, max: 100000 },
+      { nome: 'unidade', tipo: 'opcao', rotulo: 'Unidade', opcoes: UNIDADES },
+      { nome: 'dataProducao', tipo: 'data', rotulo: 'Dia da produção', obrigatorio: true },
+      { nome: 'horaInicio', tipo: 'hora', rotulo: 'Começa às' },
+      { nome: 'horaFim', tipo: 'hora', rotulo: 'Termina às' },
+      { nome: 'setorId', tipo: 'id', rotulo: 'Setor' },
+      { nome: 'itemSaidaId', tipo: 'id', rotulo: 'Produto que sai' },
+      { nome: 'liberar', tipo: 'booleano', rotulo: 'Já liberada para a cozinha' },
+      { nome: 'obs', tipo: 'texto', rotulo: 'Observação', maxLetras: 300 },
+      { nome: 'unidadeId', tipo: 'loja', rotulo: 'Loja' },
+    ],
+  },
+  { rota: 'POST /api/v1/ordens-producao/{id}/liberar', campos: [] },
+  { rota: 'POST /api/v1/ordens-producao/{id}/iniciar', campos: [] },
+  {
+    // PIN no mapa. O motivo a rota não exige; o Mister pede, para a auditoria dizer por quê.
+    rota: 'POST /api/v1/ordens-producao/{id}/cancelar',
+    campos: [{ nome: 'motivo', tipo: 'texto', rotulo: 'Motivo', obrigatorio: true, maxLetras: 200 }],
+  },
+  {
+    // A cozinha: tira da tela do KDS todos os cartões de agora (manda "pronto" aos canais) — PIN no mapa. A loja é OBRIGATÓRIA:
+    // sem ela, a rota limparia a fila de todas as lojas.
+    rota: 'POST /api/v1/producao/fila/limpar',
+    campos: [
+      { nome: 'setorId', tipo: 'id', rotulo: 'Só o setor' },
+      { nome: 'unidadeId', tipo: 'loja', rotulo: 'Loja', obrigatorio: true },
+    ],
+  },
+  // Ponto: o fechamento do mês (as pendências de todos; o espelho vai pela tela).
+  {
+    rota: 'POST /api/v1/ponto/fechamentos/gerar',
+    campos: [{ nome: 'competencia', tipo: 'mes', rotulo: 'Mês', obrigatorio: true }],
+  },
+
+  // ───────────── C4 Onda 4 (27/11/2026): dinheiro e fiscal — tudo com PIN ─────────────
+  // Só o que DESFAZ ou ENCERRA com trava no serviço, e a contingência fiscal. Fora, de propósito: o que já é ação pronta
+  // (lançar e pagar conta, fechar o caixa, sangria, cupom, pagar o entregador); o CAIXA do terminal (abrir, movimentar,
+  // reconciliar — o caixa é o do terminal, V7) e a venda do PDV (comandas, mesas, balcão, acertos: a operação é no balcão);
+  // as PESSOAS e os ACESSOS (colaboradores, perfis, contadores — dado de pessoa e quem acessa o quê ficam na tela); as LOJAS e
+  // a configuração da empresa; criar e mudar forma de pagamento, conta e plano (formulários com regras de cada tela); EMITIR,
+  // CANCELAR e INUTILIZAR nota (efeito fiscal na hora); a consulta da SEFAZ e da nota (consulta com PIN não vale a pena; a
+  // lista de notas tem dado de cliente); o prêmio de desculpas e o cancelamento do atendimento (são do caso, na Central).
+  // Contas (os ids vêm de "Contas a pagar e a receber").
+  // Só a conta EM ABERTO (a rota recusa a paga: estorne antes).
+  { rota: 'DELETE /api/v1/financeiro/titulos/{id}', campos: [] },
+  // Só a conta PAGA volta a aberta, com o lançamento inverso — uma vez só (a troca condicional vem antes do lançamento).
+  { rota: 'POST /api/v1/financeiro/titulos/{id}/estornar', campos: [] },
+  // Formas de pagamento (os ids vêm de "As formas de pagamento cadastradas").
+  {
+    rota: 'POST /api/v1/financeiro/formas-pagamento/{id}/ativa',
+    campos: [{ nome: 'ativo', tipo: 'booleano', rotulo: 'Ativa', obrigatorio: true }],
+  },
+  // Fiscal: manda à SEFAZ as notas que saíram em contingência (offline) — da loja da conversa, ou de todas.
+  { rota: 'POST /api/v1/fiscal/contingencia/transmitir', campos: [] },
+  // Fidelidade e cashback: o plano passa a "finalizando" (para de juntar; os ids vêm dos planos de cada um).
+  { rota: 'POST /api/v1/fidelidade/planos/{id}/finalizar', campos: [] },
+  { rota: 'POST /api/v1/cashback/planos/{id}/finalizar', campos: [] },
 ];
 
 /** A tarefa aberta da rota pedida, ou undefined. */

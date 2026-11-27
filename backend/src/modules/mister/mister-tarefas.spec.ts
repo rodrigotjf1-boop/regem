@@ -209,3 +209,144 @@ describe('C4 Onda 2 · delivery e cardápio', () => {
     expect(m.corpo).toEqual({ ids: [ID, ID2], precoCusto: 1.25 });
   });
 });
+
+describe('C4 Onda 3 · cozinha e ponto', () => {
+  it('as marcas: cancelar a ordem e limpar a fila pedem o PIN; criar, liberar, iniciar e o fechamento do ponto são de botão', () => {
+    for (const r of ['POST /api/v1/ordens-producao/{id}/cancelar', 'POST /api/v1/producao/fila/limpar']) expect([r, funcaoDoMapa(r)?.marca]).toEqual([r, 'pin']);
+    for (const r of ['POST /api/v1/ordens-producao', 'POST /api/v1/ordens-producao/{id}/liberar', 'POST /api/v1/ordens-producao/{id}/iniciar', 'POST /api/v1/ponto/fechamentos/gerar']) {
+      expect([r, funcaoDoMapa(r)?.marca]).toEqual([r, 'botao']);
+    }
+  });
+
+  it('fora de propósito: a escala e o ponto de uma pessoa, os candidatos, concluir a ordem (PIN de quem produziu) e o cartão do KDS', () => {
+    const abertas = new Set(TAREFAS_ABERTAS.map((t) => t.rota));
+    for (const r of [
+      'POST /api/v1/escala',
+      'POST /api/v1/escala/gerar',
+      'POST /api/v1/ponto/ajuste',
+      'POST /api/v1/ponto/marcacao-manual',
+      'PATCH /api/v1/vagas/candidatos/{id}/situacao',
+      'POST /api/v1/ordens-producao/{id}/concluir',
+      'POST /api/v1/producao/pedidos/{id}/avancar',
+      'POST /api/v1/producao/pedidos/{id}/cancelar',
+      'PUT /api/v1/producao/kds/rota',
+    ]) {
+      expect([r, abertas.has(r)]).toEqual([r, false]);
+    }
+  });
+
+  it('a ordem de produção: a ficha, a quantidade e o dia; a loja vem da conversa; cancelar pede o motivo', () => {
+    const o = pedidoDaTarefa({ rota: 'POST /api/v1/ordens-producao', campos: { fichaId: ID, quantidadePlanejada: '2,5', unidade: 'kg', dataProducao: '2026-11-28', liberar: true } }, LOJA) as any;
+    expect(o.corpo).toEqual({ fichaId: ID, quantidadePlanejada: 2.5, unidade: 'kg', dataProducao: '2026-11-28', liberar: true, unidadeId: LOJA.unidadeId });
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/ordens-producao', campos: { fichaId: ID, quantidadePlanejada: 0, dataProducao: '2026-11-28' } }, LOJA)).toHaveProperty('erro', expect.stringContaining('Quantidade'));
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/ordens-producao', campos: { fichaId: ID, quantidadePlanejada: 1, dataProducao: '2026-11-28', colaboradorId: ID } }, LOJA)).toHaveProperty('erro', expect.stringContaining('"colaboradorId"'));
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/ordens-producao/{id}/cancelar', parametros: { id: ID } }, LOJA)).toHaveProperty('erro', expect.stringContaining('Motivo'));
+  });
+
+  it('limpar a fila só de uma loja: sem a loja da conversa, recusa', () => {
+    const l = pedidoDaTarefa({ rota: 'POST /api/v1/producao/fila/limpar' }, LOJA) as any;
+    expect(l.corpo).toEqual({ unidadeId: LOJA.unidadeId });
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/producao/fila/limpar' }, { unidadeId: null })).toEqual({ erro: TEXTOS_DAS_TAREFAS.semLoja });
+  });
+
+  it('o fechamento do ponto: o mês AAAA-MM, conferido aqui (a rota troca o mês torto pelo anterior, calada)', () => {
+    const f = pedidoDaTarefa({ rota: 'POST /api/v1/ponto/fechamentos/gerar', campos: { competencia: '2026-10' } }, LOJA) as any;
+    expect(f.corpo).toEqual({ competencia: '2026-10' });
+    expect(f.resumo).toContain('Mês: 10/2026');
+    for (const ruim of ['2026-13', '10/2026', '2026-1', 'outubro']) {
+      expect(pedidoDaTarefa({ rota: 'POST /api/v1/ponto/fechamentos/gerar', campos: { competencia: ruim } }, LOJA)).toHaveProperty('erro', expect.stringContaining('AAAA-MM'));
+    }
+    expect(camposParaAIa(TAREFAS_ABERTAS.find((t) => t.rota === 'POST /api/v1/ponto/fechamentos/gerar')!)).toEqual([{ nome: 'competencia', tipo: 'mês AAAA-MM', rotulo: 'Mês', obrigatorio: true }]);
+  });
+});
+
+describe('C4 Onda 4 · dinheiro e fiscal (tudo com PIN)', () => {
+  const ONDA_4 = [
+    'DELETE /api/v1/financeiro/titulos/{id}',
+    'POST /api/v1/financeiro/titulos/{id}/estornar',
+    'POST /api/v1/financeiro/formas-pagamento/{id}/ativa',
+    'POST /api/v1/fiscal/contingencia/transmitir',
+    'POST /api/v1/fidelidade/planos/{id}/finalizar',
+    'POST /api/v1/cashback/planos/{id}/finalizar',
+  ];
+
+  it('as seis abertas pedem o PIN', () => {
+    for (const r of ONDA_4) {
+      expect([r, TAREFAS_ABERTAS.some((t) => t.rota === r), funcaoDoMapa(r)?.marca]).toEqual([r, true, 'pin']);
+      expect([r, (pedidoDaTarefa({ rota: r, parametros: { id: ID }, campos: r.endsWith('/ativa') ? { ativo: true } : {} }, LOJA) as any).f?.marca]).toEqual([r, 'pin']);
+    }
+  });
+
+  it('fora de propósito: pessoas e acessos, lojas e empresa, o caixa e a venda do PDV, emitir, cancelar e inutilizar nota', () => {
+    const abertas = new Set(TAREFAS_ABERTAS.map((t) => t.rota));
+    for (const r of [
+      'POST /api/v1/colaboradores',
+      'PATCH /api/v1/colaboradores/{id}/acesso',
+      'POST /api/v1/perfis',
+      'PUT /api/v1/contadores',
+      'POST /api/v1/unidades',
+      'PATCH /api/v1/empresas/config',
+      'POST /api/v1/financeiro/caixa/abrir',
+      'POST /api/v1/financeiro/caixa/movimentar',
+      'POST /api/v1/vendas/comandas',
+      'POST /api/v1/vendas/mesas/{id}/fechar',
+      'POST /api/v1/fiscal/comandas/{id}/emitir',
+      'POST /api/v1/fiscal/notas/{id}/cancelar',
+      'POST /api/v1/fiscal/inutilizar',
+      'POST /api/v1/fiscal/sefaz/status',
+      'POST /api/v1/financeiro/titulos',
+      'POST /api/v1/financeiro/titulos/{id}/pagar',
+    ]) {
+      expect([r, abertas.has(r)]).toEqual([r, false]);
+    }
+  });
+
+  it('a conta vai com o corpo vazio; a forma de pagamento pede o sim ou não', () => {
+    const d = pedidoDaTarefa({ rota: 'DELETE /api/v1/financeiro/titulos/{id}', parametros: { id: ID } }, LOJA) as any;
+    expect([d.metodo, d.caminho, d.corpo]).toEqual(['DELETE', `/api/v1/financeiro/titulos/${ID}`, {}]);
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/financeiro/titulos/{id}/estornar', parametros: { id: ID }, campos: { valor: 10 } }, LOJA)).toHaveProperty('erro', expect.stringContaining('"valor"'));
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/financeiro/formas-pagamento/{id}/ativa', parametros: { id: ID } }, LOJA)).toHaveProperty('erro', expect.stringContaining('Ativa'));
+    const f = pedidoDaTarefa({ rota: 'POST /api/v1/financeiro/formas-pagamento/{id}/ativa', parametros: { id: ID }, campos: { ativo: false } }, LOJA) as any;
+    expect(f.corpo).toEqual({ ativo: false });
+    expect(f.resumo).toContain('Ativa: não');
+  });
+});
+
+// H2b dos dias especiais (protótipo `regem-dias-especiais.html`, "No Mister", decisão 8): o dia especial do horário pela
+// conversa, com o PIN pelo link — o mesmo cadastro da tela (sem a loja), e mudar manda só o que muda.
+describe('H2b · o dia especial do horário pela conversa', () => {
+  const ROTAS = ['POST /api/v1/cardapio/dias-especiais', 'PATCH /api/v1/cardapio/dias-especiais/{id}', 'DELETE /api/v1/cardapio/dias-especiais/{id}'];
+
+  it('criar, mudar e excluir pedem o PIN (fechar a loja tira venda) e nenhum leva a loja', () => {
+    for (const r of ROTAS) {
+      expect([r, funcaoDoMapa(r)?.marca]).toEqual([r, 'pin']);
+      expect([r, TAREFAS_ABERTAS.find((t) => t.rota === r)?.campos.some((c) => c.tipo === 'loja')]).toEqual([r, false]);
+    }
+    // O da Escala é outro cadastro (o de cima), com a loja e o botão.
+    expect(funcaoDoMapa('POST /api/v1/dias-especiais')?.marca).toBe('botao');
+  });
+
+  it('criar: o corpo como a tela manda, sem a loja; o "Vou fazer" diz o dia e como a loja fica; o como-fica fora da lista é recusado', () => {
+    const p = pedidoDaTarefa(
+      { rota: 'POST /api/v1/cardapio/dias-especiais', campos: { data: '2026-12-31', nome: 'Véspera de Ano-novo', funcionamento: 'horario', abre: '18:00', fecha: '21:00' } },
+      LOJA,
+    ) as any;
+    expect([p.metodo, p.caminho]).toEqual(['POST', '/api/v1/cardapio/dias-especiais']);
+    expect(p.corpo).toEqual({ data: '2026-12-31', nome: 'Véspera de Ano-novo', funcionamento: 'horario', abre: '18:00', fecha: '21:00' });
+    expect(p.corpo).not.toHaveProperty('unidadeId');
+    expect(p.resumo).toContain('Como a loja fica: outro horário');
+    expect(p.resumo).toContain('Fecha às: 21:00');
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/cardapio/dias-especiais', campos: { data: '2026-12-25', nome: 'Natal', funcionamento: 'meio_periodo' } }, LOJA)).toHaveProperty('erro');
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/cardapio/dias-especiais', campos: { data: '2026-12-25', funcionamento: 'fechada' } }, LOJA)).toHaveProperty('erro', expect.stringContaining('Nome'));
+    // A resposta ao feriado da lista leva a chave dele (sai dos "sem resposta").
+    const f = pedidoDaTarefa({ rota: 'POST /api/v1/cardapio/dias-especiais', campos: { data: '2026-12-25', nome: 'Natal', funcionamento: 'fechada', feriadoChave: 'regra:feriado:natal:2026' } }, LOJA) as any;
+    expect(f.corpo).toEqual({ data: '2026-12-25', nome: 'Natal', funcionamento: 'fechada', feriadoChave: 'regra:feriado:natal:2026' });
+  });
+
+  it('mudar manda só o que muda (o serviço mantém o resto); excluir vai com o corpo vazio', () => {
+    const m = pedidoDaTarefa({ rota: 'PATCH /api/v1/cardapio/dias-especiais/{id}', parametros: { id: ID }, campos: { fecha: '22:00' } }, LOJA) as any;
+    expect([m.metodo, m.caminho, m.corpo]).toEqual(['PATCH', `/api/v1/cardapio/dias-especiais/${ID}`, { fecha: '22:00' }]);
+    const d = pedidoDaTarefa({ rota: 'DELETE /api/v1/cardapio/dias-especiais/{id}', parametros: { id: ID } }, LOJA) as any;
+    expect([d.metodo, d.caminho, d.corpo]).toEqual(['DELETE', `/api/v1/cardapio/dias-especiais/${ID}`, {}]);
+  });
+});

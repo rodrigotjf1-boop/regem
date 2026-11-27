@@ -1606,6 +1606,11 @@ export const CASOS_DA_AVALIACAO: CasoDaAvaliacao[] = [
   // C4 Onda 2 (27/11): delivery e cardápio — estender a pausa que já está valendo e o Pix prioritário do cardápio.
   { id: 'c136', pergunta: 'Estende a pausa do iFood por mais 10 minutos.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['iFood', '10'] },
   { id: 'c137', pergunta: 'Muda o Pix do cardápio para sair pelo Mercado Pago.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['Mercado Pago'] },
+  // C4 Onda 3 (27/11): o fechamento do ponto do mês (o tipo mês) e limpar a fila da cozinha (PIN, só da loja da conversa).
+  { id: 'c138', pergunta: 'Gera o fechamento do ponto de outubro de 2026.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['outubro'] },
+  { id: 'c139', pergunta: 'Limpa a fila do KDS, ficou cheia de pedido velho.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['PIN'] },
+  // C4 Onda 4 (27/11): dinheiro e fiscal, tudo com PIN — as notas que saíram em contingência.
+  { id: 'c140', pergunta: 'Manda para a SEFAZ as notas que ficaram em contingência.', consultas: ['procurar_no_regem', 'fazer_no_regem'], contem: ['PIN'] },
 ];
 
 // ───────────────────────────── a conferência (por regra) ─────────────────────────────

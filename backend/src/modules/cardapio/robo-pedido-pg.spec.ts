@@ -657,6 +657,70 @@ descrever('pedido pelo WhatsApp (Postgres)', () => {
     expect(acoes).toEqual(['dia_especial_criado', 'dia_especial_alterado', 'dia_especial_excluido']);
   });
 
+  // H2b: o Mister (C4) muda o dia especial mandando só o que muda — o serviço mantém o resto (V16): o período, a pausa, o
+  // aviso, o "vale para" e o feriado ligado não voltam ao padrão.
+  it('dias especiais: mudar só o nome ou só a hora mantém o resto; virar "outro horário" sem as horas é recusado', async () => {
+    const l = await loja();
+    const hoje = agoraEmSaoPaulo().dia;
+    const dia = (n: number) => q(`select to_char($1::date + $2::int, 'YYYY-MM-DD') as d`, [hoje, n]).then((r) => r[0].d as string);
+    const [d10, d12] = [await dia(10), await dia(12)];
+    const dias = new DiasEspeciaisService(db, new AuditoriaService(db));
+    const quem: any = { tenantId: l.t, colaboradorId: null, categoria: 'presidente' };
+    const criado: any = await dias.criar(quem, l.u, {
+      data: d10, dataFim: d12, nome: 'Reforma de teste', funcionamento: 'fechada', conjunto: 'entrega', avisoAntes: false, pausarCanais: false, feriadoChave: 'escala:teste',
+    });
+    const linha = async () =>
+      (await q(`select to_char(data_fim, 'YYYY-MM-DD') as fim, nome, funcionamento, abre, fecha, conjunto, aviso_antes, pausar_canais, feriado_chave from horario_especial where id = $1`, [criado.id]))[0];
+    await dias.editar(quem, criado.id, { nome: 'Reforma da cozinha de teste' });
+    expect(await linha()).toEqual({ fim: d12, nome: 'Reforma da cozinha de teste', funcionamento: 'fechada', abre: null, fecha: null, conjunto: 'entrega', aviso_antes: false, pausar_canais: false, feriado_chave: 'escala:teste' });
+    // virar "outro horário" sem as horas: recusado (nada muda)
+    await expect(dias.editar(quem, criado.id, { funcionamento: 'horario' })).rejects.toThrow(/hora em que abre/);
+    await dias.editar(quem, criado.id, { funcionamento: 'horario', abre: '18:00', fecha: '21:00' });
+    // depois, só a hora de fechar: a de abrir fica
+    await dias.editar(quem, criado.id, { fecha: '22:00' });
+    expect(await linha()).toMatchObject({ fim: d12, funcionamento: 'horario', abre: '18:00', fecha: '22:00', conjunto: 'entrega', aviso_antes: false, pausar_canais: false });
+  });
+
+  // H2a: os feriados sem resposta — o da Escala (o de uma pessoa não conta), o do calendário do Marketing (só da nuvem: no
+  // banco sem a tabela, `fontes.calendario` é falso), a janela de 10 e de 60 dias, e o que o dia especial já respondeu
+  // (o "horário normal" também, decisão 9) não volta.
+  it('feriados sem resposta: Escala e calendário na janela; o respondido (até o horário normal) sai; o de uma pessoa não entra', async () => {
+    const l = await loja();
+    const hoje = agoraEmSaoPaulo().dia;
+    const dia = (n: number) => q(`select to_char($1::date + $2::int, 'YYYY-MM-DD') as d`, [hoje, n]).then((r) => r[0].d as string);
+    const [d5, d8, d20] = [await dia(5), await dia(8), await dia(20)];
+    const dias = new DiasEspeciaisService(db, new AuditoriaService(db));
+    const quem: any = { tenantId: l.t, colaboradorId: null, categoria: 'presidente' };
+    await q(`insert into dia_especial (tenant_id, unidade_id, data, tipo, nome) values ($1,$2,$3,'feriado','Feriado da Escala de teste')`, [l.t, l.u, d5]);
+    await q(`insert into dia_especial (tenant_id, unidade_id, data, tipo, nome) values ($1,null,$2,'feriado','Feriado respondido de teste')`, [l.t, d8]);
+    await q(`insert into dia_especial (tenant_id, unidade_id, data, tipo, nome) values ($1,$2,$3,'feriado','Feriado longe de teste')`, [l.t, l.u, d20]);
+    const pessoa = (await q(`select id from colaborador where tenant_id = $1 limit 1`, [l.t]))[0]?.id ?? null;
+    if (pessoa) await q(`insert into dia_especial (tenant_id, unidade_id, colaborador_id, data, tipo, nome) values ($1,$2,$3,$4,'feriado','Folga de uma pessoa')`, [l.t, l.u, pessoa, d5]);
+    await q(`insert into dia_especial (tenant_id, unidade_id, data, tipo, nome) values ($1,$2,$3,'evento','Evento que não é feriado')`, [l.t, l.u, d8]);
+    const temCalendario = !!(await q(`select to_regclass('evento_loja') as t`))[0].t;
+    if (temCalendario) await q(`insert into evento_loja (tenant_id, unidade_id, nome, tipo, dia) values ($1,$2,'Aniversário da cidade de teste','feriado_municipal',$3)`, [l.t, l.u, await dia(3)]);
+
+    const daLoja = (r: any) => r.itens.filter((f: any) => f.origem === 'escala' || f.origem === 'calendario');
+    let r: any = await dias.semResposta(l.t, l.u);
+    expect(r.fontes).toEqual({ calendario: temCalendario });
+    expect(daLoja(r).map((f: any) => `${f.data} ${f.nome} ${f.origem}`)).toEqual([
+      ...(temCalendario ? [`${await dia(3)} Aniversário da cidade de teste calendario`] : []),
+      `${d5} Feriado da Escala de teste escala`,
+      `${d8} Feriado respondido de teste escala`,
+      `${d20} Feriado longe de teste escala`,
+    ]);
+    expect(daLoja(r)[temCalendario ? 1 : 0]).toMatchObject({ normal: 'o dia inteiro' }); // a loja de teste não tem horário da semana
+    // a janela da faixa (10 dias) não traz o de 20
+    r = await dias.semResposta(l.t, l.u, 10);
+    expect(daLoja(r).map((f: any) => f.data)).not.toContain(d20);
+    // "Horário normal" no dia 8 responde (decisão 9) — com a chave do feriado gravada
+    const d8chave = daLoja(await dias.semResposta(l.t, l.u)).find((f: any) => f.data === d8).chave;
+    await dias.criar(quem, l.u, { data: d8, nome: 'Feriado respondido de teste', funcionamento: 'normal', feriadoChave: d8chave });
+    r = await dias.semResposta(l.t, l.u);
+    expect(daLoja(r).map((f: any) => f.data)).toEqual([...(temCalendario ? [await dia(3)] : []), d5, d20]);
+    expect((await q(`select feriado_chave from horario_especial where tenant_id = $1 and data = $2`, [l.t, d8]))[0].feriado_chave).toBe(d8chave);
+  });
+
   // ERR-629 (teste do dono, 27/11): o atendente seguiu com o horário e as formas de pagamento que tinha na memória. As
   // instruções passam a trazer a situação de AGORA, lida do menu — até que horas cada tipo recebe, pelo conjunto do tipo.
   it('a situação de agora: até que horas a entrega e a retirada recebem (cada uma pelo seu horário) e o Pix nas formas', async () => {

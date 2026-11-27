@@ -85,7 +85,14 @@ describe('Mister — os avisos: o padrão aprovado em 14/11', () => {
       'validade_pendente',
       // P3 de "Pedidos e recebimento" (25/11): o pedido atrasado, ao gerente, também em "Na loja".
       'pedido_atrasado',
+      // H2b dos dias especiais (27/11): o feriado sem resposta, ao presidente e ao gerente, DESLIGADO, em "Na loja".
+      'feriado_chegando',
     ]);
+    expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'feriado_chegando')).toMatchObject({
+      grupo: 'Na loja',
+      titulo: 'Feriado chegando',
+      padrao: { ligado: false, destinos: ['presidente', 'gerente'], escalaMin: null, escalaPara: [], parametro: null },
+    });
     // M3e parte 2: o arquivo do ponto do mês, ao presidente (o protótipo: "Vai para: WhatsApp do presidente"), sem parâmetro.
     expect(TIPOS_DE_AVISO.find((t) => t.tipo === 'ponto_do_mes')).toMatchObject({
       grupo: 'Pessoas e ponto',
