@@ -2843,7 +2843,15 @@ Com ela, a P4c de "Pedidos e recebimento" fica completa. A IA grava pela mesma a
 C5, C7, C8 e C10c (#1348–#1366 e o PR da C10c). As fases novas nascem desligadas: as variáveis `MISTER_LER_TELAS`,
 `MISTER_PEDIR_AO_PRESIDENTE`, `MISTER_FAZER_TAREFAS` e `MISTER_PIN_FALADO` (este depois do teste com 20 áudios), que o dono ligou
 em 26/11, e, por empresa, os ajustes "Aprender pela tarefa feita", "Ideias da semana" e "Imagem na conversa". A C4 abriu só a
-primeira área (C4a): as outras áreas esperam a revisão das marcas de escrita (botão × PIN) pela DMS.
+primeira área (C4a): as outras áreas esperam a revisão das marcas de escrita (botão × PIN) pela DMS. A lista das 265 funções de
+escrita em 4 ondas, com a marca de hoje e a troca proposta (29 fora do Mister, 6 só na tela, 10 de botão para PIN), está em
+`docs/mister-c4-marcas.md` (26/11/2026).
+
+**ERR-625 (26/11/2026, à noite):** a ferramenta `documento_em_andamento` (ver, corrigir, ligar, converter, cadastrar e esquecer o
+cupom, a nota, o boleto e a conta por foto) NUNCA foi registrada em produção. O import circular ferramentas → documentos → notas
+→ ferramentas deixava o tipo `undefined` no construtor do serviço das notas, e o `@Optional` injetava vazio calado. Desde a C1a
+toda resposta ao documento vai à IA, então a nota parava na primeira pergunta ("o cupom pela conversa ainda não está disponível
+neste servidor"). Corrigido com `forwardRef`; o `app-sobe.spec.ts` passou a reprovar qualquer `@Optional` vazio por esse motivo.
 
 ### C10c — a imagem para todos (26/11/2026; mig 509; só na nuvem; nasce DESLIGADO, o ajuste "Imagem na conversa")
 

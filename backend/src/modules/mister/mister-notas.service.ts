@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, OnModuleInit, Optional, forwardRef } from '@nestjs/common';
 import { SQL, sql } from 'drizzle-orm';
 import { hojeISO } from '../../common/data';
 import { Conversao, fatorParaEstoque } from '../../common/conversao-unidade';
@@ -124,7 +124,9 @@ export class MisterNotasService implements OnModuleInit {
     private readonly financeiro: FinanceiroService,
     private readonly estoque: EstoqueService,
     @Optional() private readonly auditoria?: AuditoriaService,
-    @Optional() private readonly ferramentas?: MisterFerramentasService,
+    // ERR-625: o import é circular (ferramentas → documentos → notas → ferramentas). Sem o `forwardRef`, o tipo chegava
+    // indefinido no construtor e o @Optional injetava vazio — o `documento_em_andamento` nunca foi registrado em produção.
+    @Optional() @Inject(forwardRef(() => MisterFerramentasService)) private readonly ferramentas?: MisterFerramentasService,
     // Versão 9, O1: o ajuste "Ligar as linhas pela IA" da empresa.
     @Optional() private readonly conversa?: MisterConversaConfigService,
     // Versão 9, O2: o modelo do fornecedor (o "Mudou:" e a última vez). Opcional: sem ele, a nota de sempre.
