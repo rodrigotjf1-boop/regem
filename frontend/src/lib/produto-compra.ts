@@ -174,3 +174,26 @@ export function linhasDoPedido(
   }
   return linhas;
 }
+
+/**
+ * "Duplicar" em Estoque › Produtos (pedido do dono, 27/11/2026: "auxiliar cadastros novos de um mesmo produto, porém de
+ * outra marca"): a gaveta abre como produto NOVO (sem id), com o nome "(cópia)" para trocar, as marcas em branco e o resto
+ * igual (categoria, unidade, conversões, fornecedores, setores, mínimo, validade, alérgenos). Ficam de fora o que é do
+ * produto de origem: a ficha técnica ligada, o custo e o mínimo por loja. O saldo começa do zero, como todo produto novo.
+ */
+export function copiaParaDuplicar<T extends Record<string, any>>(i: T): T {
+  const nome = String(i?.nome ?? '').trim();
+  return {
+    ...i,
+    id: undefined,
+    nome: nome ? `${nome} (cópia)`.slice(0, 120) : '',
+    marcas: [],
+    marca: null,
+    fichaId: null,
+    fichaNome: null,
+    custoMedio: undefined,
+    custoFicha: undefined,
+    minimoPorLoja: undefined,
+    minimoDaLoja: undefined,
+  };
+}

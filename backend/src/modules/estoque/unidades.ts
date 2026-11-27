@@ -25,6 +25,8 @@ export const UNIDADES_ESTOQUE = [
   'maço',
   'cartela',
   'porção',
+  // Pedido do dono (27/11/2026): "não tem opção de fatia, somente fita" — a fatia do queijo, do presunto, do bacon.
+  'fatia',
   'kg',
   'grama',
   'litro',
@@ -55,6 +57,7 @@ const APELIDOS: Record<string, UnidadeEstoque> = {
   mc: 'maço', macos: 'maço',
   cartelas: 'cartela',
   porcoes: 'porção',
+  fatias: 'fatia',
   k: 'kg', kgs: 'kg', kilo: 'kg', kilos: 'kg', quilo: 'kg', quilos: 'kg',
   kilograma: 'kg', kilogramas: 'kg', quilograma: 'kg', quilogramas: 'kg',
   g: 'grama', gr: 'grama', grs: 'grama', gramas: 'grama',

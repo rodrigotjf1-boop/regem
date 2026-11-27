@@ -29,6 +29,9 @@
   efeito na venda da loja. Não pede `.exe`.)_
 - _(Atendente — a 99 "fora do horário" dela não fecha mais a loja (27/11; ERR-631): SEM migration e só da nuvem — o veredito
   é do robô. Não pede `.zip` nem `.exe`.)_
+- **Estoque: a unidade "fatia" e o "Duplicar" em Estoque › Produtos (27/11; SEM migration).** Vai no próximo `.zip`: a
+  lista de unidades é conferida também no servidor da loja — até lá, o produto com "fatia" criado na nuvem desce pelo sync
+  normalmente, mas editá-lo na tela do servidor da loja recusa a unidade. Não pede `.exe`.
 - **Atendente: a voz que fecha as frases (.f36) e o nome do entregador só com a permissão dele (26/11; SEM migration; ERR-623).**
   O robô é só da nuvem. A lista de pedidos do cardápio público (`pedidosPorTelefone`) vai no próximo `.zip` por ser código
   comum: no servidor da loja a tabela da permissão não existe (só da nuvem) e o nome do entregador da loja deixa de aparecer —
