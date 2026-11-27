@@ -316,7 +316,7 @@ export class MisterNotasService implements OnModuleInit {
   // ───────────────────────────── a foto da nota ──────────────────────────
 
   /** A foto que a primeira leitura disse ser nota: lê os itens, confere e começa a conversa. */
-  async receber(quem: QuemMandou, wamid: string | null, bloco: any, modelo: string): Promise<void> {
+  async receber(quem: QuemMandou, wamid: string | null, bloco: any, modelo: string, fotoRef: string | null = null): Promise<void> {
     let saida: string;
     let cortada = false;
     try {
@@ -375,6 +375,8 @@ export class MisterNotasService implements OnModuleInit {
     // Versão 6, M6h: o cupom fiscal de compra (com `MISTER_CUPOM=1`) pergunta primeiro "Como deseja lançar?".
     const cupom = leitura.especie === 'cupom' && cupomNaInstalacao();
     const nota: NotaNoMister = {
+      // 27/11/2026: a foto da nota (guardada na leitura) vai para o recebimento e para a conta a pagar no lançamento.
+      ...(fotoRef ? { fotoRef } : {}),
       chave: leitura.chave,
       numero: leitura.numero,
       emitenteNome: leitura.emitenteNome,
@@ -1435,6 +1437,7 @@ export class MisterNotasService implements OnModuleInit {
           tenantId,
           {
             fornecedorId: d.fornecedorId ?? undefined,
+            ...(nota.fotoRef ? { notaFotoRef: nota.fotoRef } : {}),
             unidadeId: loja ?? undefined,
             data: cupom ? (nota.dataEmissao ?? hojeISO()) : hojeISO(),
             vencimento: cupom ? undefined : nota.duplicatas[0]?.vencimento,
@@ -1464,6 +1467,7 @@ export class MisterNotasService implements OnModuleInit {
             valor: p.valorCentavos / 100,
             vencimento: p.vencimento ?? undefined,
             fornecedorId: d.fornecedorId ?? undefined,
+            ...(nota.fotoRef ? { fotoRef: nota.fotoRef } : {}),
             categoria,
           } as any,
           loja,

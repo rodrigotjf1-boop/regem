@@ -56,11 +56,15 @@
   `.zip` nem `.exe`.)_
 - _(mig 510 — a correção da nota da Rucas lançada em 27/11 com a conta errada (ERR-628): `@cloud-only`, só dados. A loja recebe o
   ajuste, o custo médio e o pedido pelo sync, sem `.zip` nem `.exe`.)_
-- **ERR-630 — o custo médio com o saldo contado sem custo (27/11; mig 512, só da nuvem).** `custoMedioPonderado`
-  (`common/regras-negocio.ts`): custo médio 0 com saldo = custo desconhecido, e a entrada vale sozinha. A mig 512 refez o custo dos
+- **ERR-630 — o custo médio com o saldo contado sem custo (27/11; mig 511, só da nuvem).** `custoMedioPonderado`
+  (`common/regras-negocio.ts`): custo médio 0 com saldo = custo desconhecido, e a entrada vale sozinha. A mig 511 refez o custo dos
   insumos na nuvem, e a loja recebe pelo sync. Vai no próximo `.zip`: o servidor da loja calcula o custo dos recebimentos feitos
   nele, e até lá continua ponderando o saldo sem custo como R$ 0. Não pede `.exe`.
 - _(ERR-633 — a nota pelo Mister ligada pelo nome comercial mostra os dois nomes do mesmo produto: só o Mister, da nuvem. Não pede
+  `.zip` nem `.exe`.)_
+- _(ERR-634 — o Mister guarda o código do boleto e a foto: as contas a pagar trazem a linha digitável e o Pix do documento lido
+  por foto, e a foto do boleto e da nota fica na conta (`foto_ref`) e no recebimento (`nota_foto_ref`). SEM migration (as colunas
+  já existiam) e só da nuvem: o Mister não roda no servidor da loja. A loja recebe o endereço da foto na conta pelo sync. Não pede
   `.zip` nem `.exe`.)_
 
 ## Última release: `1.30.16` — gerada em 26/11/2026 da `origin/main` `d6249543`, **SÓ `.exe` COMPILADO** (`RegemEdgeSetup.exe`, 223.038.515 bytes, SHA-256 `0c4ad6d66a7feb8e1138e6da911ed1c0ce770a8ccfa1818c57b1d2cfa9f5bd96`), pelo `build-release.ps1` (preflight OK; o único aviso = o carimbo do `.iss`; Node 24.22.1; ponte 0.8.0; `undici` 7.30.2 no pacote) e Inno 7 (1.076 s); entregue ao dono em `Documentos\Regem - release 1.30.16 (26-11)` com o `LEIA-ME.txt` (instalar por cima no servidor com a loja fechada — de casa pela Área de Trabalho Remota pelo i7, ou na loja); **sem `.zip`** e nada publicado no console — a loja que só atualiza pelo ícone segue na 1.30.14 até um `.zip`; **INSTALADA no servidor da loja piloto em 26/11 às 18:57**, com a loja fechada, de casa (o instalador aberto na tela do servidor por uma tarefa agendada interativa, removida no fim; o dono seguiu o assistente e fez o login do C&O). Conferido: o `/ping` na 1.30.16 com o banco, os 5 serviços de pé, a ponte 0.8.0 (6 processos, 1,5% de CPU, 413 MB), a hora pelo `a.ntp.br`, o `edge_status` na 1.30.16 em `sync_ok`. A Área de Trabalho Remota ligada para a instalação voltou ao estado de antes (não chegou a ser usada)

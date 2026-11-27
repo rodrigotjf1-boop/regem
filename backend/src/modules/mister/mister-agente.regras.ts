@@ -1031,7 +1031,7 @@ export const FERRAMENTAS: Array<{ name: NomeDaFerramenta; description: string; i
   {
     name: 'contas_a_pagar_e_receber',
     description:
-      'As contas em aberto da empresa: quanto há a pagar e a receber, separado em vencidas, que vencem hoje, nos próximos 7 dias, no resto do mês, depois e sem data, com "ateOFimDoMes" (as vencidas mais as que vencem até o fim deste mês), e as próximas contas a pagar (descrição, fornecedor, valor, vencimento). Use para "quanto eu devo", "o que vence esta semana", "tem conta atrasada", "quanto devo à Distribuidora X" (busca). As contas a receber vêm só em totais. Esta consulta só lê: para lançar, mudar ou pagar uma conta, explique o caminho da tela.',
+      'As contas em aberto da empresa: quanto há a pagar e a receber, separado em vencidas, que vencem hoje, nos próximos 7 dias, no resto do mês, depois e sem data, com "ateOFimDoMes" (as vencidas mais as que vencem até o fim deste mês), e as próximas contas a pagar (descrição, fornecedor, valor, vencimento; o boleto lançado por foto traz a linhaDigitavel e, se tinha, o pixCopiaECola — quando a pessoa pedir o código para pagar, busque pelo fornecedor e mande o código INTEIRO, sozinho numa linha, para ela copiar; nunca diga que o Regem não tem o código se ele veio). Use para "quanto eu devo", "o que vence esta semana", "tem conta atrasada", "quanto devo à Distribuidora X" (busca). As contas a receber vêm só em totais. Esta consulta só lê: para lançar, mudar ou pagar uma conta, explique o caminho da tela.',
     input_schema: {
       type: 'object',
       properties: { busca: { type: 'string', description: 'Parte do nome do fornecedor ou da descrição, para ver só essas contas a pagar.' }, loja: LOJA },

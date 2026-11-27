@@ -362,6 +362,8 @@ export interface NotaNoMister {
   comoLancar?: 'despesa' | 'estoque' | null;
   /** A pessoa tocou em "Lançar assim": a soma dos itens não fecha com o total, e ela sabe. */
   semSomar?: boolean;
+  /** 27/11/2026: o endereço da foto da nota (a mídia da empresa), que vai para o recebimento e a conta a pagar no lançamento. */
+  fotoRef?: string | null;
   /** Versão 9, O1: as linhas foram ligadas pela IA — as dúvidas vão juntas numa mensagem, não uma por vez. */
   ligadaPelaIa?: boolean;
   /**

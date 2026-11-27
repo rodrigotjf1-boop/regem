@@ -7604,6 +7604,40 @@ export function testesDoMisterComPostgres(): void {
         expect(await titulos()).toHaveLength(1);
       });
 
+      // 27/11/2026 (pedido do dono): a foto do boleto fica guardada na conta a pagar que o Mister lança. Sem a mídia, a conta
+      // entra sem a foto, como antes.
+      it('a foto do boleto vai para a conta a pagar (foto_ref); sem a mídia, a conta entra sem a foto', async () => {
+        const guardadas: Array<{ tenantId: string; tamanho: number }> = [];
+        (documentos as any).midia = {
+          uploadBuffer: async (tenantId: string, b: Buffer) => {
+            guardadas.push({ tenantId, tamanho: b.length });
+            return { url: `https://midia.teste/${tenantId}/boleto.jpg`, path: 'x', mime: 'image/jpeg', tamanho: b.length };
+          },
+        };
+        try {
+          const id = novaMidia();
+          ia.roteiro = [leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' })];
+          expect(await foto(telAna, id)).toBe('documento');
+          expect(guardadas).toEqual([{ tenantId: A, tamanho: Buffer.from(`foto-${id}`).length }]);
+          const [d] = await docs();
+          expect(d.dados.fotoRef).toBe(`https://midia.teste/${A}/boleto.jpg`);
+          const [t] = await q(`select foto_ref from titulo_financeiro where id = $1`, [d.titulo_id]);
+          expect(t.foto_ref).toBe(`https://midia.teste/${A}/boleto.jpg`);
+          // A mídia que falha não derruba o lançamento.
+          await q(`delete from titulo_financeiro where tenant_id = $1`, [A]);
+          await q(`delete from mister_documento where tenant_id = $1`, [A]);
+          (documentos as any).midia = { uploadBuffer: async () => { throw new Error('storage fora'); } };
+          ia.roteiro = [leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' })];
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          const [d2] = await docs();
+          expect(d2.situacao).toBe('lancado');
+          expect(d2.dados.fotoRef).toBeUndefined();
+        } finally {
+          (documentos as any).midia = undefined;
+          await q(`delete from mister_documento where tenant_id = $1`, [A]);
+        }
+      });
+
       // ERR-594: o cupom real de 23/11. O que a pessoa diz é gravado pela ferramenta, com a linha travada; nada é lançado.
       describe('o documento em aberto pela conversa', () => {
         const escopoDe = (o: Record<string, unknown> = {}): any => ({ tenantId: A, colaboradorId: pessoa.ana, empresa: 'A', nome: 'Ana', nivel: 'presidente', lojas: [], lojaUnica: true, presa: null, semLoja: false, permissoes: {}, verValores: true, ...o });
@@ -12169,6 +12203,34 @@ export function testesDoMisterComPostgres(): void {
         const barrado = await ferramentas.executar({ ...e, permissoes: { ...e.permissoes, financeiro: false } } as any, 'contas_a_pagar_e_receber', {});
         expect(barrado.ok).toBe(false);
         expect(JSON.stringify(barrado.dados)).not.toContain('Carne');
+      });
+
+      // 27/11/2026 (o dono: "consegue me lembrar no vencimento e extrair o código de barras?" — o Mister disse que o Regem não dava):
+      // o boleto lançado por foto traz a linha digitável e o Pix copia e cola na consulta; sem os valores, não.
+      it('o boleto lançado por foto traz o código para pagar e diz se a foto ficou guardada', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        const LINHA = '34191.79001 01043.510047 91020.150008 7 12345678901234';
+        const PIX = '00020101021226870014br.gov.bcb.pix2565qrpix.exemplo.com.br/qr/v2/cobv/abc520400005303986540549.005802BR6304ABCD';
+        const [{ id: titulo }] = await q(
+          `insert into titulo_financeiro (tenant_id, tipo, descricao, valor, vencimento, status, foto_ref) values ($1, 'pagar', 'Boleto · JFC teste', 493, $2, 'aberto', 'https://x/midia/foto.jpg') returning id::text as id`,
+          [A, somarDias(hojeISO(), 5)],
+        );
+        await q(
+          `insert into mister_documento (tenant_id, colaborador_id, telefone_final, tipo, situacao, motivo, valor_centavos, linha_digitavel, titulo_id, dados)
+           values ($1, $2, '0000', 'boleto', 'lancado', 'x', 49300, $3, $4, $5::jsonb)`,
+          [A, pessoa.ana, LINHA, titulo, JSON.stringify({ pix: PIX })],
+        );
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          const d = (await ferramentas.executar({ ...e, verValores: true } as any, 'contas_a_pagar_e_receber', { busca: 'JFC' })).dados as any;
+          expect(d.proximasAPagar).toEqual([expect.objectContaining({ descricao: 'Boleto · JFC teste', linhaDigitavel: LINHA, pixCopiaECola: PIX, fotoGuardada: true })]);
+          const sem = (await ferramentas.executar({ ...e, verValores: false } as any, 'contas_a_pagar_e_receber', { busca: 'JFC' })).dados as any;
+          expect(sem.proximasAPagar[0]).not.toHaveProperty('linhaDigitavel');
+          expect(sem.proximasAPagar[0]).not.toHaveProperty('pixCopiaECola');
+        } finally {
+          await q(`delete from mister_documento where titulo_id = $1`, [titulo]);
+        }
       });
     });
 

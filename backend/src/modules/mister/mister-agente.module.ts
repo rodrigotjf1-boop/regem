@@ -6,6 +6,7 @@ import { DeliveryModule } from '../delivery/delivery.module';
 import { EscalaModule } from '../escala/escala.module';
 import { EstoqueModule } from '../estoque/estoque.module';
 import { FinanceiroModule } from '../financeiro/financeiro.module';
+import { MidiaModule } from '../midia/midia.module';
 import { FiscalModule } from '../fiscal/fiscal.module';
 import { IbptModule } from '../fiscal/ibpt/ibpt.module';
 import { IaModule } from '../ia/ia.module';
@@ -94,6 +95,8 @@ import { MisterModule } from './mister.module';
     IbptModule,
     // F4.1 (as propostas): a consulta da nota na SEFAZ é a mesma do botão da tela.
     FiscalModule,
+    // 27/11/2026: a foto do boleto, da conta ou da nota vai para a conta a pagar (o MESMO upload da tela).
+    MidiaModule,
     // M3a (documentos por foto): a conta a pagar sai pelo MESMO serviço da tela do Financeiro.
     FinanceiroModule,
     // M3b (a nota do fornecedor por foto): a entrada no estoque sai pelo MESMO recebimento da tela.
