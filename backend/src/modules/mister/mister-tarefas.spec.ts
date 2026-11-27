@@ -259,3 +259,55 @@ describe('C4 Onda 3 · cozinha e ponto', () => {
     expect(camposParaAIa(TAREFAS_ABERTAS.find((t) => t.rota === 'POST /api/v1/ponto/fechamentos/gerar')!)).toEqual([{ nome: 'competencia', tipo: 'mês AAAA-MM', rotulo: 'Mês', obrigatorio: true }]);
   });
 });
+
+describe('C4 Onda 4 · dinheiro e fiscal (tudo com PIN)', () => {
+  const ONDA_4 = [
+    'DELETE /api/v1/financeiro/titulos/{id}',
+    'POST /api/v1/financeiro/titulos/{id}/estornar',
+    'POST /api/v1/financeiro/formas-pagamento/{id}/ativa',
+    'POST /api/v1/fiscal/contingencia/transmitir',
+    'POST /api/v1/fidelidade/planos/{id}/finalizar',
+    'POST /api/v1/cashback/planos/{id}/finalizar',
+  ];
+
+  it('as seis abertas pedem o PIN', () => {
+    for (const r of ONDA_4) {
+      expect([r, TAREFAS_ABERTAS.some((t) => t.rota === r), funcaoDoMapa(r)?.marca]).toEqual([r, true, 'pin']);
+      expect([r, (pedidoDaTarefa({ rota: r, parametros: { id: ID }, campos: r.endsWith('/ativa') ? { ativo: true } : {} }, LOJA) as any).f?.marca]).toEqual([r, 'pin']);
+    }
+  });
+
+  it('fora de propósito: pessoas e acessos, lojas e empresa, o caixa e a venda do PDV, emitir, cancelar e inutilizar nota', () => {
+    const abertas = new Set(TAREFAS_ABERTAS.map((t) => t.rota));
+    for (const r of [
+      'POST /api/v1/colaboradores',
+      'PATCH /api/v1/colaboradores/{id}/acesso',
+      'POST /api/v1/perfis',
+      'PUT /api/v1/contadores',
+      'POST /api/v1/unidades',
+      'PATCH /api/v1/empresas/config',
+      'POST /api/v1/financeiro/caixa/abrir',
+      'POST /api/v1/financeiro/caixa/movimentar',
+      'POST /api/v1/vendas/comandas',
+      'POST /api/v1/vendas/mesas/{id}/fechar',
+      'POST /api/v1/fiscal/comandas/{id}/emitir',
+      'POST /api/v1/fiscal/notas/{id}/cancelar',
+      'POST /api/v1/fiscal/inutilizar',
+      'POST /api/v1/fiscal/sefaz/status',
+      'POST /api/v1/financeiro/titulos',
+      'POST /api/v1/financeiro/titulos/{id}/pagar',
+    ]) {
+      expect([r, abertas.has(r)]).toEqual([r, false]);
+    }
+  });
+
+  it('a conta vai com o corpo vazio; a forma de pagamento pede o sim ou não', () => {
+    const d = pedidoDaTarefa({ rota: 'DELETE /api/v1/financeiro/titulos/{id}', parametros: { id: ID } }, LOJA) as any;
+    expect([d.metodo, d.caminho, d.corpo]).toEqual(['DELETE', `/api/v1/financeiro/titulos/${ID}`, {}]);
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/financeiro/titulos/{id}/estornar', parametros: { id: ID }, campos: { valor: 10 } }, LOJA)).toHaveProperty('erro', expect.stringContaining('"valor"'));
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/financeiro/formas-pagamento/{id}/ativa', parametros: { id: ID } }, LOJA)).toHaveProperty('erro', expect.stringContaining('Ativa'));
+    const f = pedidoDaTarefa({ rota: 'POST /api/v1/financeiro/formas-pagamento/{id}/ativa', parametros: { id: ID }, campos: { ativo: false } }, LOJA) as any;
+    expect(f.corpo).toEqual({ ativo: false });
+    expect(f.resumo).toContain('Ativa: não');
+  });
+});

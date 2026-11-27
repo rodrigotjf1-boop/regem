@@ -19,6 +19,12 @@ Como ler: **Hoje** é a marca do mapa; **Proposta** só aparece quando proponho 
 > PIN), limpar a fila da cozinha (PIN, só de uma loja) e o fechamento do ponto do mês. Ficaram fora, de propósito: a escala e o
 > ponto de cada pessoa, os candidatos e os QR das vagas, a configuração do KDS, avançar e "visto" no cartão, concluir a ordem
 > (PIN de quem produziu), cancelar o pedido em produção, a recorrência e o banco (`docs/plano-mister.md` § "C4 Onda 3").
+>
+> **27/11/2026 — Onda 4 aberta (as 4 ondas concluídas).** 6 tarefas novas, todas com PIN (69 no total): cancelar e estornar a
+> conta, ativar a forma de pagamento, transmitir a contingência fiscal e encerrar os planos de fidelidade e cashback. Ficaram
+> fora, de propósito: o caixa do terminal e a venda do PDV, as pessoas e os acessos, as lojas e a empresa, os formulários de
+> forma de pagamento, conta e plano, emitir, cancelar e inutilizar nota e as consultas com PIN (`docs/plano-mister.md`
+> § "C4 Onda 4").
 
 ## Onda 1 — a rotina da loja (botão) — 68 funções, 3 com troca proposta
 
