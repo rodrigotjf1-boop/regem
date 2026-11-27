@@ -30,6 +30,12 @@ describe('edição parcial do produto (PATCH /produtos/:id)', () => {
     await expect(validar(UpdateProdutoDto, { disponivelBalcao: 'nao' })).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('null no custo manual e no preço promocional CHEGA ao serviço (é o "limpar" da tela — ERR-636)', async () => {
+    expect(await validar(UpdateProdutoDto, { precoCusto: null, precoPromocional: null })).toEqual({ precoCusto: null, precoPromocional: null });
+    expect(await validar(UpdateProdutoDto, { precoCusto: 0 })).toEqual({ precoCusto: 0 });
+    await expect(validar(UpdateProdutoDto, { precoCusto: 'abc' })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('campo desconhecido não passa adiante (whitelist)', async () => {
     expect(await validar(UpdateProdutoDto, { disponivelBalcao: true, tenantId: 'de-outro' })).toEqual({ disponivelBalcao: true });
   });

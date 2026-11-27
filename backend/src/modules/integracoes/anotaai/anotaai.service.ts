@@ -459,9 +459,11 @@ export class AnotaAiService {
           await this.db.execute(sql`update produto set nome=${it.title}, preco_venda=${preco}, categoria_id=${catId}, updated_at=now() where id=${prodId}`);
           nUpd++;
         } else {
+          // Custo manual NULL (= usa a ficha ou o estoque): o Anota Aí não manda custo, e o 0 que se gravava aqui virava
+          // "R$ 0,00 override manual", escondendo a ficha (ERR-636, `common/custo-importado.ts`).
           const ins: any = await this.db.execute(sql`
             insert into produto (tenant_id,nome,tipo,unidade_medida,preco_venda,controla_estoque,vai_para_producao,ativo,selos,disponivel_cardapio,destaque,disponivel_balcao,pausado_estoque,permite_negativo,categoria_id,codigo,setor_producao_id,descricao,imagem_ref,preco_custo)
-            values (${tenantId},${it.title},'simples','un',${preco},false,true,true,'[]'::jsonb,true,false,true,false,false,${catId},${codigo},${setor},null,null,0)
+            values (${tenantId},${it.title},'simples','un',${preco},false,true,true,'[]'::jsonb,true,false,true,false,false,${catId},${codigo},${setor},null,null,null)
             returning id`);
           prodId = (ins?.rows ?? ins)?.[0]?.id ?? null;
           nProd++;
