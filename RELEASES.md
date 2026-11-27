@@ -23,6 +23,8 @@
 - _(Atendente — a situação da loja agora nas instruções e a memória por pedido, .f39 (27/11; ERR-629): SEM migration. As
   instruções e o `ver_pedido` são só da nuvem. O `fechaAs` novo do menu vai no próximo `.zip` por ser código comum, sem
   efeito na venda da loja. Não pede `.exe`.)_
+- _(Atendente — a 99 "fora do horário" dela não fecha mais a loja (27/11; ERR-631): SEM migration e só da nuvem — o veredito
+  é do robô. Não pede `.zip` nem `.exe`.)_
 - **Atendente: a voz que fecha as frases (.f36) e o nome do entregador só com a permissão dele (26/11; SEM migration; ERR-623).**
   O robô é só da nuvem. A lista de pedidos do cardápio público (`pedidosPorTelefone`) vai no próximo `.zip` por ser código
   comum: no servidor da loja a tabela da permissão não existe (só da nuvem) e o nome do entregador da loja deixa de aparecer —

@@ -19,6 +19,20 @@ describe('a loja está atendendo agora? (veredito conferido)', () => {
     expect(s.canais).toEqual([{ nome: '99', situacao: 'sem conexão (o aparelho da loja caiu)' }]);
   });
 
+  // ERR-631 (teste do dono, 27/11): o horário do Regem estendido para um pedido de teste e a 99 fora do horário DELA — o
+  // atendente dizia "não estamos recebendo pedidos" com o cardápio aberto. O horário da plataforma não fecha a loja.
+  it('a 99 fora do horário dela não fecha a loja: o horário do Regem vale (e ela continua na lista)', () => {
+    const s = vereditoDaLoja({ cardapioAberto: true, canais: [da99('fora_do_horario')], servidor: 'ok', agora: AGORA });
+    expect(s.veredito).toBe('aberta');
+    expect(s.comoResponder).toBeNull();
+    expect(s.canais).toEqual([{ nome: '99', situacao: 'fora do horário' }]);
+    // fora do horário + uma fechada à mão: a fechada conta (a quinta sem luz continua protegida)
+    const ifoodPausado: SinalDoCanal = { nome: 'iFood', estado: 'pausada', motivo: null, ate: null, fonte: 'regem' };
+    expect(vereditoDaLoja({ cardapioAberto: true, canais: [da99('fora_do_horario'), ifoodPausado], servidor: 'ok', agora: AGORA }).veredito).toBe('fechada');
+    // só fora do horário e o servidor da loja sem sinal: incerta (não afirma), como sem aplicativo nenhum
+    expect(vereditoDaLoja({ cardapioAberto: true, canais: [da99('fora_do_horario')], servidor: 'sem_sinal', agora: AGORA }).veredito).toBe('incerta');
+  });
+
   it('o motivo que a plataforma diz vence o genérico', () => {
     const s = vereditoDaLoja({ cardapioAberto: true, canais: [da99('pausada', { motivo: 'problema de equipamento ou falta de energia' })], servidor: 'ok', agora: AGORA });
     expect(s).toMatchObject({ veredito: 'fechada', motivo: 'problema de equipamento ou falta de energia' });

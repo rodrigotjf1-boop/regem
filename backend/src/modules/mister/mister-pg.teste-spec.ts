@@ -6053,7 +6053,12 @@ export function testesDoMisterComPostgres(): void {
         numero.pedidos.length = 0;
         ouvido = 'Dois, cinco, oito, zero.';
         expect(await pin.ouvirOPin(quemM, audio, null)).toBe('tratado');
-        expect(numero.enviadas.slice(0, 2).map((m) => m.texto)).toEqual([TEXTOS_DO_PIN_FALADO.autorizado, TEXTOS_DO_PIN_FALADO.apagueOAudio]);
+        // O "PIN conferido" vem primeiro; o "apague o áudio" sai logo depois, mas a ação autorizada roda em paralelo e o
+        // "✅ Feito" dela pode chegar antes dele (ERR-632: a ordem fixa reprovava o CI em 4 de 6 rodadas). As duas ordens
+        // servem ao cliente: confere o primeiro e a presença do pedido para apagar.
+        const textos = numero.enviadas.map((m) => m.texto);
+        expect(textos[0]).toBe(TEXTOS_DO_PIN_FALADO.autorizado);
+        expect(textos).toContain(TEXTOS_DO_PIN_FALADO.apagueOAudio);
         expect(await esperar(`select pin_ate as x from mister_vinculo where tenant_id = $1 and colaborador_id = $2`)).not.toBeNull();
         expect((await q(`select situacao, autorizada_por::text as quem from mister_proposta where id = $1`, [s.p.id]))[0]).toMatchObject({ quem: pessoa.ana });
 

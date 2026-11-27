@@ -82,11 +82,17 @@ export function vereditoDaLoja(e: {
   });
   const base = { canais, servidorDaLoja: e.servidor, motivo: null, ate: null, comoResponder: null };
   if (!e.cardapioAberto) return { ...base, veredito: null };
-  if (e.canais.some((c) => c.estado === 'aberta')) return { ...base, veredito: 'aberta' };
-  if (e.canais.length) {
-    const motivo = e.canais.map((c) => c.motivo).find(Boolean) ?? (e.canais.some((c) => c.estado === 'desconectada') || e.servidor === 'sem_sinal' ? 'um imprevisto na loja' : null);
+  // "Fora do horário" numa plataforma é o horário DELA, que a loja configura à parte — não diz que a loja parou (ERR-631,
+  // teste do dono em 27/11: o horário do Regem estendido para um pedido de teste e a 99 fora do horário dela; o atendente
+  // dizia "não estamos recebendo pedidos" com o cardápio aberto). Ele aparece na lista, mas não conta no veredito: quem
+  // decide o horário do cardápio e do atendente é o horário do Regem. Fechada à mão, pausada e sem conexão continuam
+  // contando (a quinta sem luz, ERR-471).
+  const contam = e.canais.filter((c) => c.estado !== 'fora_do_horario');
+  if (contam.some((c) => c.estado === 'aberta')) return { ...base, veredito: 'aberta' };
+  if (contam.length) {
+    const motivo = contam.map((c) => c.motivo).find(Boolean) ?? (contam.some((c) => c.estado === 'desconectada') || e.servidor === 'sem_sinal' ? 'um imprevisto na loja' : null);
     // Só promete a volta se TODOS os fechados disserem até quando — a mais tarde delas, em palavras.
-    const ates = e.canais.map((c) => (c.ate && Number.isFinite(new Date(c.ate).getTime()) ? new Date(c.ate).toISOString() : null));
+    const ates = contam.map((c) => (c.ate && Number.isFinite(new Date(c.ate).getTime()) ? new Date(c.ate).toISOString() : null));
     const ate = ates.every(Boolean) ? voltaEmPalavras((ates as string[]).sort().slice(-1)[0], agora) : null;
     return {
       ...base,
