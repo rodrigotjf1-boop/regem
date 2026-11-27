@@ -3245,6 +3245,15 @@ cozinha. Para valer: `MISTER_FAZER_TAREFAS=1` (já ligada) e a avaliação real 
   Só a próxima rodada separa a variação de um defeito.
 - **Os 3 que já erravam** (c35, c128, c130) seguem iguais.
 
+**A segunda rodada de 27/11 (135 de 140, a melhor até agora) e o ERR-639:**
+- **c136 e c137 acertaram** com o ERR-637. **c139 e c140** passaram a usar as ferramentas certas, mas reprovaram por não falar
+  do PIN. A causa era da avaliação, não da IA: a simulação do `fazer_no_regem` devolvia sempre o "siga" do botão ("Autorizar"),
+  e a conversa de verdade devolve o do PIN para a tarefa `pin`. Corrigido com `sigaDaTarefa(marca)`, a mesma função nos dois lados.
+- **Os 5 que variaram na primeira rodada** (c59, c70, c98, c100, c111) acertaram: era variação do Haiku. **c35 e c130**, que
+  erravam, também acertaram.
+- **Erraram:** c68 (não falou "lança") e c110 (respondeu com a campanha sem propor a ação) — os dois acertavam, é variação;
+  c128 segue errando (vai às consultas de contas e pedidos em vez de procurar no mapa).
+
 ### Dias especiais H2b — o feriado pelo Mister (27/11/2026; SEM migration; só na nuvem)
 
 Fase H2b do protótipo `mockups/regem-dias-especiais.html` (aba "No Mister"; decisões 4 e 8).

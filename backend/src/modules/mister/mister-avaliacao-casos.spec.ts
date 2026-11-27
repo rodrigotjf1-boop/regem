@@ -11,6 +11,9 @@ import {
   versaoDasInstrucoes,
 } from './mister-avaliacao-casos';
 import type { FimDaPergunta } from './mister-laco';
+import { TAREFAS_ABERTAS } from './mapa/tarefas-abertas';
+import { funcaoDoMapa } from './mapa/busca-no-mapa';
+import { TEXTOS_DAS_TAREFAS, sigaDaTarefa } from './mister-tarefas';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -107,6 +110,21 @@ describe('a avaliação do Mister — a loja de teste', () => {
     expect(g.encontrado).toBe(true);
     expect(g.secoes[0].ondeFica).toContain('Delivery');
     expect(executarNaAvaliacao(FERRAMENTA_DO_QUE_FALTA, { tema: 'clientes' }, PRES)).toEqual({ ok: true, dados: { anotado: true, motivo: 'nao_tem', siga: expect.stringContaining('o Regem ainda não tem') } });
+  });
+
+  it('a tarefa do mapa responde como a de verdade: a de PIN fala do link que pede o PIN, a de botão do "Autorizar" (ERR-639)', () => {
+    const pin: any = executarNaAvaliacao('fazer_no_regem', { rota: 'POST /api/v1/fiscal/contingencia/transmitir', campos: {} }, PRES);
+    expect(pin.ok).toBe(true);
+    expect(pin.dados.siga).toBe(TEXTOS_DAS_TAREFAS.sigaDoPin);
+    expect(pin.dados.siga).toContain('PIN');
+    const botao: any = executarNaAvaliacao('fazer_no_regem', { rota: 'POST /api/v1/setores', campos: { nome: 'Bar' } }, PRES);
+    expect(botao.ok).toBe(true);
+    expect(botao.dados.siga).toBe(TEXTOS_DAS_TAREFAS.siga);
+    // A regra é uma só, a da conversa: cada tarefa aberta, pela marca do mapa.
+    for (const t of TAREFAS_ABERTAS) {
+      const marca = funcaoDoMapa(t.rota)?.marca;
+      expect([t.rota, sigaDaTarefa(String(marca))]).toEqual([t.rota, marca === 'pin' ? TEXTOS_DAS_TAREFAS.sigaDoPin : TEXTOS_DAS_TAREFAS.siga]);
+    }
   });
 
   it('a conversa da loja de teste e a versão das instruções', () => {
