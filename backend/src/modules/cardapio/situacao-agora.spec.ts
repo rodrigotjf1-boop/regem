@@ -67,7 +67,7 @@ describe('a situação da loja agora, nas instruções (ERR-629)', () => {
       expect(r.texto.endsWith(bloco)).toBe(true);
       expect(instrucoesDoRobo({ loja: 'Loja' }, fluxo).texto).not.toContain('SITUAÇÃO DA LOJA AGORA');
     }
-    expect(VERSAO_INSTRUCOES).toBe('2026-11-27.f39');
+    expect(VERSAO_INSTRUCOES).toBe('2026-11-27.f40');
   });
 
   describe('a rota publico/bot/instrucoes', () => {

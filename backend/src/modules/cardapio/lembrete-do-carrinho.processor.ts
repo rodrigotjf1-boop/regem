@@ -95,7 +95,8 @@ export class LembreteDoCarrinhoProcessor {
       .select()
       .from(cardapioConfig)
       .where(and(eq(cardapioConfig.tenantId, tenantId), sql`unidade_id is null`));
-    return cfg ?? null;
+    // Com os dias especiais (H1, mig 512): no Natal fechado, o lembrete do carrinho não sai.
+    return cfg ? this.cardapio.comDiasEspeciais(cfg) : null;
   }
 
   /** Na API oficial: a conversa está parada há mais de 30 min E o cliente escreveu nas últimas 24 h (a janela)? */

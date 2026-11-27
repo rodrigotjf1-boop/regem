@@ -111,6 +111,9 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // A pausa dos pedidos por canal e por loja (mig 392): pausada no painel da loja sobe (o cardápio online e o atendente
   // estão na nuvem), pausada no painel da nuvem desce. Uma linha por empresa, loja e canal (id da chave): LWW resolve.
   { tabela: 'pausa_canal', direcao: 'ambos', cursor: 'updated_at' },
+  // Os dias especiais do horário da loja (mig 512, H1): cadastrados no painel da loja sobem (o cardápio online e o atendente
+  // estão na nuvem), cadastrados na nuvem descem. Excluir = deleted_at (uma mudança como outra).
+  { tabela: 'horario_especial', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'tef_config', direcao: 'ambos', cursor: 'updated_at' },
   // `mesa` vem ANTES de `comanda` (a comanda aponta para a mesa).
   { tabela: 'mesa', direcao: 'ambos', cursor: 'updated_at' },
@@ -476,6 +479,8 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   'pedido_alteracao',
   // A pausa por canal (mig 392): a que a nuvem gravou antes de a loja receber o `.zip` desce (poucas linhas).
   'pausa_canal',
+  // Os dias especiais (mig 512): os que a nuvem gravou antes de a loja receber o `.zip` descem (poucas linhas).
+  'horario_especial',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter

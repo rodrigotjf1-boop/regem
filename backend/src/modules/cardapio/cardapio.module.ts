@@ -7,6 +7,8 @@ import { CardapioService } from './cardapio.service';
 import { OrigemPedidoService } from './origem-pedido.service';
 import { EventosCardapioController } from './eventos-cardapio.controller';
 import { EventosCardapioService } from './eventos-cardapio.service';
+import { DiasEspeciaisController } from './dias-especiais.controller';
+import { DiasEspeciaisService } from './dias-especiais.service';
 import { VendasModule } from '../vendas/vendas.module';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { AtendimentoModule } from '../atendimento/atendimento.module';
@@ -45,7 +47,8 @@ import { BannerIaService } from './banner-ia.service';
   // IaModule: a leitura da foto do cliente fala com o modelo pela porta única da IA da empresa (o medidor de uso).
   // GraphModule (mig 450): a foto vai primeiro ao DMS Graph, com a ligação da empresa; a IA da empresa fica de reserva.
   imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule, CashbackModule, WhatsappModule, ChegadaModule, AniversarioModule, InstagramModule, MessengerModule, ModuloModule, IaModule, GraphModule, MidiaModule],
-  controllers: [CardapioController, BannerIaController, CardapioPublicoController, EventosCardapioController, RoboConsultasController, RoboPedidoController],
+  // DiasEspeciaisController (mig 512, H1): os dias especiais do horário da loja.
+  controllers: [CardapioController, BannerIaController, CardapioPublicoController, EventosCardapioController, RoboConsultasController, RoboPedidoController, DiasEspeciaisController],
   // LembreteDoCarrinhoProcessor: o lembrete do pedido que ficou pela metade no robô (mig 349; só nuvem).
   // AvisoDaMudancaProcessor: a decisão do servidor da loja sobre a mudança pedida pelo robô chega ao cliente (mig 363; só nuvem).
   // EstornoPixService/Processor: o estorno do Pix no cancelamento do pedido pago online (mig 372; só nuvem).
@@ -57,6 +60,7 @@ import { BannerIaService } from './banner-ia.service';
     BannerIaService,
     OrigemPedidoService,
     EventosCardapioService,
+    DiasEspeciaisService,
     RoboPedidoService,
     LembreteDoCarrinhoProcessor,
     AvisoDaMudancaProcessor,

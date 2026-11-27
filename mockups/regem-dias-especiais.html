@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dias especiais e feriados</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PROTÓTIPO DOS DIAS ESPECIAIS E FERIADOS (27/11/2026), para aprovação do dono. Item 3 do plano das leituras do
+   Mister para o atendente. Os estilos são os do protótipo de pedidos e recebimento (aprovado); os novos vêm no fim.
+   Dados inventados. */
+:root{
+  --bg:#EDF0F4; --card:#FFFFFF; --ink:#0F2230; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E2A340; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0E7C66; --ok-bg:#E8F6F1; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A; --d-azul:#7CC0F5;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px} h3{font-size:16px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pular{position:absolute;left:8px;top:-60px;background:var(--gold);color:var(--on-gold);padding:8px 12px;border-radius:8px;font-weight:700;z-index:99}
+.pular:focus{top:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+.pagina{padding:20px;max-width:1240px;margin-inline:auto;container-type:inline-size;container-name:principal}
+.cab{margin-bottom:16px} .cab .sub{max-width:76ch;margin-top:4px}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink)}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.btn.peq{min-height:36px;padding:5px 10px;font-size:13.5px}
+.btn.perigo{color:var(--crit);border-color:#E9B8B8}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.faixa{border-radius:10px;padding:10px 14px;margin-bottom:14px;border:1px solid}
+.faixa.warn{background:var(--warn-bg);border-color:#EBC7B0;color:#6F3410} .faixa.info{background:var(--info-bg);border-color:#BFD6EA;color:#1D4C77}
+.faixa.ok{background:var(--ok-bg);border-color:#B5DCC8;color:#0B4A33}
+a{color:var(--info);text-underline-offset:2px}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.secao{font-size:18px;margin:22px 0 4px}
+.secao:first-of-type{margin-top:6px}
+.secao-sub{color:var(--ink-2);font-size:14px;margin-bottom:12px;max-width:76ch}
+.lista-ok{margin:6px 0 0;padding-left:20px} .lista-ok li{margin-bottom:4px}
+
+/* celular (WhatsApp) */
+.celulares{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:24px 18px;align-items:start}
+.caso h3{margin-bottom:2px} .caso > .sub{font-size:13.5px;margin-bottom:8px}
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:370px}
+.cel-topo{background:var(--c-wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:150px;align-content:start}
+.bolha{max-width:90%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.42;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere;min-width:0}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#52616C;margin-top:2px}
+.botoes-wa{display:grid;gap:4px;margin-top:6px}
+.botoes-wa span{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.toque{justify-self:end;font-size:12px;color:#47555F;background:rgba(255,255,255,.85);border-radius:999px;padding:2px 10px}
+.dia-wa{justify-self:center;font-size:12px;font-weight:600;color:#3C4F60;background:rgba(255,255,255,.9);border-radius:6px;padding:2px 10px;text-align:center}
+.link-wa{display:block;margin-top:6px;background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.robo{display:block;font:500 12.5px/1.45 var(--mono);color:#33434F;background:#F3F6F8;border-radius:6px;padding:5px 8px;margin:6px -2px 2px}
+.pensa{justify-self:start;display:inline-flex;gap:7px;align-items:center;font-size:12.5px;color:#3C4F60;background:rgba(255,255,255,.88);border-radius:999px;padding:3px 11px}
+.pensa::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--gold);flex:none}
+
+/* app da loja */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);min-height:70vh;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#EDF0F4}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px;letter-spacing:.02em}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px}
+.lado li.atual{background:rgba(226,163,64,.18);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.principal{min-width:0;container-type:inline-size;container-name:loja}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.onde-app{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.corpo-app{padding:18px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte[aria-current="page"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.liga{position:relative;width:52px;height:30px;border-radius:999px;border:1px solid var(--line-2);background:var(--neutro-bg);cursor:pointer;flex:none;padding:0}
+.liga::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.liga[aria-checked="true"]{background:var(--ok);border-color:var(--ok)} .liga[aria-checked="true"]::after{left:25px}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line)}
+.aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;min-width:0}
+.aj .preco{display:block;font-size:13px;font-weight:600;color:var(--gold-ink);margin-top:3px}
+.estado-liga{font-size:13px;color:var(--ink-2);min-width:64px}
+@container loja (max-width: 620px){ .aj{grid-template-columns:minmax(0,1fr)} .aj .ctrl{justify-content:flex-start} }
+
+/* lista no modelo do Estoque */
+.lista-cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.lista-cab h2{font-size:18px} .lista-cab h2 .mono{font-size:15px;color:var(--ink-2)}
+.situacoes{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.sit{background:#fff;border:1px solid var(--line-2);border-radius:999px;padding:5px 12px;min-height:36px;cursor:pointer;font-weight:600;color:var(--ink-2)}
+.sit[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.sit .mono{margin-left:4px}
+.linhas{display:grid;gap:8px}
+.linha{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;align-items:start}
+.linha .t{font-weight:600} .linha .d{font-size:13.5px;color:var(--ink-2)}
+.linha .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.linha .ac{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+@container loja (max-width: 560px){ .linha{grid-template-columns:minmax(0,1fr)} .linha .ac{justify-content:flex-start} }
+.vazio{border:1px dashed var(--line-2);border-radius:10px;padding:18px;text-align:center;color:var(--ink-2)}
+.vazio b{display:block;color:var(--ink);font-family:var(--display);font-size:16px;margin-bottom:3px}
+.vazio .btn{margin-top:10px}
+
+/* gaveta e diálogo, desenhados no lugar (o protótipo não cobre a página) */
+.gaveta-falsa{background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:-8px 0 30px rgba(0,0,0,.12);max-width:480px;margin-left:auto;display:flex;flex-direction:column;min-width:0}
+.gaveta-cab{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line)}
+.gaveta-corpo{padding:16px 18px;display:grid;gap:14px;align-content:start;min-width:0}
+.gaveta-rod{padding:12px 18px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.gaveta-rod .esq{margin-right:auto}
+.fechar{background:transparent;border:1px solid var(--line-2);border-radius:10px;min-width:40px;min-height:40px;cursor:pointer;font-size:18px;line-height:1}
+.campo{display:grid;gap:4px;min-width:0}
+.campo label,.campo .rot{font-size:13.5px;font-weight:600;color:var(--ink-2)}
+.campo input,.campo select{width:100%;min-height:40px;border:1px solid var(--line-2);border-radius:8px;padding:6px 10px;background:#fff;min-width:0}
+.campo .ajuda{font-size:12.5px;color:var(--ink-2)}
+.dois{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:10px 12px}
+.opcoes{border:0;margin:0;padding:0;display:grid;gap:6px;min-width:0}
+.opcoes legend{font-weight:600;font-size:14px;padding:0;margin-bottom:4px}
+.opcao{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start;border:1px solid var(--line-2);border-radius:10px;padding:8px 10px;cursor:pointer;background:#fff}
+.opcao:has(input:checked){border-color:var(--navy);box-shadow:inset 0 0 0 1px var(--navy)}
+.opcao > input{width:18px;height:18px;margin:2px 0 0;accent-color:var(--navy)}
+.opcao b{display:block;font-size:14px;overflow-wrap:anywhere} .opcao small{display:block;font-size:12.5px;color:var(--ink-2)}
+.opcao .horas{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr));gap:8px;margin-top:6px}
+.previa{display:grid;gap:8px}
+.previa div{background:#F3F6F8;border-radius:8px;padding:8px 10px;font-size:13.5px}
+.previa b{display:block;font:700 11.5px var(--display);letter-spacing:.04em;text-transform:uppercase;color:#3C4F60;margin-bottom:2px}
+.dialogo-falso{background:#fff;border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.18);border:1px solid var(--line);padding:18px;max-width:480px;margin:0 auto;min-width:0}
+.dialogo-falso h2{margin-bottom:8px}
+.dialogo-falso .acoes{justify-content:flex-end;margin-top:14px}
+.atras{opacity:.45;pointer-events:none;margin-bottom:14px}
+
+/* peças novas */
+.semana{display:grid;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;margin-bottom:6px}
+.semana div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:8px 12px;border-top:1px solid var(--line);font-size:14px;align-items:baseline}
+.semana div:first-child{border-top:0}
+.semana b{font-family:var(--mono);font-size:13.5px;font-variant-numeric:tabular-nums;text-align:right}
+.semana .fech b{color:var(--ink-2);font-family:var(--body);font-weight:600}
+.bloco-dias{margin-top:22px}
+.sugestoes{display:grid;gap:8px;margin-top:6px}
+.sugestao{background:#fff;border:1px solid #EBC7B0;border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;align-items:center}
+.sugestao .t{font-weight:600} .sugestao .d{font-size:13.5px;color:var(--ink-2)}
+@container loja (max-width: 620px){ .sugestao{grid-template-columns:minmax(0,1fr)} }
+.faixa-tela{background:#FFF4E2;border-bottom:1px solid #EBC7B0;padding:10px 20px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;color:#5F3A08}
+.faixa-tela .txt{flex:1 1 260px;min-width:0}
+.faixa-tela b{color:#3E2604}
+.agendados{list-style:none;margin:8px 0 0;padding:0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.agendados li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;padding:9px 12px;border-top:1px solid var(--line);font-size:14px}
+.agendados li:first-child{border-top:0}
+.agendados .mono{font-size:13px}
+
+/* o cardápio no celular */
+.tel{border:8px solid #1B2A36;border-radius:28px;background:#fff;overflow:hidden;max-width:370px}
+.tel-capa{background:linear-gradient(135deg,#2B1A10,#5A3218);color:#fff;padding:16px 14px 14px;display:flex;gap:10px;align-items:center}
+.tel-capa .logo{width:42px;height:42px;border-radius:12px;background:var(--gold);color:var(--on-gold);display:grid;place-items:center;font:800 16px var(--display);flex:none}
+.tel-capa b{display:block;font-family:var(--display);font-size:16px;line-height:1.2} .tel-capa span{font-size:12.5px;opacity:.9}
+.tel-corpo{padding:12px;display:grid;gap:10px}
+.estado-loja{border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.4}
+.estado-loja b{display:block;font-family:var(--display);font-size:15px}
+.estado-loja.fech{background:var(--crit-bg);color:#6E1E1E}
+.estado-loja.esp{background:var(--gold-bg);color:#5F3A08;border:1px solid #F0D8A8}
+.estado-loja.avisa{background:var(--info-bg);color:#1D4C77}
+.estado-loja .btn{margin-top:8px;width:100%}
+.prod{display:grid;grid-template-columns:minmax(0,1fr) 64px;gap:10px;align-items:center;border-top:1px solid var(--line);padding-top:10px}
+.prod b{display:block;font-size:14px} .prod span{font-size:12.5px;color:var(--ink-2)} .prod .mono{font-size:13px;color:var(--ink)}
+.prod i{display:block;width:64px;height:52px;border-radius:8px;background:linear-gradient(135deg,#C99A5B,#8A5A2B)}
+.prod.cinza{opacity:.55}
+.dias-ag{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px}
+.dia-ag{border:1px solid var(--line-2);border-radius:10px;padding:6px 8px;font-size:12.5px;line-height:1.3;background:#fff;text-align:center}
+.dia-ag b{display:block;font-size:13.5px}
+.dia-ag.sel{border-color:var(--navy);box-shadow:inset 0 0 0 1px var(--navy)}
+.dia-ag.off{background:#F1F4F7;color:#6B7B88}
+.dia-ag.off b{text-decoration:line-through;text-decoration-thickness:1.5px}
+.janelas{display:flex;flex-wrap:wrap;gap:6px}
+.janelas span{border:1px solid var(--line-2);border-radius:999px;padding:4px 10px;font:600 12.5px var(--mono)}
+.rotulo-tel{font:700 11.5px var(--display);letter-spacing:.05em;text-transform:uppercase;color:var(--ink-2)}
+
+/* notas */
+.notas{max-width:1040px}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:6px}
+.decisao{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0 0}
+.decisao h3{font-size:15px;margin-bottom:6px}
+.decisao ol{margin:0;padding-left:20px} .decisao li{margin-bottom:4px}
+.rec{font:700 11px var(--display);background:var(--ok-bg);color:var(--ok);padding:1px 7px;border-radius:999px;letter-spacing:.03em;white-space:nowrap}
+.fases{width:100%;border-collapse:collapse;font-size:14px}
+.fases th{font:600 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px;border-bottom:2px solid var(--line-2)}
+.fases td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.fases td:first-child{font-weight:700}
+@container principal (max-width: 940px){
+  .fases thead{display:none} .fases,.fases tbody,.fases tr,.fases td{display:block;width:100%}
+  .fases tr{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff}
+  .fases td{border:0;padding:3px 0}
+  .fases td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+}
+.dois-lados{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px;margin-bottom:14px}
+.dois-lados .cartao{margin-bottom:0}
+
+@media (max-width: 900px){
+  .app{grid-template-columns:minmax(0,1fr)} .lado{display:none}
+  .pagina{padding:14px} .topo{padding:10px 14px} .corpo-app{padding:14px} .faixa-tela{padding:10px 14px}
+  .btn,.parte{min-height:44px} .ctl{min-height:40px}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important} }
+</style>
+</head>
+<body>
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+<header class="proto">
+  <span class="titulo">Regem · Dias especiais e feriados</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button class="aba" data-aba="muda" aria-pressed="true">O que muda</button>
+    <button class="aba" data-aba="loja" aria-pressed="false">Na loja</button>
+    <button class="aba" data-aba="cliente" aria-pressed="false">Para o cliente</button>
+    <button class="aba" data-aba="mister" aria-pressed="false">No Mister</button>
+    <button class="aba" data-aba="notas" aria-pressed="false">Notas e decisões</button>
+  </nav>
+  <span class="nota">Protótipo para aprovação · versão 1 (27/11/2026) · item 3 do plano das leituras do Mister para o atendente · dados inventados</span>
+</header>
+<main id="conteudo">
+
+<!-- ═════════════════════ O QUE MUDA ═════════════════════ -->
+<section class="vista ativa" id="v-muda" aria-labelledby="h-muda">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-muda">O feriado cadastrado uma vez vale para o cardápio, o agendado, o atendente e o Mister</h1>
+      <p class="sub">Hoje o horário da loja é só por dia da semana. Num feriado, a loja pausa à mão no dia ou muda o horário da semana e precisa lembrar de voltar. Nada muda antes da sua aprovação.</p>
+    </div>
+    <div class="cartao">
+      <h2>Como é hoje e como fica</h2>
+      <table class="fases"><caption class="sr">Onde o horário da loja aparece, hoje e como fica</caption>
+        <thead><tr><th>Onde</th><th>Hoje</th><th>Como fica</th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Onde">Horário da loja</td><td data-rot="Hoje">Só por dia da semana, em Delivery › Configurações › Horários</td><td data-rot="Como fica">"Dias especiais" na mesma tela: fechada, outro horário ou horário normal confirmado, num dia ou num período (de 12/01 a 14/01)</td></tr>
+          <tr><td data-rot="Onde">Cardápio online</td><td data-rot="Hoje">Aberto pelo horário da semana, mesmo no Natal</td><td data-rot="Como fica">"Fechado hoje · Natal. Voltamos sábado, 26/12, às 18:00"; o aviso aparece 3 dias antes; no dia de outro horário, "hoje abrimos das 18:00 às 21:00"</td></tr>
+          <tr><td data-rot="Onde">Pedido agendado</td><td data-rot="Hoje">As janelas saem do horário da semana: dá para agendar para o Natal com a loja fechada</td><td data-rot="Como fica">O dia fechado não oferece janela; o dia de outro horário, só as janelas dele</td></tr>
+          <tr><td data-rot="Onde">Atendente do WhatsApp</td><td data-rot="Hoje">Recebe só o horário da semana: "abre no Natal?" vira "sexta abrimos às 18:00"</td><td data-rot="Como fica">Recebe os dias especiais dos próximos 30 dias e responde com a data e quando a loja volta</td></tr>
+          <tr><td data-rot="Onde">iFood e 99</td><td data-rot="Hoje">Pausa à mão no dia (a 99 só aceita 10, 20 ou 30 min, ou até o fim do dia)</td><td data-rot="Como fica">Pausa sozinha, pela pausa de cada canal, nas horas em que a loja não abre: o iFood em qualquer dia especial; a 99 no dia inteiro fechado</td></tr>
+          <tr><td data-rot="Onde">Mister</td><td data-rot="Hoje">Muda só o horário da semana (com o PIN) e não sabe se a loja abre no feriado</td><td data-rot="Como fica">Pergunta antes do feriado (na tela da loja e, se você ligar, no WhatsApp) e muda o dia especial pela conversa, com o PIN</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cartao">
+      <h2>O que já existe e é aproveitado</h2>
+      <ul class="lista-ok">
+        <li><b>Os feriados por lei e os pontos facultativos</b>, a mesma lista que o Mister usa em "o que vem aí" e que aparece em Marketing › Calendário.</li>
+        <li><b>O feriado da cidade e os eventos da loja</b>, cadastrados em Marketing › Calendário.</li>
+        <li><b>Os feriados da escala</b>, de Escalas › Feriado / evento.</li>
+        <li><b>A pausa de cada canal</b> do painel do Delivery (cardápio, iFood e 99 separados).</li>
+        <li><b>O PIN pelo link</b> do Mister, o mesmo de "mudar o horário da semana".</li>
+      </ul>
+      <p class="sub peq" style="margin-top:8px">Nenhum feriado é cadastrado de novo: os das três listas aparecem como sugestão em "Próximos feriados", 60 dias antes, até a loja responder.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NA LOJA ═════════════════════ -->
+<section class="vista" id="v-loja" aria-labelledby="h-loja">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-loja">Na loja</h1>
+      <p class="sub">Delivery › Configurações › Horários ganha os dias especiais, no modelo das listas de hoje (situações que filtram, ações na linha, editar em gaveta, excluir em diálogo). Quem pode mudar: quem já muda o horário da semana.</p>
+    </div>
+    <div class="ctls" role="group" aria-label="Qual tela ver">
+      Ver: <button class="ctl" data-tela="lista" aria-pressed="true">Horários</button><button class="ctl" data-tela="gaveta" aria-pressed="false">Dia especial (gaveta)</button><button class="ctl" data-tela="agendados" aria-pressed="false">Agendados no dia</button><button class="ctl" data-tela="excluir" aria-pressed="false">Excluir</button><button class="ctl" data-tela="vazio" aria-pressed="false">Sem dias especiais</button>
+    </div>
+    <div class="app">
+      <aside class="lado" aria-label="Menu do app"><div class="marca">Regem</div><ul><li>Painel</li><li>Estoque</li><li class="atual">Delivery</li><li>Financeiro</li><li>Mister</li><li>Configurações</li></ul></aside>
+      <div class="principal">
+        <div class="topo"><span class="onde-app">Delivery › Configurações</span><span class="sub peq">Mister Burger · Loja Centro</span></div>
+        <div class="faixa-tela" role="status">
+          <span class="txt">🎄 <b>Sexta, 25/12, é Natal.</b> Como a loja fica nesse dia? Até alguém responder, vale o horário de sexta (18:00 às 00:00).</span>
+          <span class="acoes"><button class="btn peq">Fechada</button><button class="btn peq">Horário normal</button><button class="btn peq" data-ir="gaveta">Outro horário…</button></span>
+        </div>
+        <div class="corpo-app">
+          <nav class="partes" aria-label="Partes das configurações"><span class="parte">Operação</span><span class="parte" aria-current="page">Horários</span><span class="parte">Área de atendimento</span><span class="parte">Pagamento</span><span class="parte">Encomenda</span></nav>
+
+          <!-- a tela de horários -->
+          <div data-t="lista">
+            <h2 style="margin-bottom:6px">Horário da semana</h2>
+            <p class="sub peq">Mesmo horário para delivery e retirada/consumo no local. <button class="btn peq" style="margin-left:6px">Editar a semana</button></p>
+            <div class="semana" aria-label="Horário da semana">
+              <div class="fech"><span>Segunda</span><b>fechada</b></div>
+              <div><span>Terça a quinta</span><b>18:00–23:00</b></div>
+              <div><span>Sexta e sábado</span><b>18:00–00:00</b></div>
+              <div><span>Domingo</span><b>18:00–23:00</b></div>
+            </div>
+
+            <div class="bloco-dias">
+              <div class="lista-cab"><h2>Dias especiais <span class="mono">5</span></h2><button class="btn pri" data-ir="gaveta">＋ Adicionar dia especial</button></div>
+              <p class="sub peq" style="margin-top:-4px;margin-bottom:10px">Um dia (ou um período) em que a loja fecha ou abre em outro horário. Vale para o cardápio, o agendado, o atendente do WhatsApp e o Mister.</p>
+              <div class="situacoes" role="group" aria-label="Situação">
+                <button class="sit" aria-pressed="true">Próximos <span class="mono">5</span></button><button class="sit" aria-pressed="false">Sem resposta <span class="mono">1</span></button><button class="sit" aria-pressed="false">Passados <span class="mono">3</span></button>
+              </div>
+              <div class="linhas">
+                <div class="linha"><div><div class="t">Quinta, 24/12 · Véspera de Natal</div><div class="d">Das 18:00 às 21:00 · o normal é até 23:00 · delivery e retirada</div><div class="meta"><span class="selo warn">outro horário</span><span class="selo neutro">iFood pausado das 21:00 às 23:00</span></div></div><div class="ac"><button class="btn peq" data-ir="gaveta">Editar</button><button class="btn peq perigo" data-ir="excluir">Excluir</button></div></div>
+                <div class="linha"><div><div class="t">Sexta, 25/12 · Natal</div><div class="d">Fechada o dia todo · aviso no cardápio desde terça, 22/12</div><div class="meta"><span class="selo crit">fechada</span><span class="selo neutro">iFood e 99 pausados no dia</span><span class="selo warn">2 agendados</span></div></div><div class="ac"><button class="btn peq" data-ir="gaveta">Editar</button><button class="btn peq perigo" data-ir="excluir">Excluir</button></div></div>
+                <div class="linha"><div><div class="t">Quinta, 31/12 · Véspera de Ano-novo</div><div class="d">Das 18:00 às 21:00 · o normal é até 23:00 · delivery e retirada</div><div class="meta"><span class="selo warn">outro horário</span><span class="selo neutro">iFood pausado das 21:00 às 23:00</span></div></div><div class="ac"><button class="btn peq" data-ir="gaveta">Editar</button><button class="btn peq perigo" data-ir="excluir">Excluir</button></div></div>
+                <div class="linha"><div><div class="t">Sexta, 01/01 · Confraternização universal</div><div class="d">Fechada o dia todo</div><div class="meta"><span class="selo crit">fechada</span><span class="selo neutro">iFood e 99 pausados no dia</span></div></div><div class="ac"><button class="btn peq" data-ir="gaveta">Editar</button><button class="btn peq perigo" data-ir="excluir">Excluir</button></div></div>
+                <div class="linha"><div><div class="t">Terça, 12/01 a quinta, 14/01 · Reforma da cozinha</div><div class="d">Fechada os 3 dias · cadastrado pelo Mister em 27/11</div><div class="meta"><span class="selo crit">fechada</span><span class="selo info">período</span></div></div><div class="ac"><button class="btn peq" data-ir="gaveta">Editar</button><button class="btn peq perigo" data-ir="excluir">Excluir</button></div></div>
+              </div>
+
+              <h3 style="margin:18px 0 2px">Próximos feriados sem resposta</h3>
+              <p class="sub peq">Os feriados por lei, os pontos facultativos, o feriado da cidade (Marketing › Calendário) e os da escala aparecem aqui 60 dias antes. Sem resposta, vale o horário da semana.</p>
+              <div class="sugestoes">
+                <div class="sugestao"><div><div class="t">Quarta, 20/01 · Aniversário da cidade</div><div class="d">Feriado da cidade, cadastrado em Marketing › Calendário · o normal de quarta é 18:00–23:00</div></div><div class="acoes"><button class="btn peq">Horário normal</button><button class="btn peq">Fechada</button><button class="btn peq" data-ir="gaveta">Outro horário…</button></div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- a gaveta -->
+          <div data-t="gaveta" hidden>
+            <div class="gaveta-falsa" role="dialog" aria-labelledby="g-tit">
+              <div class="gaveta-cab"><div><h2 id="g-tit">Dia especial</h2><span class="sub peq">Sexta, 25/12 · Natal</span></div><button class="fechar" aria-label="Fechar" data-ir="lista">×</button></div>
+              <div class="gaveta-corpo">
+                <div class="dois">
+                  <div class="campo"><label for="g-dia">Dia</label><input id="g-dia" type="date" value="2026-12-25"></div>
+                  <div class="campo"><label for="g-ate">Até (para um período)</label><input id="g-ate" type="date"><span class="ajuda">Vazio = só este dia.</span></div>
+                </div>
+                <div class="campo"><label for="g-nome">Nome que o cliente vê</label><input id="g-nome" type="text" value="Natal" maxlength="40"><span class="ajuda">Aparece no cardápio e na resposta do atendente.</span></div>
+                <fieldset class="opcoes">
+                  <legend>Como a loja fica</legend>
+                  <label class="opcao"><input type="radio" name="g-como" checked><span><b>Fechada o dia todo</b><small>O cardápio não aceita pedido nesse dia e o agendado não oferece janela.</small></span></label>
+                  <label class="opcao"><input type="radio" name="g-como"><span><b>Outro horário</b><small>O normal de sexta é das 18:00 às 00:00.</small>
+                    <span class="horas"><span class="campo"><label for="g-abre">Abre</label><input id="g-abre" type="time" value="18:00"></span><span class="campo"><label for="g-fecha">Fecha</label><input id="g-fecha" type="time" value="21:00"></span></span></span></label>
+                  <label class="opcao"><input type="radio" name="g-como"><span><b>Horário normal</b><small>Só confirma: o Regem para de perguntar sobre este feriado.</small></span></label>
+                </fieldset>
+                <div>
+                  <div class="aj" style="border-top:0;padding-left:0;padding-right:0"><div><div class="t">Pausar o iFood e a 99</div><div class="d">Pela pausa de cada canal, nas horas em que a loja estaria aberta e não vai abrir. A 99 só pausa o dia inteiro fechado.</div></div><div class="ctrl"><button class="liga" role="switch" aria-checked="true" aria-label="Pausar o iFood e a 99"></button></div></div>
+                  <div class="aj" style="padding-left:0;padding-right:0"><div><div class="t">Avisar no cardápio 3 dias antes</div><div class="d">A partir de terça, 22/12: "Sexta, 25/12, estaremos fechados (Natal)."</div></div><div class="ctrl"><button class="liga" role="switch" aria-checked="true" aria-label="Avisar no cardápio 3 dias antes"></button></div></div>
+                </div>
+                <div class="previa">
+                  <div><b>O cliente vê no cardápio, no dia</b>Fechado hoje · Natal. Voltamos sábado, 26/12, às 18:00.</div>
+                  <div><b>O atendente responde a "abre no Natal?"</b>No Natal (sexta, 25/12) a loja vai estar fechada. Voltamos no sábado, 26/12, às 18:00.</div>
+                </div>
+                <div class="faixa warn" style="margin:0"><b>2 pedidos agendados para sexta, 25/12</b> (#812 e #815). Fechar o dia não cancela os pedidos. <button class="btn peq" data-ir="agendados" style="margin-top:6px">Ver os agendados</button></div>
+              </div>
+              <div class="gaveta-rod"><button class="btn perigo esq" data-ir="excluir">Excluir dia</button><button class="btn" data-ir="lista">Cancelar</button><button class="btn pri" data-ir="agendados">Salvar dia</button></div>
+            </div>
+          </div>
+
+          <!-- diálogo: agendados no dia -->
+          <div data-t="agendados" hidden>
+            <div class="atras" aria-hidden="true"><div class="linha"><div><div class="t">Sexta, 25/12 · Natal</div><div class="d">Fechada o dia todo</div></div></div></div>
+            <div class="dialogo-falso" role="alertdialog" aria-labelledby="d-ag">
+              <h2 id="d-ag">Há 2 pedidos agendados para sexta, 25/12</h2>
+              <p>Fechar o dia não cancela estes pedidos. Fale com os clientes e mude o horário, ou cancele, em Delivery › Painel › Agendados.</p>
+              <ul class="agendados">
+                <li><span><b>#812</b> · Ana</span><span class="mono">19:30 · R$ 74,90 · Pix pago</span></li>
+                <li><span><b>#815</b> · Bruno</span><span class="mono">20:15 · R$ 52,00 · paga na entrega</span></li>
+              </ul>
+              <div class="acoes"><button class="btn">Ver os agendados</button><button class="btn pri" data-ir="lista">Salvar mesmo assim</button></div>
+            </div>
+          </div>
+
+          <!-- diálogo: excluir -->
+          <div data-t="excluir" hidden>
+            <div class="atras" aria-hidden="true"><div class="linha"><div><div class="t">Quinta, 31/12 · Véspera de Ano-novo</div><div class="d">Das 18:00 às 21:00</div></div></div></div>
+            <div class="dialogo-falso" role="alertdialog" aria-labelledby="d-ex">
+              <h2 id="d-ex">Excluir o dia especial de quinta, 31/12?</h2>
+              <p>A loja volta ao horário de quinta: das 18:00 às 23:00. O cardápio, o agendado e o atendente passam a usar esse horário na hora, e a pausa do iFood marcada para esse dia sai.</p>
+              <div class="acoes"><button class="btn" data-ir="lista">Cancelar</button><button class="btn pri" data-ir="lista">Excluir</button></div>
+            </div>
+          </div>
+
+          <!-- vazio -->
+          <div data-t="vazio" hidden>
+            <div class="lista-cab"><h2>Dias especiais <span class="mono">0</span></h2><button class="btn pri" data-ir="gaveta">＋ Adicionar dia especial</button></div>
+            <div class="vazio"><b>Nenhum dia especial</b>A loja segue o horário da semana todos os dias. Os próximos feriados aparecem aqui 60 dias antes para você dizer como a loja fica.<br><button class="btn" data-ir="gaveta">Adicionar dia especial</button></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+    <p class="sub peq" style="margin-top:10px">A faixa do topo segue o modelo dos avisos na tela: aparece 10 dias antes do feriado sem resposta, só para quem pode mudar o horário, e some quando alguém responde. "Fechada" e "Horário normal" gravam na hora; "Outro horário…" abre a gaveta.</p>
+  </div>
+</section>
+
+<!-- ═════════════════════ PARA O CLIENTE ═════════════════════ -->
+<section class="vista" id="v-cliente" aria-labelledby="h-cliente">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-cliente">Para o cliente</h1>
+      <p class="sub">O cardápio online e o atendente do WhatsApp leem a mesma regra: o horário de um dia é o do dia especial, se houver; senão, o da semana.</p>
+    </div>
+
+    <h2 class="secao">No cardápio</h2>
+    <p class="secao-sub">Os quatro momentos do Natal e do dia de outro horário.</p>
+    <div class="celulares">
+      <div class="caso">
+        <h3>Três dias antes</h3>
+        <p class="sub">Terça, 22/12, 19:40. A loja está aberta.</p>
+        <div class="tel"><div class="tel-capa"><span class="logo">MB</span><span><b>Mister Burger</b><span>Aberto agora · até 23:00</span></span></div>
+          <div class="tel-corpo">
+            <div class="estado-loja avisa"><b>Sexta, 25/12, estaremos fechados (Natal).</b>Voltamos no sábado, 26/12, às 18:00.</div>
+            <div class="prod"><span><b>X-Bacon da casa</b><span>Pão brioche, 160 g, bacon e cheddar</span><br><span class="mono">R$ 32,90</span></span><i aria-hidden="true"></i></div>
+          </div></div>
+      </div>
+      <div class="caso">
+        <h3>No dia fechado</h3>
+        <p class="sub">Sexta, 25/12, 19:00.</p>
+        <div class="tel"><div class="tel-capa"><span class="logo">MB</span><span><b>Mister Burger</b><span>Fechado hoje</span></span></div>
+          <div class="tel-corpo">
+            <div class="estado-loja fech"><b>Fechado hoje · Natal</b>Voltamos sábado, 26/12, às 18:00.<button class="btn">Agendar para outro dia</button></div>
+            <div class="prod cinza"><span><b>X-Bacon da casa</b><span>Pão brioche, 160 g, bacon e cheddar</span><br><span class="mono">R$ 32,90</span></span><i aria-hidden="true"></i></div>
+          </div></div>
+      </div>
+      <div class="caso">
+        <h3>No dia de outro horário</h3>
+        <p class="sub">Quinta, 24/12, 17:10. Ainda não abriu.</p>
+        <div class="tel"><div class="tel-capa"><span class="logo">MB</span><span><b>Mister Burger</b><span>Abre às 18:00</span></span></div>
+          <div class="tel-corpo">
+            <div class="estado-loja esp"><b>Hoje abrimos das 18:00 às 21:00</b>Horário especial de Véspera de Natal.</div>
+            <div class="prod"><span><b>X-Bacon da casa</b><span>Pão brioche, 160 g, bacon e cheddar</span><br><span class="mono">R$ 32,90</span></span><i aria-hidden="true"></i></div>
+          </div></div>
+      </div>
+      <div class="caso">
+        <h3>Ao agendar</h3>
+        <p class="sub">"Para quando?" no fechamento, em 22/12.</p>
+        <div class="tel"><div class="tel-capa"><span class="logo">MB</span><span><b>Para quando?</b><span>Entrega agendada</span></span></div>
+          <div class="tel-corpo">
+            <span class="rotulo-tel">Dia</span>
+            <div class="dias-ag">
+              <span class="dia-ag"><b>Qua 23</b>18:00–23:00</span>
+              <span class="dia-ag sel"><b>Qui 24</b>até 21:00</span>
+              <span class="dia-ag off"><b>Sex 25</b>fechado · Natal</span>
+              <span class="dia-ag"><b>Sáb 26</b>18:00–00:00</span>
+            </div>
+            <span class="rotulo-tel">Horário · quinta, 24/12</span>
+            <div class="janelas"><span>18:30</span><span>18:45</span><span>19:00</span><span>…</span><span>20:30</span><span>20:45</span></div>
+          </div></div>
+      </div>
+    </div>
+
+    <h2 class="secao">No WhatsApp, com o atendente</h2>
+    <p class="secao-sub">O atendente recebe, junto com o horário da semana, os dias especiais dos próximos 30 dias (data, nome, fechada ou o horário). Nunca inventa: feriado sem resposta da loja é o horário daquele dia da semana.</p>
+    <div class="celulares">
+      <div class="caso">
+        <h3>"Abre no Natal?"</h3>
+        <p class="sub">Dia fechado, perguntado antes.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto">MB</span><span><b>Mister Burger</b><span>conta comercial</span></span></div>
+          <div class="conv">
+            <div class="bolha meu">vcs abrem no natal?<span class="hora">20:12</span></div>
+            <div class="bolha dele">No Natal (sexta, 25/12) a loja vai estar fechada 🎄 Voltamos no sábado, 26/12, às 18:00. Quer deixar um pedido agendado para o sábado?<span class="hora">20:12</span></div>
+          </div></div>
+      </div>
+      <div class="caso">
+        <h3>"Tá aberto?" no dia de outro horário</h3>
+        <p class="sub">Quinta, 24/12, 17:30.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto">MB</span><span><b>Mister Burger</b><span>conta comercial</span></span></div>
+          <div class="conv">
+            <div class="bolha meu">ta aberto?<span class="hora">17:30</span></div>
+            <div class="bolha dele">Ainda não 😊 Hoje abrimos às 18:00 e fechamos mais cedo, às 21:00, por ser Véspera de Natal.<span class="hora">17:30</span></div>
+          </div></div>
+      </div>
+      <div class="caso">
+        <h3>Agendar num dia fechado</h3>
+        <p class="sub">O atendente oferece o dia seguinte.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto">MB</span><span><b>Mister Burger</b><span>conta comercial</span></span></div>
+          <div class="conv">
+            <div class="bolha meu">quero agendar pra sexta dia 25 às 20h<span class="hora">21:05</span></div>
+            <div class="bolha dele">No dia 25 a loja vai estar fechada (Natal). Posso agendar para sábado, 26/12, às 20:00?<span class="hora">21:05</span></div>
+          </div></div>
+      </div>
+      <div class="caso">
+        <h3>Feriado sem resposta da loja</h3>
+        <p class="sub">Vale o horário da semana (decisão 3).</p>
+        <div class="cel"><div class="cel-topo"><span class="foto">MB</span><span><b>Mister Burger</b><span>conta comercial</span></span></div>
+          <div class="conv">
+            <div class="bolha meu">abre no feriado dia 20?<span class="hora">19:48</span></div>
+            <div class="bolha dele">Na quarta, 20/01, abrimos das 18:00 às 23:00 😊<span class="hora">19:48</span></div>
+          </div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NO MISTER ═════════════════════ -->
+<section class="vista" id="v-mister" aria-labelledby="h-mister">
+  <div class="pagina">
+    <div class="cab">
+      <h1 id="h-mister">No Mister</h1>
+      <p class="sub">A pergunta antes do feriado e o dia especial pela conversa. Mudar o dia especial pede o PIN pelo link, como mudar o horário da semana.</p>
+    </div>
+    <div class="celulares">
+      <div class="caso">
+        <h3>A pergunta antes do feriado</h3>
+        <p class="sub">Só com o aviso "Feriado chegando" ligado (nasce desligado). 10 dias antes, às 10:00.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto">M</span><span><b>Mister</b><span>Mister Burger</span></span></div>
+          <div class="conv">
+            <div class="dia-wa">15/12</div>
+            <div class="bolha dele">🎄 <b>Sexta, 25/12, é Natal.</b> Como a loja fica nesse dia? Até você responder, vale o horário de sexta (18:00 às 00:00).
+              <span class="botoes-wa"><span>Fechada</span><span>Horário normal</span><span>Outro horário</span></span><span class="hora">10:00</span></div>
+            <div class="toque">tocou em "Fechada"</div>
+            <div class="bolha dele">Para fechar a loja na sexta, 25/12 (Natal), confirme com o seu PIN. O link vale 15 minutos.<span class="link-wa">Confirmar com o PIN</span><span class="hora">10:02</span></div>
+            <div class="bolha dele">Feito: sexta, 25/12, Natal — fechada.<br>O cardápio avisa a partir de terça, 22/12, e o iFood e a 99 ficam pausados no dia. Há 2 pedidos agendados para esse dia (#812 e #815): eles não foram cancelados.<span class="hora">10:03</span></div>
+          </div></div>
+      </div>
+      <div class="caso">
+        <h3>Pela conversa</h3>
+        <p class="sub">A pessoa diz do jeito dela; o Mister mostra o que vai gravar.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto">M</span><span><b>Mister</b><span>Mister Burger</span></span></div>
+          <div class="conv">
+            <div class="bolha meu">dia 31 a gente fecha às 21h<span class="hora">11:20</span></div>
+            <div class="pensa">conferindo o horário de quinta</div>
+            <div class="bolha dele">Quinta, 31/12 (Véspera de Ano-novo): das 18:00 às 21:00. O normal de quinta é até 23:00. Vale para delivery e retirada, e o iFood fica pausado das 21:00 às 23:00.<span class="link-wa">Confirmar com o PIN</span><span class="hora">11:20</span></div>
+          </div></div>
+      </div>
+      <div class="caso">
+        <h3>Hoje, mais cedo</h3>
+        <p class="sub">Vale para o dia de hoje, inclusive com a loja aberta.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto">M</span><span><b>Mister</b><span>Mister Burger</span></span></div>
+          <div class="conv">
+            <div class="bolha meu">hoje vou fechar 22h, faltou gente<span class="hora">19:05</span></div>
+            <div class="bolha dele">Hoje, terça, 01/12: das 18:00 às 22:00 (o normal é até 23:00). O cardápio para de aceitar pedido às 22:00 e o agendado deixa de oferecer as janelas depois disso.<span class="link-wa">Confirmar com o PIN</span><span class="hora">19:05</span></div>
+          </div></div>
+      </div>
+      <div class="caso">
+        <h3>"Como a loja fica nas festas?"</h3>
+        <p class="sub">Só leitura: não pede o PIN.</p>
+        <div class="cel"><div class="cel-topo"><span class="foto">M</span><span><b>Mister</b><span>Mister Burger</span></span></div>
+          <div class="conv">
+            <div class="bolha meu">como ficou o horário das festas?<span class="hora">09:40</span></div>
+            <div class="bolha dele">Os dias especiais até janeiro:<br>• qui, 24/12 — 18:00 às 21:00<br>• sex, 25/12 — fechada<br>• qui, 31/12 — 18:00 às 21:00<br>• sex, 01/01 — fechada<br>• 12/01 a 14/01 — fechada (reforma da cozinha)<br>Sem resposta: qua, 20/01 (aniversário da cidade).<span class="hora">09:40</span></div>
+          </div></div>
+      </div>
+    </div>
+
+    <h2 class="secao">Em Mister › Avisos e relatórios</h2>
+    <p class="secao-sub">Um aviso novo no grupo da operação. Sem IA: o texto é fixo.</p>
+    <div class="cartao" style="max-width:820px">
+      <div class="aj" style="border-top:0"><div><div class="t">Feriado chegando</div><div class="d">10 dias antes de um feriado sem resposta da loja, às 10:00, para quem pode mudar o horário. Pergunta como a loja fica, com os três botões.</div><span class="preco">Sem custo de IA. Fora das 24 horas, vai pelo modelo de utilidade da Meta, pago como os outros avisos do Mister.</span></div><div class="ctrl"><span class="estado-liga">Desligado</span><button class="liga" role="switch" aria-checked="false" aria-label="Feriado chegando"></button></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NOTAS ═════════════════════ -->
+<section class="vista" id="v-notas" aria-labelledby="h-notas">
+  <div class="pagina notas">
+    <div class="cab">
+      <h1 id="h-notas">Notas e decisões</h1>
+      <p class="sub">Uma migration (a tabela dos dias especiais), na fase H1. A regra do horário de um dia fica num lugar só e é usada pelo cardápio, pelo agendado, pelo atendente e pelo Mister.</p>
+    </div>
+    <div class="cartao">
+      <h2>As fases</h2>
+      <table class="fases"><caption class="sr">As fases dos dias especiais</caption>
+        <thead><tr><th>Fase</th><th>O que entra</th><th>Migration</th><th>Depende de</th></tr></thead>
+        <tbody>
+          <tr><td data-rot="Fase">H1 · O dia especial vale</td><td data-rot="O que entra">A tabela; a regra única "o horário de uma data" (o dia especial, senão a semana) usada no aberto agora, na próxima abertura, nas janelas do agendado e no resumo do atendente (instruções novas, sem reimportar o fluxo); a lista e a gaveta em Delivery › Configurações › Horários; o aviso no cardápio 3 dias antes; o diálogo dos agendados no dia</td><td data-rot="Migration">1 (a tabela dos dias especiais, que sincroniza nos dois sentidos, como o horário da semana)</td><td data-rot="Depende de">Aprovação deste protótipo</td></tr>
+          <tr><td data-rot="Fase">H2 · A pergunta e o Mister</td><td data-rot="O que entra">"Próximos feriados sem resposta" (das três listas que já existem); a faixa na tela 10 dias antes; o aviso "Feriado chegando" (desligado); a ação do Mister pela conversa, com o PIN pelo link; a leitura "como ficou o horário das festas?"</td><td data-rot="Migration">nenhuma</td><td data-rot="Depende de">H1</td></tr>
+          <tr><td data-rot="Fase">H3 · iFood e 99</td><td data-rot="O que entra">A pausa sozinha pela pausa de cada canal: o iFood nas horas em que a loja não abre; a 99 só no dia inteiro fechado (a 99 aceita 10, 20 ou 30 min, ou até o fim do dia); o registro de cada pausa feita, com o resultado do canal</td><td data-rot="Migration">nenhuma</td><td data-rot="Depende de">H1</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cartao">
+      <h2>As decisões</h2>
+      <p class="sub peq">A recomendada vem primeiro, marcada.</p>
+      <div class="decisao"><h3>1 · Onde guardar o dia especial</h3><ol>
+        <li><span class="rec">recomendada</span> Uma tabela própria por loja (dia, até, nome, como a loja fica, horas, delivery/retirada, pausar canais, aviso antes). O horário é da loja; o feriado continua nas listas de hoje e vira sugestão.</li>
+        <li>Colunas novas no feriado da escala (Escalas › Feriado / evento): mistura o horário da loja com férias e folgas de pessoas.</li>
+        <li>Colunas novas nos eventos do Marketing › Calendário: mistura com show, promoção e jogo.</li></ol></div>
+      <div class="decisao"><h3>2 · Período</h3><ol>
+        <li><span class="rec">recomendada</span> Aceitar "até" (de 12/01 a 14/01): férias coletivas e reforma num cadastro só.</li>
+        <li>Só um dia por cadastro.</li></ol></div>
+      <div class="decisao"><h3>3 · Feriado que a loja não respondeu</h3><ol>
+        <li><span class="rec">recomendada</span> Vale o horário da semana daquele dia, no cardápio e no atendente (a mesma regra dos dois lados).</li>
+        <li>O atendente diz que a loja ainda não confirmou o horário do feriado (o cardápio continuaria aberto pelo horário da semana: as duas respostas não bateriam).</li></ol></div>
+      <div class="decisao"><h3>4 · A pergunta antes do feriado</h3><ol>
+        <li><span class="rec">recomendada</span> A faixa na tela da loja 10 dias antes (sem custo) e o aviso do Mister no WhatsApp desligado, para ligar em Avisos e relatórios.</li>
+        <li>O aviso do Mister já ligado.</li>
+        <li>Nenhuma pergunta: só a lista "Próximos feriados sem resposta".</li></ol></div>
+      <div class="decisao"><h3>5 · iFood e 99</h3><ol>
+        <li><span class="rec">recomendada</span> Pausar sozinho pela pausa de cada canal, com a chave na gaveta ligada por padrão.</li>
+        <li>Não mexer: a loja pausa à mão no dia, como hoje.</li></ol></div>
+      <div class="decisao"><h3>6 · Aviso no cardápio antes do dia</h3><ol>
+        <li><span class="rec">recomendada</span> 3 dias antes, ligado por padrão no dia fechado e desligado no dia de outro horário.</li>
+        <li>Só no próprio dia.</li></ol></div>
+      <div class="decisao"><h3>7 · Pedidos já agendados para um dia que fecha</h3><ol>
+        <li><span class="rec">recomendada</span> Avisar e listar ao salvar, sem cancelar: a loja fala com os clientes.</li>
+        <li>Cancelar sozinho, com o aviso ao cliente e o estorno do Pix.</li></ol></div>
+      <div class="decisao"><h3>8 · O Mister muda o dia especial</h3><ol>
+        <li><span class="rec">recomendada</span> Com o PIN pelo link, como mudar o horário da semana (fechar a loja tira venda).</li>
+        <li>Com um botão só.</li></ol></div>
+      <div class="decisao"><h3>9 · "Horário normal"</h3><ol>
+        <li><span class="rec">recomendada</span> Grava a resposta: o feriado sai de "sem resposta" e ninguém é perguntado de novo.</li>
+        <li>Não grava nada (o feriado continuaria aparecendo).</li></ol></div>
+    </div>
+
+    <div class="dois-lados">
+      <div class="cartao">
+        <h2>O que não muda</h2>
+        <ul class="lista-ok">
+          <li>O horário da semana, a tela dele e a ação "mudar o horário" do Mister.</li>
+          <li>A pausa do painel do Delivery: continua servindo para o imprevisto do dia.</li>
+          <li>O PDV, o KDS e o totem: não olham o horário da loja.</li>
+          <li>A escala: o feriado de Escalas › Feriado / evento continua igual e só aparece como sugestão aqui.</li>
+        </ul>
+      </div>
+      <div class="cartao">
+        <h2>O que ainda não sei</h2>
+        <ul class="lista-ok">
+          <li>Se o horário que a loja tem no portal do iFood deve ser trocado para o dia (a pausa resolve sem mexer no portal).</li>
+          <li>Se a encomenda (Delivery › Configurações › Encomenda) deve recusar o dia fechado como o agendado. Recomendo que sim, pela mesma regra.</li>
+          <li>O servidor da loja usa a hora de abrir da semana para uma conferência logo depois de abrir; no dia especial ela roda na hora de sempre, sem efeito para a venda.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+(function () {
+  const abas = [...document.querySelectorAll('.aba')];
+  abas.forEach((b) => b.addEventListener('click', () => {
+    abas.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    document.querySelectorAll('.vista').forEach((v) => v.classList.toggle('ativa', v.id === 'v-' + b.dataset.aba));
+    window.scrollTo(0, 0);
+  }));
+  const telas = [...document.querySelectorAll('.ctl[data-tela]')];
+  const mostrar = (t) => {
+    telas.forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.tela === t)));
+    document.querySelectorAll('[data-t]').forEach((d) => { d.hidden = d.dataset.t !== t; });
+  };
+  telas.forEach((b) => b.addEventListener('click', () => mostrar(b.dataset.tela)));
+  document.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => mostrar(b.dataset.ir)));
+  document.querySelectorAll('.liga').forEach((b) => b.addEventListener('click', () => {
+    const on = b.getAttribute('aria-checked') !== 'true';
+    b.setAttribute('aria-checked', String(on));
+    const est = b.parentElement.querySelector('.estado-liga');
+    if (est) est.textContent = on ? 'Ligado' : 'Desligado';
+  }));
+  document.querySelectorAll('.situacoes').forEach((g) => {
+    const bs = [...g.querySelectorAll('.sit')];
+    bs.forEach((b) => b.addEventListener('click', () => bs.forEach((x) => x.setAttribute('aria-pressed', String(x === b)))));
+  });
+  // Esc fecha a gaveta ou o diálogo desenhado e volta à lista.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.querySelector('[data-t="lista"]').hidden) mostrar('lista');
+  });
+})();
+</script>
+</body>
+</html>

@@ -271,6 +271,9 @@ const PUSH_TABLES = [
   { tabela: 'kds_tela_ajuste', cursor: 'updated_at' },
   // A pausa dos pedidos por canal (mig 392): pausada no painel daqui, sobe — o cardápio online e o atendente estão na nuvem.
   { tabela: 'pausa_canal', cursor: 'updated_at' },
+  // Os dias especiais do horário da loja (mig 512): cadastrados no painel daqui, sobem — o cardápio online e o atendente
+  // estão na nuvem.
+  { tabela: 'horario_especial', cursor: 'updated_at' },
   { tabela: 'tef_config', cursor: 'updated_at' },
   { tabela: 'mesa', cursor: 'updated_at' },
   { tabela: 'documento_controlado', cursor: 'updated_at' },
