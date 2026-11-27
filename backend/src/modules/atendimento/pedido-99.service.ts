@@ -33,8 +33,37 @@ import { exigirBooleano } from '../../common/exigir';
 // com a 99 é a NUVEM; no servidor da loja, a senha é conferida aqui e o pedido vai à nuvem (V37).
 // A ROTINA da nuvem (a cada minuto): cancelamento sem resposta no prazo = a 99 recusou sozinha (regra dela, 5 min) — o caso
 // fecha assim; reembolso sem resposta no tempo do ajuste = o REGEM recusa com o motivo do ajuste (decisão do dono, 02/11).
+//
+// A 99 NÃO avisa o resultado do pedido (Order Webhooks, conferida em 27/11/2026: só `orderRefundApply`, repetido 25 vezes
+// de hora em hora; sem resposta, ela reembolsa). Quem responde pelo app 99Food Parceiros deixa o caso do Regem sem saída: a
+// 99 recusa a resposta seguinte, a do Regem também (ERR-638). Por isso: (1) "Já respondi pelo app da 99" fecha o caso sem
+// enviar nada; (2) a recusa automática que a 99 não aceita espera 10 min para tentar de novo, com o motivo anotado; (3)
+// passadas as 24 h da 99, o pedido dela fechou — o caso fecha como `encerrado_na_99`, sem chamar a 99.
 
-export type RespostaAo99 = { aceita?: unknown; motivo?: string; motivoId?: string; explicacao?: string; senha?: string; pin?: string };
+export type RespostaAo99 = {
+  aceita?: unknown;
+  motivo?: string;
+  motivoId?: string;
+  explicacao?: string;
+  senha?: string;
+  pin?: string;
+  /** true = a loja já respondeu pelo app 99Food Parceiros: o caso fecha e NADA vai à 99 (`aceita` diz o que respondeu). */
+  peloApp?: unknown;
+};
+
+/** As 24 h em que a 99 espera a resposta do reembolso (25 avisos, um por hora); depois, o pedido dela fechou. */
+export const HORAS_DA_99_NO_REEMBOLSO = 24;
+/** A recusa automática que a 99 não aceitou: o tempo até tentar de novo (antes, a cada minuto, para sempre). */
+export const MINUTOS_ATE_TENTAR_DE_NOVO = 10;
+/** A marca "o Regem está recusando agora" vale este tempo: a API reiniciada no meio da chamada não a deixa para sempre. */
+export const MINUTOS_DA_MARCA_DE_RECUSA = 10;
+
+/** A marca de "recusando" ainda vale? (mais velha que isso = a chamada morreu no meio — V80) */
+export function marcaDeRecusaVale(marca: { em?: string } | null | undefined, agora = Date.now()): boolean {
+  if (!marca) return false;
+  const em = Date.parse(String(marca.em ?? ''));
+  return Number.isFinite(em) ? agora - em < MINUTOS_DA_MARCA_DE_RECUSA * 60_000 : true;
+}
 
 type Caso99 = { id: string; unidadeId: string | null; status: string; tipo: string; prazoEm: Date | null; detalhe: any };
 
@@ -45,17 +74,22 @@ type Caso99 = { id: string; unidadeId: string | null; status: string; tipo: stri
 export function montarRespostaAo99(p: PedidoDoCliente99, r: RespostaAo99) {
   const aceita = exigirBooleano(r.aceita, 'aceita');
   const explicacao = String(r.explicacao ?? '').trim().slice(0, 200) || null;
-  if (aceita) return { aceita, motivo: null as string | null, recusa: undefined, resumo: { acao: 'aceitar' } };
+  // Já respondido pelo app 99Food Parceiros: nada vai à 99 (ela aceita uma resposta só); o que a pessoa diz que respondeu
+  // vira a decisão do caso (o placar conta o reembolso aceito).
+  const peloApp = r.peloApp !== undefined && exigirBooleano(r.peloApp, 'peloApp');
+  if (peloApp) return { aceita, peloApp, motivo: null as string | null, recusa: undefined, resumo: { acao: aceita ? 'aceitar' : 'recusar', via: 'app_99' } };
+  if (aceita) return { aceita, peloApp, motivo: null as string | null, recusa: undefined, resumo: { acao: 'aceitar' } };
   if (p.tipo === 'cancelamento') {
     const motivo = String(r.motivo ?? '');
     if (p.motivosDeRecusa.length && !p.motivosDeRecusa.includes(motivo)) throw new BadRequestException('Escolha o motivo da recusa na lista da 99.');
     if (!motivo) throw new BadRequestException('Escolha o motivo da recusa.');
-    return { aceita, motivo, recusa: undefined, resumo: { acao: 'recusar', motivo } };
+    return { aceita, peloApp, motivo, recusa: undefined, resumo: { acao: 'recusar', motivo } };
   }
   const base = p.motivosDoReembolso.find((m) => m.id === String(r.motivoId ?? ''));
   if (!base) throw new BadRequestException('Escolha o motivo da recusa na lista da 99.');
   return {
     aceita,
+    peloApp,
     motivo: base.motivo,
     recusa: { baseId: base.id, base: base.motivo, explicacao },
     resumo: { acao: 'recusar', motivo: base.motivo, motivoId: base.id, explicacao },
@@ -84,7 +118,7 @@ export class Pedido99Service {
 
   private conferirAberto(c: Caso99) {
     if (c.detalhe?.resposta || c.status !== 'aberto') throw new ConflictException('Este pedido da 99 já foi respondido.');
-    if (c.detalhe?.recusaAutomatica) throw new ConflictException('O Regem já está recusando este reembolso (o tempo do ajuste acabou).');
+    if (marcaDeRecusaVale(c.detalhe?.recusaAutomatica)) throw new ConflictException('O Regem já está recusando este reembolso (o tempo do ajuste acabou).');
     if (c.tipo === 'cancelamento_99' && c.prazoEm && new Date(c.prazoEm).getTime() <= Date.now())
       throw new ConflictException('O prazo da 99 acabou: ela já recusou o cancelamento sozinha.');
   }
@@ -123,21 +157,45 @@ export class Pedido99Service {
   private async enviar(tenantId: string, c: Caso99, dto: RespostaAo99, quem: { id: string; nome: string }, atorId: string | null, atorPerfil: string | null, origem = 'web') {
     const p: PedidoDoCliente99 = c.detalhe.pedido99;
     const m = montarRespostaAo99(p, dto ?? {});
-    const ig = await this.food99.integracaoDoTenant(tenantId);
-    if (!ig) throw new BadRequestException('A 99 não está conectada nesta empresa.');
-    const r =
-      p.tipo === 'cancelamento'
-        ? await this.food99.responderCancelamento(ig, p.pedidoExterno, p.applyId, m.aceita, m.motivo ?? undefined)
-        : await this.food99.responderReembolso(ig, p.pedidoExterno, p.applyId, m.aceita, m.recusa);
-    if (!r.ok) throw new BadGatewayException(`A 99 não aceitou a resposta${r.errmsg ? `: ${r.errmsg}` : ' agora. Tente de novo.'}`);
-    // `via` = "whatsapp" quando a resposta saiu pelo WhatsApp do gestor (a tela mostra "pelo WhatsApp").
+    if (!m.peloApp) {
+      const ig = await this.food99.integracaoDoTenant(tenantId);
+      if (!ig) throw new BadRequestException('A 99 não está conectada nesta empresa.');
+      const r =
+        p.tipo === 'cancelamento'
+          ? await this.food99.responderCancelamento(ig, p.pedidoExterno, p.applyId, m.aceita, m.motivo ?? undefined)
+          : await this.food99.responderReembolso(ig, p.pedidoExterno, p.applyId, m.aceita, m.recusa);
+      if (!r.ok) {
+        // O que a 99 respondeu fica no caso (V37: envio para fora registra o resultado) — e a tela aponta a saída.
+        await this.db
+          .execute(
+            sql`update atendimento_chamado
+                   set detalhe = coalesce(detalhe, '{}'::jsonb) || jsonb_build_object('respostaRecusadaPela99',
+                         jsonb_build_object('em', now(), 'errno', ${r.errno}::int, 'errmsg', ${(r.errmsg ?? '').slice(0, 200) || null}::text))
+                 where tenant_id = ${tenantId} and id = ${c.id} and status = 'aberto'`,
+          )
+          .catch(() => undefined);
+        throw new BadGatewayException(
+          `A 99 não aceitou a resposta${r.errmsg ? `: ${r.errmsg}` : ' agora'}. Tente de novo ou, se a loja já respondeu pelo app 99Food Parceiros, use "Já respondi pelo app da 99".`,
+        );
+      }
+    }
+    // `via` = "whatsapp" quando a resposta saiu pelo WhatsApp do gestor (a tela mostra "pelo WhatsApp"); "app_99" quando a
+    // loja respondeu pelo app da 99 e só fechou o caso aqui.
     const resposta = { ...m.resumo, por: quem.nome, porId: quem.id || null, em: new Date().toISOString(), ...(origem === 'whatsapp' ? { via: 'whatsapp' } : {}) };
-    await this.db.execute(sql`
+    const fechar = sql`
       update atendimento_chamado
-         set detalhe = coalesce(detalhe, '{}'::jsonb) || jsonb_build_object('resposta', ${JSON.stringify(resposta)}::jsonb),
+         set detalhe = (coalesce(detalhe, '{}'::jsonb) - 'recusaAutomatica') || jsonb_build_object('resposta', ${JSON.stringify(resposta)}::jsonb),
              status = 'resolvido', decisao = ${m.aceita ? 'aceito' : 'recusado'},
              resolvido_por_id = ${quem.id || null}, resolvido_em = now(), prazo_em = null, aguardando_desde = null
-       where tenant_id = ${tenantId} and id = ${c.id}`);
+       where tenant_id = ${tenantId} and id = ${c.id}`;
+    if (m.peloApp) {
+      // Nada foi à 99: grava só se o caso ainda está aberto e sem resposta (a rotina pode ter recusado no mesmo instante).
+      const r: any = await this.db.execute(sql`${fechar} and status = 'aberto' and not (coalesce(detalhe, '{}'::jsonb) ? 'resposta') returning id`);
+      if (!(r.rows ?? r).length) throw new ConflictException('Este pedido da 99 já foi respondido.');
+    } else {
+      // A 99 aceitou: grava sempre (a resposta dela já vale).
+      await this.db.execute(fechar);
+    }
     await this.auditoria?.registrar({
       tenantId,
       unidadeId: c.unidadeId ?? null,
@@ -231,6 +289,7 @@ export class Pedido99Service {
     this.rodando = true;
     try {
       await this.fecharCancelamentosVencidos();
+      await this.fecharReembolsosForaDaJanela();
       await this.recusarReembolsosVencidos();
       await this.fecharReembolsosSemMotivoVencidos();
     } catch (e: any) {
@@ -272,9 +331,34 @@ export class Pedido99Service {
   }
 
   /**
+   * Reembolso que passou das 24 h da 99 sem resposta pelo Regem (a recusa automática não foi aceita, ou ninguém respondeu):
+   * o pedido da 99 já fechou — respondido pelo app 99Food Parceiros ou reembolsado por ela no prazo. O Regem não sabe qual
+   * (a 99 não avisa): fecha como `encerrado_na_99`, sem chamar a 99. Antes ficava aberto para sempre e a rotina chamava a
+   * 99 a cada minuto (ERR-638). A marca de "recusando" velha (a chamada morreu no meio) não segura o caso.
+   */
+  async fecharReembolsosForaDaJanela(): Promise<number> {
+    const r: any = await this.db.execute(sql`
+      update atendimento_chamado
+         set status = 'resolvido', decisao = 'encerrado_na_99', resolvido_em = now(), prazo_em = null, aguardando_desde = null,
+             detalhe = (coalesce(detalhe, '{}'::jsonb) - 'recusaAutomatica')
+                       || jsonb_build_object('encerramento', jsonb_build_object('status', 'ENCERRADO_NA_99', 'em', now()))
+       where canal = '99food' and tipo = 'reembolso_99' and status = 'aberto'
+         and criado_em <= now() - make_interval(hours => ${HORAS_DA_99_NO_REEMBOLSO}::int)
+         and not (coalesce(detalhe, '{}'::jsonb) ? 'resposta')
+         and not (coalesce(detalhe, '{}'::jsonb) ? 'semMotivoParaRecusar')
+         and (not (coalesce(detalhe, '{}'::jsonb) ? 'recusaAutomatica')
+              or (detalhe -> 'recusaAutomatica' ->> 'em')::timestamptz < now() - make_interval(mins => ${MINUTOS_DA_MARCA_DE_RECUSA}::int))
+       returning tenant_id as "tenantId", id`);
+    const linhas = (r.rows ?? r) as Array<{ tenantId: string; id: string }>;
+    for (const l of linhas) this.events.emit('atendimento.mudou', { tenantId: l.tenantId, id: l.id, motivo: 'encerrado_na_99' });
+    return linhas.length;
+  }
+
+  /**
    * Reembolso sem resposta no tempo do ajuste: o Regem recusa com o motivo do ajuste (da lista deste pedido). Marca "estou
-   * recusando" ANTES de chamar a 99 (V42: o efeito para fora tem dono e registro); falhou, desmarca e tenta no minuto
-   * seguinte (a 99 só reembolsa sozinha em 24 h; o ajuste vai até 20 h).
+   * recusando" ANTES de chamar a 99 (V42: o efeito para fora tem dono e registro); a 99 não aceitou, anota o que ela disse
+   * e tenta de novo em 10 min — só dentro das 24 h da 99 (depois, `fecharReembolsosForaDaJanela`). Falha de rede ou de
+   * banco desmarca e tenta no minuto seguinte. A marca velha (a API reiniciou no meio da chamada) não trava o caso.
    */
   async recusarReembolsosVencidos(): Promise<number> {
     const r: any = await this.db.execute(sql`
@@ -282,8 +366,12 @@ export class Pedido99Service {
          set detalhe = coalesce(detalhe, '{}'::jsonb) || jsonb_build_object('recusaAutomatica', jsonb_build_object('em', now()))
        where id in (select id from atendimento_chamado
                      where canal = '99food' and tipo = 'reembolso_99' and status = 'aberto' and prazo_em <= now()
-                       and not (coalesce(detalhe, '{}'::jsonb) ? 'recusaAutomatica') and not (coalesce(detalhe, '{}'::jsonb) ? 'resposta')
+                       and criado_em > now() - make_interval(hours => ${HORAS_DA_99_NO_REEMBOLSO}::int)
+                       and (not (coalesce(detalhe, '{}'::jsonb) ? 'recusaAutomatica')
+                            or (detalhe -> 'recusaAutomatica' ->> 'em')::timestamptz < now() - make_interval(mins => ${MINUTOS_DA_MARCA_DE_RECUSA}::int))
+                       and not (coalesce(detalhe, '{}'::jsonb) ? 'resposta')
                        and not (coalesce(detalhe, '{}'::jsonb) ? 'semMotivoParaRecusar')
+                       and coalesce((detalhe -> 'recusaFalhou' ->> 'deNovoEm')::timestamptz, '-infinity'::timestamptz) <= now()
                      order by prazo_em limit 50)
        returning tenant_id as "tenantId", id, unidade_id as "unidadeId", detalhe`);
     let feitos = 0;
@@ -318,8 +406,16 @@ export class Pedido99Service {
           explicacao: ajuste.reembolsoExplicacao || null,
         });
         if (!res.ok) {
-          this.logger.warn(`reembolso 99 ${p.pedidoExterno}: a 99 recusou a recusa automática (errno ${res.errno}) — tenta de novo`);
-          await desmarcar();
+          // Por exemplo, a loja já respondeu pelo app da 99 (ela aceita uma resposta só). Anota o que a 99 disse (a tela
+          // mostra e aponta "Já respondi pelo app da 99") e espera 10 min — antes, a mesma chamada saía a cada minuto, sem fim.
+          this.logger.warn(`reembolso 99 ${p.pedidoExterno}: a 99 recusou a recusa automática (errno ${res.errno}) — tenta em ${MINUTOS_ATE_TENTAR_DE_NOVO} min`);
+          await this.db.execute(sql`
+            update atendimento_chamado
+               set detalhe = (detalhe - 'recusaAutomatica') || jsonb_build_object('recusaFalhou', jsonb_build_object(
+                     'em', now(), 'errno', ${res.errno}::int, 'errmsg', ${(res.errmsg ?? '').slice(0, 200) || null}::text,
+                     'vezes', coalesce((detalhe -> 'recusaFalhou' ->> 'vezes')::int, 0) + 1,
+                     'deNovoEm', now() + make_interval(mins => ${MINUTOS_ATE_TENTAR_DE_NOVO}::int)))
+             where id = ${c.id} and status = 'aberto'`);
           continue;
         }
         const resposta = { acao: 'recusar', motivo: motivo.motivo, motivoId: motivo.id, explicacao: ajuste.reembolsoExplicacao || null, automatico: true, em: new Date().toISOString() };

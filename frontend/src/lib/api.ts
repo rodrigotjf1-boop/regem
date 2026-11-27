@@ -1592,7 +1592,8 @@ export const api = {
     return URL.createObjectURL(await res.blob());
   },
   // Pedido de cancelamento/reembolso do cliente da 99 (PR 3): aceitar ou recusar com o motivo da lista, com a senha.
-  atendimentoResponderPedido99: (id: string, body: { aceita: boolean; motivo?: string; motivoId?: string; explicacao?: string; senha: string }) =>
+  // `peloApp: true` = a loja já respondeu pelo app 99Food Parceiros: o caso fecha e nada vai à 99 (ERR-638).
+  atendimentoResponderPedido99: (id: string, body: { aceita: boolean; peloApp?: boolean; motivo?: string; motivoId?: string; explicacao?: string; senha: string }) =>
     req(`/atendimento/${id}/pedido99`, { method: 'POST', body: JSON.stringify(body) }),
   // Os ajustes do atendimento (Delivery › Configurações › Atendimento) — só na nuvem, só gerente e presidente. Cada grupo
   // vai com o seu dono: `fila` ("Fila e avisos", mig 353), `ifood` (disputas e chat), `ajuste99` (a 99) e `cheguei`

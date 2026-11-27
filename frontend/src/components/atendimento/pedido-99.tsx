@@ -43,6 +43,29 @@ export function traduzir99(mapa: Record<string, string>, s: string | null | unde
 
 const AJUSTE = '/delivery/configuracoes?aba=atendimento';
 
+/** A marca "o Regem está recusando agora" vale 10 min — o mesmo `MINUTOS_DA_MARCA_DE_RECUSA` do servidor (pedido-99.service.ts). */
+const MINUTOS_DA_MARCA_DE_RECUSA = 10;
+function marcaDeRecusaVale(marca: { em?: string } | null | undefined, agora: number | null): boolean {
+  if (!marca) return false;
+  if (agora === null) return true; // antes do relógio da tela (V35): vale o que veio
+  const em = Date.parse(String(marca.em ?? ''));
+  return Number.isFinite(em) ? agora - em < MINUTOS_DA_MARCA_DE_RECUSA * 60_000 : true;
+}
+
+/** O que a pessoa faz no caso: responder à 99 (aceitar ou recusar) ou fechar o que já respondeu pelo app da 99. */
+type AcaoNo99 = 'aceitar' | 'recusar' | 'app';
+
+type FalhaDa99 = { em?: string; errmsg?: string | null };
+
+/** A última recusa da 99 (a da recusa automática do Regem ou a da resposta de uma pessoa), para a tela apontar a saída. */
+function ultimaFalha(detalhe: any): { falha: FalhaDa99; doRegem: boolean } | null {
+  const doRegem: FalhaDa99 | undefined = detalhe?.recusaFalhou;
+  const daPessoa: FalhaDa99 | undefined = detalhe?.respostaRecusadaPela99;
+  if (!doRegem && !daPessoa) return null;
+  if (doRegem && (!daPessoa || Date.parse(String(doRegem.em ?? '')) >= Date.parse(String(daPessoa.em ?? '')))) return { falha: doRegem, doRegem: true };
+  return { falha: daPessoa as FalhaDa99, doRegem: false };
+}
+
 type Pedido99 = {
   tipo: 'cancelamento' | 'reembolso';
   pedidoExterno: string;
@@ -55,9 +78,9 @@ type Pedido99 = {
 export function Pedido99({ caso: c, agora, aoMudar }: { caso: CasoDaFila; agora: number | null; aoMudar: () => Promise<void> }) {
   const p: Pedido99 | undefined = c.detalhe?.pedido99;
   const resposta = c.detalhe?.resposta;
-  const recusando = !!c.detalhe?.recusaAutomatica;
+  const recusando = marcaDeRecusaVale(c.detalhe?.recusaAutomatica, agora);
   const semMotivo = !!c.detalhe?.semMotivoParaRecusar;
-  const [acao, setAcao] = useState<'aceitar' | 'recusar' | null>(null);
+  const [acao, setAcao] = useState<AcaoNo99 | null>(null);
   if (!p) return null;
   const cancelamento = p.tipo === 'cancelamento';
   const prazo = c.prazoEm && agora ? tempoAte(c.prazoEm, agora) : '';
@@ -65,9 +88,20 @@ export function Pedido99({ caso: c, agora, aoMudar }: { caso: CasoDaFila; agora:
   // lista de motivos, até as 24 h da 99 — o prazo do caso passa a ser esse).
   const aberta = c.situacao !== 'resolvido' && !resposta && !recusando && !((cancelamento || semMotivo) && prazo === 'venceu');
   const podeRecusar = cancelamento || p.motivosDoReembolso.length > 0;
+  const falhou = aberta ? ultimaFalha(c.detalhe) : null;
 
   return (
     <div className="space-y-4">
+      {/* A 99 não avisa quando a loja responde pelo app dela (ERR-638): a recusa seguinte volta recusada. */}
+      {falhou && (
+        <div role="status" className="rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-sm">
+          <b>A 99 não aceitou {falhou.doRegem ? 'a recusa do Regem' : 'a resposta'}</b>
+          {falhou.falha.errmsg ? ` ("${falhou.falha.errmsg}")` : ''}
+          {falhou.falha.em ? ` às ${hora(falhou.falha.em)}` : ''}. Se a loja já respondeu pelo app 99Food Parceiros, use{' '}
+          <b>Já respondi pelo app da 99</b>.
+          {falhou.doRegem && !cancelamento && ' O Regem tenta de novo a cada 10 min; passadas as 24 h do pedido, o caso fecha sozinho.'}
+        </div>
+      )}
       {aberta && prazo && prazo !== 'venceu' && (
         <div
           className={`flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-4 py-3 ${cancelamento ? 'border-destructive/40 bg-destructive/10' : 'border-warn/40 bg-warn/10'}`}
@@ -139,6 +173,9 @@ export function Pedido99({ caso: c, agora, aoMudar }: { caso: CasoDaFila; agora:
             </Button>
           </div>
           {!podeRecusar && <p className="text-xs text-secondary-foreground">Recusar só pelo app 99Food Parceiros: a 99 não mandou a lista de motivos.</p>}
+          <Button type="button" variant="outline" className="h-auto min-h-10 w-full whitespace-normal py-2 sm:w-auto" onClick={() => setAcao('app')}>
+            Já respondi pelo app da 99
+          </Button>
           <p className="text-xs text-secondary-foreground">
             🔒 Só gerente e presidente respondem, com a senha. A 99 aceita uma resposta só.{' '}
             <Link href={AJUSTE} className="font-semibold underline">
@@ -163,6 +200,9 @@ function ComoFicou({ caso: c, pedido: p, prazoVenceu }: { caso: CasoDaFila; pedi
   const motivo = (m: string | null | undefined) => traduzir99(cancelamento ? MOTIVO_CANCELAMENTO_99 : MOTIVO_REEMBOLSO_99, m);
   let texto: string;
   if (resposta?.automatico) texto = `O Regem recusou ${oQue} sozinho: o tempo do ajuste acabou${resposta.motivo ? ` · ${motivo(resposta.motivo)}` : ''}${resposta.em ? ` · às ${hora(resposta.em)}` : ''}.`;
+  // Respondido pelo app da 99 e só fechado aqui (ERR-638): a hora é a de fechar, não a da resposta.
+  else if (resposta?.via === 'app_99')
+    texto = `A loja ${resposta.acao === 'aceitar' ? 'aceitou' : 'recusou'} ${oQue} pelo app 99Food Parceiros${resposta.por ? ` · ${resposta.por} fechou o caso aqui` : ''}${resposta.em ? ` às ${hora(resposta.em)}` : ''}.`;
   else if (resposta)
     // `via` = "whatsapp": a resposta saiu pelo WhatsApp de quem decide (Gerente no WhatsApp, mig 375, parte 5b).
     texto = `${resposta.por ? `${resposta.por} ` : 'A loja '}${resposta.acao === 'aceitar' ? 'aceitou' : 'recusou'} ${oQue}${resposta.motivo ? ` · ${motivo(resposta.motivo)}` : ''}${resposta.em ? ` · às ${hora(resposta.em)}` : ''}${resposta.via === 'whatsapp' ? ' · pelo WhatsApp' : ''}.`;
@@ -171,6 +211,9 @@ function ComoFicou({ caso: c, pedido: p, prazoVenceu }: { caso: CasoDaFila; pedi
     texto = 'Ninguém respondeu em 5 min: a 99 recusou o cancelamento sozinha. O pedido segue.';
   else if (encerramento?.status === 'REEMBOLSADO_PELA_99' || (c.detalhe?.semMotivoParaRecusar && prazoVenceu))
     texto = 'Ninguém respondeu nas 24 h da 99: ela reembolsou o cliente sozinha.';
+  else if (encerramento?.status === 'ENCERRADO_NA_99')
+    texto =
+      'Passaram as 24 h da 99 sem resposta pelo Regem e o pedido dela fechou. Confira no app 99Food Parceiros como ficou: se ninguém respondeu por lá, a 99 reembolsou o cliente.';
   else if (c.detalhe?.recusaAutomatica) texto = `O Regem está recusando ${oQue} agora: o tempo do ajuste acabou.`;
   else texto = 'Este pedido já foi respondido.';
   return (
@@ -191,23 +234,36 @@ function Responder99({
 }: {
   caso: CasoDaFila;
   pedido: Pedido99;
-  acao: 'aceitar' | 'recusar';
+  acao: AcaoNo99;
   aoFechar: () => void;
   aoResponder: () => Promise<void>;
 }) {
   const cancelamento = p.tipo === 'cancelamento';
+  const peloApp = acao === 'app';
   // Cancelamento: a lista que veio (ou, se não veio, as quatro da documentação). Reembolso: a lista deste pedido, por id.
   const motivosCancel = p.motivosDeRecusa.length ? p.motivosDeRecusa : Object.keys(MOTIVO_CANCELAMENTO_99);
   const [motivo, setMotivo] = useState(cancelamento ? motivosCancel[0] ?? '' : p.motivosDoReembolso[0]?.id ?? '');
   const [explicacao, setExplicacao] = useState('');
+  // "Já respondi pelo app da 99": o que a loja respondeu lá — sem escolha pronta, para não gravar o errado.
+  const [noApp, setNoApp] = useState<'aceitou' | 'recusou' | null>(null);
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
   const campoSenha = useSenhaSemSalvar();
+  const oQue = cancelamento ? 'o cancelamento' : 'o reembolso';
 
-  const titulo = acao === 'aceitar' ? (cancelamento ? 'Aceitar o cancelamento' : 'Aceitar o reembolso') : cancelamento ? 'Recusar o cancelamento' : 'Recusar o reembolso';
-  const efeito =
-    acao === 'aceitar'
+  const titulo = peloApp
+    ? 'Já respondi pelo app da 99'
+    : acao === 'aceitar'
+      ? cancelamento
+        ? 'Aceitar o cancelamento'
+        : 'Aceitar o reembolso'
+      : cancelamento
+        ? 'Recusar o cancelamento'
+        : 'Recusar o reembolso';
+  const efeito = peloApp
+    ? 'O caso fecha no Regem e nada é enviado à 99 (ela aceita uma resposta só).'
+    : acao === 'aceitar'
       ? cancelamento
         ? 'A 99 recebe o aceite e cancela o pedido.'
         : 'A 99 recebe o aceite e reembolsa o cliente.'
@@ -216,9 +272,12 @@ function Responder99({
   async function enviar() {
     if (enviando) return;
     setErro('');
+    if (peloApp && !noApp) return setErro(`Diga se a loja aceitou ou recusou ${oQue} no app da 99.`);
     if (!senha.trim()) return setErro('Informe a senha de quem decide.');
     if (acao === 'recusar' && !motivo) return setErro('Escolha o motivo da recusa.');
-    const corpo: { aceita: boolean; motivo?: string; motivoId?: string; explicacao?: string; senha: string } = { aceita: acao === 'aceitar', senha };
+    const corpo: { aceita: boolean; peloApp?: boolean; motivo?: string; motivoId?: string; explicacao?: string; senha: string } = peloApp
+      ? { peloApp: true, aceita: noApp === 'aceitou', senha }
+      : { aceita: acao === 'aceitar', senha };
     if (acao === 'recusar') {
       if (cancelamento) corpo.motivo = motivo;
       else {
@@ -229,7 +288,7 @@ function Responder99({
     setEnviando(true);
     try {
       await api.atendimentoResponderPedido99(caso.id, corpo);
-      toast.success('Resposta enviada à 99.');
+      toast.success(peloApp ? 'Caso fechado: respondido pelo app da 99.' : 'Resposta enviada à 99.');
       aoFechar();
       await aoResponder();
     } catch (e) {
@@ -253,18 +312,31 @@ function Responder99({
           <Button
             type="button"
             className={acao === 'aceitar' ? 'bg-destructive text-white hover:bg-destructive/90' : ''}
-            disabled={enviando || !senha.trim()}
+            disabled={enviando || !senha.trim() || (peloApp && !noApp)}
             onClick={() => void enviar()}
           >
-            Enviar à 99
+            {peloApp ? 'Fechar o caso' : 'Enviar à 99'}
           </Button>
         </>
       }
     >
       <div className="space-y-3 text-sm">
         <p>
-          {efeito} <b>A loja não pode responder de novo depois.</b>
+          {efeito} <b>{peloApp ? 'Use só se a resposta já foi dada no app 99Food Parceiros.' : 'A loja não pode responder de novo depois.'}</b>
         </p>
+        {peloApp && (
+          <fieldset className="space-y-2">
+            <legend className="font-semibold">O que a loja respondeu no app da 99?</legend>
+            <div className="flex flex-wrap gap-2">
+              {(['aceitou', 'recusou'] as const).map((v) => (
+                <label key={v} className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-md border border-input px-3">
+                  <input type="radio" name="resposta-no-app-99" value={v} checked={noApp === v} onChange={() => setNoApp(v)} />
+                  {v === 'aceitou' ? `Aceitou ${oQue}` : `Recusou ${oQue}`}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
         {acao === 'recusar' && (
           <label className="block space-y-1">
             <span className="font-semibold">Motivo (a lista vem da 99 neste pedido)</span>

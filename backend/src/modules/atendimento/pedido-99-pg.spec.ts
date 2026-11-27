@@ -175,7 +175,7 @@ descrever('pedidos do cliente da 99 na central (Postgres)', () => {
     ]);
   });
 
-  it('a rotina: a 99 recusou a recusa automática → desmarca e tenta no minuto seguinte (não perde)', async () => {
+  it('a rotina: a 99 recusou a recusa automática → anota o que ela disse e espera 10 min (antes: a cada minuto, para sempre — ERR-638)', async () => {
     await food99.processarWebhook(aviso('orderRefundApply', '2004'));
     await q(`update atendimento_chamado set prazo_em = now() - interval '1 minute' where tenant_id = $1`, [T]);
     errnoDa99 = 1;
@@ -183,10 +183,90 @@ descrever('pedidos do cliente da 99 na central (Postgres)', () => {
     let [c] = await casos();
     expect(c.status).toBe('aberto');
     expect(c.detalhe.recusaAutomatica).toBeUndefined();
+    expect(c.detalhe.recusaFalhou).toMatchObject({ errno: 1, errmsg: 'recusado', vezes: 1 });
+    const minutos = (new Date(c.detalhe.recusaFalhou.deNovoEm).getTime() - Date.now()) / 60_000;
+    expect(minutos).toBeGreaterThan(9.5);
+    expect(minutos).toBeLessThanOrEqual(10);
+    // no minuto seguinte NÃO chama a 99 de novo
     errnoDa99 = 0;
+    expect(await svc.recusarReembolsosVencidos()).toBe(0);
+    expect(enviados.length).toBe(1);
+    // passados os 10 min, tenta e resolve
+    await q(`update atendimento_chamado set detalhe = jsonb_set(detalhe, '{recusaFalhou,deNovoEm}', to_jsonb(now() - interval '1 second')) where tenant_id = $1`, [T]);
     await svc.recusarReembolsosVencidos();
     [c] = await casos();
     expect(c.decisao).toBe('recusado_automatico');
+    expect(enviados.length).toBe(2);
+  });
+
+  it('a rotina: passadas as 24 h da 99 sem resposta, o caso fecha como "encerrado na 99" e NADA vai à 99 (ERR-638)', async () => {
+    await food99.processarWebhook(aviso('orderRefundApply', '2010'));
+    await food99.processarWebhook(aviso('orderRefundApply', '2011'));
+    await food99.processarWebhook(aviso('orderRefundApply', '2012'));
+    // os três com o pedido da 99 de 25 h atrás; o 2011 com a marca de "recusando" de agora (a chamada em curso segura);
+    // o 2012 com a marca de 15 min atrás (a API reiniciou no meio da chamada: não segura)
+    await q(`update atendimento_chamado set criado_em = now() - interval '25 hours', prazo_em = now() - interval '21 hours' where tenant_id = $1`, [T]);
+    await q(`update atendimento_chamado set detalhe = detalhe || jsonb_build_object('recusaAutomatica', jsonb_build_object('em', now())) where tenant_id = $1 and externo_id = '2011'`, [T]);
+    await q(
+      `update atendimento_chamado set detalhe = detalhe || jsonb_build_object('recusaAutomatica', jsonb_build_object('em', now() - interval '15 minutes')) where tenant_id = $1 and externo_id = '2012'`,
+      [T],
+    );
+    expect(await svc.recusarReembolsosVencidos()).toBe(0); // fora da janela: não chama a 99
+    expect(await svc.fecharReembolsosForaDaJanela()).toBe(2);
+    const porId = Object.fromEntries((await casos()).map((c: any) => [c.externo_id, c]));
+    expect(porId['2010']).toMatchObject({ status: 'resolvido', decisao: 'encerrado_na_99', prazo_em: null });
+    expect(porId['2010'].detalhe.encerramento).toMatchObject({ status: 'ENCERRADO_NA_99' });
+    expect(porId['2012']).toMatchObject({ status: 'resolvido', decisao: 'encerrado_na_99' });
+    expect(porId['2012'].detalhe.recusaAutomatica).toBeUndefined();
+    expect(porId['2011'].status).toBe('aberto');
+    expect(enviados).toEqual([]);
+    expect(avisos.filter((a) => a.p?.motivo === 'encerrado_na_99').length).toBe(2);
+    // dentro das 24 h, nada fecha por aqui
+    await q(`delete from atendimento_chamado where tenant_id = $1`, [T]);
+    await food99.processarWebhook(aviso('orderRefundApply', '2013'));
+    await q(`update atendimento_chamado set criado_em = now() - interval '23 hours', prazo_em = now() - interval '19 hours' where tenant_id = $1`, [T]);
+    expect(await svc.fecharReembolsosForaDaJanela()).toBe(0);
+  });
+
+  it('"Já respondi pelo app da 99": fecha sem enviar nada à 99, com a decisão dita, na auditoria; uma vez só; supervisão não (ERR-638)', async () => {
+    await food99.processarWebhook(aviso('orderRefundApply', '2020'));
+    const [c] = await casos();
+    // a recusa automática que a 99 não aceitou não impede
+    await q(`update atendimento_chamado set detalhe = detalhe || '{"recusaFalhou":{"errno":1,"vezes":3}}'::jsonb where id = $1`, [c.id]);
+    await expect(svc.responder(usuario(), c.id, { peloApp: true, aceita: true, senha: 'senha-supervisao' })).rejects.toThrow('Senha de gestor inválida.');
+    await expect(svc.responder(usuario(), c.id, { peloApp: 'sim', aceita: true, senha: 'senha-gerente' })).rejects.toThrow('Informe "peloApp" (true ou false).');
+    const r = await svc.responder(usuario(), c.id, { peloApp: true, aceita: true, senha: 'senha-gerente' });
+    expect(r.resposta).toMatchObject({ acao: 'aceitar', via: 'app_99', por: 'Ana gerente' });
+    expect(enviados).toEqual([]);
+    const [depois] = await casos();
+    expect(depois).toMatchObject({ status: 'resolvido', decisao: 'aceito', resolvido_por_id: gerente, prazo_em: null });
+    expect(auditoria[0]).toMatchObject({ acao: 'respondeu_pedido_99', detalhe: { tipo: 'reembolso', acao: 'aceitar', via: 'app_99' } });
+    await expect(svc.responder(usuario(), c.id, { peloApp: true, aceita: false, senha: 'senha-gerente' })).rejects.toThrow('Este pedido da 99 já foi respondido.');
+  });
+
+  it('"Já respondi pelo app da 99": a marca de "recusando" de agora segura (409); a marca velha não', async () => {
+    await food99.processarWebhook(aviso('orderRefundApply', '2021'));
+    const [c] = await casos();
+    await q(`update atendimento_chamado set detalhe = detalhe || jsonb_build_object('recusaAutomatica', jsonb_build_object('em', now())) where id = $1`, [c.id]);
+    await expect(svc.responder(usuario(), c.id, { peloApp: true, aceita: false, senha: 'senha-gerente' })).rejects.toThrow('O Regem já está recusando');
+    await q(`update atendimento_chamado set detalhe = detalhe || jsonb_build_object('recusaAutomatica', jsonb_build_object('em', now() - interval '15 minutes')) where id = $1`, [c.id]);
+    await svc.responder(usuario(), c.id, { peloApp: true, aceita: false, senha: 'senha-gerente' });
+    const [depois] = await casos();
+    expect(depois).toMatchObject({ status: 'resolvido', decisao: 'recusado' });
+    expect(depois.detalhe.recusaAutomatica).toBeUndefined();
+    expect(enviados).toEqual([]);
+  });
+
+  it('a 99 recusa a resposta da pessoa: o que ela disse fica no caso e a mensagem aponta "Já respondi pelo app da 99"', async () => {
+    await food99.processarWebhook(aviso('orderRefundApply', '2022'));
+    const [c] = await casos();
+    errnoDa99 = 10002;
+    await expect(svc.responder(usuario(), c.id, { aceita: true, senha: 'senha-gerente' })).rejects.toThrow(
+      'A 99 não aceitou a resposta: recusado. Tente de novo ou, se a loja já respondeu pelo app 99Food Parceiros, use "Já respondi pelo app da 99".',
+    );
+    const [depois] = await casos();
+    expect(depois.status).toBe('aberto');
+    expect(depois.detalhe.respostaRecusadaPela99).toMatchObject({ errno: 10002, errmsg: 'recusado' });
   });
 
   it('a rotina: reembolso SEM a lista de motivos não trava o caso — fica para uma pessoa, que ainda aceita', async () => {
@@ -323,6 +403,36 @@ descrever('pedidos do cliente da 99 na central (Postgres)', () => {
     expect(pedidos[0].url).toBe('https://nuvem.teste/api/v1/atendimento/pedido99-da-loja');
     expect(pedidos[0].corpo).toMatchObject({ chamadoId: c.id, aceita: true, liberadorId: gerente });
     expect(pedidos[0].corpo.senha).toBeUndefined();
+    expect(enviados).toEqual([]);
+  });
+
+  it('"Já respondi pelo app da 99" no SERVIDOR DA LOJA: vai à nuvem com o peloApp, e a nuvem fecha sem chamar a 99', async () => {
+    await food99.processarWebhook(aviso('orderRefundApply', '2030'));
+    const [c] = await casos();
+    process.env.EDGE_MODE = 'true';
+    const antes = { api: process.env.CLOUD_API, tok: process.env.SYNC_TOKEN };
+    process.env.CLOUD_API = 'https://nuvem.teste/api/v1';
+    process.env.SYNC_TOKEN = 'tok';
+    const pedidos: any[] = [];
+    const fetchAntes = global.fetch;
+    global.fetch = (async (url: any, init: any) => {
+      pedidos.push({ url: String(url), corpo: JSON.parse(init.body) });
+      return new Response(JSON.stringify({ ok: true, resposta: { acao: 'recusar', via: 'app_99', por: 'Ana gerente' } }), { status: 200 });
+    }) as any;
+    try {
+      await svc.responder(usuario(), c.id, { peloApp: true, aceita: false, senha: 'senha-gerente' });
+    } finally {
+      global.fetch = fetchAntes;
+      process.env.CLOUD_API = antes.api;
+      process.env.SYNC_TOKEN = antes.tok;
+      delete process.env.EDGE_MODE;
+    }
+    expect(pedidos[0].corpo).toMatchObject({ chamadoId: c.id, peloApp: true, aceita: false, liberadorId: gerente });
+    expect(pedidos[0].corpo.senha).toBeUndefined();
+    // e a nuvem, recebendo da loja, fecha sem chamar a 99
+    await q(`update atendimento_chamado set status = 'aberto', detalhe = detalhe - 'resposta' where id = $1`, [c.id]);
+    await svc.responderVindoDaLoja(T, { ...pedidos[0].corpo });
+    expect((await casos())[0]).toMatchObject({ status: 'resolvido', decisao: 'recusado' });
     expect(enviados).toEqual([]);
   });
 });

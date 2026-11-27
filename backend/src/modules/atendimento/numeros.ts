@@ -121,7 +121,8 @@ export type LinhaDoCaso = {
   totalCentavos: number | null;
   disputa: { acao?: string; tipo?: string; acaoAutomatica?: string | null; itens?: any[] } | null;
   encerramento: { status?: string; proposta?: { tipo?: string; centavos?: number | null } | null } | null;
-  resposta: { em?: string; automatico?: boolean } | null;
+  /** `via` = "app_99": a loja respondeu pelo app da 99 e só fechou o caso no Regem (a hora não é a da resposta). */
+  resposta: { em?: string; automatico?: boolean; via?: string } | null;
   valor99: number | null;
   classificacao: { motivo?: string; produtos?: unknown[] } | null;
 };
@@ -222,7 +223,12 @@ export function custouDoCaso(l: LinhaDoCaso): { centavos: number; estimado: bool
     return l.decisao === 'aceito' ? doAceite() : zero;
   }
   if (l.tipo === 'cancelamento_99') return l.decisao === 'aceito' || l.decisao === 'aceito_automatico' ? doAceite() : zero;
-  if (l.tipo === 'reembolso_99') return l.decisao === 'aceito' || l.decisao === 'reembolsado_pela_99' ? doAceite() : zero;
+  if (l.tipo === 'reembolso_99') {
+    // Encerrado nas 24 h da 99 sem resposta pelo Regem (ERR-638): pode ter sido recusado pelo app da 99 ou reembolsado
+    // por ela — não se sabe; fica "sem valor", fora da soma.
+    if (l.decisao === 'encerrado_na_99') return { centavos: 0, estimado: false, conhecido: false };
+    return l.decisao === 'aceito' || l.decisao === 'reembolsado_pela_99' ? doAceite() : zero;
+  }
   if (l.tipo === 'cancelamento') return l.decisao === 'aceito' ? doAceite() : zero;
   return zero;
 }
@@ -274,6 +280,8 @@ export function situacaoNoPlacar(l: LinhaDoCaso, agora: number): { conta: boolea
   }
   if (g === 'pedido99') {
     if (l.decisao === 'aceito_automatico') return { conta: false, respondida: false, seg: null };
+    // Respondido pelo app da 99 (ERR-638): conta como respondido, sem o tempo — a hora é a de fechar no Regem.
+    if (l.resposta?.via === 'app_99') return { conta: true, respondida: true, seg: null };
     if (l.resposta?.em && !l.resposta.automatico) return { conta: true, respondida: true, seg: seg(ms(l.resposta.em)) };
     if (esperando) return { conta: false, respondida: false, seg: null };
     return { conta: true, respondida: false, seg: null }; // a 99 decidiu, ou o Regem recusou pelo ajuste
