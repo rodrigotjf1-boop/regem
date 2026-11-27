@@ -29,6 +29,7 @@ import { MisterCompraModelosService } from './mister-compra-modelos.service';
 import { RecebimentoService } from '../recebimento/recebimento.service';
 import { montarChave } from '../fiscal/chave';
 import { MisterNotasService } from './mister-notas.service';
+import { catalogoDaLigacao } from './mister-ligacao';
 import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { RelatoriosService } from '../relatorios/relatorios.service';
 import { ModuloService } from '../modulo/modulo.service';
@@ -7877,6 +7878,172 @@ export function testesDoMisterComPostgres(): void {
           }
         });
 
+        // ERR-628 (a nota da Rucas, 27/11): o fornecedor imprime "UN" para a embalagem fechada, e a conversão do cadastro (o que vem
+        // dentro dela) fazia 25 caixas entrarem como 1,04 — sem pergunta. O "Aceitar as sugestões" ligava o insumo e a conta voltava
+        // a perguntar; a foto nova da mesma nota deixava as duas abertas.
+        describe('ERR-628: a nota da Rucas', () => {
+          const CNPJ_R = '04252011000110';
+          const quem = () => ({ telefone: telAna, tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente' as const, nome: 'Ana' });
+          const tocou = () => ({ telefone: telAna, vinculos: [{ tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente' as const, empresa: 'A' }], wamid: null });
+          const novos: string[] = [];
+          const listas: string[] = [];
+          let compras: ComprasService;
+          let notasR: MisterNotasService;
+          const r628: Record<string, string> = {};
+          const linhasDaRucas = [
+            { descricao: 'GUARAVITA CX 24 290ml', codigo: '628-1', quantidade: '25', unidade: 'UN', valorUnitario: '23,49', valorTotal: '587,25' },
+            { descricao: 'QUEIJO SCHREIBER EMB CHEDDAR 2270gx8', codigo: '628-2', quantidade: '3', unidade: 'UN', valorUnitario: '739,92', valorTotal: '2.219,76' },
+            { descricao: 'BLEND DISCADO 150G - 900G 1pc', codigo: '628-3', quantidade: '40', unidade: 'UN', valorUnitario: '31,99', valorTotal: '1.279,60' },
+          ];
+          const daRucas = (itens = linhasDaRucas, total = '4.086,61') =>
+            falar(JSON.stringify({ chave: null, emitenteNome: 'RUCAS 628', emitenteCnpj: CNPJ_R, numero: null, valorTotal: total, duplicatas: [], itens, legivel: true }));
+          // O código é a posição no catálogo que vai à IA — o MESMO recorte do serviço (com mais de 600 insumos, só os parecidos).
+          const cod = async (id: string) => {
+            const todos = await q(`select id::text as id, nome, nome_comercial as "nomeComercial", unidade_medida as "unidadeMedida" from item_estoque where tenant_id = $1 and deleted_at is null order by nome limit 3000`, [A]);
+            const catalogo = catalogoDaLigacao(linhasDaRucas.map((l) => ({ descricao: l.descricao, quantidade: Number(l.quantidade), unidade: l.unidade, valorUnitarioCentavos: null })), todos as any[]);
+            return `i${catalogo.findIndex((x) => x.id === id) + 1}`;
+          };
+          const doUltimo = async () => (await q(`select id::text as id, situacao, motivo, dados from mister_documento where tenant_id = $1 order by criado_em desc limit 1`, [A]))[0];
+
+          beforeAll(async () => {
+            compras = new ComprasService(db, { emit: () => true } as any, auditoria);
+            notasR = new MisterNotasService(db, numero, ia, recebimentos, financeiro, new EstoqueService(db, auditoria), auditoria, undefined, new MisterConversaConfigService(db, auditoria), undefined, compras);
+            // O cadastro como o da loja: a caixa de 24 Guaravitas, a peça de 184 fatias e o pacote de 6 discos.
+            for (const [chave, nome, unidade, dentro] of [
+              ['guaravita', 'Guaravita copo 628', 'caixa', 24],
+              ['queijo', 'Queijo cheddar 628', 'peça', 184],
+              ['blend', 'Blend 150gr 628', 'pacote', 6],
+            ] as const) {
+              const [{ id }] = await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, $2, $3) returning id::text as id`, [A, nome, unidade]);
+              await q(`insert into item_conversao (tenant_id, item_id, unidade_de, fator, unidade_para) values ($1, $2, $3, $4, 'unidade')`, [A, id, unidade, dentro]);
+              r628[chave] = id;
+              novos.push(id);
+            }
+          });
+          // O beforeEach dos documentos apaga o ajuste da conversa: o "Ligar as linhas pela IA" volta a cada teste.
+          beforeEach(async () => {
+            await q(`insert into mister_conversa_config (tenant_id, ligar_pela_ia) values ($1, true) on conflict (tenant_id) do update set ligar_pela_ia = true`, [A]);
+          });
+          afterAll(async () => {
+            await q(`update mister_conversa_config set ligar_pela_ia = false where tenant_id = $1`, [A]);
+            if (listas.length) {
+              await q(`delete from compra_item where lista_id = any($1::uuid[])`, [listas]);
+              await q(`delete from compra_lista where id = any($1::uuid[])`, [listas]);
+            }
+            await q(`delete from item_conversao where item_id = any($1::uuid[])`, [novos]);
+            await q(`update item_estoque set deleted_at = now() where id = any($1::uuid[])`, [novos]);
+          });
+
+          it('a fração de embalagem pergunta, o pedido prova a conta, um toque aceita as duas dúvidas, e a foto nova toma o lugar', async () => {
+            const l: any = await compras.createLista(A, { nome: 'Lista do Mister 628', itens: [{ itemId: r628.guaravita, quantidade: 25 }, { itemId: r628.queijo, quantidade: 24 }, { itemId: r628.blend, quantidade: 40 }] } as any, lojaDeA);
+            listas.push(l.id);
+            const ligacao = falar(
+              JSON.stringify({
+                linhas: [
+                  { linha: 1, insumo: await cod(r628.guaravita), certeza: 'alta', outros: [], fora: false, novo: null },
+                  { linha: 2, insumo: await cod(r628.queijo), certeza: 'media', outros: [], fora: false, novo: null },
+                  { linha: 3, insumo: await cod(r628.blend), certeza: 'alta', outros: [], fora: false, novo: null },
+                ],
+              }),
+            );
+            ia.roteiro = [daRucas(), ligacao];
+            await notasR.receber(quem(), wamid(), { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'eA==' } }, 'claude-sonnet-5-5');
+            const d = await doUltimo();
+            expect(d).toMatchObject({ situacao: 'falta', motivo: 'pedido' });
+            const [g, qj, b] = d.dados.nota.itens;
+            // Antes: ligadas com 1/24 de caixa e 1/6 de pacote, sem pergunta. Agora: a conta a confirmar, 1 embalagem por UN.
+            expect(g).toMatchObject({ estado: 'fator', fator: null, fatorProposto: 1, insumoId: r628.guaravita });
+            expect(b).toMatchObject({ estado: 'fator', fator: null, fatorProposto: 1, insumoId: r628.blend });
+            // O queijo ("2270gx8", em peça): a proposta da IA vem com a conta que o pedido prova (24 peças ÷ 3 UN = 8).
+            expect(qj).toMatchObject({ estado: 'item', propostaDaIa: true, fatorProposto: 8, sugestoes: [{ id: r628.queijo, unidade: 'peça' }] });
+
+            // "Receber o pedido" e "Entram no estoque": as dúvidas juntas, cada uma com a conta.
+            numero.pedidos.length = 0;
+            expect(await notasR.pedidoDaNota(`doc:pd:${d.id}:r`, tocou())).toBe(true);
+            expect(await notasR.pedidoDaNota(`doc:pd:${d.id}:e`, tocou())).toBe(true);
+            const duvidas = numero.enviadas.at(-1)!;
+            expect(duvidas.texto).toContain('Cada UN = 1 caixa, entram 25 caixas?');
+            expect(duvidas.texto).toContain('é o *Queijo cheddar 628* (cada UN = 8 peça: entram 24 peças)?');
+            expect(duvidas.texto).toContain('Cada UN = 1 pacote, entram 40 pacotes?');
+            expect(duvidas.botoes.map((x: any) => x.titulo)).toEqual(['Aceitar as sugestões', 'Cancelar']);
+
+            // Um toque: o insumo e a conta do queijo, e as duas contas. Sem diferença com o pedido, vem o resumo com o "Lançar".
+            numero.pedidos.length = 0;
+            expect(await notasR.aceitarSugestoes(`doc:ia:${d.id}`, tocou())).toBe(true);
+            const depois = await lida(d.id);
+            expect(depois).toMatchObject({ situacao: 'confirmar', motivo: 'itens_ligados' });
+            expect(depois.dados.nota.itens.map((x: any) => [x.estado, x.fator, x.fatorConfirmado])).toEqual([
+              ['ligado', 1, true],
+              ['ligado', 8, true],
+              ['ligado', 1, true],
+            ]);
+            const aceito = numero.enviadas.at(-1)!;
+            expect(aceito.texto).toMatch(/^✅ Aceitei 3 sugestões\.\n\n/);
+            expect(aceito.botoes.map((x: any) => x.titulo)).toEqual(['Lançar', 'Cancelar']);
+            expect(await q(`select chave, fator::float8 as fator from mister_de_para where tenant_id = $1 and fornecedor_cnpj = $2 order by chave`, [A, CNPJ_R])).toEqual([
+              { chave: 'cod:628-1', fator: 1 },
+              { chave: 'cod:628-2', fator: 8 },
+              { chave: 'cod:628-3', fator: 1 },
+            ]);
+            // O segundo toque não aceita nada e diz isso (antes, a mesma lista voltava e parecia que não valeu).
+            await q(`update mister_documento set situacao = 'falta', motivo = 'fator:0' where id = $1`, [d.id]);
+            numero.pedidos.length = 0;
+            expect(await notasR.aceitarSugestoes(`doc:ia:${d.id}`, tocou())).toBe(true);
+            expect(numero.enviadas.at(-1)!.texto).toMatch(/^Não havia sugestão para aceitar/);
+            await q(`update mister_documento set situacao = 'confirmar', motivo = 'itens_ligados' where id = $1`, [d.id]);
+
+            // A foto nova da MESMA nota: a antiga sai ("foto_nova"), e o que foi decidido vem junto (as contas e o pedido).
+            ia.roteiro = [daRucas()];
+            numero.pedidos.length = 0;
+            await notasR.receber(quem(), wamid(), { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'eA==' } }, 'claude-sonnet-5-5');
+            expect(await lida(d.id)).toMatchObject({ situacao: 'recusado', motivo: 'foto_nova' });
+            const nova = await doUltimo();
+            expect(nova.id).not.toBe(d.id);
+            expect(nova).toMatchObject({ situacao: 'confirmar', motivo: 'itens_ligados' });
+            expect(nova.dados.nota.pedido).toMatchObject({ listaId: l.id, resposta: 'receber' });
+            expect(nova.dados.nota.comoLancar).toBe('estoque');
+            expect(nova.dados.nota.itens.map((x: any) => [x.fator, x.fatorConfirmado])).toEqual([
+              [1, true],
+              [8, true],
+              [1, true],
+            ]);
+            expect(numero.enviadas.at(-1)!.botoes.map((x: any) => x.titulo)).toEqual(['Lançar', 'Cancelar']);
+            // Só UMA aberta desta nota.
+            expect(await q(`select count(*)::int as n from mister_documento where tenant_id = $1 and situacao in ('falta', 'confirmar')`, [A])).toEqual([{ n: 1 }]);
+          });
+
+          it('a memória que repete o conteúdo da caixa (24 caixas por UN) não vale, e a conversa converte a medida dita pelo cadastro', async () => {
+            // O que a conversa de 27/11 gravou: "1 UN = 24 caixas" (o dono explicou "1 caixa = 24 unidades no Regem").
+            await q(`insert into mister_de_para (tenant_id, fornecedor_cnpj, chave, item_id, fator) values ($1, $2, 'cod:628-1', $3, 24)`, [A, CNPJ_R, r628.guaravita]);
+            ia.roteiro = [daRucas([linhasDaRucas[0]], '587,25')];
+            await notasR.receber(quem(), wamid(), { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'eA==' } }, 'claude-sonnet-5-5');
+            const d = await doUltimo();
+            expect(d.dados.nota.itens[0]).toMatchObject({ estado: 'fator', fator: null, fatorProposto: 1, insumoId: r628.guaravita });
+
+            // O "ver" mostra a unidade do estoque e o que o cadastro diz da caixa.
+            const ver: any = await notasR.ferramentaDoDocumento(escopoDe(), { acao: 'ver' });
+            expect(ver.dados.linhas[0]).toMatchObject({ estoqueContaEm: 'caixa', noCadastro: ['1 caixa = 24 unidade'] });
+            expect(ver.dados.comoGravarAConversao).toContain('não é 24 caixas');
+
+            // "24" sem a medida repete o conteúdo da caixa: não grava, e diz por quê.
+            const repete: any = await notasR.ferramentaDoDocumento(escopoDe(), { acao: 'alterar', alteracoes: [{ linha: 1, tipo: 'conversao', quanto_no_estoque: 24 }] });
+            expect(repete.ok).toBe(false);
+            expect(repete.dados.erro).toContain('Linha 1: não gravei: no cadastro, 1 caixa = 24 unidade');
+            // A medida que o cadastro não conhece: diz as que ele conhece.
+            const disco: any = await notasR.ferramentaDoDocumento(escopoDe(), { acao: 'alterar', alteracoes: [{ linha: 1, tipo: 'conversao', quanto_no_estoque: 24, medida: 'disco' }] });
+            expect(disco.dados.erro).toContain('ele conhece: 1 caixa = 24 unidade');
+            expect((await lida(d.id)).dados.nota.itens[0].estado).toBe('fator');
+            // "24 unidades": o Regem converte pelo cadastro — 1 caixa por UN.
+            const unidades: any = await notasR.ferramentaDoDocumento(escopoDe(), { acao: 'alterar', alteracoes: [{ linha: 1, tipo: 'conversao', quanto_no_estoque: 24, medida: 'unidades' }] });
+            expect(unidades.ok).toBe(true);
+            expect((await lida(d.id)).dados.nota.itens[0]).toMatchObject({ estado: 'ligado', fator: 1, fatorConfirmado: true });
+            // E se forem mesmo 24 caixas por UN, a medida do estoque dita confirma.
+            const caixas: any = await notasR.ferramentaDoDocumento(escopoDe(), { acao: 'alterar', alteracoes: [{ linha: 1, tipo: 'conversao', quanto_no_estoque: 24, medida: 'caixa' }] });
+            expect(caixas.ok).toBe(true);
+            expect((await lida(d.id)).dados.nota.itens[0]).toMatchObject({ fator: 24, fatorConfirmado: true });
+          });
+        });
+
         it('O1: desligado, a IA não é chamada; a IA que falha ou corta deixa a sugestão pelas palavras', async () => {
           const conversaCfg = new MisterConversaConfigService(db, auditoria);
           const notasIa = new MisterNotasService(db, numero, ia, recebimentos, financeiro, new EstoqueService(db, auditoria), auditoria, undefined, conversaCfg);
@@ -9214,7 +9381,7 @@ export function testesDoMisterComPostgres(): void {
           numero.pedidos.length = 0;
           expect(await tocar(telAna, `doc:pd:${c1.id}:r`)).toBe('respondeu_proposta');
           expect(await ultimo()).toMatchObject({ situacao: 'falta', motivo: 'pedido_estoque' });
-          expect(numero.enviadas.at(-1)!.texto).toMatch(/^Recebo o pedido "Mercado P4" com este cupom\. Lançar no estoque\?/);
+          expect(numero.enviadas.at(-1)!.texto).toMatch(/^Recebo o pedido "Mercado P4" com este cupom\. Os itens entram no estoque\?/);
           expect(numero.enviadas.at(-1)!.botoes).toEqual(botoesDoEstoqueDoPedido(c1.id));
           numero.pedidos.length = 0;
           expect(await tocar(telAna, `doc:pd:${c1.id}:r`)).toBe('respondeu_proposta');
