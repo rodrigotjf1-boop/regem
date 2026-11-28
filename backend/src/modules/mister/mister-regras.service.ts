@@ -150,6 +150,33 @@ export class MisterRegrasService implements OnModuleInit {
     return { presidente: e.nivel === 'presidente', pode: (p) => podeAcessar(e.permissoes, p as any), verValores: e.verValores };
   }
 
+  /**
+   * Rodada 7, MIS-I-06 (ERR-661): vê e mexe nas regras de TODOS só o presidente sem loja presa — a régua do agente
+   * (`todaEmpresa`). O presidente preso à loja A via, conferia e pausava as regras da loja B.
+   */
+  private todaEmpresa(e: EscopoDoMister): boolean {
+    return e.nivel === 'presidente' && !e.presa;
+  }
+
+  /** MIS-I-11: o "confirmar" da IA — a proposta aberta DA PESSOA volta com o botão Confirmar (o toque liga). */
+  private async botaoParaConfirmar(e: EscopoDoMister, id: string): Promise<ResultadoDaFerramenta> {
+    if (!UUID.test(id)) return { ok: false, dados: { erro: TEXTOS_DAS_REGRAS.naoAchada } };
+    const [r] = linhas(
+      await this.db.execute(sql`
+        select id::text as id, titulo, situacao, vence_em > clock_timestamp() as "vale", estado from mister_regra
+         where id = ${id}::uuid and tenant_id = ${e.tenantId}::uuid and colaborador_id = ${e.colaboradorId}::uuid`),
+    );
+    if (!r) return { ok: false, dados: { erro: TEXTOS_DAS_REGRAS.naoAchada } };
+    if (r.situacao === 'descartada' && r.estado?.trocadaPor) return { ok: false, dados: { erro: TEXTOS_DAS_REGRAS.trocada } };
+    if (r.situacao === 'ativa') return { ok: false, dados: { erro: TEXTOS_DAS_REGRAS.jaLigada } };
+    if (r.situacao !== 'proposta' || !r.vale) return { ok: false, dados: { erro: TEXTOS_DAS_REGRAS.venceu } };
+    return {
+      ok: true,
+      dados: { esperaOToque: true, titulo: r.titulo, siga: 'Diga que a regra liga quando a pessoa tocar em "Confirmar" no botão que vai junto — não diga que ligou.' },
+      botoes: botoesDaProposta(r.id),
+    };
+  }
+
   /** A ferramenta `regras`. Nunca lança: o erro vira a frase que volta à IA. */
   async ferramenta(e: EscopoDoMister, en: Record<string, unknown>): Promise<ResultadoDaFerramenta> {
     const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
@@ -157,12 +184,10 @@ export class MisterRegrasService implements OnModuleInit {
       switch (en.acao) {
         case 'propor':
           return await this.propor(e, en);
-        case 'confirmar': {
-          const r = await this.ativar(String(en.regraId ?? ''), e.tenantId, e.colaboradorId, e.nivel === 'presidente');
-          return 'erro' in r
-            ? recusa(r.erro)
-            : { ok: true, dados: { ligada: true, titulo: r.titulo, efeito: TEXTOS_DAS_REGRAS.ligada(r.titulo, r.substitui), siga: 'Mostre o "efeito" como veio: o que parou de chegar e o que continua chegando.' } };
-        }
+        case 'confirmar':
+          // Rodada 7, MIS-I-11 (ERR-661): ligar a regra é o TOQUE da pessoa no botão — nunca a IA. Um "ok" dado a outra coisa,
+          // ou o texto de uma foto, fazia a IA ligar uma regra que cala avisos. O "confirmar" da IA devolve o botão de novo.
+          return await this.botaoParaConfirmar(e, String(en.regraId ?? ''));
         case 'buscar':
           return await this.buscar(e, en);
         case 'listar':
@@ -313,6 +338,16 @@ export class MisterRegrasService implements OnModuleInit {
     return !('erro' in conferirRegra(regra, this.quemFaz(e), (t) => ehTipoDeAviso(t) && !(AVISOS_QUE_NAO_SE_CALAM as readonly string[]).includes(t)));
   }
 
+  /**
+   * Rodada 7, MIS-I-16 (ERR-661): das regras ativas que ficam no lugar de um aviso, alguma ainda avisa o dono? A mesma régua da
+   * volta (o escopo de AGORA, com loja, e o `cabe`). Nenhuma = o aviso padrão volta a chegar, senão a pessoa fica sem nada.
+   */
+  async algumaAindaAvisa(tenantId: string, colaboradorId: string, regras: unknown[]): Promise<boolean> {
+    const dono = await this.ferramentas.escopoDaTela(tenantId, colaboradorId).catch(() => null);
+    if (!dono || dono.semLoja) return false;
+    return regras.some((r) => !!r && typeof r === 'object' && !!fonteDaRegra((r as Regra).fonte) && this.cabe(dono, r as Record<string, unknown>));
+  }
+
   /** O nome do item escolhido (a conta, a tarefa), se ele está no escopo da pessoa — ou null. */
   private async alvoNoEscopo(e: EscopoDoMister, fonte: NomeDaFonte, id: string): Promise<string | null> {
     if (!UUID.test(id)) return null;
@@ -320,7 +355,7 @@ export class MisterRegrasService implements OnModuleInit {
     if (fonte === 'contas') {
       const [c] = linhas(
         await this.db.execute(sql`
-          select x.descricao, f.nome as fornecedor from titulo_financeiro x left join fornecedor f on f.id = x.fornecedor_id
+          select x.descricao, f.nome as fornecedor from titulo_financeiro x left join fornecedor f on f.id = x.fornecedor_id and f.tenant_id = x.tenant_id
            where x.id = ${id}::uuid and x.tenant_id = ${e.tenantId}::uuid and x.tipo = 'pagar' ${loja}`),
       );
       return c ? [c.descricao, c.fornecedor].filter(Boolean).join(' · ').slice(0, 120) : null;
@@ -344,7 +379,7 @@ export class MisterRegrasService implements OnModuleInit {
       const itens = linhas(
         await this.db.execute(sql`
           select t.id::text as id, t.descricao, f.nome as fornecedor, to_char(t.vencimento, 'DD/MM') as vence, t.valor::float8 as valor
-            from titulo_financeiro t left join fornecedor f on f.id = t.fornecedor_id
+            from titulo_financeiro t left join fornecedor f on f.id = t.fornecedor_id and f.tenant_id = t.tenant_id
            where t.tenant_id = ${e.tenantId}::uuid and t.tipo = 'pagar' and t.status = 'aberto'
              and t.vencimento between ${somarDias(hoje, -30)}::date and ${somarDias(hoje, 60)}::date
              and (t.descricao ilike ${como} or f.nome ilike ${como}) ${loja('t.unidade_id')}
@@ -359,6 +394,8 @@ export class MisterRegrasService implements OnModuleInit {
       };
     }
     if (en.fonte === 'tarefas') {
+      // MIS-I-12 (ERR-661): a mesma permissão da fonte (a tela de gestão das tarefas).
+      if (e.nivel !== 'presidente' && !podeAcessar(e.permissoes, 'checklist' as any)) return { ok: false, dados: { erro: 'O perfil desta pessoa não dá acesso às tarefas da loja.' } };
       const itens = linhas(
         await this.db.execute(sql`
           select distinct on (d.id) d.id::text as id, d.titulo, to_char(d.horario, 'HH24:MI') as horario, to_char(d.horario_fim, 'HH24:MI') as fim
@@ -380,7 +417,7 @@ export class MisterRegrasService implements OnModuleInit {
 
   private async listar(e: EscopoDoMister): Promise<ResultadoDaFerramenta> {
     // Decisão V6-5: o presidente vê as de todos; o gerente, só as dele.
-    const deQuem = e.nivel === 'presidente' ? sql`` : sql`and r.colaborador_id = ${e.colaboradorId}::uuid`;
+    const deQuem = this.todaEmpresa(e) ? sql`` : sql`and r.colaborador_id = ${e.colaboradorId}::uuid`; // MIS-I-06
     const lidas = linhas(
       await this.db.execute(sql`
         select r.id::text as id, r.titulo, r.situacao, r.resumo, c.nome as dono, r.colaborador_id::text as "colaboradorId",
@@ -439,7 +476,7 @@ export class MisterRegrasService implements OnModuleInit {
     const agora = agoraNaLoja(instante);
     const inicio = inicioDoDiaDeTrabalho(agora);
     const desde = new Date(inicio).toISOString();
-    const dela = e.nivel === 'presidente' ? sql`` : sql`and r.colaborador_id = ${e.colaboradorId}::uuid`;
+    const dela = this.todaEmpresa(e) ? sql`` : sql`and r.colaborador_id = ${e.colaboradorId}::uuid`; // MIS-I-06
     const [l] = linhas(
       await this.db.execute(sql`
         select r.id::text as id, r.titulo, r.situacao, r.resumo, r.regra, r.colaborador_id::text as "colaboradorId", r.ativada_em as "ativadaEm",
@@ -472,7 +509,8 @@ export class MisterRegrasService implements OnModuleInit {
     const SIGA =
       'Responda pelo que veio, em frases de gente: se ela está ligada e desde quando, o último aviso e o que o dia mostrou. A regra existe: nunca diga o contrário. Se "ultimoEnvioNaoSaiu", diga que o último aviso não chegou a sair. Se ela teria avisado e "avisosNoDia" é zero, diga que achou um problema, sem inventar a causa. Se vier "comMenosTempo", ofereça a mudança como sugestão, separada dos números, e só mude se a pessoa pedir.';
     const dono = l.colaboradorId === e.colaboradorId ? e : await this.ferramentas.escopoDaTela(e.tenantId, l.colaboradorId).catch(() => null);
-    if (!dono || dono.semLoja || (fonte.permissao && dono.nivel !== 'presidente' && !podeAcessar(dono.permissoes, fonte.permissao as any))) {
+    // MIS-I-04 (ERR-661): a régua inteira de agora do dono (a fonte e os campos em reais), como na volta.
+    if (!dono || dono.semLoja || !this.cabe(dono, regra as unknown as Record<string, unknown>)) {
       return { ok: true, dados: { ...base, naoOlha: 'Quem criou esta regra não tem mais acesso a esses dados: enquanto for assim, ela não avisa.', siga: SIGA } };
     }
     try {
@@ -547,7 +585,7 @@ export class MisterRegrasService implements OnModuleInit {
    * (decisão V6-5; a régua é a da conversa). O nome da fonte vem do catálogo; nada da regra crua (o JSON) vai à tela.
    */
   async daTela(e: EscopoDoMister): Promise<{ souPresidente: boolean; regras: any[] }> {
-    const deQuem = e.nivel === 'presidente' ? sql`` : sql`and r.colaborador_id = ${e.colaboradorId}::uuid`;
+    const deQuem = this.todaEmpresa(e) ? sql`` : sql`and r.colaborador_id = ${e.colaboradorId}::uuid`; // MIS-I-06
     const lidas = linhas(
       await this.db.execute(sql`
         select r.id::text as id, r.titulo, r.situacao, r.resumo, r.fonte, r.substitui, c.nome as dono,
@@ -605,7 +643,7 @@ export class MisterRegrasService implements OnModuleInit {
   /** A regra que esta pessoa pode mexer: a dela, ou qualquer uma da empresa se for o presidente. */
   private async regraDaPessoa(e: EscopoDoMister, id: string): Promise<{ id: string; titulo: string; situacao: string } | null> {
     if (!UUID.test(id)) return null;
-    const dela = e.nivel === 'presidente' ? sql`` : sql`and colaborador_id = ${e.colaboradorId}::uuid`;
+    const dela = this.todaEmpresa(e) ? sql`` : sql`and colaborador_id = ${e.colaboradorId}::uuid`; // MIS-I-06
     const [r] = linhas(
       await this.db.execute(sql`
         select id::text as id, titulo, situacao from mister_regra
@@ -679,8 +717,11 @@ export class MisterRegrasService implements OnModuleInit {
     if (!r) return false;
     const v = quem.vinculos.find((x) => x.tenantId === r.tenantId)!;
     const dono = v.colaboradorId === r.colaboradorId;
-    const presidente = v.nivel === 'presidente';
-    if (!dono && !presidente) {
+    // Rodada 7, MIS-I-06/I-11 (ERR-661): o "Confirmar" e o "Mudar" são do DONO da proposta (o botão só vai a ele); o "Apagar" da
+    // regra de outra pessoa, só do presidente que vê a empresa toda (sem loja presa) — pela régua de AGORA.
+    const escopoAgora = dono ? null : await this.ferramentas.escopo(r.tenantId, v.colaboradorId, quem.telefone);
+    const presidente = !!escopoAgora && this.todaEmpresa(escopoAgora);
+    if (!dono && !(b.acao === 'apagar' && presidente)) {
       await this.dizer(quem.telefone, TEXTOS_DAS_REGRAS.naoAchada);
       return true;
     }
@@ -690,7 +731,7 @@ export class MisterRegrasService implements OnModuleInit {
       return true;
     }
     if (b.acao === 'sim') {
-      const a = await this.ativar(r.id, r.tenantId, v.colaboradorId, presidente);
+      const a = await this.ativar(r.id, r.tenantId, v.colaboradorId, false);
       await this.dizer(quem.telefone, 'erro' in a ? a.erro : TEXTOS_DAS_REGRAS.ligada(a.titulo, a.substitui));
     } else if (b.acao === 'mudar') {
       const [mudou] = linhas(
@@ -713,13 +754,20 @@ export class MisterRegrasService implements OnModuleInit {
 
   /** O toque em "Ver o que fazer" do modelo (o aviso da regra que saiu fora das 24 horas): só ao dono, só o que saiu pelo modelo. */
   async mostrarPeloToque(id: string, quem: QuemTocou): Promise<boolean> {
+    // Rodada 7, MIS-I-05 (ERR-661): o texto guardado no envio só vai se a regra ainda existe e o dono ainda pode recebê-la
+    // AGORA (o acesso, os valores, o PIN) — o toque dias depois mandava a lista em R$ a quem já tinha perdido o financeiro.
     const [v] = linhas(
       await this.db.execute(sql`
-        select texto, tenant_id::text as "tenantId", colaborador_id::text as "colaboradorId", resultado from mister_regra_envio where id = ${id}::uuid`),
+        select v.texto, v.tenant_id::text as "tenantId", v.colaborador_id::text as "colaboradorId", v.resultado,
+               r.situacao as "situacaoDaRegra", r.regra
+          from mister_regra_envio v left join mister_regra r on r.id = v.regra_id and r.tenant_id = v.tenant_id
+         where v.id = ${id}::uuid`),
     );
     if (!v || v.resultado !== 'modelo') return false;
     if (!quem.vinculos.some((x) => x.tenantId === v.tenantId && x.colaboradorId === v.colaboradorId)) return false;
-    await this.dizer(quem.telefone, String(v.texto));
+    const e = await this.ferramentas.escopo(v.tenantId, v.colaboradorId, quem.telefone);
+    const vale = !!e && !e.semLoja && !e.pinPendente && ['ativa', 'pausada', 'concluida'].includes(String(v.situacaoDaRegra ?? '')) && !!v.regra && this.cabe(e, v.regra);
+    await this.dizer(quem.telefone, vale ? String(v.texto) : TEXTOS_DAS_REGRAS.avisoAntigoIndisponivel);
     return true;
   }
 
@@ -783,7 +831,9 @@ export class MisterRegrasService implements OnModuleInit {
       if (!olhaAgora(regra, estado, agora)) continue;
       const e = await escopoDe(a.tenantId, a.colaboradorId);
       if (!e || e.semLoja) continue;
-      if (fonte.permissao && e.nivel !== 'presidente' && !podeAcessar(e.permissoes, fonte.permissao as any)) continue;
+      // Rodada 7, MIS-I-04 (ERR-661): a regra é conferida com o acesso de AGORA do dono a cada volta — a permissão da fonte E os
+      // campos em reais (o `cabe` roda o `conferirRegra` inteiro). Quem perdeu "ver valores" não recebe mais a soma em R$.
+      if (!this.cabe(e, regra as unknown as Record<string, unknown>)) continue;
       aOlhar.push({ id: a.id, tenantId: a.tenantId, colaboradorId: a.colaboradorId, regra, estado, escopo: e });
     }
     // As fontes: uma leitura por fonte para todas as empresas que precisam dela (as vendas, por dono: são do Painel).
@@ -906,7 +956,7 @@ export class MisterRegrasService implements OnModuleInit {
             await this.db.execute(sql`
               select t.id::text as id, t.tenant_id::text as "tenantId", t.unidade_id::text as "unidadeId", t.descricao, f.nome as fornecedor,
                      t.valor::float8 as valor, to_char(t.vencimento, 'YYYY-MM-DD') as vencimento, (t.vencimento - ${agora.dia}::date)::int as dias
-                from titulo_financeiro t left join fornecedor f on f.id = t.fornecedor_id
+                from titulo_financeiro t left join fornecedor f on f.id = t.fornecedor_id and f.tenant_id = t.tenant_id
                where ${em(tenants, 't.tenant_id')} and t.tipo = 'pagar' and t.status = 'aberto'
                  and t.vencimento between ${somarDias(agora.dia, -30)}::date and ${somarDias(agora.dia, 60)}::date
                limit ${LINHAS_POR_FONTE}`),

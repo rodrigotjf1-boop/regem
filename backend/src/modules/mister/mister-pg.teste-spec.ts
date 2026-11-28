@@ -4157,7 +4157,7 @@ export function testesDoMisterComPostgres(): void {
           chave: 'ponto-mes:2026-10-01',
           titulo: `Ponto de outubro · ${NOME_A} (1 a 31/10)`,
           detalhe: '14 colaboradores · 1 pendente (Edu Balcão, 28/10).\n\nPara mandar à contabilidade com um toque, cadastre o responsável em Pessoas › Gerenciamento de ponto.',
-          dados: { competencia: COMP, empresa: NOME_A, contadorId: null },
+          dados: { competencia: COMP, empresa: NOME_A, contadorId: null, contadorFinal: null },
         });
 
         // Com o responsável: abre às 06:30 e vai SÓ ao presidente — a mensagem com a pasta e os botões, e o PDF logo depois.
@@ -4175,8 +4175,10 @@ export function testesDoMisterComPostgres(): void {
           `📁 Ponto de outubro · ${NOME_A} (1 a 31/10).\n\n14 colaboradores · 1 pendente (Edu Balcão, 28/10).\n\nEnvio à contabilidade? Juliana Prado (WhatsApp final 7788).`,
           expect.stringMatching(new RegExp(`^documento:Espelho de ponto · outubro 2026 · ${NOME_A}\\.pdf\\|Espelho de ponto de outubro\\|\\d+$`)),
         ]);
+        // Rodada 7, MIS-I-10 (ERR-661): o botão leva o contador que o aviso mostrou (o id e o final 7788).
+        const ENVIAR = `pmes:enviar:${aviso.id}:${contadorId}:7788`;
         expect(paraAna[0].botoes).toEqual([
-          { id: `pmes:enviar:${aviso.id}`, titulo: 'Enviar ao contador' },
+          { id: ENVIAR, titulo: 'Enviar ao contador' },
           { id: `pmes:ver:${aviso.id}`, titulo: 'Ver antes' },
         ]);
         expect(numero.enviadas.filter((m) => m.para !== telAna)).toEqual([]);
@@ -4187,8 +4189,8 @@ export function testesDoMisterComPostgres(): void {
         expect(numero.enviadas).toEqual([
           expect.objectContaining({ para: telAna, texto: TEXTOS_DO_PONTO_DO_MES.verAntes(COMP), link: expect.objectContaining({ titulo: 'Abrir no Regem', url: expect.stringMatching(/\/pessoas$/) }) }),
         ]);
-        expect(await tocar(telCarlos, `pmes:enviar:${aviso.id}`)).toEqual([TEXTOS_DO_PONTO_DO_MES.soPresidente]);
-        expect(await tocar(telB, `pmes:enviar:${aviso.id}`)).toEqual([TEXTOS_DA_PROPOSTA.naoAchada]);
+        expect(await tocar(telCarlos, ENVIAR)).toEqual([TEXTOS_DO_PONTO_DO_MES.soPresidente]);
+        expect(await tocar(telB, ENVIAR)).toEqual([TEXTOS_DA_PROPOSTA.naoAchada]);
         expect(docsDaLoja).toEqual([]);
 
         // A renovação do aviso a cada volta preserva a reserva do envio (senão o toque duplo, no meio da volta, mandaria duas vezes).
@@ -4196,26 +4198,39 @@ export function testesDoMisterComPostgres(): void {
         await comPonto.volta([A, B], DIA1);
         expect((await avisoDoPonto()).dados).toHaveProperty('envioEm');
         // A reserva fresca segura o toque: "já está em andamento", nada sai.
-        expect(await tocar(telAna, `pmes:enviar:${aviso.id}`)).toEqual([TEXTOS_DO_PONTO_DO_MES.enviando]);
+        expect(await tocar(telAna, ENVIAR)).toEqual([TEXTOS_DO_PONTO_DO_MES.enviando]);
         expect(docsDaLoja).toEqual([]);
         // A reserva velha (o envio que morreu no meio) não segura; a falha do envio solta a reserva e diz a frase.
         await q(`update mister_aviso set dados = dados || jsonb_build_object('envioEm', now() - interval '10 minutes') where id = $1`, [aviso.id]);
         const quebrado = new MisterPontoDoMesService(db, { enviarEspelhoContador: async () => Promise.reject(new Error('o WhatsApp da loja caiu')) } as any, undefined, numero);
         numero.pedidos.length = 0;
-        expect(await quebrado.tocou(`pmes:enviar:${aviso.id}`, quemAna)).toBe(true);
+        expect(await quebrado.tocou(ENVIAR, quemAna)).toBe(true);
         expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PONTO_DO_MES.falhou]);
         expect((await avisoDoPonto()).dados).not.toHaveProperty('envioEm');
         const semResponsavel = new MisterPontoDoMesService(db, { enviarEspelhoContador: async () => ({ precisaResponsavel: true }) } as any, undefined, numero);
         numero.pedidos.length = 0;
-        expect(await semResponsavel.tocou(`pmes:enviar:${aviso.id}`, quemAna)).toBe(true);
-        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PONTO_DO_MES.semContador]);
+        expect(await semResponsavel.tocou(ENVIAR, quemAna)).toBe(true);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PONTO_DO_MES.responsavelMudou]);
         expect((await avisoDoPonto()).dados).not.toHaveProperty('envioEm');
+
+        // ERR-661 (MIS-I-10): o WhatsApp do responsável trocado depois do aviso (o mesmo cadastro) — o toque não manda; o botão
+        // antigo (sem o contador) também não.
+        await q(`update contador set whatsapp = '5521911112222' where id = $1`, [contadorId]);
+        numero.pedidos.length = 0;
+        expect(await botoesDoPonto.tocou(ENVIAR, quemAna)).toBe(true);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PONTO_DO_MES.responsavelMudou]);
+        expect(docsDaLoja).toEqual([]);
+        await q(`update contador set whatsapp = '5521998767788' where id = $1`, [contadorId]);
+        numero.pedidos.length = 0;
+        expect(await botoesDoPonto.tocou(`pmes:enviar:${aviso.id}`, quemAna)).toBe(true);
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PONTO_DO_MES.responsavelMudou]);
+        expect(docsDaLoja).toEqual([]);
 
         // "Enviar ao contador": o MESMO envio da tela — o PDF pelo WhatsApp da loja ao responsável, o fechamento marcado e a
         // auditoria em nome do presidente. Dois toques ao mesmo tempo mandam uma vez só.
         auditados.length = 0;
         numero.pedidos.length = 0;
-        expect(await Promise.all([botoesDoPonto.tocou(`pmes:enviar:${aviso.id}`, quemAna), botoesDoPonto.tocou(`pmes:enviar:${aviso.id}`, quemAna)])).toEqual([true, true]);
+        expect(await Promise.all([botoesDoPonto.tocou(ENVIAR, quemAna), botoesDoPonto.tocou(ENVIAR, quemAna)])).toEqual([true, true]);
         expect(docsDaLoja).toEqual([{ tenantId: A, tel: '5521998767788', nome: 'espelho-ponto-2026-10.pdf', legenda: 'Espelho de ponto 10/2026', inicio: '%PDF-' }]);
         const respostas = numero.enviadas.map((m) => m.texto);
         expect(respostas).toHaveLength(2);
@@ -4225,7 +4240,7 @@ export function testesDoMisterComPostgres(): void {
         expect(auditados.find((x) => x.acao === 'enviou_espelho_rh')).toMatchObject({ tenantId: A, atorId: pessoa.ana, detalhe: { competencia: COMP, contadorId } });
         // O toque de novo: já foi, às tantas — nada sai outra vez.
         await q(`update mister_aviso set dados = dados - 'envioEm' where id = $1`, [aviso.id]);
-        expect(await tocar(telAna, `pmes:enviar:${aviso.id}`)).toEqual([expect.stringMatching(/^O ponto de outubro já foi enviado à contabilidade, às \d\d:\d\d\.$/)]);
+        expect(await tocar(telAna, ENVIAR)).toEqual([expect.stringMatching(/^O ponto de outubro já foi enviado à contabilidade, às \d\d:\d\d\.$/)]);
         expect(docsDaLoja).toHaveLength(1);
         // A volta seguinte fecha o aviso PORQUE o fechamento foi mandado, sem mandar "resolvido". (O envio da tela recalcula o
         // fechamento, e aqui a empresa de teste não tem escala em outubro: o total volta a 14 para o "enviado" ser o motivo.)
@@ -4717,10 +4732,11 @@ export function testesDoMisterComPostgres(): void {
       await janelaAberta('carlos');
       const FIXO = '⏰ Sem solução há 6 min. ⚠️ Loja Centro · impressora Cozinha parada.\n\nConfira se ela está ligada, com papel e no cabo ou na rede.';
       /** Abre o aviso da impressora (vai à tela), passa 6 min e escala ao gerente pelo WhatsApp: devolve as entregas da escalada. */
-      const escalar = async (chave: string) => {
+      const escalar = async (chave: string, antesDeEscalar?: () => Promise<void>) => {
         escritor.incidentes = [incidente('impressora_parada', chave)];
         await escritor.volta([A]);
         await q(`update mister_aviso set aberto_em = now() - interval '6 minutes 10 seconds' where tenant_id = $1 and situacao = 'aberto' and chave = $2`, [A, `vigia:impressora_parada:${chave}`]);
+        if (antesDeEscalar) await antesDeEscalar();
         numero.pedidos.length = 0;
         expect(await escritor.volta([A])).toMatchObject({ escalados: 1 });
         const [a] = await q(`select entregas from mister_aviso where tenant_id = $1 and situacao = 'aberto' and chave = $2`, [A, `vigia:impressora_parada:${chave}`]);
@@ -4739,7 +4755,23 @@ export function testesDoMisterComPostgres(): void {
         await conversaCfg.salvar(usuario('ana'), { avisosEscritos: ['loja'], perfil: 'objetivo' });
         const ESCRITO = '⏰ *Loja Centro*: a impressora Cozinha continua parada há 6 min, sem solução. Confira se ela está ligada, com papel e no cabo ou na rede.';
         ia.roteiro = [falar(ESCRITO)];
-        e = await escalar(`m4c-2:${MARCA}`);
+        // ERR-661 · MIS-I-15: abertos de OUTRA loja e o boleto (pede permissão para ver) não entram no que vai à IA.
+        const [{ id: lojaI15 }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja I15') returning id`, [A]);
+        e = await escalar(`m4c-2:${MARCA}`, () =>
+          q(
+            `insert into mister_aviso (tenant_id, unidade_id, tipo, chave, titulo) values
+               ($1, $2, 'impressora', $4, 'Loja I15 · impressora Bar parada'),
+               ($1, $3, 'boleto_vencendo', $5, 'Boleto Fornecedor Sigilo vence amanhã'),
+               ($1, $3, 'impressora', $6, 'Loja Centro · impressora Bar parada')`,
+            [A, lojaI15, lojaDeA, `i15-a:${MARCA}`, `i15-b:${MARCA}`, `i15-c:${MARCA}`],
+          ).then(() => undefined),
+        );
+        const outrosI15 = JSON.parse(ia.pedidos[0].messages[0].content).outrosAbertos.map((o: any) => o.titulo);
+        expect(outrosI15).toContain('Loja Centro · impressora Bar parada');
+        expect(outrosI15).not.toContain('Loja I15 · impressora Bar parada');
+        expect(outrosI15).not.toContain('Boleto Fornecedor Sigilo vence amanhã');
+        await q(`delete from mister_aviso where tenant_id = $1 and chave like 'i15-%'`, [A]);
+        await q(`delete from unidade where id = $1`, [lojaI15]);
         expect(numero.enviadas).toEqual([{ para: tel, texto: ESCRITO, botoes: [] }]);
         expect(e).toEqual([expect.objectContaining({ destino: 'gerente', ok: true, escrito: true })]);
         expect(ia.pedidos).toHaveLength(1);
@@ -4851,6 +4883,26 @@ export function testesDoMisterComPostgres(): void {
         // "Para de olhar" pela conversa, e a lista.
         expect(await ferr.executar(e, 'ficar_de_olho', { acao: 'parar', trecho: p2.display })).toMatchObject({ ok: true, dados: { parou: true } });
         expect((await ferr.executar(e, 'ficar_de_olho', { acao: 'listar' })).dados.marcados).toHaveLength(1);
+
+        // ERR-661 (rodada 7, MIS-I-07): quem pediu foi transferido para outra loja — a volta cancela o que ele olhava, sem mandar nada.
+        const [{ id: lojaI07 }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja I07') returning id::text as id`, [A]);
+        const [{ loja: lojaDoCarlos }] = await q(`select unidade_id::text as loja from colaborador where id = $1`, [pessoa.carlos]);
+        const ativo = (await vigiasDe()).find((v: any) => v.situacao === 'ativo' && v.alvo === 'pedido')!;
+        const pedidoOlhado = String(ativo.referencia).slice(3);
+        try {
+          await q(`update colaborador set unidade_id = $2 where id = $1`, [pessoa.carlos, lojaI07]);
+          await q(`update pedido_externo set status = 'despachado', despachado_em = now() where id = $1`, [pedidoOlhado]);
+          numero.pedidos.length = 0;
+          expect(await vigia.volta(new Date(), [A])).toMatchObject({ mudancas: 0 });
+          expect(numero.enviadas).toEqual([]);
+          expect((await vigiasDe()).find((v: any) => v.id === ativo.id)).toMatchObject({ situacao: 'cancelado', resultado: 'quem pediu não tem mais acesso a isso' });
+        } finally {
+          await q(`update colaborador set unidade_id = $2 where id = $1`, [pessoa.carlos, lojaDoCarlos]);
+          await q(`delete from unidade where id = $1`, [lojaI07]);
+          // O resto do teste segue com este "fica de olho" ativo, como estava.
+          await q(`update pedido_externo set status = 'confirmado', despachado_em = null where id = $1`, [pedidoOlhado]);
+          await q(`update mister_vigia set situacao = 'ativo', resultado = null where id = $1`, [ativo.id]);
+        }
 
         // O lembrete: marcado para amanhã às 10:00 da loja; na hora, duas voltas juntas mandam UMA vez.
         const amanha = somarDias(dataNoFuso(new Date()), 1);
@@ -5032,6 +5084,11 @@ export function testesDoMisterComPostgres(): void {
       await expect(historico.historico(A, { dias: '7', grupo: 'Outro' })).rejects.toThrow('Grupo de aviso desconhecido.');
       // A outra empresa não vê nada desta.
       expect((await historico.historico(B, { dias: '7' })).avisos.map((a) => a.titulo)).not.toContain('Loja Centro · impressora Cozinha parada');
+      // ERR-661 (rodada 7, MIS-I-06): quem consulta presa a OUTRA loja não vê os avisos da loja Centro (só os da empresa toda).
+      const outraLoja = randomUUID();
+      const daOutra = await historico.historico(A, { dias: '7' }, outraLoja);
+      expect(daOutra.avisos.map((a) => a.titulo)).not.toContain('Loja Centro · impressora Cozinha parada');
+      expect((await historico.historico(A, { dias: '7' }, lojaDeA)).avisos.map((a) => a.titulo)).toContain('Loja Centro · impressora Cozinha parada');
 
       // O suporte da DMS: só os de destino "dms", de todas as empresas, com a empresa e a loja; resolvidos só das 24 h.
       const abertos = await historico.paraOSuporte({ situacao: 'abertos', busca: MARCA });
@@ -5080,6 +5137,16 @@ export function testesDoMisterComPostgres(): void {
         expect((await tela.daLoja(B, null, pessoa.anaB)).avisos).toEqual([]);
         // O presidente na rede toda (sem loja escolhida) vê.
         expect((await tela.daLoja(A, null, pessoa.ana)).avisos).toHaveLength(1);
+        // ERR-661 (rodada 7, MIS-I-08): o boleto (valor, linha digitável), mesmo marcado para a tela, não vai à tela — qualquer
+        // perfil logado na loja a vê.
+        const [{ id: boletoNaTela }] = await q(
+          `insert into mister_aviso (tenant_id, unidade_id, tipo, chave, titulo, detalhe, situacao, entregas)
+           values ($1, $2, 'boleto_vencendo', $3, 'Boleto R$ 1.284,90 · vence amanhã', 'Linha digitável 0019...', 'aberto', '[{"destino":"tela","ok":true}]'::jsonb)
+           returning id::text as id`,
+          [A, lojaDeA, `i08:${MARCA}`],
+        );
+        expect((await tela.daLoja(A, lojaDeA, pessoa.edu)).avisos.map((x: any) => x.id)).not.toContain(boletoNaTela);
+        await q(`delete from mister_aviso where id = $1`, [boletoNaTela]);
 
         // "Ciente" do Edu: some da faixa só dele (duas vezes não duplica); a Ana segue vendo.
         await tela.ciente(A, lojaDeA, pessoa.edu, aberto.id);
@@ -5138,6 +5205,15 @@ export function testesDoMisterComPostgres(): void {
         }
         // A rota da nuvem para o servidor da loja só aceita pessoa da empresa.
         await expect(tela.cienteDoServidorDaLoja(A, lojaDeA, aberto.id, pessoa.anaB)).rejects.toThrow('não é desta empresa');
+        // ERR-661 · MIS-I-13: nem pessoa de OUTRA loja da empresa (o servidor desta loja não dá "Ciente" em nome dela).
+        const [{ loja: lojaDoCarlos }] = await q(`select unidade_id::text as loja from colaborador where id = $1`, [pessoa.carlos]);
+        try {
+          await q(`update colaborador set unidade_id = $2 where id = $1`, [pessoa.carlos, outraLoja]);
+          await expect(tela.cienteDoServidorDaLoja(A, lojaDeA, aberto.id, pessoa.carlos)).rejects.toThrow('não é desta loja');
+          expect((await avisosDe()).find((a: any) => a.id === aberto.id).dados?.cientes ?? []).not.toContain(pessoa.carlos);
+        } finally {
+          await q(`update colaborador set unidade_id = $2 where id = $1`, [pessoa.carlos, lojaDoCarlos]);
+        }
         await tela.cienteDoServidorDaLoja(A, lojaDeA, aberto.id, pessoa.ana);
         expect((await tela.daLoja(A, null, pessoa.ana)).avisos[0].ciente).toBe(true);
 
@@ -11953,8 +12029,11 @@ export function testesDoMisterComPostgres(): void {
           expect(regraId).toMatch(/^[0-9a-f-]{36}$/);
           expect(JSON.parse(ia.pedidos[2].messages.at(-1).content[0].content)).toEqual({ erro: TEXTOS_DO_AGENTE.regraEsperaAPessoa });
           expect((await q(`select situacao from mister_regra where id = $1`, [regraId]))[0].situacao).toBe('proposta');
-          // Na pergunta SEGUINTE (a resposta da pessoa), o "confirmar" vale.
-          expect(await ferramentas.executar(e, 'regras', { acao: 'confirmar', regraId })).toMatchObject({ ok: true, dados: { ligada: true } });
+          // Na pergunta SEGUINTE, o "confirmar" da IA também não liga (MIS-I-11, ERR-661): manda o botão — o toque liga.
+          const deNovo = await ferramentas.executar(e, 'regras', { acao: 'confirmar', regraId });
+          expect(deNovo).toMatchObject({ ok: true, dados: { esperaOToque: true } });
+          expect(deNovo.botoes?.map((b) => b.titulo)).toEqual(['Confirmar', 'Mudar']);
+          expect((await q(`select situacao from mister_regra where id = $1`, [regraId]))[0].situacao).toBe('proposta');
         } finally {
           ia.roteiro = roteiroAntes;
         }
@@ -12106,8 +12185,12 @@ export function testesDoMisterComPostgres(): void {
         });
         // o nome do alvo é o do banco, não o da IA
         expect(String(r.dados.oQueVouFazer)).toContain('R6E Boleto Distribuidora Sul');
-        // a pessoa confirma por escrito (sem o botão)
-        expect(await ferramentas.executar(e, 'regras', { acao: 'confirmar', regraId: r.dados.id })).toMatchObject({ ok: true, dados: { ligada: true } });
+        // a pessoa confirma por escrito: desde a rodada 7 (MIS-I-11, ERR-661) o botão Confirmar vai de novo, e o TOQUE liga
+        const porEscrito = await ferramentas.executar(e, 'regras', { acao: 'confirmar', regraId: r.dados.id });
+        expect(porEscrito).toMatchObject({ ok: true, dados: { esperaOToque: true } });
+        expect((await q(`select situacao from mister_regra where id = $1`, [r.dados.id]))[0].situacao).toBe('proposta');
+        await mandar(tel, 'Confirmar', { botaoId: porEscrito.botoes![0].id });
+        expect((await q(`select situacao from mister_regra where id = $1`, [r.dados.id]))[0].situacao).toBe('ativa');
         // às 15:59, nada; às 16:05, fora da janela das 24 h: vai o modelo com "Ver o que fazer"
         await q(`update mister_vinculo set ultima_entrada_em = now() - interval '2 days' where colaborador_id = $1`, [pessoa.ana]);
         expect(await regras.volta([A], new Date(`${hoje}T15:59:00-03:00`))).toMatchObject({ avisos: 0, concluidas: 0 });
@@ -12122,6 +12205,104 @@ export function testesDoMisterComPostgres(): void {
         expect(await mandar(tel, 'Ver o que fazer', { codigoDoModelo: modelo.botoes[0].id })).toBe('tocou_modelo');
         expect(numero.enviadas[0].texto).toContain('⏱ Boleto da Distribuidora');
         expect(numero.enviadas[0].texto).toContain('R6E Boleto Distribuidora Sul');
+        // ERR-661 (rodada 7, MIS-I-05): a regra apagada (ou o acesso que mudou) — o toque no aviso antigo não manda o texto guardado.
+        await q(`update mister_regra set situacao = 'apagada' where id = $1`, [r.dados.id]);
+        numero.pedidos.length = 0;
+        expect(await mandar(tel, 'Ver o que fazer', { codigoDoModelo: modelo.botoes[0].id })).toBe('tocou_modelo');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DAS_REGRAS.avisoAntigoIndisponivel]);
+      });
+
+      it('ERR-661 (rodada 7, MIS-I-04/I-06): quem perdeu "ver valores" não recebe mais a regra em R$; o presidente preso a uma loja não vê nem mexe nas regras de outra pessoa', async () => {
+        const tel = telefone();
+        await ligar('carlos', tel, A, 'gerente');
+        // O gerente com valores: a regra de soma das contas (em R$) nasce.
+        const [perfil] = await q(`insert into perfil_acesso (tenant_id, nome, nivel, permissoes) values ($1, 'Gerente com valores R7', 'gerente', $2::jsonb) returning id::text as id`, [
+          A,
+          JSON.stringify({ ...perfilPadrao('gerente').permissoes, financeiro: true, ver_financeiro: true }),
+        ]);
+        const [{ perfil: perfilAntes }] = await q(`select perfil_acesso_id::text as perfil from colaborador where id = $1`, [pessoa.carlos]);
+        await q(`update colaborador set perfil_acesso_id = $2 where id = $1`, [pessoa.carlos, perfil.id]);
+        try {
+          await q(`insert into titulo_financeiro (tenant_id, tipo, descricao, valor, vencimento, status) values ($1, 'pagar', 'R6E conta grande', 9000, $2, 'aberto')`, [A, hojeISO()]);
+          const somaEmReais = {
+            fonte: 'contas',
+            titulo: 'Contas acima de R$ 5 mil',
+            filtros: [{ campo: 'dias_para_vencer', op: '<=', valor: 0 }],
+            medida: 'soma',
+            campoDaMedida: 'valor',
+            condicao: { op: '>', valor: 5000 },
+            quando: {},
+            vezes: 'sempre',
+            agrupar: true,
+          };
+          const p = await ferramentas.executar(await escopo('carlos'), 'regras', { acao: 'propor', regra: somaEmReais });
+          expect(p).toMatchObject({ ok: true });
+          await regras.ativar(String(p.dados.id), A, pessoa.carlos, false);
+          // I-04: o presidente tira "ver valores" do perfil dele — a volta não olha mais a regra (nada sai com R$).
+          await q(`update perfil_acesso set permissoes = permissoes || '{"ver_financeiro": false}'::jsonb where id = $1`, [perfil.id]);
+          numero.pedidos.length = 0;
+          expect(await regras.volta([A])).toMatchObject({ avaliadas: 0, avisos: 0 });
+          expect(numero.enviadas.filter((m) => m.para === tel)).toEqual([]);
+          // I-06: a presidente presa a uma loja (empresa de duas) não lista, não confere e não pausa a regra do gerente.
+          const [{ id: praia }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja Praia I06') returning id::text as id`, [A]);
+          const [{ loja: lojaDaAna }] = await q(`select unidade_id::text as loja from colaborador where id = $1`, [pessoa.ana]);
+          try {
+            await q(`update colaborador set unidade_id = $2 where id = $1`, [pessoa.ana, praia]);
+            const ana = await escopo('ana');
+            expect(ana.presa).toBe(praia);
+            const lista = await ferramentas.executar(ana, 'regras', { acao: 'listar' });
+            expect(JSON.stringify(lista.dados)).not.toContain('Contas acima de R$ 5 mil');
+            expect(await ferramentas.executar(ana, 'regras', { acao: 'pausar', regraId: p.dados.id })).toMatchObject({ ok: false });
+            expect((await regras.daTela(ana)).regras.map((x) => x.titulo)).not.toContain('Contas acima de R$ 5 mil');
+          } finally {
+            await q(`update colaborador set unidade_id = $2 where id = $1`, [pessoa.ana, lojaDaAna]);
+            await q(`delete from unidade where id = $1`, [praia]);
+          }
+        } finally {
+          await q(`update colaborador set perfil_acesso_id = $2 where id = $1`, [pessoa.carlos, perfilAntes]);
+          await q(`delete from perfil_acesso where id = $1`, [perfil.id]);
+        }
+      });
+
+      it('ERR-661 (rodada 7, MIS-I-16): a regra que não avisa mais o dono (perdeu o acesso) não cala mais o aviso padrão', async () => {
+        const tel = telefone();
+        await ligar('carlos', tel, A, 'gerente');
+        const [perfil] = await q(`insert into perfil_acesso (tenant_id, nome, nivel, permissoes) values ($1, 'Gerente com valores I16', 'gerente', $2::jsonb) returning id::text as id`, [
+          A,
+          JSON.stringify({ ...perfilPadrao('gerente').permissoes, ver_financeiro: true }),
+        ]);
+        const [{ perfil: perfilAntes }] = await q(`select perfil_acesso_id::text as perfil from colaborador where id = $1`, [pessoa.carlos]);
+        await q(`update colaborador set perfil_acesso_id = $2 where id = $1`, [pessoa.carlos, perfil.id]);
+        const refAntes = (avisos as any).moduleRef;
+        (avisos as any).moduleRef = { get: (c: any) => (c === MisterRegrasService ? regras : null) };
+        const doPadrao = () => numero.enviadas.filter((m) => m.para === tel && /aceito há mais de 20 min/.test(m.texto));
+        try {
+          // A regra (com um filtro em R$) fica no lugar do "pedido parado" de um em um.
+          const comValor = { ...TRES, titulo: 'Parados acima de R$ 10', filtros: [...TRES.filtros, { campo: 'valor', op: '>', valor: 10 }] };
+          const p = await ferramentas.executar(await escopo('carlos'), 'regras', { acao: 'propor', regra: comValor });
+          expect({ ok: p.ok, erro: (p.dados as any).erro ?? null }).toEqual({ ok: true, erro: null });
+          await regras.ativar(String(p.dados.id), A, pessoa.carlos, false);
+          await q(
+            `insert into mister_aviso_regra (tenant_id, tipo, ligado, destinos, parametro) values ($1, 'pedido_parado', true, '{gerente}', 20)
+             on conflict (tenant_id, tipo) do update set ligado = true, destinos = '{gerente}', parametro = 20`,
+            [A],
+          );
+          await pedidoAceito(71, 30);
+          numero.pedidos.length = 0;
+          await avisos.volta([A]);
+          expect(doPadrao()).toHaveLength(0);
+          // Perdeu "ver valores": a regra não avisa mais — então o aviso padrão volta a chegar a ele.
+          await q(`update perfil_acesso set permissoes = permissoes || '{"ver_financeiro": false}'::jsonb where id = $1`, [perfil.id]);
+          await pedidoAceito(72, 30);
+          numero.pedidos.length = 0;
+          await avisos.volta([A]);
+          expect(doPadrao().length).toBeGreaterThan(0);
+        } finally {
+          (avisos as any).moduleRef = refAntes;
+          await q(`update mister_regra set situacao = 'apagada' where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.carlos]);
+          await q(`update colaborador set perfil_acesso_id = $2 where id = $1`, [pessoa.carlos, perfilAntes]);
+          await q(`delete from perfil_acesso where id = $1`, [perfil.id]);
+        }
       });
 
       it('a lista: o presidente vê as de todos, o gerente só as dele; só o dono ou o presidente apaga, pelo botão', async () => {
@@ -12364,7 +12545,11 @@ export function testesDoMisterComPostgres(): void {
           });
           const e = await escopo('ana');
           expect((await regras.conferirODia(e, soma)).dados.agora).toMatchObject({ itensQueElaPegaAgora: 1, valeAgora: true, medidaAgora: 900 });
-          expect((await regras.conferirODia({ ...e, verValores: false }, soma)).dados.agora).not.toHaveProperty('medidaAgora');
+          // Rodada 7, MIS-I-04 (ERR-661): o dono que perdeu "ver valores" — a regra de soma em R$ não olha mais (nem "passou ou
+          // não" do valor sai: antes o `valeAgora` respondia a soma por tabela).
+          const semValores = (await regras.conferirODia({ ...e, verValores: false }, soma)).dados;
+          expect(semValores).not.toHaveProperty('agora');
+          expect(semValores.naoOlha).toEqual(expect.stringContaining('não tem mais acesso'));
           expect(await ferramentas.executar(e, 'regras', { acao: 'conferir', regraId: randomUUID() })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_REGRAS.naoAchada } });
           expect(await ferramentas.executar(e, 'regras', { acao: 'conferir', regraId: 'lixo' })).toEqual({ ok: false, dados: { erro: TEXTOS_DAS_REGRAS.naoAchada } });
         });

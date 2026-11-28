@@ -84,7 +84,7 @@ export class FinanceiroService {
              t.fornecedor_id as "fornecedorId",
              t.created_at as "createdAt", f.nome as "fornecedorNome"
       from titulo_financeiro t
-      left join fornecedor f on f.id = t.fornecedor_id
+      left join fornecedor f on f.id = t.fornecedor_id and f.tenant_id = t.tenant_id
       where t.tenant_id = ${tenantId} ${sqlUnidade('t.unidade_id', atual)}
       ${tipo ? sql`and t.tipo = ${tipo}` : sql``}
       ${status ? sql`and t.status = ${status}` : sql``}
@@ -103,6 +103,7 @@ export class FinanceiroService {
     // M3a: quem lança por fora da tela diz de onde veio (o Mister lança o boleto por foto com `origem: 'mister'`).
     opcoes: { origem?: string } = {},
   ) {
+    await this.exigirFornecedorDaEmpresa(tenantId, dto.fornecedorId);
     const [row] = await this.db
       .insert(tituloFinanceiro)
       .values({
@@ -134,6 +135,16 @@ export class FinanceiroService {
   }
 
   // Edição — só contas EM ABERTO (paga tem lançamento; estorne antes de editar).
+  /**
+   * Rodada 7, MIS-I-03 (ERR-661): o fornecedor da conta é da MESMA empresa (e não apagado). O DTO só conferia o formato do id, e o
+   * banco liga só pelo id: a conta com o id do fornecedor de outra empresa mostrava o nome dele na lista e no Mister.
+   */
+  private async exigirFornecedorDaEmpresa(tenantId: string, fornecedorId: string | null | undefined): Promise<void> {
+    if (!fornecedorId) return;
+    const r: any = await this.db.execute(sql`select 1 from fornecedor where id = ${fornecedorId}::uuid and tenant_id = ${tenantId}::uuid and deleted_at is null`);
+    if (!(r?.rows ?? r ?? []).length) throw new BadRequestException('Fornecedor não encontrado.');
+  }
+
   async atualizar(
     tenantId: string,
     atorId: string,
@@ -149,6 +160,7 @@ export class FinanceiroService {
     if (!t) throw new NotFoundException('Título não encontrado');
     if (t.status !== 'aberto')
       throw new BadRequestException('Só é possível editar contas em aberto.');
+    await this.exigirFornecedorDaEmpresa(tenantId, dto.fornecedorId);
     const [row] = await this.db
       .update(tituloFinanceiro)
       .set({

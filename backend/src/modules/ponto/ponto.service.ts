@@ -681,7 +681,9 @@ export class PontoService {
     tenantId: string,
     atorId: string,
     competencia: string,
-    opts: { contadorId?: string; nome?: string; telefone?: string } = {},
+    // Rodada 7, MIS-I-10 (ERR-661): `finalDoWhatsapp` = o final que o aviso MOSTROU — o contador editado no lugar (outro número,
+    // o mesmo id) não recebe; conferido no mesmo `select` que acha o destino (sem janela entre conferir e mandar).
+    opts: { contadorId?: string; nome?: string; telefone?: string; finalDoWhatsapp?: string } = {},
   ) {
     const comp = competenciaValida(competencia) || competenciaAnterior();
     // Destino: contador informado > novo (nome+telefone) > contador ativo cadastrado.
@@ -701,6 +703,7 @@ export class PontoService {
         select id, whatsapp from contador
         where tenant_id = ${tenantId} and ativo = true
           ${contadorId ? sql`and id = ${contadorId}` : sql``}
+          ${opts.finalDoWhatsapp ? sql`and right(regexp_replace(coalesce(whatsapp, ''), '\\D', '', 'g'), 4) = ${opts.finalDoWhatsapp}` : sql``}
         order by created_at desc limit 1
       `);
       const row = (r.rows ?? r)[0];

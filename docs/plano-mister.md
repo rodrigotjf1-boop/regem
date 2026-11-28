@@ -3370,6 +3370,23 @@ código por duas leituras.
 - **Para depois:** H-09 (o Mentor reservar antes da IA — só a Diretoria, 3 por minuto), o prazo das ferramentas e o teto em
   dinheiro por reserva (pede migration).
 
+**Rodada 7 — bloco I, "avisos e regras criadas pela conversa" (28/11/2026; ERR-661, V130; SEM migration):** os 16 achados
+conferidos no código. O princípio: o que foi autorizado antes e roda depois confere o acesso de AGORA a cada uso.
+- **I-04, I-05, I-06, I-16:** a regra, o "conferir o dia", o toque no aviso antigo e a supressão do aviso padrão usam a régua de
+  agora do dono (a fonte, os valores em R$, a loja, o PIN). A regra que não avisa mais não cala o aviso padrão. A presidente
+  presa a uma loja vê e mexe só nas regras e no histórico dela.
+- **I-07:** o "fica de olho" cancela com "quem pediu não tem mais acesso a isso" depois da troca de loja ou da perda da permissão.
+- **I-08, I-09, I-15:** boleto e ponto esquecido só a quem tem `ver_financeiro`/`ponto_gerencial`, e não vão à tela da loja; a
+  entrega e o "Resolvido" pela pessoa (id), não pelos finais do telefone; a IA que escreve o aviso recebe só os outros avisos da
+  mesma loja e nunca os de boleto e ponto.
+- **I-10:** o PDF do ponto vai ao contador que o botão mostrou; WhatsApp trocado = "o responsável mudou".
+- **I-11:** o "confirmar" da IA devolve o botão; a regra liga só no toque. **I-12:** a fonte "tarefas" pede `checklist`.
+- **I-01, I-02, I-13, I-14:** o assistente da instalação e a reautorização só para a loja do gerente; a tela do servidor da loja
+  só com a loja da sessão; o "Ciente" pelo servidor da loja só de quem é da loja; o do KDS só no aviso da loja da tela.
+- **I-03:** o título a pagar só com fornecedor da empresa, e as junções com o fornecedor casam a empresa.
+- **Para depois:** o guarda do sincronismo aceitar o servidor sem loja (instalação antiga de loja única) e o "Resolvido"
+  reconferir papel e loja de agora.
+
 ### Dias especiais H2b — o feriado pelo Mister (27/11/2026; SEM migration; só na nuvem)
 
 Fase H2b do protótipo `mockups/regem-dias-especiais.html` (aba "No Mister"; decisões 4 e 8).

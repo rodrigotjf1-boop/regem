@@ -85,6 +85,15 @@ export function outrosDestinos(entregas: unknown): string[] {
   return [...vistos];
 }
 
+/**
+ * Rodada 7, MIS-I-02 (ERR-661): no servidor da loja, a nuvem manda os avisos do TOKEN (o servidor antigo sem loja recebe os da
+ * empresa inteira); a tela mostra só os da loja da SESSÃO e os da rede — como a régua da nuvem (`sqlUnidadeOuRede`). Sessão sem
+ * loja definida (`null`, o presidente em "todas") vê tudo; a sem loja nenhuma (NIL) só os da rede.
+ */
+export function daLojaDaSessao(a: { unidadeId: string | null }, unidadeDaSessao: string | null): boolean {
+  return !unidadeDaSessao || !a.unidadeId || a.unidadeId === unidadeDaSessao;
+}
+
 /** Os avisos abertos da loja com o destino "tela" (só na nuvem: a tabela é de lá). */
 export async function lerAvisosAbertosDaLoja(db: any, tenantId: string, unidadeId: string | null): Promise<AvisoAbertoDaLoja[]> {
   const iso = (c: string) => sql.raw(`to_char(${c} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`);
@@ -95,6 +104,8 @@ export async function lerAvisosAbertosDaLoja(db: any, tenantId: string, unidadeI
         from mister_aviso a
        where a.tenant_id = ${tenantId}::uuid and a.situacao = 'aberto'
          and a.entregas @> '[{"destino":"tela"}]'::jsonb
+         -- Rodada 7, MIS-I-08 (ERR-661): o boleto e o ponto não vão à tela (qualquer perfil logado vê a tela da loja).
+         and a.tipo not in ('boleto_vencendo', 'ponto_esquecido', 'ponto_do_mes')
          ${sqlUnidadeOuRede('a.unidade_id', unidadeId)}
        order by coalesce(a.escalado_em, a.aberto_em) desc
        limit ${AVISOS_NA_TELA_MAX}`),
@@ -147,7 +158,7 @@ export class AvisosNaTelaService {
     }
     const lidos = await this.daNuvemComCache(tenantId, unidadeId);
     if (!lidos) return { avisos: [], semConexao: true };
-    return { avisos: lidos.map((a) => avisoParaATela(a, colaboradorId)) };
+    return { avisos: lidos.filter((a) => daLojaDaSessao(a, unidadeId)).map((a) => avisoParaATela(a, colaboradorId)) };
   }
 
   /** "Ciente" de quem está logado. */
@@ -157,6 +168,9 @@ export class AvisosNaTelaService {
       if (!(await marcarCiente(this.db, tenantId, unidadeId, colaboradorId, avisoId))) throw new NotFoundException('Esse aviso não está mais aberto nesta loja.');
       return { ok: true };
     }
+    // MIS-I-02 (ERR-661): no servidor da loja, só o aviso que a SESSÃO vê (a loja dela ou da rede) recebe o "Ciente".
+    const daSessao = await this.daNuvemComCache(tenantId, unidadeId);
+    if (daSessao && !daSessao.some((a) => a.id === avisoId && daLojaDaSessao(a, unidadeId))) throw new NotFoundException('Esse aviso não está mais aberto nesta loja.');
     const r = await this.naNuvem(`/mister/avisos/${avisoId}/ciente/loja`, { method: 'POST', body: JSON.stringify({ colaboradorId }) });
     this.cache.delete(`${tenantId}|${unidadeId ?? ''}`);
     if ('motivo' in r) {
@@ -173,12 +187,22 @@ export class AvisosNaTelaService {
     return { tenantId, avisos: await this.lerNaNuvemSemTabela(() => lerAvisosAbertosDaLoja(this.db, tenantId, unidadeId)) };
   }
 
-  /** O "Ciente" que chega do servidor da loja: a pessoa tem de ser desta empresa. */
+  /**
+   * O "Ciente" que chega do servidor da loja: a pessoa tem de ser desta empresa e, se o servidor é de uma loja, desta loja
+   * (ou sem loja fixa, como o presidente) — a mesma régua do login (`colaborador.unidade_id`, senão a do setor da função).
+   */
   async cienteDoServidorDaLoja(tenantId: string, unidadeId: string | null, avisoId: string, colaboradorId: unknown): Promise<{ ok: true }> {
     const colab = String(colaboradorId ?? '');
     if (!UUID.test(String(avisoId ?? '')) || !UUID.test(colab)) throw new BadRequestException('Aviso ou pessoa inválida.');
-    const [pessoa] = linhas(await this.db.execute(sql`select 1 from colaborador where id = ${colab}::uuid and tenant_id = ${tenantId}::uuid and deleted_at is null`));
+    const [pessoa] = linhas(
+      await this.db.execute(sql`
+        select coalesce(c.unidade_id, s.unidade_id)::text as loja
+          from colaborador c left join funcao f on f.id = c.funcao_id left join setor s on s.id = f.setor_id
+         where c.id = ${colab}::uuid and c.tenant_id = ${tenantId}::uuid and c.deleted_at is null`),
+    );
     if (!pessoa) throw new BadRequestException('Essa pessoa não é desta empresa.');
+    // Rodada 7, MIS-I-13 (ERR-661): o servidor de uma loja não dá "Ciente" em nome de quem é de outra loja.
+    if (unidadeId && pessoa.loja && pessoa.loja !== unidadeId) throw new BadRequestException('Essa pessoa não é desta loja.');
     if (!(await marcarCiente(this.db, tenantId, unidadeId, colab, avisoId))) throw new NotFoundException('Esse aviso não está mais aberto nesta loja.');
     return { ok: true };
   }

@@ -3,12 +3,15 @@ import { ModuleRef } from '@nestjs/core';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DiasEspeciaisService } from '../cardapio/dias-especiais.service';
 import { MisterTarefasService } from './mister-tarefas.service';
+import { MisterRegrasService } from './mister-regras.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { EDGE_JANELA_MIN } from '../../common/edge-ativo';
 import { uuidDeChave } from '../../common/id-deterministico';
 import { ehServidorLocal } from '../../common/modo';
+import { sqlUnidadeOuRede } from '../../common/filtro-unidade';
+import { perfilPadrao, podeAcessar } from '../../auth/permissoes';
 import { MAX_TENTATIVAS_CONSULTA_DA_NOTA } from '../fiscal/fiscal.service';
 import { AlertaKdsService } from '../kds/alerta-kds.service';
 import { ModuloService } from '../modulo/modulo.service';
@@ -88,7 +91,7 @@ import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.servi
 import { MisterPropostasService } from './mister-propostas.service';
 import { pessoaVale } from './mister-vinculo.service';
 import { PontoService } from '../ponto/ponto.service';
-import { FechamentoDoMes, botoesDoPontoDoMes, competenciaDoAviso, naJanelaDoPontoDoMes, nomeDoMes, nomeDoPdfDoPonto, textoDoPontoDoMes } from './mister-ponto-do-mes';
+import { FechamentoDoMes, botoesDoPontoDoMes, competenciaDoAviso, contadorDoAviso, finalDoWhatsapp, naJanelaDoPontoDoMes, nomeDoMes, nomeDoPdfDoPonto, textoDoPontoDoMes } from './mister-ponto-do-mes';
 import { ChatSemResposta, chatsDoIfoodSemResposta } from '../ponte-chat/chat-sem-resposta';
 import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
@@ -137,6 +140,11 @@ const MODULO = 'mister';
  * (o resumo não fala do que mudou depois), o arquivo do ponto do mês (mandado à contabilidade, ou passou o dia 5) e os do
  * gasto do WhatsApp (G2: fecham na virada do mês — não há o que resolver).
  */
+/** MIS-I-08 (ERR-661): a permissão que o gerente precisa para receber o aviso com dado sensível (o presidente recebe sempre). */
+const PERMISSAO_DO_AVISO: Partial<Record<string, 'ver_financeiro' | 'ponto_gerencial'>> = {
+  boleto_vencendo: 'ver_financeiro',
+  ponto_esquecido: 'ponto_gerencial',
+};
 const SEM_RESOLVIDO: string[] = ['boleto_vencendo', 'ponto_esquecido', 'ponto_do_mes', 'gasto_whatsapp', 'franquia_atendimento', 'telefone_ligado', 'acesso_encerrado', 'feriado_chegando'];
 /** Pedido "esperando" para o aviso do servidor sem sinal: aceito ou por aceitar, das últimas 3 horas. */
 const PEDIDO_ESPERANDO_H = 3;
@@ -153,6 +161,11 @@ export interface Entrega {
   motivo?: string;
   /** Os 4 últimos dígitos de quem recebeu pelo WhatsApp (nunca o telefone inteiro). */
   final?: string;
+  /**
+   * Rodada 7, MIS-I-09 (ERR-661): QUEM recebeu (o colaborador) — o "Resolvido" casa por ele (e pelo acesso de agora), nunca só
+   * pelos 4 finais (dois vínculos com o mesmo final em lojas diferentes recebiam). A tela e a trilha seguem mostrando só o final.
+   */
+  colaboradorId?: string;
   /** O caso aberto no Atendimento (para fechar junto). */
   casoId?: string;
   /** Saiu pelo modelo aprovado da Meta (fora da janela de 24 h): o texto inteiro vai quando a pessoa toca no botão. */
@@ -216,6 +229,15 @@ export class MisterAvisosService implements OnModuleInit {
   private diasEspeciais(): DiasEspeciaisService | null {
     try {
       return this.moduleRef?.get(DiasEspeciaisService, { strict: false }) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** MIS-I-16 (ERR-661): as regras de cada pessoa (pegas na hora, como os dias especiais, sem ciclo entre os serviços). */
+  private regras(): MisterRegrasService | null {
+    try {
+      return this.moduleRef?.get(MisterRegrasService, { strict: false }) ?? null;
     } catch {
       return null;
     }
@@ -353,7 +375,7 @@ export class MisterAvisosService implements OnModuleInit {
     // O boleto ainda aberto (M3a parte 4): o presidente recebe o "Já paguei" no toque também.
     const doBoleto = a.situacao === 'aberto' && a.tipo === 'boleto_vencendo' && v!.nivel === 'presidente' ? botoesDoAvisoDoBoleto(a.dados?.documentoId) : [];
     // O arquivo do ponto do mês ainda aberto (M3e parte 2): o presidente recebe "Enviar ao contador" e "Ver antes", e o PDF.
-    const doPonto = a.situacao === 'aberto' && a.tipo === 'ponto_do_mes' && v!.nivel === 'presidente' ? botoesDoPontoDoMes(a.id, !!a.dados?.contadorId) : [];
+    const doPonto = a.situacao === 'aberto' && a.tipo === 'ponto_do_mes' && v!.nivel === 'presidente' ? botoesDoPontoDoMes(a.id, contadorDoAviso(a.dados)) : [];
     // Versão 6, M6a: o telefone ligado ainda aberto — o presidente recebe "Não reconheço" no toque também.
     const doLigado = a.situacao === 'aberto' && a.tipo === 'telefone_ligado' && v!.nivel === 'presidente' ? botoesDoTelefoneLigado(a.dados) : [];
     // P3: o pedido atrasado ainda aberto — quem recebe ganha "Já chegou" e "Mudar a previsão".
@@ -773,7 +795,13 @@ export class MisterAvisosService implements OnModuleInit {
         titulo,
         detalhe,
         // Nada de telefone nos dados (vão à tela e ao histórico): o responsável pelo id.
-        dados: { competencia: fechamento.competencia, empresa: fechamento.empresa, contadorId: f.contador?.id ?? null },
+        // MIS-I-10 (ERR-661): com o final que o aviso mostra (o botão o leva e o envio confere).
+        dados: {
+          competencia: fechamento.competencia,
+          empresa: fechamento.empresa,
+          contadorId: f.contador?.id ?? null,
+          contadorFinal: f.contador ? finalDoWhatsapp(f.contador.whatsapp) : null,
+        },
       };
     });
   }
@@ -991,10 +1019,26 @@ export class MisterAvisosService implements OnModuleInit {
    * O pedido parado pode ser substituído só numa etapa (`pedido_parado:confirmado`): a regra de "em preparo" não cala o
    * "sem aceite" nem o "pronto sem sair".
    */
-  protected semRegraQueSubstitui(tipo: string, etapa?: unknown) {
+  protected regrasQueSubstituem(tipo: string, etapa?: unknown) {
     const daEtapa = typeof etapa === 'string' && etapa ? `${tipo}:${etapa}` : tipo;
-    return sql`and not exists (select 1 from mister_regra r where r.tenant_id = g.tenant_id and r.colaborador_id = g.colaborador_id
-                                  and r.situacao = 'ativa' and (${tipo} = any(r.substitui) or ${daEtapa} = any(r.substitui)))`;
+    // Rodada 7, MIS-I-16 (ERR-661): traz as regras (não só "existe uma"): a que não avisa mais o dono não cala o aviso.
+    return sql`(select coalesce(jsonb_agg(r.regra), '[]'::jsonb) from mister_regra r where r.tenant_id = g.tenant_id and r.colaborador_id = g.colaborador_id
+                   and r.situacao = 'ativa' and (${tipo} = any(r.substitui) or ${daEtapa} = any(r.substitui)))`;
+  }
+
+  /**
+   * MIS-I-16 (ERR-661): tira quem tem uma regra que fica no lugar deste aviso E que ainda o avisa (a régua de agora, a mesma
+   * da volta das regras). Sem o serviço das regras (o servidor sem ele), vale a regra ativa, como antes.
+   */
+  private async semOsSubstituidos<T extends { colaboradorId: string; substituem?: unknown }>(tenantId: string, ls: T[]): Promise<T[]> {
+    const regras = this.regras();
+    const fora: T[] = [];
+    for (const l of ls) {
+      const subs = Array.isArray(l.substituem) ? l.substituem : [];
+      if (subs.length && (!regras || (await regras.algumaAindaAvisa(tenantId, l.colaboradorId, subs).catch(() => true)))) continue;
+      fora.push(l);
+    }
+    return fora;
   }
 
   /**
@@ -1287,11 +1331,16 @@ export class MisterAvisosService implements OnModuleInit {
       if (!deveEscrever(a.tipo, fase, c.avisosEscritos)) return { texto: fixo, reserva: 'desligado' };
       // Este aviso (primeiro) e os outros abertos da empresa, com o instante em ISO lido no próprio SQL (LIC-378: no
       // `db.execute` a data chega como texto no formato da sessão).
+      // Rodada 7, MIS-I-15 (ERR-661): os outros só da MESMA loja (e os da empresa inteira) e nunca os que pedem permissão
+      // para ver (boleto, ponto) — quem recebe este aviso pode não ver aquela loja nem aqueles dados.
+      const sensiveis = [...Object.keys(PERMISSAO_DO_AVISO), 'ponto_do_mes'];
       const abertos = linhas(
         await this.db.execute(sql`
           select id::text as id, titulo, to_char(aberto_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as "abertoEm"
             from mister_aviso
            where tenant_id = ${a.tenantId}::uuid and situacao = 'aberto'
+             and (id = ${a.id}::uuid or (tipo not in (${sql.join(sensiveis.map((t) => sql`${t}`), sql`, `)})
+                  ${a.unidadeId ? sqlUnidadeOuRede('unidade_id', a.unidadeId) : sql`and unidade_id is null`}))
            order by (id = ${a.id}::uuid) desc, aberto_em desc
            limit ${OUTROS_ABERTOS_MAX + 1}`),
       );
@@ -1334,23 +1383,30 @@ export class MisterAvisosService implements OnModuleInit {
     agora: Date,
     escrever: (() => Promise<TextoDoWhatsapp>) | null = null,
   ): Promise<Entrega[]> {
-    const ligados = linhas(
-      await this.db.execute(sql`
-        select g.telefone, g.ultima_entrada_em as "ultimaEntrada", coalesce(p.nivel, f.categoria::text) as nivel, c.unidade_id::text as "unidadeId",
-               emp.nome as empresa
-          from mister_vinculo g
-          join colaborador c on c.id = g.colaborador_id and c.tenant_id = g.tenant_id
-          left join funcao f on f.id = c.funcao_id
-          left join perfil_acesso p on p.id = c.perfil_acesso_id
-          join empresa emp on emp.id = g.tenant_id
-         where g.tenant_id = ${a.tenantId}::uuid and g.ligado_em is not null and g.telefone is not null and g.pausado_em is null and ${pessoaVale()}
-           ${this.semRegraQueSubstitui(a.tipo, a.tipo === 'pedido_parado' ? a.dados?.etapa : undefined)}`),
+    const ligados = await this.semOsSubstituidos(
+      a.tenantId,
+      linhas(
+        await this.db.execute(sql`
+          select g.telefone, g.ultima_entrada_em as "ultimaEntrada", coalesce(p.nivel, f.categoria::text) as nivel, c.unidade_id::text as "unidadeId",
+                 emp.nome as empresa, p.permissoes, g.colaborador_id::text as "colaboradorId",
+                 ${this.regrasQueSubstituem(a.tipo, a.tipo === 'pedido_parado' ? a.dados?.etapa : undefined)} as substituem
+            from mister_vinculo g
+            join colaborador c on c.id = g.colaborador_id and c.tenant_id = g.tenant_id
+            left join funcao f on f.id = c.funcao_id
+            left join perfil_acesso p on p.id = c.perfil_acesso_id
+            join empresa emp on emp.id = g.tenant_id
+           where g.tenant_id = ${a.tenantId}::uuid and g.ligado_em is not null and g.telefone is not null and g.pausado_em is null and ${pessoaVale()}`),
+      ) as Array<{ colaboradorId: string; substituem?: unknown; [k: string]: any }>,
     );
     // O gerente da loja do aviso (sem loja no aviso: os gerentes da empresa; gerente sem loja vale para todas).
     const daLoja = (l: any) => !a.unidadeId || !l.unidadeId || l.unidadeId === a.unidadeId;
+    // Rodada 7, MIS-I-08 (ERR-661): o aviso com dado sensível só vai ao gerente que PODE ver aquilo — o boleto (valor, linha
+    // digitável) com "ver valores"; o ponto esquecido (nomes e horários) com o gerenciamento de ponto. Sem nenhum, vai ao presidente.
+    const permissao = PERMISSAO_DO_AVISO[a.tipo];
+    const podeVer = (l: any) => !permissao || l.nivel === 'presidente' || podeAcessar((l.permissoes ?? perfilPadrao(l.nivel).permissoes) as any, permissao);
     const alvo = new Map<string, { destino: Destino; l: any; motivo?: string }>();
     for (const papel of papeis) {
-      let quem = ligados.filter((l) => l.nivel === papel && (papel === 'presidente' || daLoja(l)));
+      let quem = ligados.filter((l) => l.nivel === papel && (papel === 'presidente' || daLoja(l)) && podeVer(l));
       let motivo: string | undefined;
       if (papel === 'gerente' && !quem.length) {
         quem = ligados.filter((l) => l.nivel === 'presidente');
@@ -1372,15 +1428,16 @@ export class MisterAvisosService implements OnModuleInit {
         continue;
       }
       const final = String(l.telefone).slice(-4);
+      const colaboradorId = l.colaboradorId ? String(l.colaboradorId) : undefined; // MIS-I-09
       if (!semJanela && !dentroDaJanelaDoWhatsapp(l.ultimaEntrada ? new Date(l.ultimaEntrada) : null, agora.getTime())) {
         // Fora da janela, só o modelo aprovado chega: "Aviso do Mister para <loja>: <o quê>", com o botão "Ver o que
         // fazer". O toque abre a janela e traz o texto inteiro (`mostrarPeloToque`).
         try {
           await this.numero.enviarModelo(l.telefone, MODELO_DO_AVISO, parametrosDoAviso(a.titulo, String(l.empresa ?? '')), { tipo: 'aviso', id: a.id });
-          fora.push({ destino, fase, em, ok: true, final, via: 'modelo', ...(motivo ? { motivo } : {}) });
+          fora.push({ destino, fase, em, ok: true, final, colaboradorId, via: 'modelo', ...(motivo ? { motivo } : {}) });
         } catch (e: any) {
           const m = e instanceof FalhaDoEnvioDoMister ? e.motivo : 'erro';
-          fora.push({ destino, fase, em, ok: false, final, motivo: m === 'modelo_nao_aprovado' ? 'fora_da_janela_e_sem_modelo' : m });
+          fora.push({ destino, fase, em, ok: false, final, colaboradorId, motivo: m === 'modelo_nao_aprovado' ? 'fora_da_janela_e_sem_modelo' : m });
         }
         continue;
       }
@@ -1392,7 +1449,7 @@ export class MisterAvisosService implements OnModuleInit {
         // O boleto perto de vencer (M3a parte 4): o presidente recebe o "Já paguei".
         const doBoleto = a.tipo === 'boleto_vencendo' && l.nivel === 'presidente' ? botoesDoAvisoDoBoleto((a.dados as any)?.documentoId) : [];
         // O arquivo do ponto do mês (M3e parte 2): o presidente recebe "Enviar ao contador" e "Ver antes", e o PDF logo depois.
-        const doPonto = a.tipo === 'ponto_do_mes' && l.nivel === 'presidente' ? botoesDoPontoDoMes(a.id, !!(a.dados as any)?.contadorId) : [];
+        const doPonto = a.tipo === 'ponto_do_mes' && l.nivel === 'presidente' ? botoesDoPontoDoMes(a.id, contadorDoAviso(a.dados)) : [];
         // Versão 6, M6a: o telefone ligado — o presidente recebe "Não reconheço" (desliga na hora).
         // Só o telefone ligado tem botão; o acesso encerrado (M6c) vai sem botão.
         const doLigado = ehAvisoDeSeguranca(a.tipo) && (a.tipo as string) === 'telefone_ligado' && l.nivel === 'presidente' ? botoesDoTelefoneLigado(a.dados) : [];
@@ -1414,12 +1471,13 @@ export class MisterAvisosService implements OnModuleInit {
           em,
           ok: true,
           final,
+          colaboradorId,
           ...(motivo ? { motivo } : {}),
           ...(t.escrito ? { escrito: true as const } : t.reserva && t.reserva !== 'desligado' ? { reserva: t.reserva } : {}),
         });
       } catch (e: any) {
         const m = e instanceof FalhaDoEnvioDoMister ? e.motivo : 'erro';
-        fora.push({ destino, fase, em, ok: false, final, motivo: m });
+        fora.push({ destino, fase, em, ok: false, final, colaboradorId, motivo: m });
       }
     }
     return fora;
@@ -1467,14 +1525,24 @@ export class MisterAvisosService implements OnModuleInit {
   /** O desfecho para quem recebeu pelo WhatsApp (de novo dentro da janela; fora dela, fica anotado). */
   private async desfecho(a: AvisoAberto, agora: Date): Promise<number> {
     // Quem recebeu pelo WhatsApp (o final do telefone → por qual destino recebeu).
-    const receberam = new Map((a.entregas ?? []).filter((e) => e.ok && e.final && (e.destino === 'presidente' || e.destino === 'gerente')).map((e) => [e.final as string, e.destino]));
+    const entregues = (a.entregas ?? []).filter((e) => e.ok && e.final && (e.destino === 'presidente' || e.destino === 'gerente'));
+    const receberam = new Map(entregues.map((e) => [e.final as string, e.destino]));
+    // Rodada 7, MIS-I-09 (ERR-661): a entrega nova sabe QUEM recebeu — o "Resolvido" vai só a essa pessoa (o mesmo final de
+    // outro vínculo, noutra loja, não recebe). A entrega antiga (sem a pessoa) segue pelo final.
+    const porPessoa = new Map(entregues.filter((e) => e.colaboradorId).map((e) => [e.colaboradorId as string, e.destino]));
     if (!receberam.size) return 0;
     const minutos = Math.max(1, Math.round((agora.getTime() - new Date(a.abertoEm).getTime()) / 60_000));
     const texto = textoDoDesfecho(a, minutos);
+    // MIS-I-09: só quem AINDA fala com o Mister (ativo, empresa viva, nível do Mister) — a régua das entregas.
     const ligados = linhas(
       await this.db.execute(sql`
-        select telefone, ultima_entrada_em as "ultimaEntrada" from mister_vinculo
-         where tenant_id = ${a.tenantId}::uuid and ligado_em is not null and telefone is not null and pausado_em is null`),
+        select g.telefone, g.ultima_entrada_em as "ultimaEntrada", g.colaborador_id::text as "colaboradorId"
+          from mister_vinculo g
+          join colaborador c on c.id = g.colaborador_id and c.tenant_id = g.tenant_id
+          left join funcao f on f.id = c.funcao_id
+          left join perfil_acesso p on p.id = c.perfil_acesso_id
+          join empresa emp on emp.id = g.tenant_id
+         where g.tenant_id = ${a.tenantId}::uuid and g.ligado_em is not null and g.telefone is not null and g.pausado_em is null and ${pessoaVale()}`),
     );
     const feitas: Entrega[] = [];
     const em = agora.toISOString();
@@ -1482,6 +1550,7 @@ export class MisterAvisosService implements OnModuleInit {
     for (const l of ligados) {
       const final = String(l.telefone).slice(-4);
       if (!receberam.has(final)) continue;
+      if (porPessoa.size && !porPessoa.has(String(l.colaboradorId))) continue;
       if (!semJanela && !dentroDaJanelaDoWhatsapp(l.ultimaEntrada ? new Date(l.ultimaEntrada) : null, agora.getTime())) {
         feitas.push({ destino: receberam.get(final)!, fase: 'resolveu', em, ok: false, final, motivo: 'fora_da_janela_de_24h' });
         continue;

@@ -134,6 +134,14 @@ describe('a conferência da regra que a IA escreve', () => {
     });
     expect(conferir({ ...TRES_PARADOS, filtros: [{ campo: 'valor', op: '>', valor: 100 }] }, gerenteSemValores)).toEqual({ erro: expect.stringContaining('valores em reais') });
   });
+
+  it('ERR-661 · MIS-I-12: a tarefa traz o nome de quem faz — só com a permissão da gestão das tarefas', () => {
+    const TAREFA = { fonte: 'tarefas', titulo: 'Chapa', filtros: [{ campo: 'situacao', op: '=', valor: 'nao_feita' }], medida: 'cada_item', quando: {}, vezes: 'sempre', agrupar: true };
+    expect(conferir(TAREFA, gerenteSemValores)).toEqual({ erro: expect.stringContaining('não dá acesso a tarefas de hoje') });
+    expect(conferir({ ...TAREFA, filtros: [{ campo: 'quem', op: '=', valor: 'Ana' }] }, gerenteSemValores)).toEqual({ erro: expect.stringContaining('não dá acesso a tarefas de hoje') });
+    const comChecklist: QuemFazARegra = { presidente: false, pode: (p: string) => p === 'checklist', verValores: false };
+    expect(conferir(TAREFA, comChecklist)).not.toHaveProperty('erro');
+  });
 });
 
 describe('a descrição (o código escreve)', () => {

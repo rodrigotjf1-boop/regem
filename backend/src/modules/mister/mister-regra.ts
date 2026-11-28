@@ -85,7 +85,9 @@ export const FONTES_DA_REGRA: readonly FonteDaRegra[] = [
     nome: 'tarefas',
     rotulo: 'tarefas de hoje',
     descricao: 'Cada tarefa do dia na loja (as que existem hoje), com o horário e a situação.',
-    permissao: null,
+    // Rodada 7, MIS-I-12 (ERR-661): "quem faz" é o nome de um colaborador — a mesma permissão da tela de gestão das
+    // tarefas (os responsáveis do dia pedem `checklist`).
+    permissao: 'checklist',
     temAlvo: true,
     campos: [
       { nome: 'titulo', tipo: 'texto', rotulo: 'tarefa' },
@@ -1008,4 +1010,6 @@ export const TEXTOS_DAS_REGRAS = {
   jaLigada: 'Essa regra já está ligada. Se quiser mudar, me diga o que trocar.',
   naoAchada: 'Não achei essa regra. Se precisar, me peça a lista das suas regras.',
   teto: (n: number) => `Você já tem ${n} regras, o máximo. Apague uma antes de criar outra.`,
+  // Rodada 7, MIS-I-05: o aviso antigo de uma regra que não vale mais (apagada, ou o acesso de quem recebe mudou).
+  avisoAntigoIndisponivel: 'Esse aviso não está mais disponível: a regra mudou, ou o seu acesso a esses dados mudou. Me peça a lista das suas regras.',
 } as const;

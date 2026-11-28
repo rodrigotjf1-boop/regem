@@ -26,6 +26,7 @@ import {
   funcao,
   reautorizacaoEdge,
   revenda,
+  setor,
   unidade,
 } from '../../db/schema';
 import { EdgeService } from '../edge/edge.service';
@@ -431,6 +432,12 @@ export class LicencaService {
     if (unidadeId && !unidades.some((x) => x.id === unidadeId)) {
       throw new BadRequestException('Esta unidade não pertence à sua empresa.');
     }
+    // MIS-I-01: quem não é presidente instala SÓ na loja dela (a lista que volta ao instalador também é só a dela).
+    const permitida = this.lojaPermitida(u, unidades.length);
+    if (permitida) {
+      if (unidadeId && unidadeId !== permitida) throw new ForbiddenException('Você só pode instalar o servidor da sua loja.');
+      unidadeId = permitida;
+    }
     if (!unidadeId && unidades.length > 1) {
       return { escolherLoja: true, u, tenantId, fingerprint, unidades, unidadeId: null, aExiste: null, reauth: null };
     }
@@ -643,16 +650,45 @@ export class LicencaService {
         senhaHash: colaborador.senhaHash,
         categoria: funcao.categoria,
         nivelDoPerfil: perfilAcesso.nivel,
+        unidadeId: colaborador.unidadeId,
+        setorUnidadeId: setor.unidadeId,
       })
       .from(colaborador)
       .leftJoin(funcao, and(eq(colaborador.funcaoId, funcao.id), eq(funcao.tenantId, colaborador.tenantId)))
+      .leftJoin(setor, and(eq(funcao.setorId, setor.id), eq(setor.tenantId, colaborador.tenantId)))
       .leftJoin(perfilAcesso, and(eq(colaborador.perfilAcessoId, perfilAcesso.id), eq(perfilAcesso.tenantId, colaborador.tenantId)))
       .where(and(eq(colaborador.email, email), isNull(colaborador.deletedAt), eq(colaborador.status, 'ativo')))
       .limit(1);
     if (!u?.senhaHash || !(await bcrypt.compare(senha, u.senhaHash))) {
       throw new UnauthorizedException('E-mail ou senha inválidos.');
     }
-    return { id: u.id, nome: u.nome, tenantId: u.tenantId, categoria: (u.nivelDoPerfil ?? u.categoria ?? null) as string | null };
+    // Rodada 7, MIS-I-01 (ERR-661): a loja da pessoa (a mesma régua do login: a dela, ou a do setor da função).
+    return {
+      id: u.id,
+      nome: u.nome,
+      tenantId: u.tenantId,
+      categoria: (u.nivelDoPerfil ?? u.categoria ?? null) as string | null,
+      unidadeId: (u.unidadeId ?? u.setorUnidadeId ?? null) as string | null,
+    };
+  }
+
+  /**
+   * Rodada 7, MIS-I-01 (ERR-661): a loja que esta pessoa pode instalar ou mover — o presidente, qualquer uma; quem não é
+   * presidente, numa empresa de várias lojas, SÓ a dela (sem loja, nenhuma). Antes, o gerente da loja A emitia o token de
+   * sincronismo da loja B (baixava e gravava como B) e podia girar o token do servidor de B. Devolve null = qualquer loja.
+   */
+  private async lojasDaEmpresa(tenantId: string): Promise<number> {
+    const [l] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(unidade)
+      .where(and(eq(unidade.tenantId, tenantId), isNull(unidade.deletedAt)));
+    return Number(l?.n) || 0;
+  }
+
+  private lojaPermitida(u: { categoria: string | null; unidadeId: string | null }, unidadesDaEmpresa: number): string | null {
+    if (u.categoria === 'presidente' || unidadesDaEmpresa <= 1) return null;
+    if (!u.unidadeId) throw new ForbiddenException('Sua conta não está ligada a uma loja: quem instala o servidor de uma loja é o presidente ou o gerente dela.');
+    return u.unidadeId;
   }
 
   // Etapa 1: cria o pedido. E-mail → gera + envia o código (e ALERTA o dono da tentativa);
@@ -679,6 +715,9 @@ export class LicencaService {
     // A loja do pedido vem do servidor que está sendo MOVIDO — o da máquina antiga (fingerprint da
     // ativação), escolhido como na instalação; nunca a credencial do GoGeM (ERR-108).
     const eqSrv = await escolherServidorDaLoja(this.db, tenantId, { fingerprint: a.deviceFingerprint ?? null });
+    // MIS-I-01 (ERR-661): quem não é presidente só move o servidor da PRÓPRIA loja.
+    const permitida = this.lojaPermitida(u, await this.lojasDaEmpresa(tenantId));
+    if (permitida && eqSrv?.unidadeId !== permitida) throw new ForbiddenException('Você só pode mover o servidor da sua loja.');
     await this.db.insert(reautorizacaoEdge).values({
       tenantId,
       unidadeId: eqSrv?.unidadeId ?? null,
@@ -835,6 +874,9 @@ export class LicencaService {
         );
       }
     }
+    // MIS-I-01 (ERR-661): o pedido conferido também é da loja de quem confirma (quem não é presidente).
+    const permitida = this.lojaPermitida(u, await this.lojasDaEmpresa(tenantId));
+    if (permitida && pend.unidadeId !== permitida) throw new ForbiddenException('Você só pode mover o servidor da sua loja.');
     const [a] = await this.db.select().from(ativacao).where(eq(ativacao.tenantId, tenantId)).limit(1);
     // APROVADO → MOVE. Rotaciona o token (mata a antiga em 401) ANTES de rebindar.
     // ⚠️ Rotaciona UM ÚNICO servidor_local (por id). Um UPDATE em massa (por tenant+tipo)

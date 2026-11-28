@@ -6,6 +6,7 @@ import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { ModuloGuard } from '../../auth/modulo.guard';
 import { RequireModulo } from '../../auth/require-modulo.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { MisterAvisosConfigService } from './mister-avisos-config.service';
@@ -115,12 +116,14 @@ export class MisterController {
   @RequireModulo('mister')
   historicoDosAvisos(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('situacao') situacao?: string,
     @Query('busca') busca?: string,
     @Query('grupo') grupo?: string,
     @Query('dias') dias?: string,
   ) {
-    return this.historico.historico(user.tenantId, { situacao, busca, grupo, dias });
+    // Rodada 7, MIS-I-06 (ERR-661): a loja de quem consulta (o presidente preso a uma loja vê só a dela e os da empresa toda).
+    return this.historico.historico(user.tenantId, { situacao, busca, grupo, dias }, atual);
   }
 
   /** Salva os avisos que mudaram (cada um inteiro). Só o presidente; toda recusa antes da gravação. */

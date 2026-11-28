@@ -6,6 +6,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { alertaKds } from '../../db/schema';
 import { ehServidorLocal } from '../../common/modo';
+import { sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { ehTipoDeAviso, prioridadeDoKds } from '../../common/avisos-do-kds';
 import { avisoDaLinha, duracaoDoAviso, kdsDoAviso, type AvisoDaTela } from './alerta-kds';
 
@@ -142,15 +143,17 @@ export class AlertaKdsService {
    * "Ciente" numa tela: grava quem e quando e tira o aviso das outras telas. Idempotente — o segundo toque (outra tela, ou a
    * mesma de novo) responde quem deu o "Ciente" primeiro, sem gravar por cima.
    */
-  async ciente(tenantId: string, id: string, ator: { id?: string | null; nome?: string | null }, kdsId?: unknown) {
+  async ciente(tenantId: string, id: string, ator: { id?: string | null; nome?: string | null }, kdsId?: unknown, unidadeId: string | null = null) {
     if (!UUID_RE.test(String(id))) throw new NotFoundException('Aviso não encontrado.');
     const kds = typeof kdsId === 'string' && UUID_RE.test(kdsId) ? kdsId : null;
     const nome = ator?.nome ? String(ator.nome).slice(0, 120) : null;
+    // Rodada 7, MIS-I-14 (ERR-661): a tela de uma loja só dá "Ciente" no aviso dela ou no da empresa inteira.
+    const daLoja = sqlUnidadeOuRede('unidade_id', unidadeId);
     const r: any = await this.db.execute(sql`
       update alerta_kds
          set ciente_em = now(), ciente_por_id = ${ator?.id && UUID_RE.test(String(ator.id)) ? String(ator.id) : null}::uuid,
              ciente_por_nome = ${nome}, ciente_kds_id = ${kds}::uuid
-       where id = ${id}::uuid and tenant_id = ${tenantId}::uuid and ciente_em is null
+       where id = ${id}::uuid and tenant_id = ${tenantId}::uuid and ciente_em is null ${daLoja}
        returning unidade_id, ciente_em, ciente_por_nome`);
     const feito = (r.rows ?? r)[0];
     if (feito) {
@@ -158,7 +161,7 @@ export class AlertaKdsService {
       return { ok: true, id, cienteEm: new Date(feito.ciente_em).toISOString(), por: feito.ciente_por_nome ?? null, jaEstava: false };
     }
     const j: any = await this.db.execute(sql`
-      select ciente_em, ciente_por_nome from alerta_kds where id = ${id}::uuid and tenant_id = ${tenantId}::uuid`);
+      select ciente_em, ciente_por_nome from alerta_kds where id = ${id}::uuid and tenant_id = ${tenantId}::uuid ${daLoja}`);
     const ja = (j.rows ?? j)[0];
     if (!ja) throw new NotFoundException('Aviso não encontrado.');
     return { ok: true, id, cienteEm: new Date(ja.ciente_em).toISOString(), por: ja.ciente_por_nome ?? null, jaEstava: true };

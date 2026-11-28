@@ -33,7 +33,8 @@ export class KdsAvisosController {
 
   @Post(':id/ciente')
   @RequireModulo('kds')
-  ciente(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
-    return this.avisos.ciente(user.tenantId, id, { id: user.colaboradorId, nome: user.nome ?? null }, dto?.kdsId);
+  ciente(@CurrentUser() user: AuthUser, @UnidadeAtual() unidade: string | null, @Param('id') id: string, @Body() dto: any) {
+    // Rodada 7, MIS-I-14 (ERR-661): só o aviso da loja desta tela (ou da empresa inteira) — a régua do `pendentes`.
+    return this.avisos.ciente(user.tenantId, id, { id: user.colaboradorId, nome: user.nome ?? null }, dto?.kdsId, unidade);
   }
 }

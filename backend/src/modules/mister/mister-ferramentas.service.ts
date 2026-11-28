@@ -455,6 +455,8 @@ export class MisterFerramentasService {
     // Rodada 7, MIS-F-10 (ERR-658): o link público confere, a cada abertura, o acesso de AGORA de quem o emitiu (a loja e os
     // valores) — pela mesma régua das telas, sem o serviço dos links depender deste (que já depende dele).
     this.linksPublicos?.registrarEscopo((tenantId, colaboradorId) => this.escopoDaTela(tenantId, colaboradorId));
+    // Rodada 7, MIS-I-07 (ERR-661): o "fica de olho" reconfere, a cada volta, o acesso de agora de quem pediu (a mesma régua).
+    this.vigia?.registrarEscopo((tenantId, colaboradorId) => this.escopoDaTela(tenantId, colaboradorId));
   }
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
@@ -1603,7 +1605,7 @@ export class MisterFerramentasService {
     );
     const de = sql`
       from titulo_financeiro t
-      left join fornecedor f on f.id = t.fornecedor_id
+      left join fornecedor f on f.id = t.fornecedor_id and f.tenant_id = t.tenant_id
       where t.tenant_id = ${e.tenantId} and t.status = 'aberto' ${sqlUnidade('t.unidade_id', loja.atual)} ${filtro}`;
     const totais = linhas(await this.db.execute(sql`select t.tipo, count(*)::int as n, coalesce(sum(t.valor), 0) as v, ${colunas} ${de} and t.tipo in ('pagar', 'receber') group by t.tipo`));
     // O código do boleto lançado por foto (o documento do Mister que virou esta conta): a linha digitável e o Pix copia e cola

@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { FUSO_SQL } from '../../common/fuso-sql';
 import { ehServidorLocal } from '../../common/modo';
+import { podeAcessar } from '../../auth/permissoes';
 import { ModuloService } from '../modulo/modulo.service';
 import { dentroDaJanelaDoWhatsapp } from './mister-avisos.regras';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
@@ -53,7 +54,28 @@ export type QuemPedeVigia = { tenantId: string; colaboradorId: string };
 type Resultado<T> = ({ ok: true } & T) | { ok: false; erro: string };
 
 /** Um "fica de olho" ativo com a situação de agora do alvo (`agora` null = não li nesta volta). */
-type Olhado = { id: string; tenantId: string; colaboradorId: string; alvo: AlvoDoOlho; rotulo: string; estado: string | null; sumiu: boolean; agora: string | null; hora: string | null };
+type Olhado = {
+  id: string;
+  tenantId: string;
+  colaboradorId: string;
+  alvo: AlvoDoOlho;
+  rotulo: string;
+  estado: string | null;
+  sumiu: boolean;
+  agora: string | null;
+  hora: string | null;
+  /** MIS-I-07: a loja do que é olhado (null = a empresa toda / sem loja). */
+  unidadeId?: string | null;
+};
+
+/** O acesso de AGORA de quem pediu (o `escopoDaTela` das ferramentas) — ou null se não fala mais com o Mister. */
+export type EscopoDoVigia = (
+  tenantId: string,
+  colaboradorId: string,
+) => Promise<{ nivel: string; presa: string | null; semLoja: boolean; permissoes: any } | null>;
+
+/** MIS-I-07 (ERR-661): a permissão que cada alvo pede — a MESMA da criação (a consulta onde o dado aparece). */
+const PERMISSAO_DO_ALVO: Partial<Record<AlvoDoOlho, string>> = { pedido: 'delivery', canal: 'delivery', caixa: 'relatorios_vendas' };
 
 export interface ResultadoDaVoltaDoVigia {
   lembretes: number;
@@ -76,6 +98,29 @@ export class MisterVigiaService implements OnModuleInit {
     // M4d parte 2: o canal pausado é lido pela MESMA regra do "Pausar" do Delivery. Sem ele, o canal não é olhado.
     @Optional() private readonly pausa?: PausaDoCanalService,
   ) {}
+
+  private escopoDe: EscopoDoVigia | null = null;
+
+  /** Rodada 7, MIS-I-07: quem resolve o acesso de agora (o serviço das ferramentas registra, sem dependência circular). */
+  registrarEscopo(fn: EscopoDoVigia): void {
+    this.escopoDe = fn;
+  }
+
+  /**
+   * Rodada 7, MIS-I-07 (ERR-661): o que está sendo olhado ainda é da pessoa AGORA? (fala com o Mister, tem a permissão do
+   * alvo e a loja do alvo é a dela) — a transferência ou o perfil mudado no meio da janela cortava só na entrega, não no dado.
+   */
+  private async aindaPodeOlhar(l: Olhado, cache: Map<string, Awaited<ReturnType<EscopoDoVigia>>>): Promise<boolean> {
+    if (!this.escopoDe) return true;
+    const chave = `${l.tenantId}|${l.colaboradorId}`;
+    if (!cache.has(chave)) cache.set(chave, await this.escopoDe(l.tenantId, l.colaboradorId).catch(() => null));
+    const e = cache.get(chave);
+    if (!e || e.semLoja) return false;
+    const perm = PERMISSAO_DO_ALVO[l.alvo];
+    if (perm && e.nivel !== 'presidente' && !podeAcessar(e.permissoes, perm as any)) return false;
+    if (e.presa && l.unidadeId && l.unidadeId !== e.presa) return false;
+    return true;
+  }
 
   /** O toque em "Ver o que fazer" (fora das 24 horas) chega pela entrada do WhatsApp: ela chama este serviço. */
   onModuleInit(): void {
@@ -247,9 +292,18 @@ export class MisterVigiaService implements OnModuleInit {
 
     // 3) O que está sendo olhado (o pedido, o caixa, a impressora, o canal): a situação de agora contra a última vista.
     const olhados: Olhado[] = [...(await this.pedidosOlhados(so)), ...(await this.caixasOlhados(so)), ...(await this.impressorasOlhadas(so)), ...(await this.canaisOlhados(so, agora))];
+    const escopos = new Map<string, Awaited<ReturnType<EscopoDoVigia>>>();
     for (const l of olhados) {
       if (!(await empresaVale(l.tenantId))) {
         await cancelarDesligado(l.id);
+        continue;
+      }
+      // MIS-I-07: quem pediu perdeu o acesso ao que é olhado (mudou de loja, perdeu a permissão): cancela, sem mandar nada.
+      if (!(await this.aindaPodeOlhar(l, escopos))) {
+        const r = linhas(
+          await this.db.execute(sql`update mister_vigia set situacao = 'cancelado', resultado = 'quem pediu não tem mais acesso a isso', atualizado_em = clock_timestamp() where id = ${l.id}::uuid and situacao = 'ativo' returning id`),
+        );
+        res.cancelados += r.length;
         continue;
       }
       if (l.sumiu) {
@@ -280,7 +334,7 @@ export class MisterVigiaService implements OnModuleInit {
     return linhas(
       await this.db.execute(sql`
         select v.id::text as id, v.tenant_id::text as "tenantId", v.colaborador_id::text as "colaboradorId", v.rotulo, v.estado,
-               (pe.id is null or pe.deleted_at is not null) as sumiu, pe.status as agora,
+               (pe.id is null or pe.deleted_at is not null) as sumiu, pe.status as agora, pe.unidade_id::text as "unidadeId",
                to_char(case pe.status
                          when 'confirmado' then pe.confirmado_em when 'pronto' then pe.pronto_em when 'despachado' then pe.despachado_em
                          when 'entregue' then pe.entregue_em when 'concluido' then pe.concluido_em when 'cancelado' then pe.cancelado_em
@@ -298,7 +352,7 @@ export class MisterVigiaService implements OnModuleInit {
     return linhas(
       await this.db.execute(sql`
         select v.id::text as id, v.tenant_id::text as "tenantId", v.colaborador_id::text as "colaboradorId", v.rotulo, v.estado,
-               s.id is null as sumiu, s.status as agora, to_char(s.fechada_em at time zone ${FUSO_SQL}, 'HH24:MI') as hora
+               s.id is null as sumiu, s.status as agora, s.unidade_id::text as "unidadeId", to_char(s.fechada_em at time zone ${FUSO_SQL}, 'HH24:MI') as hora
           from mister_vigia v
           left join caixa_sessao s
             on s.tenant_id = v.tenant_id
@@ -316,7 +370,7 @@ export class MisterVigiaService implements OnModuleInit {
       return linhas(
         await this.db.execute(sql`
           select v.id::text as id, v.tenant_id::text as "tenantId", v.colaborador_id::text as "colaboradorId", v.rotulo, v.estado,
-                 i.id is null as sumiu, i.situacao as agora, to_char(i.fechado_em at time zone ${FUSO_SQL}, 'HH24:MI') as hora
+                 i.id is null as sumiu, i.situacao as agora, i.unidade_id::text as "unidadeId", to_char(i.fechado_em at time zone ${FUSO_SQL}, 'HH24:MI') as hora
             from mister_vigia v
             left join vigia_incidente i
               on i.tenant_id = v.tenant_id
@@ -349,7 +403,7 @@ export class MisterVigiaService implements OnModuleInit {
       if (!lidos.has(chave)) lidos.set(chave, this.pausa ? await this.pausa.estado(l.tenantId, ref.unidadeId, agora).catch(() => null) : null);
       const estado = lidos.get(chave);
       const agoraDoCanal = estado ? (estado.canais?.find((c: any) => c.canal === ref.canal)?.pausa ? 'pausado' : 'aberto') : null;
-      fora.push({ ...l, alvo: 'canal', sumiu: false, agora: agoraDoCanal, hora: agoraDoCanal ? horaNoFuso(agora) : null });
+      fora.push({ ...l, alvo: 'canal', sumiu: false, agora: agoraDoCanal, hora: agoraDoCanal ? horaNoFuso(agora) : null, unidadeId: ref.unidadeId ?? null });
     }
     return fora;
   }
