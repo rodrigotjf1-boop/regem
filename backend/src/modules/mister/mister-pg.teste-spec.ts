@@ -99,7 +99,7 @@ import { PRECOS_LIDOS_EM } from '../ia/ia.regras';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterQrService } from './mister-qr.service';
 import { assinaturaDaInstancia } from '../../common/segredo-robo';
-import { MisterVinculoService } from './mister-vinculo.service';
+import { MisterVinculoService, TEXTOS_DA_SENHA } from './mister-vinculo.service';
 import * as regras from './mister.regras';
 import { TEXTOS, idDoBotaoDaEmpresa } from './mister.regras';
 import { MisterVinculoSegurancaService, TEXTOS_DA_SEGURANCA } from './mister-vinculo-seguranca.service';
@@ -488,6 +488,9 @@ export function testesDoMisterComPostgres(): void {
     const funcao: Record<string, string> = {};
     const pessoa: Record<string, string> = {};
     const usuario = (nome: string, tenant = A, categoria = 'presidente') => ({ tenantId: tenant, colaboradorId: pessoa[nome], categoria, unidadeId: null }) as any;
+    // ERR-651 (rodada 7, MIS-A-06): gerar o código pede a senha de quem está logado — as pessoas de teste nascem com esta.
+    const SENHA_DE_TESTE = 'senha-do-mister-teste';
+    const RESUMO_DA_SENHA = bcrypt.hashSync(SENHA_DE_TESTE, 4);
     const NOME_A = `Burger da Praça ${MARCA}`;
     const NOME_B = `Pizzaria do Porto ${MARCA}`;
 
@@ -511,7 +514,7 @@ export function testesDoMisterComPostgres(): void {
       q(`update mister_numero set phone_id = null, waba_id = null, numero = null, nome_exibido = null, forma = null, situacao = 'sem', motivo = null, ligado = false, conectado_em = null where id = 1`);
     /** Gera o código de `nome` e manda do telefone: a pessoa fica ligada. */
     const ligar = async (nome: string, tel: string, tenant = A, categoria = 'presidente') => {
-      const r = await vinculo.gerarCodigo(usuario(nome, tenant, categoria));
+      const r = await vinculo.gerarCodigo(usuario(nome, tenant, categoria), SENHA_DE_TESTE);
       expect(await mandar(tel, r.codigo!.mensagem)).toBe('ligou');
       return r.codigo!.codigo;
     };
@@ -534,7 +537,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '501_mister_ligar_pela_ia.sql', '502_mister_ia_forte_nas_tarefas.sql', '503_mister_modelos_de_compra.sql', '506_mister_respostas_escritas.sql', '507_mister_pin_falado.sql', '508_mister_aprendizado.sql', '509_mister_imagem_na_conversa.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '501_mister_ligar_pela_ia.sql', '502_mister_ia_forte_nas_tarefas.sql', '503_mister_modelos_de_compra.sql', '506_mister_respostas_escritas.sql', '507_mister_pin_falado.sql', '508_mister_aprendizado.sql', '509_mister_imagem_na_conversa.sql', '516_mister_senha_do_codigo.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -554,7 +557,7 @@ export function testesDoMisterComPostgres(): void {
         for (const cat of ['presidente', 'gerente', 'execucao'])
           [{ id: funcao[`${cat}-${sufixo}`] }] = await q(`insert into funcao (tenant_id, nome, categoria) values ($1, $2, $3) returning id`, [t, `F ${cat}`, cat]);
       const criar = async (chave: string, nome: string, tenant: string, f: string) =>
-        ([{ id: pessoa[chave] }] = await q(`insert into colaborador (tenant_id, nome, funcao_id) values ($1, $2, $3) returning id`, [tenant, nome, funcao[f]]));
+        ([{ id: pessoa[chave] }] = await q(`insert into colaborador (tenant_id, nome, funcao_id, senha_hash) values ($1, $2, $3, $4) returning id`, [tenant, nome, funcao[f], RESUMO_DA_SENHA]));
       await criar('ana', 'Ana Souza', A, 'presidente-a');
       await criar('carlos', 'Carlos Lima', A, 'gerente-a');
       // O gerente tem loja: é dela que ele fala (e é ela que aparece na parte "Pessoas").
@@ -708,7 +711,7 @@ export function testesDoMisterComPostgres(): void {
       expect((await linha('ana')).pausado_em).toBeNull();
       expect((await q(`select desfecho from mister_mensagem where wamid = $1`, [id]))[0].desfecho).toBe('desligado');
       // Código não se gera com o Mister desligado.
-      await expect(vinculo.gerarCodigo(usuario('carlos', A, 'gerente'))).rejects.toThrow('ainda não está disponível');
+      await expect(vinculo.gerarCodigo(usuario('carlos', A, 'gerente'), SENHA_DE_TESTE)).rejects.toThrow('ainda não está disponível');
       expect(await numero.liberacao({ ligado: true }, { nome: 'Rodrigo' })).toEqual({ ligado: true });
       expect(await mandar(tel, 'PARAR AVISOS')).toBe('parou');
     });
@@ -734,7 +737,7 @@ export function testesDoMisterComPostgres(): void {
     // ───────────────────────────── ligar o telefone ─────────────────────────────
 
     it('o código sai para gerente ou presidente, com o link do número do Mister; quem é da execução não gera', async () => {
-      const r = await vinculo.gerarCodigo(usuario('ana'));
+      const r = await vinculo.gerarCodigo(usuario('ana'), SENHA_DE_TESTE);
       expect(r).toMatchObject({ disponivel: true, numeroDoMister: NUMERO_DO_MISTER, ligado: false, final: null, pausado: false });
       expect(r.codigo!.codigo).toMatch(/^[1-9]\d{5}$/);
       expect(r.codigo!.mensagem).toBe(`MISTER ${r.codigo!.codigo}`);
@@ -746,20 +749,59 @@ export function testesDoMisterComPostgres(): void {
       expect(auditados.map((a) => a.acao)).toEqual(['mister_whatsapp_codigo']);
       expect(JSON.stringify(auditados)).not.toContain(r.codigo!.codigo);
       // Gerar de novo troca o código: o anterior não liga mais ninguém.
-      const r2 = await vinculo.gerarCodigo(usuario('ana'));
+      const r2 = await vinculo.gerarCodigo(usuario('ana'), SENHA_DE_TESTE);
       expect(r2.codigo!.codigo).not.toBe(r.codigo!.codigo);
       expect(await mandar(telefone(), r.codigo!.mensagem)).toBe('codigo_nao_vale');
-      await expect(vinculo.gerarCodigo(usuario('edu', A, 'execucao'))).rejects.toThrow('Só gerente ou presidente');
+      await expect(vinculo.gerarCodigo(usuario('edu', A, 'execucao'), SENHA_DE_TESTE)).rejects.toThrow('Só gerente ou presidente');
       // O token dizia "gerente", mas a pessoa foi rebaixada: o banco é que vale.
       await q(`update colaborador set funcao_id = $2 where id = $1`, [pessoa.carlos, funcao['execucao-a']]);
-      await expect(vinculo.gerarCodigo(usuario('carlos', A, 'gerente'))).rejects.toThrow('Só gerente ou presidente');
+      await expect(vinculo.gerarCodigo(usuario('carlos', A, 'gerente'), SENHA_DE_TESTE)).rejects.toThrow('Só gerente ou presidente');
+    });
+
+    it('ERR-651 (rodada 7, MIS-A-06): o código pede a senha de quem está logado; 5 erradas travam (também de uma vez); a certa zera', async () => {
+      const ana = usuario('ana');
+      const codigoAtual = async () => (await q(`select codigo from mister_vinculo where colaborador_id = $1`, [pessoa.ana]))[0]?.codigo ?? null;
+      const zerar = () => q(`update mister_vinculo set senha_erros = 0, senha_erro_em = null, senha_travada_ate = null, codigo = null where colaborador_id = $1`, [pessoa.ana]);
+      await zerar();
+      try {
+        // Sem a senha, nada: nem código, nem tentativa contada.
+        await expect(vinculo.gerarCodigo(ana)).rejects.toMatchObject({ status: 400, message: TEXTOS_DA_SENHA.falta });
+        await expect(vinculo.gerarCodigo(ana, '')).rejects.toMatchObject({ status: 400 });
+        // A errada: 422 (nunca 401: a tela leria como sessão vencida), quantas restam, e o código não sai.
+        auditados.length = 0;
+        await expect(vinculo.gerarCodigo(ana, 'chute')).rejects.toMatchObject({ status: 422, message: TEXTOS_DA_SENHA.errada(4) });
+        expect(await codigoAtual()).toBeNull();
+        expect(auditados.map((a) => [a.acao, a.detalhe])).toEqual([['mister_whatsapp_senha_errada', { erros: 1 }]]);
+        expect(JSON.stringify(auditados)).not.toContain('chute');
+        // A certa zera a conta e o código sai.
+        expect((await vinculo.gerarCodigo(ana, SENHA_DE_TESTE)).codigo?.codigo).toMatch(/^[1-9]\d{5}$/);
+        expect((await q(`select senha_erros from mister_vinculo where colaborador_id = $1`, [pessoa.ana]))[0].senha_erros).toBe(0);
+        // Oito tentativas DE UMA VEZ (V98): a tentativa é reservada antes de conferir — só 5 chegam à senha, e depois trava,
+        // até para a certa.
+        await zerar();
+        const juntas = await Promise.allSettled(Array.from({ length: 8 }, () => vinculo.gerarCodigo(ana, 'chute')));
+        const status = juntas.map((r) => (r.status === 'rejected' ? (r.reason as any).status : 200)).sort();
+        expect(status).toEqual([422, 422, 422, 422, 422, 423, 423, 423]);
+        await expect(vinculo.gerarCodigo(ana, SENHA_DE_TESTE)).rejects.toMatchObject({ status: 423, message: expect.stringContaining('Espere') });
+        expect(await codigoAtual()).toBeNull();
+        // A trava vence em 15 minutos: depois, a certa volta a gerar e zera.
+        await q(`update mister_vinculo set senha_travada_ate = now() - interval '1 second', senha_erro_em = now() - interval '16 minutes' where colaborador_id = $1`, [pessoa.ana]);
+        expect((await vinculo.gerarCodigo(ana, SENHA_DE_TESTE)).codigo?.codigo).toMatch(/^[1-9]\d{5}$/);
+        expect((await q(`select senha_erros, senha_travada_ate from mister_vinculo where colaborador_id = $1`, [pessoa.ana]))[0]).toEqual({ senha_erros: 0, senha_travada_ate: null });
+        // A senha de OUTRA pessoa da empresa não serve.
+        await q(`update colaborador set senha_hash = $2 where id = $1`, [pessoa.carlos, bcrypt.hashSync('a-do-carlos', 4)]);
+        await expect(vinculo.gerarCodigo(ana, 'a-do-carlos')).rejects.toMatchObject({ status: 422 });
+      } finally {
+        await q(`update colaborador set senha_hash = $2 where id = $1`, [pessoa.carlos, RESUMO_DA_SENHA]);
+        await zerar();
+      }
     });
 
     it('o código é único na nuvem inteira: duas empresas nunca ficam com o mesmo código vivo', async () => {
-      const deA = (await vinculo.gerarCodigo(usuario('ana'))).codigo!.codigo;
+      const deA = (await vinculo.gerarCodigo(usuario('ana'), SENHA_DE_TESTE)).codigo!.codigo;
       const sorteio = jest.spyOn(regras, 'novoCodigo').mockReturnValueOnce(deA).mockReturnValueOnce(deA).mockReturnValueOnce('654321');
       try {
-        const deB = (await vinculo.gerarCodigo(usuario('anaB', B))).codigo!.codigo;
+        const deB = (await vinculo.gerarCodigo(usuario('anaB', B), SENHA_DE_TESTE)).codigo!.codigo;
         expect(deB).toBe('654321');
         expect(sorteio).toHaveBeenCalledTimes(3);
       } finally {
@@ -775,7 +817,7 @@ export function testesDoMisterComPostgres(): void {
 
     it('ligar: a mensagem com o código liga o telefone à pessoa, o Mister responde com o nome e a empresa, e fica na auditoria', async () => {
       const tel = telefone();
-      const codigo = (await vinculo.gerarCodigo(usuario('ana'))).codigo!.codigo;
+      const codigo = (await vinculo.gerarCodigo(usuario('ana'), SENHA_DE_TESTE)).codigo!.codigo;
       auditados.length = 0;
       const id = wamid();
       expect(await mandar(tel, `mister ${codigo}`, { wamid: id })).toBe('ligou');
@@ -793,7 +835,7 @@ export function testesDoMisterComPostgres(): void {
 
     it('o código vale uma vez e dez minutos; a Meta reenviando e o toque duplo não geram segunda resposta', async () => {
       const tel = telefone();
-      const codigo = (await vinculo.gerarCodigo(usuario('ana'))).codigo!.codigo;
+      const codigo = (await vinculo.gerarCodigo(usuario('ana'), SENHA_DE_TESTE)).codigo!.codigo;
       const id = wamid();
       expect(await mandar(tel, `MISTER ${codigo}`, { wamid: id })).toBe('ligou');
       numero.pedidos.length = 0;
@@ -805,7 +847,7 @@ export function testesDoMisterComPostgres(): void {
       expect(await mandar(outro, `MISTER ${codigo}`)).toBe('codigo_nao_vale');
       expect(numero.enviadas).toEqual([{ para: outro, texto: TEXTOS.codigoNaoVale, botoes: [] }]);
       // Código vencido.
-      const vencido = (await vinculo.gerarCodigo(usuario('carlos', A, 'gerente'))).codigo!.codigo;
+      const vencido = (await vinculo.gerarCodigo(usuario('carlos', A, 'gerente'), SENHA_DE_TESTE)).codigo!.codigo;
       await q(`update mister_vinculo set codigo_expira_em = now() - interval '1 second' where colaborador_id = $1`, [pessoa.carlos]);
       expect(await mandar(telefone(), `MISTER ${vencido}`)).toBe('codigo_nao_vale');
       expect((await linha('carlos')).telefone).toBeNull();
@@ -815,7 +857,7 @@ export function testesDoMisterComPostgres(): void {
     it('um número liga uma pessoa só, por empresa: o segundo é avisado e o primeiro continua ligado', async () => {
       const tel = telefone();
       await ligar('ana', tel);
-      const codigo = (await vinculo.gerarCodigo(usuario('carlos', A, 'gerente'))).codigo!.codigo;
+      const codigo = (await vinculo.gerarCodigo(usuario('carlos', A, 'gerente'), SENHA_DE_TESTE)).codigo!.codigo;
       numero.pedidos.length = 0;
       expect(await mandar(tel, `MISTER ${codigo}`)).toBe('numero_de_outra_pessoa');
       expect(numero.enviadas).toEqual([{ para: tel, texto: TEXTOS.numeroDeOutraPessoa(NOME_A), botoes: [] }]);
@@ -830,7 +872,7 @@ export function testesDoMisterComPostgres(): void {
 
     it('ninguém adivinha código: cinco errados e o telefone deixa de ser atendido em códigos — até com o certo', async () => {
       const tel = telefone();
-      const certo = (await vinculo.gerarCodigo(usuario('ana'))).codigo!.codigo;
+      const certo = (await vinculo.gerarCodigo(usuario('ana'), SENHA_DE_TESTE)).codigo!.codigo;
       for (let i = 1; i <= 4; i++) expect(await mandar(tel, `MISTER ${100000 + i}`)).toBe('codigo_nao_vale');
       expect(await mandar(tel, 'MISTER 12')).toBe('codigos_demais'); // formato errado também conta
       expect(numero.enviadas.at(-1)).toEqual({ para: tel, texto: TEXTOS.codigosDemais, botoes: [] });
@@ -862,7 +904,7 @@ export function testesDoMisterComPostgres(): void {
 
     it('o código de quem deixou de poder não liga: rebaixado, desativado ou com o módulo desligado na empresa', async () => {
       const tel = telefone();
-      const codigo = (await vinculo.gerarCodigo(usuario('carlos', A, 'gerente'))).codigo!.codigo;
+      const codigo = (await vinculo.gerarCodigo(usuario('carlos', A, 'gerente'), SENHA_DE_TESTE)).codigo!.codigo;
       await q(`update colaborador set funcao_id = $2 where id = $1`, [pessoa.carlos, funcao['execucao-a']]);
       expect(await mandar(tel, `MISTER ${codigo}`)).toBe('sem_acesso');
       await q(`update colaborador set funcao_id = $2, status = 'bloqueado' where id = $1`, [pessoa.carlos, funcao['gerente-a']]);
@@ -10631,9 +10673,37 @@ export function testesDoMisterComPostgres(): void {
         expect(await linha('ana')).toMatchObject({ telefone: novo, desligado_motivo: null, desligado_em: null });
         expect(await conversa(velho)).toEqual({ desligado_motivo: 'pessoa' });
         expect(await conversa(novo)).toEqual({ desligado_motivo: null });
+        // ERR-651 (rodada 7, MIS-A-06): o celular antigo é avisado logo depois do "Pronto" do novo — dentro das 24 h, o texto.
+        expect(numero.enviadas.map((m) => [m.para, m.texto])).toEqual([
+          [novo, expect.stringContaining('Pronto, Ana!')],
+          [velho, TEXTOS.celularTrocado(NOME_A, novo.slice(-4))],
+        ]);
         numero.pedidos.length = 0;
         expect(await mandar(velho, 'oi')).toBe('fixa');
         expect(textos()).toEqual([TEXTOS.desligado]);
+      });
+
+      it('ERR-651 (MIS-A-06): o celular antigo que não fala com o Mister há mais de 24 h recebe o modelo do aviso', async () => {
+        const velho = telefone();
+        const novo = telefone();
+        await ligar('ana', velho);
+        await q(`update mister_conversa set ultima_entrada_em = now() - interval '2 days' where telefone = $1`, [velho]);
+        numero.pedidos.length = 0;
+        await ligar('ana', novo);
+        expect(numero.enviadas.map((m) => [m.para, m.texto])).toEqual([
+          [novo, expect.stringContaining('Pronto, Ana!')],
+          [velho, `modelo:mister_aviso:${NOME_A}|${TEXTOS.celularTrocadoNoModelo(novo.slice(-4))}`],
+        ]);
+        // A Meta recusa o modelo: a ligação do celular novo segue (o aviso nunca desfaz a ligação).
+        const outro = telefone();
+        await q(`update mister_conversa set ultima_entrada_em = now() - interval '2 days' where telefone = $1`, [novo]);
+        numero.responder = (p) => (p.corpo?.type === 'template' ? { status: 400, corpo: { error: { code: 132001, message: 'modelo não existe' } } } : undefined);
+        try {
+          await ligar('ana', outro);
+        } finally {
+          numero.responder = () => undefined;
+        }
+        expect(await linha('ana')).toMatchObject({ telefone: outro });
       });
 
       it('60 dias sem conversa: a volta desliga só quem passou, com a auditoria, e quem escreve depois ouve o motivo', async () => {

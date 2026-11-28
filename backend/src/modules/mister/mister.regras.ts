@@ -208,6 +208,12 @@ export const TEXTOS = {
   // Versão 6, M6a (mig 468): a frase a quem escreve de um telefone que JÁ foi ligado e saiu.
   vencido: `Este WhatsApp foi desligado do Mister por ficar ${DIAS_SEM_CONVERSA} dias sem conversa, por segurança. Para voltar, gere um código dentro do Regem, no menu Mister, em "Pessoas", e mande aqui.`,
   desligado: 'Este WhatsApp foi desligado do Mister. Se for você, ligue de novo dentro do Regem, no menu Mister, em "Pessoas": gere o código e mande aqui.',
+  // Rodada 7, MIS-A-06 (ERR-651): o celular ANTIGO sabe na hora que outro foi ligado à conta — quem ligou o celular dele com a
+  // sessão do Regem aberta num PC da loja não passa calado.
+  celularTrocado: (empresa: string, finalNovo: string) =>
+    `Este WhatsApp saiu do Mister da ${empresa}: outro celular (final ${finalNovo}) acabou de ser ligado à sua conta do Regem.\n\nSe foi você, está tudo certo. Se NÃO foi, avise o presidente da empresa e troque a sua senha do Regem agora: o presidente desliga o outro celular em Mister › Pessoas.`,
+  /** O mesmo aviso no modelo `mister_aviso` (fora das 24 horas): uma linha, sem quebra (a Meta recusa quebra no parâmetro). */
+  celularTrocadoNoModelo: (finalNovo: string) => `este WhatsApp saiu do Mister porque outro celular (final ${finalNovo}) foi ligado à sua conta`,
   codigoNaoVale: 'Esse código não vale mais. Gere outro dentro do Regem, no menu Mister, em "Pessoas", e mande de novo. O código vale 10 minutos e uma vez só.',
   codigosDemais: 'Foram muitos códigos errados deste WhatsApp. Espere uma hora, gere um código novo dentro do Regem e mande de novo.',
   numeroDeOutraPessoa: (empresa: string) =>

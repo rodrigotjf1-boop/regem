@@ -1,4 +1,5 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, Inject, Injectable, NotFoundException, Optional, UnprocessableEntityException } from '@nestjs/common';
+import { conferirSenhaDoColaborador } from '../../common/senha-do-colaborador';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { sql } from 'drizzle-orm';
 import { cortarSessoes } from '../../auth/sessao-corte';
@@ -23,6 +24,17 @@ import { MOTIVO_NA_TELA, desligarVinculo, ehMotivoDoDesligamento } from './miste
 
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const TENTATIVAS_DE_CODIGO = 5;
+/** MIS-A-06 (ERR-651): 5 senhas erradas em 15 minutos travam o código por 15 minutos. */
+export const SENHA_ERROS_MAX = 5;
+export const SENHA_TRAVA_MIN = 15;
+export const TEXTOS_DA_SENHA = {
+  falta: 'Digite a sua senha do Regem para gerar o código.',
+  errada: (restam: number) =>
+    restam > 0
+      ? `Senha errada. ${restam === 1 ? 'Resta 1 tentativa' : `Restam ${restam} tentativas`} antes de travar por ${SENHA_TRAVA_MIN} minutos.`
+      : `Senha errada. Foram ${SENHA_ERROS_MAX} tentativas: gerar o código fica travado por ${SENHA_TRAVA_MIN} minutos.`,
+  travada: (min: number) => `Foram ${SENHA_ERROS_MAX} senhas erradas. Espere ${min} ${min === 1 ? 'minuto' : 'minutos'} para gerar o código de novo.`,
+} as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Teto de linhas da parte "Pessoas" (gerentes e presidentes de uma empresa). */
 export const PESSOAS_NA_LISTA = 200;
@@ -125,10 +137,13 @@ export class MisterVinculoService {
    * Gera o código de ligar para quem está logado. O código anterior da pessoa deixa de valer. Quem já está ligado
    * continua ligado até a mensagem com o código novo chegar (é como se troca de celular).
    */
-  async gerarCodigo(user: AuthUser): Promise<MeuWhatsapp> {
+  async gerarCodigo(user: AuthUser, senha?: unknown): Promise<MeuWhatsapp> {
     if (!(await this.podeFalar(user))) throw new ForbiddenException('Só gerente ou presidente liga o WhatsApp ao Mister.');
     const n = await this.numero.ler();
     if (!numeroDisponivel(n)) throw new ConflictException('O Mister ainda não está disponível pelo WhatsApp. Fale com a Regem.');
+    // Rodada 7, MIS-A-06 (ERR-651): o código liga um celular à conta — pede a senha de quem está logado (o PC da loja é
+    // compartilhado: a sessão aberta não prova quem está na frente dele).
+    await this.conferirSenha(user, senha);
     for (let i = 0; ; i++) {
       try {
         await this.db.execute(sql`
@@ -144,6 +159,45 @@ export class MisterVinculoService {
     }
     await this.auditar(user, 'mister_whatsapp_codigo', {});
     return this.meu(user);
+  }
+
+  /**
+   * A senha de quem gera o código (MIS-A-06, ERR-651; mig 516). A tentativa é RESERVADA antes de conferir a senha, na mesma
+   * instrução que confere o teto (V98): várias de uma vez não passam das 5 por janela de 15 minutos; a 6ª trava por 15 minutos
+   * (só o código do Mister: a entrada no Regem segue). A certa zera a conta. Nunca 401 (a tela leria como sessão vencida).
+   */
+  private async conferirSenha(user: AuthUser, senha: unknown): Promise<void> {
+    if (typeof senha !== 'string' || !senha) throw new BadRequestException(TEXTOS_DA_SENHA.falta);
+    const [t] = linhas(
+      await this.db.execute(sql`
+        insert into mister_vinculo as v (tenant_id, colaborador_id, senha_erros, senha_erro_em)
+        values (${user.tenantId}::uuid, ${user.colaboradorId}::uuid, 1, now())
+        on conflict (tenant_id, colaborador_id) do update
+          set senha_erros = case
+                when v.senha_travada_ate > now() then v.senha_erros
+                when v.senha_erro_em is null or v.senha_erro_em < now() - make_interval(mins => ${SENHA_TRAVA_MIN}) then 1
+                else v.senha_erros + 1 end,
+              senha_erro_em = case when v.senha_travada_ate > now() then v.senha_erro_em else now() end,
+              senha_travada_ate = case
+                when v.senha_travada_ate > now() then v.senha_travada_ate
+                when (case when v.senha_erro_em is null or v.senha_erro_em < now() - make_interval(mins => ${SENHA_TRAVA_MIN}) then 1
+                           else v.senha_erros + 1 end) > ${SENHA_ERROS_MAX}
+                  then now() + make_interval(mins => ${SENHA_TRAVA_MIN})
+                else null end
+        returning senha_erros as erros, senha_travada_ate as "travadaAte"`),
+    );
+    const travadaAte = t?.travadaAte ? new Date(t.travadaAte) : null;
+    if (travadaAte && travadaAte.getTime() > Date.now()) {
+      throw new HttpException(TEXTOS_DA_SENHA.travada(Math.max(1, Math.ceil((travadaAte.getTime() - Date.now()) / 60_000))), 423);
+    }
+    if (!(await conferirSenhaDoColaborador(this.db, user.tenantId, user.colaboradorId, senha))) {
+      const erros = Number(t?.erros) || 1;
+      await this.auditar(user, 'mister_whatsapp_senha_errada', { erros });
+      throw new UnprocessableEntityException(TEXTOS_DA_SENHA.errada(SENHA_ERROS_MAX - erros));
+    }
+    await this.db.execute(sql`
+      update mister_vinculo set senha_erros = 0, senha_erro_em = null, senha_travada_ate = null
+       where tenant_id = ${user.tenantId}::uuid and colaborador_id = ${user.colaboradorId}::uuid and senha_erros > 0`);
   }
 
   /** Desliga o WhatsApp de quem está logado. */

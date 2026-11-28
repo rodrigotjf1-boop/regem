@@ -9,7 +9,8 @@ import { NivelDoMister, TEXTOS_DO_AGENTE } from './mister-agente.regras';
 import { MisterFilaService } from './mister-fila.service';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { pessoaVale } from './mister-vinculo.service';
-import { ToqueNoModelo, toqueNoModelo } from './mister-modelos';
+import { MODELO_DO_AVISO, ToqueNoModelo, toqueNoModelo } from './mister-modelos';
+import { dentroDaJanelaDoWhatsapp } from './mister-avisos.regras';
 import { TEXTOS_DA_PROPOSTA } from './mister-procedimentos';
 import { TEXTOS_DA_MIDIA } from './mister-midia.regras';
 import { hashDoRemetente } from './mister-aparelho';
@@ -578,7 +579,30 @@ export class MisterEntradaService {
       detalhe: { final: tel.slice(-4), ...(anterior ? { trocou: anterior.slice(-4) } : {}) },
     });
     await this.responder(tel, { texto: TEXTOS.ligado(primeiroNome(g.nome), g.empresa, anterior ? anterior.slice(-4) : null) });
+    // Rodada 7, MIS-A-06 (ERR-651): depois da resposta ao celular novo, o ANTIGO é avisado (os presidentes já são, pelo
+    // "Telefone ligado" com o "Não reconheço").
+    if (anterior) await this.avisarCelularAntigo(anterior, String(g.empresa ?? ''), tel.slice(-4), String(g.id));
     return { desfecho: 'ligou', tenantId: g.tenantId };
+  }
+
+  /**
+   * Rodada 7, MIS-A-06 (ERR-651): o aviso ao celular ANTIGO de quem ligou outro. Dentro das 24 horas da Meta (ou pela conexão
+   * por QR Code, que não tem janela), o texto inteiro; fora, o modelo `mister_aviso` — o toque nele cai na frase de telefone
+   * desligado. Nunca segura nem desfaz a ligação: a falha do envio fica no log.
+   */
+  private async avisarCelularAntigo(anterior: string, empresa: string, finalNovo: string, vinculoId: string): Promise<void> {
+    try {
+      const [c] = linhas(await this.db.execute(sql`select ultima_entrada_em as "ultimaEntrada" from mister_conversa where telefone = ${anterior}`));
+      const ultima = c?.ultimaEntrada ? new Date(c.ultimaEntrada) : null;
+      if ((await this.numero.semJanela()) || dentroDaJanelaDoWhatsapp(ultima, Date.now())) {
+        await this.numero.enviar(anterior, { texto: TEXTOS.celularTrocado(empresa, finalNovo) });
+      } else {
+        await this.numero.enviarModelo(anterior, MODELO_DO_AVISO, [empresa, TEXTOS.celularTrocadoNoModelo(finalNovo)], { tipo: 'aviso', id: vinculoId });
+      }
+    } catch (e: any) {
+      const motivo = e instanceof FalhaDoEnvioDoMister ? `${e.motivo}${e.status ? ` ${e.status}` : ''}${e.detalhe ? ` — ${e.detalhe}` : ''}` : String(e?.message ?? e);
+      this.logger.warn(`mister: o aviso ao celular antigo ${mascarar(anterior)} não saiu (${motivo})`);
+    }
   }
 
   /** O código não vale. `tentativas` = a contagem já reservada nesta janela, com esta (ERR-648: conta ANTES de conferir). */
