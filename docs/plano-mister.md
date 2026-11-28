@@ -3270,6 +3270,23 @@ Corrigidos nesta parte:
   código), A-11 (o segredo próprio da Evolution do Mister, com variável nova) e A-06 (pedir a senha ao gerar o código —
   decisão do dono, muda a tela).
 
+**Rodada 7 — bloco C, "o mapa e as tarefas" (28/11/2026; ERR-650; SEM migration):** os 12 achados conferidos no código; a
+janela de pico do C-06 já estava corrigida (ERR-646). Corrigidos:
+- **C-01 e C-02:** receber a compra e confirmar o recebimento (criam a conta a pagar) e o Pix prioritário (as cobranças da
+  empresa inteira) passaram de `botao` para `pin`.
+- **C-03:** a função criada pela conversa é só de operação (supervisão ou execução); a de gestão nasce pela tela.
+- **C-04:** a loja entra no id da proposta (`idDaTarefa`): o mesmo pedido em duas lojas são duas propostas.
+- **C-05:** a proposta renovada leva a marca de agora (`nivel = excluded.nivel`), e a execução confere a marca VIGENTE do mapa.
+- **C-08:** na empresa de mais de uma loja, o "Vou fazer" diz a loja, "todas as lojas" ou "a empresa inteira" (`alcance:
+  'empresa'` no catálogo: o fechamento do ponto, o Pix prioritário, a embalagem das fichas).
+- **C-10:** nove leituras que listam pessoas da equipe viraram `pessoal` (V10-4), e o filtro tira a pessoa pelo papel no nome
+  do campo ("atorNome", "quemNome", "responsavelId", "criadoPor") — a contagem fica.
+- **C-11:** doze leituras de dinheiro têm a marca `valores` (quem não vê valores nem as lê); a "venda bruta" sai pelo filtro.
+- **C-12:** o id do caminho é um UUID inteiro; data, hora, mês, id e opção só como texto; a data pelo calendário; a opção só
+  entre as do catálogo.
+- **Pela tela também (C-06, C-07, C-09):** a tarefa do dia de outra loja ou já concluída não se exclui; os itens do checklist
+  mudam só antes da aprovação; o fechamento do ponto enviado ao contador não é recalculado (o reenvio, sim).
+
 ### Dias especiais H2b — o feriado pelo Mister (27/11/2026; SEM migration; só na nuvem)
 
 Fase H2b do protótipo `mockups/regem-dias-especiais.html` (aba "No Mister"; decisões 4 e 8).

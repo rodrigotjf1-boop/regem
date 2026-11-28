@@ -91,6 +91,11 @@
 - _(ERR-645 e ERR-646 — rodada 7 de segurança, bloco B: comandas, comanda e mesa por id, janelas de pico e os ajustes de cores e
   senha do KDS ficam na loja de quem pede (27/11): SEM migration. As rotas rodam também no servidor da loja: entra no PRÓXIMO
   `.zip` (não pede `.exe`).)_
+- _(ERR-650 — rodada 7 de segurança, bloco C: o mapa e as tarefas do Mister (o PIN no recebimento e no Pix prioritário, a loja
+  e o alcance no "Vou fazer", a marca de agora na execução, as leituras de pessoa e de dinheiro) e três regras que valem também
+  pela tela — a tarefa do dia de outra loja ou já concluída não se exclui, o checklist vigente não muda de item, o fechamento do
+  ponto enviado ao contador não é recalculado (28/11): SEM migration. A tarefa do dia e o checklist rodam também no servidor da
+  loja: entra no PRÓXIMO `.zip` (não pede `.exe`).)_
 - **Mister C7 — aprender pela tarefa feita (26/11; mig 508, só na nuvem).** O `sync-daemon.mjs` ganhou `mister_aprendizado` na
   lista das tabelas só da nuvem (SO_NUVEM). Na loja não muda nada: a tabela não existe no banco dela e nada a escreve. Vai no
   próximo `.exe` por ter tocado o `sync-daemon` (sem pressa; o daemon antigo não lê a tabela).

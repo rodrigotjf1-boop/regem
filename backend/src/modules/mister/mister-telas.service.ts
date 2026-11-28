@@ -37,6 +37,8 @@ export const TEXTOS_DAS_TELAS = {
   grandeDemais: 'A resposta desta tela é grande demais para a conversa: peça um período menor ou um filtro (os de "consulta").',
   naoEJson: 'Esta tela devolve um arquivo, não dados: indique a tela do Regem.',
   esperaOPin: 'As telas do Regem esperam o PIN: o link para confirmar vai logo depois desta resposta. Diga isso em uma frase.',
+  /** Rodada 7, MIS-C-11 (ERR-650): a tela é dinheiro quase inteira (marca `valores`) e a pessoa não vê valores. */
+  soComValores: 'Esta tela é de valores em reais, que ficam de fora para esta pessoa. Diga isso em uma frase; quem libera é o presidente.',
 } as const;
 
 /** Versão 10, C6: o motivo e os caminhos de cada recusa das telas (o resto volta só com a frase). */
@@ -46,6 +48,7 @@ const MOTIVO_DO_TEXTO = new Map<string, MotivoDaFerramenta>([
   [TEXTOS_DAS_TELAS.naoELeitura, MOTIVO_SO_NA_TELA],
   [TEXTOS_DAS_TELAS.naoEJson, MOTIVO_SO_NA_TELA],
   [TEXTOS_DAS_TELAS.esperaOPin, MOTIVO_DO_PIN],
+  [TEXTOS_DAS_TELAS.soComValores, motivoDoPerfil('o presidente, ou quem vê os valores')],
 ]);
 /** A recusa das telas (a avaliação usa a MESMA): com o motivo, quando o texto tem um. */
 export const recusaDaTela = (erro: string): ResultadoDaFerramenta => {
@@ -129,6 +132,9 @@ export function pedidoDaLeitura(entrada: unknown): PedidoDaLeitura | { erro: str
 
 /** O que a leitura devolve à IA: a frase da tela, a loja, a consulta usada e a resposta já filtrada. */
 export function resultadoDaLeitura(f: FuncaoDoMapa, loja: string, pares: Array<[string, string]>, bruto: unknown, verValores: boolean): ResultadoDaFerramenta {
+  // MIS-C-11 (ERR-650): a tela que é dinheiro quase inteira não vai a quem não vê valores (o filtro por nome de campo não
+  // reconhece "saldoProjetado" nem "diferenca").
+  if (f.valores && !verValores) return recusa(TEXTOS_DAS_TELAS.soComValores);
   const limpa = limparLeitura(bruto, { verValores });
   if (!limpa) return recusa(TEXTOS_DAS_TELAS.grandeDemais);
   return {
@@ -165,6 +171,8 @@ export class MisterTelasService {
     const p = pedidoDaLeitura(entrada);
     if ('erro' in p) return recusa(p.erro);
     const { f, caminho, pares } = p;
+    // MIS-C-11: nem chama a tela de dinheiro para quem não vê valores.
+    if (f.valores && !e.verValores) return recusa(TEXTOS_DAS_TELAS.soComValores);
 
     const base = this.base();
     if (!base) return recusa(TEXTOS_DAS_TELAS.semServidor);

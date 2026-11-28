@@ -571,10 +571,27 @@ export class PontoService {
     return { totalColaboradores: colabs.length, pendencias };
   }
 
-  // Materializa/atualiza o fechamento do mês (idempotente por tenant+competência).
-  // Preserva 'enviado'; senão status = 'pendente' (há pendência) ou 'ok'.
-  async gerarFechamento(tenantId: string, competencia?: string) {
+  // Materializa/atualiza o fechamento do mês (idempotente por tenant+competência): status = 'pendente' (há pendência) ou 'ok'.
+  // O ENVIADO ao contador fica como foi enviado (rodada 7, MIS-C-09, ERR-650): antes, o status ficava 'enviado' e os totais e as
+  // pendências eram recalculados por cima — o registro dizia "enviado" com números que o contador não recebeu. Agora o
+  // recálculo não toca nele (a trava na gravação, `where status <> 'enviado'`) e a resposta devolve o enviado, com `jaEnviado`.
+  // `reenvio` = o envio ao contador (`enviarEspelhoRh`), que manda o espelho calculado AGORA e marca enviado logo em seguida:
+  // aí os números acompanham o que vai.
+  async gerarFechamento(tenantId: string, competencia?: string, op: { reenvio?: boolean } = {}) {
     const comp = competenciaValida(competencia) || competenciaAnterior();
+    const campos = sql`id, competencia::text as competencia, status,
+        total_colaboradores as "totalColaboradores",
+        total_pendencias as "totalPendencias"`;
+    const lerEnviado = async () => {
+      const e: any = await this.db.execute(sql`
+        select ${campos} from ponto_fechamento where tenant_id = ${tenantId} and competencia = ${comp} and status = 'enviado'`);
+      const [l] = e.rows ?? e;
+      return l ? { ...l, jaEnviado: true } : null;
+    };
+    if (!op.reenvio) {
+      const enviado = await lerEnviado();
+      if (enviado) return enviado;
+    }
     const { totalColaboradores, pendencias } = await this.detectarPendenciasMes(
       tenantId,
       comp,
@@ -595,11 +612,11 @@ export class PontoService {
           when excluded.total_pendencias > 0 then 'pendente'
           else 'ok' end,
         updated_at = now()
-      returning id, competencia::text as competencia, status,
-        total_colaboradores as "totalColaboradores",
-        total_pendencias as "totalPendencias"
+        ${op.reenvio ? sql`` : sql`where ponto_fechamento.status <> 'enviado'`}
+      returning ${campos}
     `);
-    return (r.rows ?? r)[0];
+    // Enviado entre a leitura e a gravação: vale o enviado.
+    return (r.rows ?? r)[0] ?? (await lerEnviado());
   }
 
   // Fechamentos recentes (para o alerta em Gerenciamento de ponto).
@@ -702,8 +719,8 @@ export class PontoService {
       `Espelho de ponto ${mes}/${ano}`,
     );
 
-    // Garante o registro do fechamento e marca como enviado.
-    await this.gerarFechamento(tenantId, comp);
+    // Garante o registro do fechamento (com os números do espelho que vai agora) e marca como enviado.
+    await this.gerarFechamento(tenantId, comp, { reenvio: true });
     await this.db.execute(sql`
       update ponto_fechamento
         set status = 'enviado', enviado_em = now(),

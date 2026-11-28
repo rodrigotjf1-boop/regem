@@ -49,8 +49,40 @@ describe('o filtro da leitura do Mister', () => {
       pessoas: [{ pedidos: 12 }],
       fornecedores: [{ nome: 'Hortifruti Bom Preço', pendencia: 'atrasado' }],
       lojas: [{ nome: 'Loja Centro', timezone: 'America/Sao_Paulo' }],
-      escala: [{ colaboradorNome: 'Carla', setor: 'Cozinha', horario: '18:00' }],
+      // Rodada 7, MIS-C-10 (ERR-650): o nome do colaborador também sai (V10-4) — antes, "colaboradorNome" passava.
+      escala: [{ setor: 'Cozinha', horario: '18:00' }],
     });
+  });
+
+  it('MIS-C-10 (ERR-650): a pessoa da equipe sai pelo papel no nome do campo, e a contagem fica', () => {
+    const r = limpar({
+      // A linha que É uma pessoa (tem "colaboradorId"): o nome dela sai, e o id também.
+      ciencias: [{ colaboradorId: '11111111-1111-4111-8111-111111111111', nome: 'Bruna', cienteEm: '2026-11-20' }],
+      // O que só APONTA uma pessoa guarda o próprio nome; o campo da pessoa sai.
+      checklists: [{ id: 'c1', nome: 'Abertura do salão', aprovadorId: '22222222-2222-4222-8222-222222222222', estado: 'vigente' }],
+      manutencao: [{ titulo: 'Coifa', responsavelNome: 'Rui', responsavel: { id: 'r1', nome: 'Rui', funcao: 'Gerente' }, criadoPor: 'Ana', concluidoPorId: 'x' }],
+      historico: [{ acao: 'limpou a fila', atorNome: 'Davi', quem: 'Davi', quemPediu: 'Eva', em: '2026-11-25 22:00' }],
+      // Debaixo do campo de pessoa a lista fica, sem o nome e o id de cada uma; a contagem fica.
+      atendentes: [{ id: 'a1', nome: 'Gil', pedidos: 30 }],
+      totalColaboradores: 8,
+      porCanal: [{ canal: 'ifood', pedidos: 12 }],
+      atendentePodeSangria: true,
+    });
+    expect(r.dados).toEqual({
+      ciencias: [{ cienteEm: '2026-11-20' }],
+      checklists: [{ id: 'c1', nome: 'Abertura do salão', estado: 'vigente' }],
+      manutencao: [{ titulo: 'Coifa', responsavel: { funcao: 'Gerente' } }],
+      historico: [{ acao: 'limpou a fila', em: '2026-11-25 22:00' }],
+      atendentes: [{ pedidos: 30 }],
+      totalColaboradores: 8,
+      porCanal: [{ canal: 'ifood', pedidos: 12 }],
+      atendentePodeSangria: true,
+    });
+  });
+
+  it('MIS-C-11 (ERR-650): a venda bruta sai para quem não vê valores; o saldo do estoque (quantidade) fica', () => {
+    const r = limpar({ porCanal: [{ canal: 'ifood', venda_bruta: 1234.5, vendaBruta: 1234.5, pedidos: 20 }], saldo: 12 }, semValores);
+    expect(r.dados).toEqual({ porCanal: [{ canal: 'ifood', pedidos: 20 }], saldo: 12 });
   });
 
   it('o texto passa pelo filtro do dado pessoal, mas a data fica inteira', () => {

@@ -15,6 +15,7 @@ import { Roles } from '../../auth/roles.decorator';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { TarefaInstanciaService } from './tarefa-instancia.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -134,8 +135,9 @@ export class TarefaInstanciaController {
   @Delete(':id')
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('checklist')
-  async excluir(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { motivo?: string }) {
-    const res = await this.service.excluir(user.tenantId, id, dto?.motivo ?? '', user.categoria);
+  async excluir(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string, @Body() dto: { motivo?: string }) {
+    // Rodada 7, MIS-C-06 (ERR-650): só a tarefa da loja de quem exclui; a concluída fica.
+    const res = await this.service.excluir(user.tenantId, id, dto?.motivo ?? '', user.categoria, atual);
     await this.auditoria.registrar({
       tenantId: user.tenantId,
       atorId: user.colaboradorId,
