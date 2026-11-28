@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api, getToken, getCategoria } from '@/lib/api';
+import { api, ApiError, getToken, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
@@ -126,7 +126,9 @@ export default function DeliveryPage() {
   const [despacho, setDespacho] = useState<any>(null);
   const [reabrir, setReabrir] = useState<any>(null); // pedido finalizado que o gestor vai reabrir
   const [detalhe, setDetalhe] = useState<any>(null); // modal detalhe (alterar/cancelar)
-  const [detalheModo, setDetalheModo] = useState<'view' | 'alterar'>('view'); // abre em edição pelo botão "Editar pedido"
+  const [detalheModo, setDetalheModo] = useState<'view' | 'alterar' | 'liberar'>('view'); // abre em edição pelo botão "Editar pedido"
+  // "Pronto"/"Despachar" recusado porque o cliente está alterando o pedido pelo WhatsApp (mig 517): "Esperar" ou "Liberar".
+  const [recusaTrava, setRecusaTrava] = useState<{ pedido: any; mensagem: string } | null>(null);
   const [filaConferencia, setFilaConferencia] = useState<any[]>([]); // fila de conferência (abre o 1º)
   const [codigoEntrega, setCodigoEntrega] = useState<{ pedido: any; codigo: string } | null>(null); // entrega própria 99food/iFood
   const [marcadosPend, setMarcadosPend] = useState<Set<string>>(new Set()); // seleção múltipla (pendentes)
@@ -283,7 +285,7 @@ export default function DeliveryPage() {
     if (ligar) tocarBeep();
   }
 
-  async function acao(fn: Promise<any>, ok: string) {
+  async function acao(fn: Promise<any>, ok: string, pedido?: any) {
     try {
       const res = await fn;
       // Impressão: o backend devolve { enfileirados, aviso }. 0 = nenhuma impressora
@@ -298,6 +300,12 @@ export default function DeliveryPage() {
       avisarComprovante(res); // o cancelamento aceito pelo atendimento imprime o comprovante
       await reload();
     } catch (e) {
+      // O cliente está alterando o pedido (mig 517): o diálogo com "Esperar" e "Liberar o pedido", em vez do aviso solto.
+      if (pedido && e instanceof ApiError && e.code === 'PEDIDO_EM_ALTERACAO') {
+        setRecusaTrava({ pedido, mensagem: e.message });
+        void reload();
+        return;
+      }
       toast.error(e instanceof Error ? e.message : 'Erro');
     }
   }
@@ -355,7 +363,7 @@ export default function DeliveryPage() {
 
   // Avanço de UM passo (retirada e botão PRONTO usam este).
   function avancar(p: any) {
-    acao(api.avancarDelivery(p.id, { de: p.status }), 'Status atualizado.');
+    acao(api.avancarDelivery(p.id, { de: p.status }), 'Status atualizado.', p);
   }
   // Despacha a entrega para "em rota" (AVANÇAR do delivery — pula 'pronto'):
   //  • QR ligado → despacha (o entregador confirma pelo QR do cupom);
@@ -369,7 +377,7 @@ export default function DeliveryPage() {
     const msg = !cfg.qrDespacho && entregadores.length === 0
       ? 'Pedido despachado — em rota. Para escolher quem leva, cadastre um colaborador com a função "Entregador".'
       : 'Pedido despachado — em rota.';
-    acao(api.despacharDelivery(p.id), msg);
+    acao(api.despacharDelivery(p.id), msg, p);
   }
   function retornar(p: any) {
     acao(api.retornarDelivery(p.id), 'Pedido voltou para a produção.');
@@ -528,7 +536,7 @@ export default function DeliveryPage() {
     pronto: {
       show: true,
       enabled: !!sel && sel.status === 'confirmado',
-      onClick: () => sel && acao(api.avancarDelivery(sel.id, { de: sel.status }), 'Pedido marcado como pronto.'),
+      onClick: () => sel && acao(api.avancarDelivery(sel.id, { de: sel.status }), 'Pedido marcado como pronto.', sel),
     },
     reimprimir: {
       show: true,
@@ -868,7 +876,7 @@ export default function DeliveryPage() {
           entregadores={entregadores}
           onFechar={() => setDespacho(null)}
           onConfirmar={async (ent) => {
-            await acao(api.despacharDelivery(despacho.id, ent as any), 'Pedido despachado — em rota.');
+            await acao(api.despacharDelivery(despacho.id, ent as any), 'Pedido despachado — em rota.', despacho);
             setDespacho(null);
           }}
         />
@@ -902,6 +910,47 @@ export default function DeliveryPage() {
       {/* Modal detalhe do pedido (reimprimir/alterar/cancelar) */}
       {detalhe && (
         <PedidoDetalhe pedido={detalhe} modoInicial={detalheModo} onClose={() => { setDetalhe(null); setDetalheModo('view'); }} onChanged={reload} />
+      )}
+
+      {/* "Pronto"/"Despachar" recusado: o cliente está alterando o pedido pelo WhatsApp (mig 517, TR-2/TR-4). */}
+      {recusaTrava && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={() => setRecusaTrava(null)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="recusa-trava-titulo"
+            className="w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setRecusaTrava(null);
+            }}
+            data-recusa-trava
+          >
+            <h3 id="recusa-trava-titulo" className="font-display text-lg font-bold">
+              O cliente está alterando o pedido {recusaTrava.pedido.numero != null ? `#${recusaTrava.pedido.numero}` : ''}
+            </h3>
+            <p className="mt-2 text-sm">{recusaTrava.mensagem}</p>
+            <p className="mt-2 text-xs text-muted-foreground">Se precisar seguir agora, libere o pedido: ele sai como estava, sem a mudança.</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button type="button" className="flex-1" onClick={() => setRecusaTrava(null)} autoFocus>
+                Esperar
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  const p = (pedidos ?? []).find((x: any) => x.id === recusaTrava.pedido.id) ?? recusaTrava.pedido;
+                  setRecusaTrava(null);
+                  setDetalheModo('liberar');
+                  setDetalhe(p);
+                }}
+              >
+                Liberar o pedido
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal: confirmar entrega por CÓDIGO (entrega própria 99food/iFood) */}
@@ -1080,6 +1129,17 @@ function ListaPedidos({
       <span className="font-mono font-bold">#{p.numero ?? '—'}</span>
       <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{p.tipo === 'retirada' ? '🏪' : '🛵'}</span>
       {p.alterado && <span className="ml-1 rounded bg-warn/15 px-1 text-[9px] font-bold text-warn">ALT</span>}
+      {/* CLIENTE ALTERANDO (mig 517): ícone compacto (a célula não quebra linha); a gaveta tem o aviso e o "Liberar". */}
+      {p.travadoAte && new Date(p.travadoAte).getTime() > agora && (
+        <span
+          className="ml-1 rounded bg-warn/15 px-1 text-[10px] font-bold text-warn"
+          title={`Cliente alterando até ${horaDe(p.travadoAte)}${p.travaQuer ? `: ${p.travaQuer}` : ''} — a cozinha segura o pedido`}
+          aria-label={`Cliente alterando até ${horaDe(p.travadoAte)}`}
+          data-pedido-travado-lista
+        >
+          ⏸
+        </span>
+      )}
       {/* Pedido igual (mig 360) ainda sem o "São dois pedidos": ícone compacto como o 📝 (a célula não
           quebra linha — uma etiqueta larga alargaria a coluna); a gaveta do pedido tem o aviso e as saídas. */}
       {repetidoAberto(p.repetido) && (

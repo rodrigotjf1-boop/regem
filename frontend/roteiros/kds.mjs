@@ -60,6 +60,16 @@ function pedidosIniciais() {
   ];
 }
 
+// CLIENTE ALTERANDO (mig 517; protótipo `mockups/regem-pedido-em-alteracao.html`): o pedido que o cliente está mudando
+// pelo WhatsApp — a faixa invertida, o que ele quer e o "Pronto" parado ("Aguarde o cliente"). Fora da fila padrão de
+// propósito: o rodapé "Pausado" mudaria as contas de avisos das outras seções; entra nas MEDIDAS e na seção dele.
+function pedidoTravado() {
+  return { id: 'd246', status: 'preparo', criadoEm: ha(6), senha: 246, senhaPrefixo: 'D', origem: 'delivery', plataforma: 'Cardápio Regem',
+    travadoAte: daqui(8), travaQuer: '➕ 1 Batata frita média — R$ 14,00', itens: [
+      { id: 'i24', quantidade: 1, descricao: 'X-Bacon', observacao: 'sem cebola' },
+      { id: 'i25', quantidade: 1, descricao: 'Coca-Cola lata 350 ml' }] };
+}
+
 // Os avisos guardados das últimas 24 h (onda 3, mig 412), como o servidor devolve: um do Farol com o "Ciente", um de
 // gestão (a tela de preparo não recebe), um urgente sem "Ciente" e um que saiu sozinho.
 function historicoAvisos() {
@@ -245,7 +255,8 @@ export default async function roteiroKds({ nav, base, ok, foto, larguras, rapido
   const tablets = rapido ? TABLETS.slice(0, 1) : TABLETS;
   for (const [w, h] of [...larguras.map((w) => [w, w < 700 ? 820 : 900]), ...tablets]) {
     for (const [tema, escala] of [['claro', 1], ['escuro', 0.85], ['claro', 1.5]]) {
-      S.pedidos = pedidosIniciais();
+      // com o pedido travado (mig 517): a faixa "Cliente alterando" entra em toda largura, tema e letra
+      S.pedidos = [...pedidosIniciais(), pedidoTravado()];
       // a faixa da pausa com dois canais (um com contador, a 99 até o fim do dia)
       S.pausas = [
         { canal: 'ifood', nome: 'iFood', ate: new Date(Date.now() + 754_000).toISOString(), fimDoDia: false, motivo: 'Trocando o gás' },
@@ -564,6 +575,34 @@ export default async function roteiroKds({ nav, base, ok, foto, larguras, rapido
     await page.waitForSelector('[data-kds-cartao="m3"] [data-kds-alterado]', { state: 'detached', timeout: 8000 });
     ok(S.vistos.includes('m3'), '"Visto" no rodapé marca o pedido como o do cartão');
     ok(erros.length === 0, `sem erro na página (origens e alterado): ${erros.join(' | ')}`);
+    await ctx.close();
+  }
+
+  // ── 4b. CLIENTE ALTERANDO (mig 517): a faixa e o que ele quer, o "Pronto" parado, o rodapé "Pausado"; a trava acaba e o
+  //       cartão volta ao normal (o "Pronto" anda), sem o rodapé ──
+  Object.assign(S, { pedidos: [...pedidosIniciais(), pedidoTravado()], pausas: [], semSocket: false, nuvem: false, filaFalha: false, vistos: [] });
+  for (const tema of ['claro', 'escuro']) {
+    const { ctx, page, erros } = await abrir({ w: 1280, h: 900, tema });
+    const c246 = page.locator('[data-kds-cartao="d246"]');
+    await c246.waitFor({ timeout: 15000 });
+    const faixa = await c246.locator('[data-kds-trava]').innerText();
+    ok(/Cliente alterando/i.test(faixa) && /até \d{2}:\d{2}/.test(faixa) && /Segure o pedido/i.test(faixa), `${tema}: a faixa "Cliente alterando" ("${umaLinha(faixa, 80)}")`);
+    ok(/Batata frita média/.test(await c246.locator('[data-kds-trava-quer]').innerText()), `${tema}: o que o cliente quer no cartão`);
+    const espera = c246.locator('[data-kds-espera-cliente]');
+    ok((await espera.count()) === 1 && (await espera.isDisabled()) && /Aguarde o cliente/i.test(await espera.innerText()), `${tema}: o "Pronto" parado ("Aguarde o cliente")`);
+    await page.waitForFunction(() => /Cliente alterando — Senha D-246/i.test(document.querySelector('.k-pe')?.textContent || ''), null, { timeout: 15000 });
+    ok(true, `${tema}: o rodapé "Pausado" com a senha`);
+    await c246.screenshot({ path: foto(`1280-${tema}-cliente-alterando.png`) });
+    if (tema === 'claro') {
+      // a trava acaba (o cliente confirmou): a faixa e o rodapé saem e o "Pronto" volta
+      S.pedidos.find((p) => p.id === 'd246').travadoAte = null;
+      S.fila.push(['producao:atualizado', { tipo: 'status', pedidoId: 'd246' }]);
+      await page.waitForSelector('[data-kds-cartao="d246"] [data-kds-trava]', { state: 'detached', timeout: 15000 });
+      ok((await c246.locator('[data-kds-espera-cliente]').count()) === 0 && (await c246.locator('.k-avancar').isEnabled()), 'a trava acabou: o "Pronto" volta');
+      await page.waitForFunction(() => !/Cliente alterando — Senha D-246/i.test(document.querySelector('.k-pe')?.textContent || ''), null, { timeout: 15000 });
+      ok(true, 'a trava acabou: o rodapé "Pausado" sai sozinho');
+    }
+    ok(erros.length === 0, `${tema}: sem erro na página (cliente alterando): ${erros.join(' | ')}`);
     await ctx.close();
   }
 

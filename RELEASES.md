@@ -18,8 +18,10 @@
   do KDS com a trava que desce, e o "Liberar o pedido" daqui sobe) **e `.exe`** (o `sync-daemon.mjs` ganhou a tabela no
   `PUSH_TABLES` e a regra "encerrada não volta a ativa" no recebimento). **A versão do `.zip` tem de ser a 1.30.17**
   (`VERSAO_MINIMA_DA_TRAVA`): com o servidor da loja abaixo dela, o robô NÃO trava nem promete segurar (a conferência sai como
-  antes); a loja sem servidor já trava pela nuvem com o deploy. A faixa no KDS e o diálogo no painel (T2) vêm em outro PR, no
-  mesmo `.zip`.
+  antes); a loja sem servidor já trava pela nuvem com o deploy.
+- **A trava do pedido — T2, as telas (28/11; sem migration).** A faixa "Cliente alterando" e o "Aguarde o cliente" no KDS e
+  no despacho, o rodapé "Pausado", o ⏸ e o "Liberar o pedido" no painel do Delivery. Vai no mesmo `.zip` 1.30.17 da T1 (o
+  servidor da loja serve o app). Não pede `.exe` além do da T1.
 - **Custo manual, pausa por estoque e custo do combo (27/11; #1393 e #1394; mig 514 — JÁ aplicada na nuvem, só nuvem; ERR-635,
   ERR-636, V122).** Desligar "Controla estoque" tira a pausa por estoque na hora, em todas as lojas; o "Override manual" vazio
   limpa o custo; as importações (Anota Aí, Cardápio Web) não gravam mais 0 no custo; o custo do combo é a soma dos produtos do

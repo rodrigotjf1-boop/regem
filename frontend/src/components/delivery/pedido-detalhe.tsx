@@ -56,14 +56,18 @@ export function PedidoDetalhe({
   pedido: any;
   onClose: () => void;
   onChanged: () => void;
-  modoInicial?: 'view' | 'alterar';
+  modoInicial?: 'view' | 'alterar' | 'liberar';
 }) {
   // Abre já em "alterar" quando o botão "Editar pedido" pede — mas só se o pedido for
   // realmente editável (status + canal); senão cai em 'view' (não abre edição indevida).
   const editavel =
     ['confirmado', 'pronto'].includes(p.status) && !CANAIS_SEM_ALTERACAO.includes(String(p.canal ?? '').toLowerCase());
-  const [modo, setModo] = useState<'view' | 'cancelar' | 'alterar' | 'perda'>(
-    modoInicial === 'alterar' && editavel ? 'alterar' : 'view',
+  // A trava do pedido enquanto o cliente altera (mig 517): o servidor manda até quando ela vale; passou, o pedido segue.
+  // A gaveta abre por um clique (sem desenho no servidor), então ler o relógio aqui não muda o primeiro render (V35).
+  const travado =
+    !!p.travadoAte && ['confirmado', 'pronto'].includes(p.status) && new Date(p.travadoAte).getTime() > Date.now();
+  const [modo, setModo] = useState<'view' | 'cancelar' | 'alterar' | 'perda' | 'liberar'>(
+    modoInicial === 'alterar' && editavel ? 'alterar' : modoInicial === 'liberar' && travado ? 'liberar' : 'view',
   );
   const [busy, setBusy] = useState(false);
   // "Mudar o horário" do pedido agendado (mig 455): a gaveta.
@@ -126,6 +130,24 @@ export function PedidoDetalhe({
 
   // Taxa prevista ao escolher um bairro cadastrado.
   const taxaPrevista = endBairroId ? Number(bairros.find((b) => b.id === endBairroId)?.taxa ?? 0) : null;
+
+  // "Liberar o pedido" (mig 517, TR-4): o pedido segue como estava; a nuvem descarta a mudança e avisa o cliente.
+  async function liberar() {
+    setBusy(true);
+    try {
+      const r = await api.liberarAlteracaoDelivery(p.id, { senha, motivo: motivo.trim() });
+      if (r.liberadas > 0) toast.success(`Pedido liberado${r.liberadoPor ? ` por ${r.liberadoPor}` : ''}: segue como estava.`);
+      else toast.info(r.mensagem || 'O pedido já não estava travado.');
+      setSenha('');
+      setMotivo('');
+      setModo('view');
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível liberar o pedido.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function reimprimir() {
     setBusy(true);
@@ -291,6 +313,22 @@ export function PedidoDetalhe({
         {/* ===== VIEW ===== */}
         {modo === 'view' && (
           <>
+            {/* CLIENTE ALTERANDO (mig 517, TR-2/TR-4): a cozinha segura o pedido até o cliente responder; quem precisa
+                seguir (o entregador chegou, o cliente sumiu) libera com a senha e o motivo. */}
+            {travado && (
+              <div role="status" className="mt-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm" data-pedido-travado>
+                <p className="font-bold text-warn">⏸ O cliente está alterando este pedido pelo WhatsApp</p>
+                <p className="text-foreground">
+                  {p.travaQuer ? <>Quer: {p.travaQuer}. </> : null}A cozinha está segurando o pedido até ele confirmar, desistir ou às{' '}
+                  {hora(p.travadoAte)}.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => setModo('liberar')} disabled={busy}>
+                    Liberar o pedido
+                  </Button>
+                </div>
+              </div>
+            )}
             {/* Pedido igual (mig 360): aberto → o aviso com as duas saídas; confirmado → quem confirmou e quando. */}
             {marcaRepetido && !okRepetido && !finalizado && (
               <div role="status" className="mt-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm" data-repetido>
@@ -415,6 +453,34 @@ export function PedidoDetalhe({
             )}
             <Button type="button" variant="ghost" className="mt-2 w-full" onClick={onClose}>Fechar</Button>
           </>
+        )}
+
+        {/* ===== LIBERAR O PEDIDO (mig 517, TR-4) ===== */}
+        {modo === 'liberar' && (
+          <div className="mt-3" data-liberar-pedido>
+            <p className="rounded-lg bg-warn/10 px-3 py-2 text-sm font-medium text-foreground">
+              O pedido segue <strong>como estava</strong>, sem a mudança. A mudança é descartada, o Pix do item é cancelado se houver um aberto
+              (nada é cobrado) e o cliente recebe o aviso de que a loja seguiu com o pedido como estava.
+            </p>
+            <div className="mt-3 space-y-3">
+              <div className="space-y-1">
+                <Label htmlFor="pedido-liberar-motivo" className="text-xs">Motivo (vai para o histórico)</Label>
+                <Input id="pedido-liberar-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: o entregador já está aqui" autoFocus />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="pedido-liberar-senha" className="text-xs">Senha de quem libera (presidente, gerente ou supervisão)</Label>
+                <Input {...campoSenha} id="pedido-liberar-senha" aria-label="Senha de quem libera (presidente, gerente ou supervisão)" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha de quem libera" />
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" variant="outline" className="flex-1" onClick={() => setModo('view')} disabled={busy}>
+                Voltar
+              </Button>
+              <Button type="button" variant="destructive" className="flex-1" onClick={liberar} disabled={busy || !motivo.trim() || !senha}>
+                Liberar o pedido
+              </Button>
+            </div>
+          </div>
         )}
 
         {/* ===== CANCELAR ===== */}

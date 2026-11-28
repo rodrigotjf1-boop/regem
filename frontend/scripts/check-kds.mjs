@@ -285,6 +285,21 @@ try {
     assert.ok(contraste(tema.ACAO_KDS.texto, tema.ACAO_KDS.fundo) >= 4.5, 'ação dourada');
   });
 
+  // A trava do pedido enquanto o cliente altera (mig 517): a MESMA regra do servidor — só o "Pronto" final espera.
+  caso('cliente alterando: só o "Pronto" final espera; o Iniciar, a passagem de estação e a trava vencida seguem', () => {
+    const agora = Date.parse('2026-11-28T22:52:00Z');
+    const ate = '2026-11-28T23:00:00.000Z';
+    assert.equal(k.travadoAgora({ travadoAte: ate, status: 'preparo' }, agora), true);
+    assert.equal(k.travadoAgora({ travadoAte: ate, status: 'preparo' }, Date.parse(ate) + 1), false); // venceu
+    assert.equal(k.travadoAgora({ travadoAte: ate, status: 'cancelado' }, agora), false);
+    assert.equal(k.travadoAgora({ travadoAte: null, status: 'preparo' }, agora), false);
+    assert.equal(k.prontoEsperaOCliente({ travadoAte: ate, status: 'preparo' }, agora, null), true);
+    assert.equal(k.prontoEsperaOCliente({ travadoAte: ate, status: 'recebido' }, agora, null), false); // "Iniciar" segue
+    assert.equal(k.prontoEsperaOCliente({ travadoAte: ate, status: 'preparo' }, agora, 'Montagem'), false); // passagem segue
+    assert.equal(k.prontoEsperaOCliente({ travadoAte: ate, status: 'recebido' }, agora, null, { usaPreparo: false }), true);
+    assert.equal(k.prontoEsperaOCliente({ travadoAte: null, status: 'preparo' }, agora, null), false);
+  });
+
   caso('estação com "vai para": o botão diz para onde o cartão vai', () => {
     assert.equal(k.proximaAcaoNaEstacao('preparo', 'Montagem'), 'Pronto → Montagem');
     assert.equal(k.proximaAcaoNaEstacao('preparo', null), 'Pronto');

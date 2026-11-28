@@ -1458,6 +1458,14 @@ export const api = {
     req(`/delivery/pedidos/${id}/reimprimir`, { method: 'POST', body: JSON.stringify({ equipamentoId: equipamentoId ?? null }) }),
   despacharDelivery: (id: string, body?: Record<string, unknown>) =>
     req(`/delivery/pedidos/${id}/despachar`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+  // "Liberar o pedido" que o cliente está alterando pelo WhatsApp (mig 517, TR-4): a senha de quem libera e o motivo.
+  liberarAlteracaoDelivery: (id: string, body: { senha: string; motivo: string }) =>
+    req(`/delivery/pedidos/${id}/liberar-alteracao`, { method: 'POST', body: JSON.stringify(body) }) as Promise<{
+      ok: true;
+      liberadas: number;
+      liberadoPor?: string;
+      mensagem?: string;
+    }>,
   finalizarDelivery: (id: string, body?: { forma?: string; valorRecebido?: number; pagamentos?: { forma: string; valor: number; formaPagamentoId?: string }[] }) =>
     req(`/delivery/pedidos/${id}/finalizar`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
   // Confirma a entrega por código (entrega própria 99food/iFood) → valida no canal e conclui.
