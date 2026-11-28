@@ -18,8 +18,8 @@
 -- passou (o fim por tempo não depende de ninguém gravar).
 --
 -- NÃO é @cloud-only: o KDS, o despacho e o painel do servidor da loja leem daqui.
--- ⚠️ Aplicar na NUVEM ANTES do merge (V9). Idempotente; os gatilhos vão por `create or replace trigger`, sem `drop`
--- (V9, ERR-225).
+-- ⚠️ Aplicar na NUVEM ANTES do merge (V9). Idempotente; os gatilhos vão por `create or replace trigger`, sem apagar
+-- nada antes (V9, ERR-225).
 set local lock_timeout = '5s';
 
 create table if not exists pedido_trava (
