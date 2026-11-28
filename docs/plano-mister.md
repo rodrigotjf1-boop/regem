@@ -3254,6 +3254,22 @@ cozinha. Para valer: `MISTER_FAZER_TAREFAS=1` (já ligada) e a avaliação real 
 - **Erraram:** c68 (não falou "lança") e c110 (respondeu com a campanha sem propor a ação) — os dois acertavam, é variação;
   c128 segue errando (vai às consultas de contas e pedidos em vez de procurar no mapa).
 
+**Rodada 7 de segurança (revisão externa, por bloco) — bloco A, parte 1 (27/11/2026; SEM migration; só na nuvem):** os 13
+achados do bloco A ("quem fala com o Mister") foram conferidos no código antes de corrigir; vários tinham a gravidade exagerada.
+Corrigidos nesta parte:
+- **MIS-A-04 (ERR-641):** a sessão com PIN valia para a conversa e o "Autorizar", e o documento passava por fora. Agora a foto
+  do documento (antes de baixar e ler), os botões dele (menos "Mandar outra foto"), o "Criar o pedido" da lista e a correção do
+  vencimento pela conversa esperam o PIN, pela mesma régua (`esperaOPin` em `mister-sessao.ts`).
+- **MIS-A-10 (ERR-642):** a sessão e o link moravam na pessoa. Ligar outro celular, desligar ou soltar o número tira a sessão;
+  o link só vale para a ligação em que saiu (`link_criado_em >= ligado_em`); desligar e trocar de celular derrubam os links
+  públicos que a pessoa pediu.
+- **MIS-A-03 (ERR-644):** o link com PIN respeita a chave geral; a execução confere, antes de qualquer efeito, a idade da
+  autorização (até 10 min), a chave, quem autorizou, o nível de agora e o módulo (`acessoNaExecucao`).
+- **MIS-A-13 (ERR-643):** a rotina dos 60 dias repete a condição na gravação.
+- **Fica para as próximas partes:** A-01 e A-05 (o número e a forma do Mister), A-02, A-07, A-08, A-09 e A-12 (a entrada e o
+  código), A-11 (o segredo próprio da Evolution do Mister, com variável nova) e A-06 (pedir a senha ao gerar o código —
+  decisão do dono, muda a tela).
+
 ### Dias especiais H2b — o feriado pelo Mister (27/11/2026; SEM migration; só na nuvem)
 
 Fase H2b do protótipo `mockups/regem-dias-especiais.html` (aba "No Mister"; decisões 4 e 8).

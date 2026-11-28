@@ -337,6 +337,9 @@ export class MisterPropostasService implements OnModuleInit {
                 pin_erros = 0, bloqueada_em = null
             where mister_proposta.situacao in ('vencida', 'recusada', 'nao_deu', 'feita')
                or (mister_proposta.situacao = 'proposta' and mister_proposta.vence_em <= now())
+               -- ERR-642: o link da ligação anterior não vale mais — a sessão renova e o link novo sai.
+               or (mister_proposta.situacao = 'proposta' and mister_proposta.link_criado_em < (
+                     select ligado_em from mister_vinculo where tenant_id = ${tenantId}::uuid and colaborador_id = ${colaboradorId}::uuid))
           returning id`),
       );
       const [p] = linhas(
@@ -481,18 +484,54 @@ export class MisterPropostasService implements OnModuleInit {
 
   /**
    * A sessão com PIN desta pessoa está vencida? Então o toque espera: o link da sessão vai agora e a proposta continua
-   * pendente. A mesma régua para o "Autorizar" e para o "Tentar de novo" do plano.
+   * pendente. A mesma régua para o "Autorizar", o "Tentar de novo" do plano e os documentos (a foto e os botões — ERR-641);
+   * `texto` = o que a pessoa lê antes do link.
    */
-  async sessaoPendente(tenantId: string, colaboradorId: string, telefone: string): Promise<boolean> {
+  async sessaoPendente(tenantId: string, colaboradorId: string, telefone: string, texto: string = TEXTOS_DA_SESSAO.botaoPedePin): Promise<boolean> {
     const s = await estadoDaSessao(this.db, tenantId, colaboradorId);
     if (!s.exigida || s.valida) return false;
     const sessao = await this.proporSessao(tenantId, colaboradorId, s.horas!);
-    await this.falar(telefone, TEXTOS_DA_SESSAO.botaoPedePin);
+    await this.falar(telefone, texto);
     if (sessao) await this.enviarLink(sessao.p.id, colaboradorId, telefone, sessao.p.pergunta);
     return true;
   }
 
   // ───────────────────────────── executar e conferir ─────────────────────────────
+
+  /**
+   * ERR-644 (rodada 7, MIS-A-03): a régua comum de "acesso vale" logo ANTES do efeito. A autorização pode ter sido há minutos (a
+   * rotina retoma a que ficou para trás — reinício, deploy) e o acesso mudou: a chave geral do Mister, quem autorizou (o
+   * WhatsApp ainda ligado, a pessoa ativa, a empresa viva, o nível de agora) e o módulo na loja da proposta. A autorização
+   * parada há mais de 10 minutos também não executa. Devolve a frase do "não deu", ou null quando vale.
+   */
+  private async acessoNaExecucao(p: { tenantId: string; unidadeId: string | null; procedimento: string; autorizadaPor: string | null; respondidaEm: unknown }): Promise<string | null> {
+    // Toda autorização grava a hora da resposta (o botão, o link, a voz, o passo do plano); sem ela, as outras conferências decidem.
+    const respondida = p.respondidaEm ? new Date(p.respondidaEm as any).getTime() : NaN;
+    if (Number.isFinite(respondida) && Date.now() - respondida > EXECUCAO_PARADA_MAX_MIN * 60_000)
+      return `a autorização ficou parada por mais de ${EXECUCAO_PARADA_MAX_MIN} minutos. Nada foi feito: peça de novo, se ainda quiser.`;
+    if (!(await this.numero.ler()).ligado) return 'o Mister está desligado agora. Nada foi feito.';
+    if (!p.autorizadaPor) return 'não sei quem autorizou. Nada foi feito.';
+    const [v] = linhas(
+      await this.db.execute(sql`
+        select coalesce(p.nivel, f.categoria::text) as nivel
+          from mister_vinculo v
+          join colaborador c on c.id = v.colaborador_id and c.tenant_id = v.tenant_id
+          left join funcao f on f.id = c.funcao_id
+          left join perfil_acesso p on p.id = c.perfil_acesso_id
+          join empresa emp on emp.id = v.tenant_id
+         where v.tenant_id = ${p.tenantId}::uuid and v.colaborador_id = ${p.autorizadaPor}::uuid
+           and v.ligado_em is not null and v.telefone is not null and ${pessoaVale()}`),
+    );
+    if (!v) return 'quem autorizou não fala mais com o Mister. Nada foi feito.';
+    // O gerente decide só o que é dele (a ação, o plano, o pedido, a tarefa, a sessão, o PIN falado); o resto é do presidente.
+    const doGerente =
+      ehAcaoDoMister(p.procedimento) ||
+      ([PROCEDIMENTO_DO_PLANO, PROCEDIMENTO_DO_PEDIDO, PROCEDIMENTO_DA_TAREFA] as readonly string[]).includes(p.procedimento) ||
+      PROCEDIMENTOS_DO_GERENTE.includes(p.procedimento);
+    if (v.nivel !== 'presidente' && !(v.nivel === 'gerente' && doGerente)) return 'quem autorizou não pode mais fazer isto pelo Mister. Nada foi feito.';
+    if (this.modulos && !(await this.modulos.ativo(p.tenantId, p.unidadeId ?? null, 'mister'))) return 'o Mister foi desligado nesta loja. Nada foi feito.';
+    return null;
+  }
 
   /**
    * Executa a proposta autorizada pelo serviço da tela. Uma vez só: a passagem de "autorizada" para "executando" é
@@ -512,10 +551,13 @@ export class MisterPropostasService implements OnModuleInit {
                  else ${PROCEDIMENTOS.consultar_nota.conferirMin}::int end)
          where id = ${id}::uuid and situacao = 'autorizada'
         returning id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", procedimento, parametros,
-                  autorizada_por::text as "autorizadaPor"`),
+                  autorizada_por::text as "autorizadaPor", respondida_em as "respondidaEm"`),
     );
     if (!p) return null;
     await this.auditar(p.tenantId, p.autorizadaPor, 'mister_proposta_executada', p.id, { procedimento: p.procedimento }, 'whatsapp', perfilDe(p));
+    // ERR-644 (rodada 7, MIS-A-03): a régua comum de "acesso vale" logo ANTES de qualquer efeito.
+    const semAcesso = await this.acessoNaExecucao(p);
+    if (semAcesso) return this.concluir(p, false, semAcesso);
     // V7c: o plano anda passo a passo no serviço dele; cada passo volta a este `executar`, como uma proposta qualquer.
     if (p.procedimento === PROCEDIMENTO_DO_PLANO) {
       if (!this.plano) return this.concluir(p, false, 'os planos não estão disponíveis agora. Nada foi feito.');
@@ -619,7 +661,7 @@ export class MisterPropostasService implements OnModuleInit {
       const [v] = linhas(
         await this.db.execute(sql`
           update mister_vinculo set pin_ate = clock_timestamp() + make_interval(hours => ${horas}::int), atualizado_em = now()
-           where tenant_id = ${p.tenantId}::uuid and colaborador_id = ${p.autorizadaPor}::uuid
+           where tenant_id = ${p.tenantId}::uuid and colaborador_id = ${p.autorizadaPor}::uuid and ligado_em is not null
           returning pin_ate as "pinAte"`),
       );
       if (!v) return this.concluir(p, false, 'o WhatsApp desta pessoa não está mais ligado ao Mister. Nada foi liberado.');
@@ -901,6 +943,8 @@ export class MisterPropostasService implements OnModuleInit {
             left join funcao f on f.id = c.funcao_id
             left join perfil_acesso p on p.id = c.perfil_acesso_id
             join mister_vinculo v on v.tenant_id = mp.tenant_id and v.colaborador_id = mp.link_para and v.ligado_em is not null and v.telefone is not null
+                 -- ERR-642 (rodada 7, MIS-A-10): o link vale para a ligação em que saiu — desligou e ligou de novo, o antigo não vale.
+                 and mp.link_criado_em >= v.ligado_em
            where mp.link_hash = ${resumoDoCodigo(codigo)} and mp.nivel = 'pin'
              and ${pessoaVale()}
              -- M6d e M6j: a sessão com PIN e as ações de PIN são da própria pessoa (o gerente também); o resto, só o presidente.
@@ -914,6 +958,8 @@ export class MisterPropostasService implements OnModuleInit {
     }
     if (!p) throw new NotFoundException(TEXTOS_DO_LINK.naoVale);
     if (this.modulos && !(await this.modulos.ativo(p.tenantId, p.unidadeId ?? null, 'mister'))) throw new NotFoundException(TEXTOS_DO_LINK.naoVale);
+    // ERR-644 (rodada 7, MIS-A-03): a chave geral do Mister (o console da DMS) vale também para o link — desligada, nada se autoriza.
+    if (!(await this.numero.ler()).ligado) throw new NotFoundException(TEXTOS_DO_LINK.naoVale);
     return p;
   }
 
@@ -1086,6 +1132,7 @@ export class MisterPropostasService implements OnModuleInit {
         select 1 as tem from mister_proposta
          where tenant_id = ${tenantId}::uuid and link_para = ${colaboradorId}::uuid and nivel = 'pin' and situacao = 'proposta'
            and vence_em > now() and bloqueada_em is null and link_hash is not null
+           and link_criado_em >= (select ligado_em from mister_vinculo where tenant_id = ${tenantId}::uuid and colaborador_id = ${colaboradorId}::uuid)
          limit 1`),
     );
     return !!p;
@@ -1115,6 +1162,8 @@ export class MisterPropostasService implements OnModuleInit {
           from mister_proposta
          where tenant_id = ${tenantId}::uuid and link_para = ${colaboradorId}::uuid and nivel = 'pin' and situacao = 'proposta'
            and vence_em > now() and bloqueada_em is null and link_hash is not null
+           -- ERR-642: só o link da ligação de agora (o da ligação anterior não vale, nem falado).
+           and link_criado_em >= (select ligado_em from mister_vinculo where tenant_id = ${tenantId}::uuid and colaborador_id = ${colaboradorId}::uuid)
          order by link_criado_em desc
          limit 1`),
     );
@@ -1221,6 +1270,8 @@ export class MisterPropostasService implements OnModuleInit {
 /** Os procedimentos de PIN que o gerente autoriza, com o PIN dele: a sessão e as ações de PIN que ele mesmo pediu. */
 // C4 Onda 1: a tarefa de PIN pelo mapa (o gerente pode pedir; a API confere o perfil dele de novo na escrita).
 const PROCEDIMENTOS_DO_GERENTE: readonly string[] = ['abrir_sessao', 'ligar_pin_falado', PROCEDIMENTO_DA_TAREFA, ...ACOES_DE_PIN];
+/** ERR-644: a autorização que ficou parada (reinício, deploy) além disto não executa — a pessoa pede de novo. */
+const EXECUCAO_PARADA_MAX_MIN = 10;
 
 /** M6j: o perfil gravado com a ação (quem pediu); as outras propostas são do presidente. */
 const perfilDe = (p: { parametros?: any }): string => (p.parametros?.nivel === 'gerente' ? 'gerente' : 'presidente');

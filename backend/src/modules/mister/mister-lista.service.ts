@@ -21,6 +21,8 @@ import { acharInsumo } from './mister-documento-conversa';
 import { EscopoDoMister, MisterFerramentasService, ResultadoDaFerramenta } from './mister-ferramentas.service';
 import { InsumoDaLista, LEITURA_VALE_H, LISTA_VALE_H, MAX_LINHAS_DA_LISTA, LinhaDaLista, ListaLida, PREFIXO_DA_LISTA, PedidoDaLinha, TEXTOS_DA_LISTA, aplicarFator, comAsRespostas, ehParteDaLeitura, lerBotaoDaLista, lerPedidos, ligarAoInsumo, marcaDoTexto, montarLinha, pedidosDaPlanilha, perguntaDaLinha, perguntaDoFornecedor, proximaPendencia, quantidadeNoEstoque, resumoDaLista, textoDaLeitura } from './mister-lista';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
+import { MisterPropostasService } from './mister-propostas.service';
+import { esperaOPin } from './mister-sessao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -63,6 +65,8 @@ export class MisterListaService implements OnModuleInit {
     @Optional() private readonly conversa?: MisterConversaConfigService,
     // Versão 9, O2: os apelidos da empresa. Opcional: sem ele, a lista de sempre.
     @Optional() private readonly modelos?: MisterCompraModelosService,
+    // ERR-641: a sessão com PIN do "Criar o pedido" (a mesma régua e o mesmo link do "Autorizar" das propostas).
+    @Optional() private readonly propostas?: MisterPropostasService,
   ) {}
 
   onModuleInit(): void {
@@ -306,6 +310,18 @@ export class MisterListaService implements OnModuleInit {
     if (!b || !quem.vinculos.length) return false;
     const pessoas = quem.vinculos.map((v) => v.colaboradorId);
     const empresas = quem.vinculos.map((v) => v.tenantId);
+    // ERR-641 (rodada 7, MIS-A-04): "Criar o pedido" é ação de botão — com a sessão com PIN vencida da dona da lista, espera o
+    // PIN (a lista continua para confirmar, no prazo dela). Os outros toques só montam a lista.
+    if (b.tipo === 'criar') {
+      const [dona] = linhas(
+        await this.db.execute(sql`
+          select tenant_id::text as "tenantId", colaborador_id::text as "colaboradorId" from mister_lista_compra
+           where id = ${b.listaId}::uuid
+             and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})
+             and colaborador_id in (${sql.join(pessoas.map((p) => sql`${p}::uuid`), sql`, `)})`),
+      );
+      if (dona && (await esperaOPin(this.db, this.propostas, (t) => this.falar(quem.telefone, { texto: t }), { ...dona, telefone: quem.telefone }))) return true;
+    }
     let fim: Mensagem | null = null;
     let criar: { lista: any; linhas: LinhaDaLista[] } | null = null;
     const achou = await this.db.transaction(async (tx: any) => {

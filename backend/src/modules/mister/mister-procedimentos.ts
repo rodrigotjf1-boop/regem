@@ -66,6 +66,8 @@ export const TEXTOS_DA_SESSAO = {
     `Para ver valores em reais e dados de pessoas (e autorizar pelos botões), confirme com o seu PIN no Regem — vale por ${horas} horas. O link vale até ${ate}.`,
   liberada: (ate: string) => `liberado até ${ate}: os valores e os dados de pessoas voltam a aparecer`,
   botaoPedePin: 'Para autorizar pelo botão, confirme antes o seu PIN pelo link que mandei agora.',
+  /** ERR-641: a foto de um documento (boleto, conta, nota) com a sessão vencida — o valor e o lançamento esperam o PIN. */
+  fotoPedePin: 'Para ler um documento com valores, confirme antes o seu PIN pelo link que mandei agora. Depois, mande a foto de novo.',
 } as const;
 
 /** A versão do servidor da loja que traz o comando `reiniciar_impressao` (o `sync-daemon` do `.exe` seguinte à 1.30.13). */
