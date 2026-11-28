@@ -61,9 +61,15 @@ describe('instruções do robô', () => {
         expect(s).toContain('só quando o cliente está de bom humor ou brincando, no máximo uma vez na conversa');
         expect(s).toContain('nunca sobre o cliente, o nome, a aparência ou a vida dele');
         for (const delicado of ['reclamação', 'atraso', 'erro no pedido', 'alergia', 'pagamento', 'cancelamento', 'pressa']) {
-          expect(s.slice(s.indexOf('Nunca em '), s.indexOf('No perfil PROFISSIONAL'))).toContain(delicado);
+          expect(s.slice(s.indexOf('Nunca em '), s.indexOf('Se o perfil escolhido'))).toContain(delicado);
         }
-        expect(s).toContain('No perfil PROFISSIONAL ou OBJETIVO, sem piada.');
+        expect(s).toContain('Se o perfil escolhido pela loja for o profissional ou o objetivo, sem piada.');
+      }
+    });
+
+    it('não cita perfil em MAIÚSCULAS: o nome assim é a marca do bloco do perfil (os testes da rota a usam)', () => {
+      for (const t of [f1, f2]) {
+        for (const nome of ['PROFISSIONAL', 'CORDIAL', 'GENTIL', 'DESCONTRAÍDO', 'OBJETIVO', 'ACOLHEDOR']) expect(secao(t)).not.toContain(nome);
       }
     });
 
