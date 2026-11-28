@@ -28,6 +28,7 @@ import { AvisoAgendadoProcessor } from './aviso-agendado.processor';
 import { PausaDoCanalService } from './pausa-do-canal.service';
 import { PausaNosCanaisService } from './pausa-nos-canais.service';
 import { OrzuniModule } from '../orzuni/orzuni.module';
+import { PedidoTravaModule } from '../pedido-trava/pedido-trava.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { OrzuniModule } from '../orzuni/orzuni.module';
     WhatsappModule, // o código de entrega da loja na API oficial sai pelo próprio Regem (ERR-332)
     ChegadaModule, // "Cheguei" na retirada (mig 354): a marca da Retirada e o botão no aviso de pronto
     OrzuniModule, // F5 da pausa: a pausa da loja no iFood pelo Orzuni (`OrzuniPausaService`)
+    PedidoTravaModule, // a trava do pedido enquanto o cliente altera (mig 517): "Pronto"/"Despachar" recusam com ela
   ],
   controllers: [DeliveryController, DespachoPublicoController, DeliveryLojaController,
     EntregadoresAoVivoController],

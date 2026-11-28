@@ -862,6 +862,8 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'POST /api/v1/delivery/pedidos/{id}/despachar', marca: 'botao', frase: 'delivery: despachar' },
   { rota: 'POST /api/v1/delivery/pedidos/{id}/entregar', marca: 'botao', frase: 'delivery: entregar' },
   { rota: 'POST /api/v1/delivery/pedidos/{id}/finalizar', marca: 'botao', frase: 'delivery: finalizar' },
+  // A trava do pedido enquanto o cliente altera (mig 517): liberar pede a senha do gerente na hora — só pela tela.
+  { rota: 'POST /api/v1/delivery/pedidos/{id}/liberar-alteracao', marca: 'tela', frase: 'delivery: liberar o pedido que o cliente está alterando' },
   { rota: 'POST /api/v1/delivery/pedidos/{id}/nf', marca: 'pin', frase: 'delivery: nf' },
   { rota: 'POST /api/v1/delivery/pedidos/{id}/perda', marca: 'botao', frase: 'delivery: registrar perda' },
   { rota: 'POST /api/v1/delivery/pedidos/{id}/receber-pagamento', marca: 'pin', frase: 'delivery: receber pagamento' },

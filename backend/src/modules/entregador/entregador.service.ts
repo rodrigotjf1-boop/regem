@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Inject,
   Injectable,
   Logger,
@@ -19,6 +20,8 @@ import { pedidoExterno } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
 import { DeliveryService } from '../delivery/delivery.service';
 import { ClienteService } from '../cliente/cliente.service';
+import { PedidoTravaService, pedidoSemTravaSql } from '../pedido-trava/pedido-trava.service';
+import { CODIGO_PEDIDO_EM_ALTERACAO } from '../pedido-trava/pedido-trava';
 import { geocode, montarEndereco } from '../../common/geocode';
 import { calcularCobranca } from './cobranca';
 import { hojeISO } from '../../common/data';
@@ -55,7 +58,21 @@ export class EntregadorService implements OnModuleInit {
     @Optional() private readonly avisosDoChat?: AvisosDoChatService,
     // "O cliente respondeu no chat" na lista do app (09/11/2026). Opcional: os testes montam sem ele.
     @Optional() private readonly chat?: ChatDoEntregadorService,
+    // A trava do pedido enquanto o cliente altera (mig 517): o pedido travado não sai pelo app. Opcional como as de cima.
+    @Optional() private readonly travas?: PedidoTravaService,
   ) {}
+
+  /** A recusa do `avancar` pela trava do pedido (mig 517)? O pedido fica fora da saída (não vai ao roteiro). */
+  private static recusouPelaTrava(e: unknown): boolean {
+    return e instanceof HttpException && (e.getResponse() as any)?.code === CODIGO_PEDIDO_EM_ALTERACAO;
+  }
+
+  /** Solta a reserva do pedido travado: volta para a fila de prontos quando o cliente terminar a mudança. */
+  private async soltarReserva(tenantId: string, pedidoId: string): Promise<void> {
+    await this.db.execute(sql`
+      update pedido_externo set entregador_id = null, entregador_nome = null, reservado_em = null
+       where id = ${pedidoId} and tenant_id = ${tenantId} and status = 'pronto' and saida_id is null`);
+  }
 
   /** O ajuste "Falar com o cliente da 99 pelo WhatsApp" (mig 388); na dúvida, desligado. Nunca rejeita. */
   private async cliente99(tenantId: string): Promise<boolean> {
@@ -239,6 +256,8 @@ export class EntregadorService implements OnModuleInit {
     if (ped.status === 'cancelado') throw new BadRequestException('Pedido cancelado.');
     if (ped.status !== 'pronto')
       throw new BadRequestException('O pedido ainda não está pronto para sair.');
+    // A trava do pedido enquanto o cliente altera (mig 517, TR-2): nem reserva nem despacha.
+    await this.travas?.exigirSemTrava(user.tenantId, ped.id);
     // Modo carrinho (Frente 2): se é a MINHA vez de puxar (1º da fila), o scan RESERVA o pedido
     // no batch em vez de despachar — acumula e depois "Iniciar entrega(s)". Sem trava de nº: o
     // lote/entregador é alvo ideal, não teto (posso escanear mais que o lote). Fora da fila (app
@@ -598,6 +617,7 @@ export class EntregadorService implements OnModuleInit {
       where tenant_id = ${user.tenantId} and status = 'pronto' and tipo <> 'retirada'
         and entregador_id is null and reservado_em is null and saida_id is null
         and ${SEM_LOGISTICA_DO_CANAL}
+        and ${pedidoSemTravaSql()}
         ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}`);
     const prontosDisponiveis = Number((pr2.rows ?? pr2)[0]?.n ?? 0);
     let botao: string;
@@ -626,6 +646,7 @@ export class EntregadorService implements OnModuleInit {
           where tenant_id = ${user.tenantId} and status = 'pronto' and tipo <> 'retirada'
             and entregador_id is null and reservado_em is null and saida_id is null
             and ${SEM_LOGISTICA_DO_CANAL}
+            and ${pedidoSemTravaSql()}
             ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}
           order by criado_em asc limit ${faltam}
           for update skip locked)`);
@@ -638,6 +659,13 @@ export class EntregadorService implements OnModuleInit {
   async iniciarEntregas(user: AuthUser) {
     if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
     // Raw SQL (snake_case) — o roteirizar/coordDoPedido leem snake_case.
+    // O reservado que o cliente está alterando (mig 517) não sai: a reserva solta e ele volta à fila quando a mudança acabar.
+    const soltos: any = await this.db.execute(sql`
+      update pedido_externo set entregador_id = null, entregador_nome = null, reservado_em = null
+       where tenant_id = ${user.tenantId} and entregador_id = ${user.colaboradorId}
+         and status = 'pronto' and reservado_em is not null and saida_id is null
+         and not ${pedidoSemTravaSql()}
+      returning id`);
     const rr: any = await this.db.execute(sql`
       select * from pedido_externo
       where tenant_id = ${user.tenantId} and entregador_id = ${user.colaboradorId}
@@ -645,7 +673,11 @@ export class EntregadorService implements OnModuleInit {
       order by criado_em asc`);
     const reservados = rr.rows ?? rr;
     if (!reservados.length)
-      throw new BadRequestException('Nenhum pedido reservado. Puxe ou escaneie um pedido primeiro.');
+      throw new BadRequestException(
+        (soltos.rows ?? soltos).length
+          ? 'O cliente está alterando o pedido reservado: ele volta para a fila quando o cliente terminar.'
+          : 'Nenhum pedido reservado. Puxe ou escaneie um pedido primeiro.',
+      );
     const ordenados = await this.roteirizar(user.tenantId, reservados);
     const ins: any = await this.db.execute(sql`
       insert into entregador_saida (tenant_id, colaborador_id, status, total_paradas)
@@ -659,7 +691,14 @@ export class EntregadorService implements OnModuleInit {
           entregadorNome: user.nome ?? 'Entregador',
           skipRastreio: true,
         });
-      } catch { /* já despachado/estado inesperado — segue */ }
+      } catch (e) {
+        // O cliente começou a alterar no meio (mig 517): o pedido fica fora desta saída e volta à fila.
+        if (EntregadorService.recusouPelaTrava(e)) {
+          await this.soltarReserva(user.tenantId, p.id);
+          continue;
+        }
+        /* já despachado/estado inesperado — segue */
+      }
       await this.db.execute(
         sql`update pedido_externo set saida_id = ${saidaId}, ordem_parada = ${i + 1}, reservado_em = null where id = ${p.id}`,
       );
@@ -1784,6 +1823,7 @@ export class EntregadorService implements OnModuleInit {
       select * from pedido_externo
       where tenant_id = ${user.tenantId} and status = 'pronto' and tipo <> 'retirada' and saida_id is null
         and ${SEM_LOGISTICA_DO_CANAL}
+        and ${pedidoSemTravaSql()}
       order by criado_em asc limit ${max}`);
     const prontos = pr.rows ?? pr;
     if (!prontos.length) return { saida: null, paradas: [] as any[] };
@@ -1800,7 +1840,11 @@ export class EntregadorService implements OnModuleInit {
           entregadorNome: user.nome ?? 'Entregador',
           skipRastreio: true, // multi-parada envia o link por parada ativa (abaixo), não de uma vez
         });
-      } catch { /* já despachado/estado inesperado — segue */ }
+      } catch (e) {
+        // O cliente começou a alterar no meio (mig 517): o pedido fica fora desta saída.
+        if (EntregadorService.recusouPelaTrava(e)) continue;
+        /* já despachado/estado inesperado — segue */
+      }
       await this.db.execute(sql`update pedido_externo set saida_id = ${saidaId}, ordem_parada = ${i + 1} where id = ${p.id}`);
     }
     await this.enviarLinkRastreio(user.tenantId, ordenados[0].id).catch(() => {});

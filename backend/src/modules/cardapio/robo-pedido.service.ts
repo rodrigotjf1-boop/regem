@@ -146,6 +146,8 @@ import {
 } from './robo-mudanca';
 import { textoDoPix } from './adicional-pix';
 import { AdicionalPixService } from './adicional-pix.service';
+import { PedidoTravaService } from '../pedido-trava/pedido-trava.service';
+import { linhaDaTravaNaConferencia, textoDaTravaVencida, textoDoPedidoLiberado } from '../pedido-trava/pedido-trava';
 import { cartaoDoCliente } from '../perfil-cliente/cartao-do-cliente';
 import { pagoNoPixOnline } from '../../common/prazo-estorno-pix';
 import { acompanharPedido, basePublicaDoApp, type Acompanhar } from '../whatsapp/acompanhar-pedido';
@@ -185,6 +187,10 @@ type Mudanca = Partial<Pick<Carrinho, 'itens' | 'entrega' | 'pagamento' | 'clien
 type Mudou = { carrinho: Carrinho; recusa: Recusa | null; mudou: boolean };
 
 const linhasDe = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
+
+/** TR-8 (mig 517): o que a IA ouve quando a conferência saiu com a trava — "pedi", nunca "a cozinha parou". */
+const ORIENTACAO_DA_TRAVA =
+  'A mensagem do Regem já diz que ele PEDIU para a cozinha segurar o pedido enquanto o cliente confere: não repita e nunca diga que a cozinha parou ou que o pedido não sai.';
 const VALIDADE_DO_CARRINHO = sql`interval '12 hours'`;
 
 /** As formas do número no cadastro: com/sem o 55 e com/sem o nono dígito (a chave sempre tem o 9 — ERR-134). */
@@ -352,6 +358,8 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly atendimento?: AtendimentoService,
     // O Pix do item que o robô põe no pedido já pago (mig 373). Opcional como as duas de cima.
     @Optional() private readonly adicionalPix?: AdicionalPixService,
+    // A trava do pedido enquanto o cliente altera (mig 517). Opcional: sem ela, a mudança segue como antes (sem segurar).
+    @Optional() private readonly travas?: PedidoTravaService,
   ) {}
 
   /** A loja (pela chave do número, com a senha do robô) e o cliente (pela ficha da conversa, da mesma loja). */
@@ -1143,6 +1151,37 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     return opcoes?.length ? this.enviarComBotoes(ctx, texto, opcoes) : this.enviarResumo(ctx, texto);
   }
 
+  /**
+   * TR-1 (mig 517): a conferência da mudança (ou a pergunta do troco dela) vai sair — trava o pedido na cozinha. Devolve a
+   * linha "⏸ Pedi para a cozinha segurar…" para o fim do texto (TR-8), ou '' sem a trava. Nunca lança: sem a trava, a
+   * mudança segue como antes.
+   */
+  private async travarPedido(ctx: Contexto, f: { p: PedidoFeito; ped: any }, m: MudancaDoRobo): Promise<string> {
+    if (!this.travas) return '';
+    try {
+      // A loja com servidor numa versão sem a trava não segura o pedido: nada de travar pela metade nem de prometer.
+      if (this.delivery && !(await this.delivery.travaValeNaLoja(ctx.cfg.tenantId, f.ped.unidadeId ?? null))) return '';
+      const t = await this.travas.travar({
+        id: m.id,
+        tenantId: ctx.cfg.tenantId,
+        unidadeId: f.ped.unidadeId ?? null,
+        pedidoId: f.p.id,
+        quer: linhasDaMudanca(m.op).join(' · '),
+      });
+      return t ? `\n\n${linhaDaTravaNaConferencia(t.ate)}` : '';
+    } catch (e: any) {
+      this.logger.warn(`trava do pedido ${f.p.id} (mudança ${m.id}): não travou — ${e?.message ?? e}`);
+      return '';
+    }
+  }
+
+  /** O fim da trava da mudança `id` (o id da trava é o da mudança). Nunca lança (V3). */
+  private async fimDaTrava(tenantId: string, id: string, situacao: 'confirmada' | 'desistiu' | 'vencida' | 'descartada'): Promise<void> {
+    await this.travas
+      ?.encerrar(tenantId, id, situacao)
+      .catch((e: any) => this.logger.warn(`trava da mudança ${id}: não acabou — ${e?.message ?? e}`));
+  }
+
   /** "Pôr", "tirar" ou "trocar" no pedido já feito: confere, monta a mudança e manda a conferência (ou a pergunta do troco). */
   private async mudarPedidoFeito(ctx: Contexto, menu: any, tipo: 'por' | 'tirar' | 'trocar', dto: any, produtos: Map<string, any>) {
     if (!this.delivery)
@@ -1376,6 +1415,10 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
           ? { motivo: 'uma_por_vez', mensagem: `A mudança anterior do ${noPedido(p.numero)} ainda está com a loja: a confirmação chega aqui em instantes.`, chamaEquipe: false }
           : { motivo: 'mudanca_mudou', mensagem: 'A mudança mudou enquanto o cliente respondia: pergunte de novo o que ele quer mudar.', chamaEquipe: false },
       );
+    // TR-1: a cozinha segura o pedido enquanto o cliente confere (mig 517). TR-8: a IA não promete mais do que isso.
+    const linhaDaTrava = await this.travarPedido(ctx, f, m);
+    texto += linhaDaTrava;
+    if (linhaDaTrava) proximo = { ...proximo, pergunta: `${proximo.pergunta} ${ORIENTACAO_DA_TRAVA}` };
     const enviado = await this.enviarAoCliente(ctx, texto, opcoes);
     const feito = perguntaTroco ? 'pergunta do troco da mudança enviada' : 'conferência da mudança enviada';
     return enviado
@@ -1396,9 +1439,9 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     const { p, ped } = f;
     const conta = contaDaMudanca(ped, m.op, null, { peloPix: true });
     if (!conta.ok) return this.naoMuda(textoDaRecusaDaGravacao(p.numero, conta.code));
-    const texto = textoDaConferenciaPeloPix(p.numero, m.op, p.total, conta.total);
+    let texto = textoDaConferenciaPeloPix(p.numero, m.op, p.total, conta.total);
     const opcoes = OPCOES_DA_CONFERENCIA_PELO_PIX;
-    const proximo: Falta = {
+    let proximo: Falta = {
       campo: 'confirmar_mudanca',
       pergunta:
         'A CONFERÊNCIA DA MUDANÇA (COM O VALOR DO PIX) JÁ FOI ENVIADA ao cliente pelo Regem, com os botões. Não repita a mudança nem ponha OPCOES: responda só algo curto, como "Confere aí 👆".',
@@ -1414,6 +1457,10 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
           ? { motivo: 'uma_por_vez', mensagem: `A mudança anterior do ${noPedido(p.numero)} ainda está com a loja: a confirmação chega aqui em instantes.`, chamaEquipe: false }
           : { motivo: 'mudanca_mudou', mensagem: 'A mudança mudou enquanto o cliente respondia: pergunte de novo o que ele quer mudar.', chamaEquipe: false },
       );
+    // TR-1: a cozinha segura o pedido enquanto o cliente confere (mig 517); com o Pix, até ele ser pago ou vencer.
+    const linhaDaTrava = await this.travarPedido(ctx, f, m);
+    texto += linhaDaTrava;
+    if (linhaDaTrava) proximo = { ...proximo, pergunta: `${proximo.pergunta} ${ORIENTACAO_DA_TRAVA}` };
     const enviado = await this.enviarAoCliente(ctx, texto, opcoes);
     return enviado
       ? { ok: true, feito: 'conferência da mudança (com o Pix da diferença) enviada', proximo }
@@ -1437,6 +1484,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     const conta = contaDaMudanca(f.ped, m.op, null, { peloPix: true });
     if (!conta.ok) {
       await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      await this.fimDaTrava(ctx.cfg.tenantId, m.id, 'descartada');
       return this.naoMuda(textoDaRecusaDaGravacao(f.p.numero, conta.code));
     }
     const via = (ctx.cfg.provedor ?? 'evolution') === 'cloud' ? 'cloud' : 'evolution';
@@ -1456,6 +1504,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     } catch (e: any) {
       this.logger.warn(`Pix do item novo do pedido ${m.pedidoId}: não saiu — ${e?.message ?? e}`);
       await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      await this.fimDaTrava(ctx.cfg.tenantId, m.id, 'descartada');
       const code = e instanceof HttpException ? (e.getResponse() as any)?.code : null;
       if (code === 'ADICIONAL_ABERTO')
         return this.naoMuda({
@@ -1466,6 +1515,10 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
       return this.naoMuda({ motivo: 'pix_falhou', mensagem: `Não consegui gerar o Pix do item novo do ${noPedido(m.numero)} agora.`, chamaEquipe: true });
     }
     await this.gravarMudanca(ctx, { ...m, via, situacao: 'pix', avisada: true }, (a) => a?.id === m.id);
+    // TR-3 (mig 517): a trava acompanha o Pix — até ele ser pago (a rotina do Pix encerra) ou vencer.
+    await this.travas
+      ?.estender(ctx.cfg.tenantId, m.id, new Date(pix.expiraEm))
+      .catch((e: any) => this.logger.warn(`trava da mudança ${m.id}: o prazo do Pix não entrou — ${e?.message ?? e}`));
     const texto = textoDoPix(m.numero, pix.descricao, pix.valor);
     const pausado = await estadoDaPausa(this.db, ctx.cfg.tenantId, ctx.conversa.telefone)
       .then((x) => x.pausado)
@@ -1548,6 +1601,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     const f = await this.pedidoFeitoDaConversa(ctx, await this.clienteDaConversa(ctx));
     if (!f || f.p.id !== m.pedidoId) {
       await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      await this.fimDaTrava(ctx.cfg.tenantId, m.id, 'descartada');
       return this.naoMuda({ motivo: 'sem_pedido_feito', mensagem: `O ${noPedido(m.numero)} não está mais em andamento.`, chamaEquipe: true });
     }
     // A mudança de endereço ainda sem o endereço novo: falta ele (nada para confirmar).
@@ -1558,6 +1612,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     const motivo = motivoParaNaoMudar(f.p, m.op);
     if (motivo) {
       await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      await this.fimDaTrava(ctx.cfg.tenantId, m.id, 'descartada');
       return this.naoMuda(motivo);
     }
     // O pedido já pago no Pix (mig 373): o "Mandar o Pix" gera o Pix da diferença — a mudança entra quando ele for pago.
@@ -1607,6 +1662,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
       if (code === 'TROCO_INSUFICIENTE') return this.seguirMudanca(ctx, f, { ...m, trocoPara: undefined }, { perguntarTroco: true });
       this.logger.warn(`mudança ${m.id} do pedido ${m.pedidoId} pelo robô recusada: ${e.message}`);
       await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      await this.fimDaTrava(ctx.cfg.tenantId, m.id, 'descartada');
       // O pedido andou (saiu, ficou pronto…): o motivo de agora; senão, o código da gravação.
       const f2 = await this.pedidoFeitoDaConversa(ctx, await this.clienteDaConversa(ctx)).catch(() => null);
       const agora = f2 && f2.p.id === m.pedidoId ? motivoParaNaoMudar(f2.p, op) : null;
@@ -1615,6 +1671,9 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     const pedida = r?.pedida === true || r?.alteracao?.situacao === 'pedida';
     const agora = new Date().toISOString();
     await this.gravarMudanca(ctx, { ...m, situacao: pedida ? 'pedida' : 'aplicada', pedidaEm: pedida ? agora : null, avisada: !pedida }, (a) => a?.id === m.id);
+    // A mudança entrou: a cozinha segue (mig 517). "Pedida" (loja com servidor): a trava para de segurar assim que o
+    // servidor decide (a conferência da trava olha a alteração), e a rotina da decisão grava o fim.
+    if (!pedida) await this.fimDaTrava(ctx.cfg.tenantId, m.id, 'confirmada');
     if (r?.repetida)
       return { ok: true, feito: pedida ? 'mudança já pedida à loja' : 'mudança já feita', jaFeita: true, orientacao: 'O cliente já recebeu a mensagem: diga só algo curto.' };
     const troco = r?.trocoPara != null && Number(r.trocoPara) > 0 ? Number(r.trocoPara) : null;
@@ -1700,6 +1759,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     const f = await this.pedidoFeitoDaConversa(ctx, cli);
     if (!f || f.p.id !== m.pedidoId) {
       await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      await this.fimDaTrava(ctx.cfg.tenantId, m.id, 'descartada');
       return this.naoMuda({ motivo: 'sem_pedido_feito', mensagem: `O ${noPedido(m.numero)} não está mais em andamento.`, chamaEquipe: true });
     }
     // O pedido já saiu (quando o cliente pediu, ou enquanto ele dizia o endereço): o caso urgente para a equipe.
@@ -1707,6 +1767,7 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     const motivo = motivoParaNaoMudar(f.p, null, 'endereco');
     if (motivo) {
       await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      await this.fimDaTrava(ctx.cfg.tenantId, m.id, 'descartada');
       return this.naoMuda(motivo);
     }
     // Trocar a entrega por retirada é com a equipe (decisão 8).
@@ -1770,7 +1831,11 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
    * pergunta da referência: o que o cliente disse basta para a equipe.
    */
   private async enderecoDepoisQueSaiu(ctx: Contexto, menu: any, dto: any, m: MudancaDoRobo, f: { p: PedidoFeito; ped: any }, cli: ClienteDaConversa) {
-    const fim = () => this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+    const fim = async () => {
+      const r = await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+      await this.fimDaTrava(ctx.cfg.tenantId, m.id, 'descartada'); // o pedido já saiu: nenhuma trava segura (mig 517)
+      return r;
+    };
     const nao = motivoDoEnderecoDepoisQueSaiu(f.p);
     if (nao) {
       await fim();
@@ -1906,6 +1971,8 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
     const m = lerMudanca((await this.carrinhoAberto(ctx))?.mudanca);
     if (!m || m.situacao) return { ok: true, feito: 'não havia mudança esperando: o pedido continua como estava' };
     await this.gravarMudanca(ctx, null, (a) => a?.id === m.id && !a.situacao);
+    // "Deixar como estava": a cozinha segue (mig 517).
+    await this.fimDaTrava(ctx.cfg.tenantId, m.id, 'desistiu');
     return { ok: true, feito: `mudança desfeita: o ${noPedido(m.numero)} continua como estava` };
   }
 
@@ -1943,6 +2010,8 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
         );
         if (!marcou.length) continue; // outra volta (ou réplica) já avisou
         const tenantId = String(x.tenant_id);
+        // A loja decidiu (ou não respondeu): a trava do pedido acaba (mig 517).
+        await this.fimDaTrava(tenantId, m.id, situacao === 'aplicada' ? 'confirmada' : situacao === 'recusada' ? 'descartada' : 'vencida');
         if (situacao === 'vencida') await this.chamarEquipeDaMudanca(tenantId, x, m);
         const depois = x.depois ?? {};
         const texto = textoDaDecisao(m.numero, situacao, {
@@ -1957,6 +2026,96 @@ export class RoboPedidoService implements OnModuleInit, OnModuleDestroy {
       }
     }
     return n;
+  }
+
+  /**
+   * O FIM DA TRAVA SEM CONVERSA ABERTA (mig 517; rotina da nuvem — `AvisoDaMudancaProcessor`):
+   * - TR-5, VENCIDA: a trava ativa passou do prazo sem resposta (sem Pix do item — o Pix vencido tem a rotina e o aviso
+   *   dele; sem alteração pedida — a decisão da loja tem a dela): encerra como "vencida", tira a mudança da conversa e diz
+   *   ao cliente que o pedido segue como estava.
+   * - TR-4, LIBERADA: a loja usou "Liberar o pedido" (aqui ou no servidor da loja, que sobe): tira a mudança da conversa,
+   *   cancela o Pix aberto do item e avisa o cliente.
+   * Uma vez só por trava: a mudança sai da conversa por gravação condicional ANTES do envio (duas réplicas nunca mandam
+   * duas vezes). Até 50 de cada por volta, todas as lojas numa consulta (set-based). Devolve quantos avisos saíram.
+   */
+  async avisarFimDasTravas(): Promise<number> {
+    if (!this.travas) return 0;
+    let n = 0;
+    const vencidas = linhasDe(
+      await this.db.execute(sql`
+        select t.id, t.tenant_id from pedido_trava t
+         where t.situacao = 'ativa' and t.ate < clock_timestamp()
+           and not exists (select 1 from pedido_adicional_pix x where x.id = t.id)
+           and not exists (select 1 from pedido_alteracao a where a.tenant_id = t.tenant_id and a.id = t.id)
+         order by t.ate
+         limit 50`),
+    );
+    for (const v of vencidas) {
+      try {
+        const fim = await this.travas.encerrar(String(v.tenant_id), String(v.id), 'vencida');
+        if (!fim) continue; // outra volta (ou réplica) já encerrou
+        const c = await this.tirarMudancaDaConversa(String(v.tenant_id), String(v.id), ['']);
+        if (!c) continue; // a conversa já não espera esta mudança (desistiu, outra mudança): nada a dizer
+        await this.enviarDaRotina(String(v.tenant_id), c.telefone, textoDaTravaVencida(c.m.numero ?? null), null, c.m.via ?? null);
+        n++;
+      } catch (e: any) {
+        this.logger.warn(`fim da trava vencida ${v?.id}: ${e?.message ?? e}`);
+      }
+    }
+    const liberadas = linhasDe(
+      await this.db.execute(sql`
+        select t.id, t.tenant_id from pedido_trava t
+         where t.situacao = 'liberada' and t.encerrada_em > now() - interval '1 day'
+           and exists (select 1 from robo_carrinho c
+                        where c.tenant_id = t.tenant_id and c.mudanca->>'id' = t.id::text
+                          and coalesce(c.mudanca->>'situacao', '') in ('', 'pix'))
+         order by t.encerrada_em
+         limit 50`),
+    );
+    for (const l of liberadas) {
+      try {
+        const tenantId = String(l.tenant_id);
+        // O Pix aberto do item: fecha AQUI (aguardando → expirado) antes de tirar a mudança — pago no meio do caminho, a
+        // rotina do Pix aplica ou devolve, e este aviso não sai.
+        const [pix] = linhasDe(
+          await this.db.execute(sql`
+            update pedido_adicional_pix set situacao = 'expirado', erro = 'a loja liberou o pedido', atualizado_em = clock_timestamp()
+             where id = ${String(l.id)}::uuid and tenant_id = ${tenantId}::uuid and situacao = 'aguardando'
+            returning gateway_provider, gateway_payment_id`),
+        );
+        const situacoes = pix ? ['pix'] : [''];
+        const c = await this.tirarMudancaDaConversa(tenantId, String(l.id), situacoes);
+        if (!c) continue;
+        if (pix?.gateway_payment_id)
+          await this.cardapio.cancelarPixAvulso(tenantId, String(pix.gateway_provider), String(pix.gateway_payment_id));
+        await this.enviarDaRotina(tenantId, c.telefone, textoDoPedidoLiberado(c.m.numero ?? null, !!pix), null, c.m.via ?? null);
+        n++;
+      } catch (e: any) {
+        this.logger.warn(`aviso do pedido liberado (trava ${l?.id}): ${e?.message ?? e}`);
+      }
+    }
+    return n;
+  }
+
+  /**
+   * Tira da conversa a mudança `id` que ainda está numa das `situacoes` ('' = em conferência; 'pix' = esperando o Pix) —
+   * gravação condicional (a mudança que andou não sai). Devolve o telefone e a mudança, ou null.
+   */
+  private async tirarMudancaDaConversa(tenantId: string, id: string, situacoes: string[]): Promise<{ telefone: string; m: MudancaDoRobo } | null> {
+    const [r] = linhasDe(
+      await this.db.execute(sql`
+        with alvo as (
+          select id, telefone, mudanca from robo_carrinho
+           where tenant_id = ${tenantId}::uuid and mudanca->>'id' = ${id}
+             and coalesce(mudanca->>'situacao', '') in (${sql.join(situacoes.map((s) => sql`${s}`), sql`, `)})
+           for update
+        )
+        update robo_carrinho c set mudanca = null
+          from alvo where c.id = alvo.id
+        returning alvo.telefone, alvo.mudanca`),
+    );
+    const m = r ? lerMudanca(r.mudanca) : null;
+    return r && m ? { telefone: String(r.telefone), m } : null;
   }
 
   /** A loja não respondeu à mudança: o caso vai para a equipe (tipo "mudança", ligado ao pedido), com o resumo. */

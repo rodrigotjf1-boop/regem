@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem — O pedido em alteração pelo cliente (protótipo)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* PROTÓTIPO (28/11/2026) — O PEDIDO EM ALTERAÇÃO PELO CLIENTE, para o dono aprovar ANTES de qualquer código. Nada aqui
+   fala com o Regem; a loja ("Burger da Praça"), o cliente e os números são inventados. O estilo é o do protótipo aprovado
+   em 03/11 (regem-alteracao-pedido.html), copiado por gerar-proto-trava.mjs.
+   Pedido do dono: "quando o cliente tentar editar o pedido e o atendimento entender, ele trava o pedido e o pedido entra
+   em modo edição pelo cliente na cozinha pedindo a pausa até que o cliente conclua alteração, para não ter o risco do
+   pedido sair." Vistas: (1) No WhatsApp — a conversa e os quatro finais (confirmou, desistiu, sem resposta, a loja
+   liberou), com o pedido pago na entrega e o já pago no Pix; (2) KDS — a faixa CLIENTE ALTERANDO, claro e escuro;
+   (3) Painel e despacho — o despacho recusado e o "Liberar o pedido"; (4) Plano e decisões (TR-1 a TR-8). */
+:root{
+  --bg:#F1F4F8; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E8A845; --on-gold:#281B06; --navy:#0F2230; --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9;
+  --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8; --ouro:#7A5209; --ouro-bg:#FCF1DD; --radius:12px;
+  --display:'Archivo',sans-serif; --body:'Figtree',sans-serif; --mono:'JetBrains Mono',monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--body);background:var(--bg);color:var(--ink);font-size:15px;line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #3A7FB8;outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* faixa do protótipo (fora do app) */
+.proto{background:#0B1822;color:#D5E0EA;padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.proto strong{font-family:var(--display);color:#fff;font-size:14px}
+.proto .obs{font-size:12.5px;color:#9FB2C4}
+.abas{display:flex;flex-wrap:wrap;gap:8px}
+.aba{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:6px 14px;border-radius:10px;border:1px solid #2E4456;background:#13283A;color:#D5E0EA;font-weight:600;font-size:14px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+
+main{max-width:1500px;margin:0 auto;padding:16px 16px 96px}
+.vista > h1,.aj h1,.notas h1{font-family:var(--display);font-size:clamp(20px,2.4vw,26px);margin:4px 0 6px}
+.intro{color:var(--ink-2);max-width:920px;margin:0 0 14px}
+.ctls{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin:0 0 16px;display:grid;gap:8px}
+.ctl{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:13px}
+.ctl > span{font-weight:700;color:var(--ink-2);margin-right:2px}
+.ctl button{min-height:36px;padding:0 12px;border-radius:9px;border:1px solid var(--line-2);background:var(--card);font-weight:600;font-size:13px}
+.ctl button[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.mini{font-size:13px;color:var(--ink-2);margin:8px 0 0}
+
+/* ── celulares: WhatsApp e cardápio ── */
+.fones{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),420px));justify-content:center;gap:18px;align-items:start}
+.caso h2{font-family:var(--display);font-size:16px;margin:0 0 8px;display:flex;gap:8px;align-items:center}
+.caso h2 .n{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--navy);color:var(--gold);font-size:13px;flex:none}
+.leg{font-size:13px;color:var(--ink-2);margin:10px 2px 0}
+.fone{width:100%;height:690px;border-radius:28px;background:#0F2230;padding:10px;box-shadow:0 16px 40px rgba(15,34,48,.25)}
+.fone .vidro{height:100%;border-radius:20px;background:#FAFAFA;overflow:hidden;display:flex;flex-direction:column;position:relative}
+/* Conversa do robô: o celular cresce com a conversa (o protótipo mostra tudo, sem rolar dentro do celular). */
+.fone.alto,.fone.alto .vidro{height:auto}
+.fone.alto .wa{flex:none;overflow:visible}
+.wa-topo,.lp-topo{background:#008069;color:#fff;padding:10px 14px;display:flex;align-items:center;gap:10px}
+.lp-topo{background:var(--navy)}
+.av{width:34px;height:34px;border-radius:50%;background:#0F2230;color:var(--gold);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:12px;flex:none}
+.lp-topo .av{background:var(--gold);color:var(--on-gold)}
+.wa-topo b,.lp-topo b{display:block;font-size:15px} .wa-topo small,.lp-topo small{font-size:12px;color:#E9FBF6}
+.wa{flex:1;overflow-y:auto;background:#EFEAE2;padding:12px 10px;display:flex;flex-direction:column;gap:6px}
+.bolha{max-width:88%;background:#fff;color:#111B21;border-radius:10px;padding:7px 9px;font-size:14px;box-shadow:0 1px 1px rgba(0,0,0,.08);overflow-wrap:anywhere}
+.bolha.eu{align-self:flex-end;background:#D9FDD3}
+.bolha p{margin:0 0 6px} .bolha p:last-of-type{margin-bottom:0}
+.bolha small{display:block;text-align:right;font-size:11px;color:#54656F;margin-top:2px}
+.wa-bts{display:flex;flex-direction:column;gap:2px;width:88%;max-width:88%}
+.wa-bts span{background:#fff;border-radius:10px;text-align:center;color:#00719F;font-weight:600;font-size:14px;padding:8px;box-shadow:0 1px 1px rgba(0,0,0,.08);overflow-wrap:anywhere}
+.wa-dia{align-self:center;background:#fff;border-radius:8px;font-size:12px;color:#54656F;padding:3px 10px;text-align:center;max-width:92%}
+.wa-escrever{background:#F0F2F5;padding:8px 10px;display:flex;gap:8px;align-items:center}
+.wa-escrever span{flex:1;background:#fff;border-radius:999px;padding:9px 14px;color:#54656F;font-size:14px}
+
+.cel-box{max-width:420px;margin:0 auto}
+.lp-corpo{flex:1;overflow-y:auto;padding:14px;background:#F6F7F9;display:flex;flex-direction:column;gap:10px}
+.lp-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px}
+.lp-card h3{font-family:var(--display);font-size:15px;margin:0 0 8px}
+.lp-linha{display:flex;justify-content:space-between;gap:10px;font-size:14px;padding:2px 0}
+.lp-linha span:last-child{white-space:nowrap}
+.lp-total{font-weight:800;border-top:1px solid var(--line);margin-top:6px;padding-top:6px}
+.lp-bt{min-height:50px;border-radius:12px;border:0;background:var(--gold);color:var(--on-gold);font-weight:800;font-size:15px;width:100%}
+.dlg-fundo{position:absolute;inset:0;background:rgba(15,34,48,.55);display:flex;align-items:flex-end;justify-content:center;padding:12px}
+.dlg{background:#fff;border-radius:16px;padding:18px 16px 16px;width:100%;max-width:420px;box-shadow:0 20px 40px rgba(0,0,0,.3)}
+.dlg h3{font-family:var(--display);font-size:18px;margin:0 0 8px}
+.dlg p{margin:0 0 10px;font-size:14.5px}
+.itens-d{background:var(--bg);border-radius:10px;padding:8px 10px;font-size:14px;margin:0 0 12px}
+.acoes{display:flex;flex-direction:column;gap:8px}
+.bt{min-height:48px;border-radius:12px;font-weight:800;font-size:15px;padding:0 14px}
+.bt.pri{background:var(--gold);color:var(--on-gold);border:0}
+.bt.sec{background:#fff;color:var(--ink);border:1.5px solid var(--line-2)}
+.nota-dlg{font-size:12.5px!important;color:var(--ink-2);margin:10px 0 0!important}
+.aviso-lp{background:var(--ok-bg);color:var(--ok);border-radius:12px;padding:10px 12px;font-weight:700;font-size:14px}
+
+/* ── vias impressas (papel térmico) ── */
+.papeis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:22px;align-items:start}
+.papel-box{width:100%;display:flex;flex-direction:column;align-items:center;gap:8px}
+.papel-box h2{font-size:14px;font-family:var(--display);margin:0;color:var(--ink-2);text-align:center}
+.papel{width:100%;max-width:330px;background:#FFFEFA;color:#111;font-family:var(--mono);font-size:10.5px;line-height:1.35;padding:16px 12px 14px;box-shadow:0 8px 24px rgba(15,34,48,.16);border-radius:3px}
+.papel.p58{max-width:232px}
+.pl{overflow-wrap:anywhere}
+.pc{text-align:center}
+.pb{font-weight:700}
+.p2{font-size:2em;line-height:1.15}
+.p4{font-size:3.6em;line-height:1.05}
+.psep{border-top:1px dashed #111;margin:7px 0}
+.psep2{border-top:4px double #111;margin:8px 0}
+.pd{display:flex;justify-content:space-between;gap:8px}
+.pd span:first-child{min-width:0;overflow-wrap:anywhere}
+.pd span:last-child{white-space:nowrap}
+.pcorte{margin-top:14px;text-align:center;font-family:var(--body);font-size:11px;color:#8A97A3;border-top:1px dashed #B9C3CC;padding-top:4px}
+.papel-nada{font-family:var(--body);font-size:13.5px;line-height:1.45;color:var(--ink-2);text-align:center;padding:28px 8px}
+
+/* ── KDS (tokens do mockups/regem-kds-producao.html) ── */
+.kds{--s-ok:#0E7C66;--on-ok:#FFFFFF;--s-warn:#F5C842;--on-warn:#0F2230;--s-late:#D92D20;--on-late:#FFFFFF;
+  background:var(--k-bg);color:var(--k-ink);border-radius:16px;border:1px solid var(--line-2);overflow:hidden}
+.kds[data-tema="claro"]{--k-bg:#EDF0F4;--k-panel:#FFFFFF;--k-panel-2:#F1F4F7;--k-line:#D5DCE4;--k-ink:#0F2230;--k-muted:#4F6476}
+.kds[data-tema="escuro"]{--k-bg:#0B1117;--k-panel:#151E27;--k-panel-2:#1D2833;--k-line:#2C3A47;--k-ink:#F1F5F8;--k-muted:#A3B1BD}
+.k-topo{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 16px;background:var(--k-panel);border-bottom:1px solid var(--k-line)}
+.k-logo{width:38px;height:38px;flex:none;border-radius:10px;display:grid;place-items:center;background:#0F2230;color:#E2A340;font-family:var(--display);font-weight:800;font-size:17px}
+.k-marca b{display:block;font-family:var(--display);font-weight:800;font-size:16px}
+.k-marca span{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--k-muted)}
+.k-esp{flex:1 1 0;min-width:0}
+.k-relogio{font-family:var(--mono);font-size:24px;font-weight:700}
+.k-grade{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr));padding:14px;align-items:start}
+.kc{--inv-bg:var(--k-ink);--inv-fg:var(--k-panel);display:flex;flex-direction:column;overflow:hidden;background:var(--k-panel);color:var(--k-ink);border:1px solid var(--k-line);border-radius:12px}
+.kc.t-ok{--c:var(--s-ok);--on:var(--on-ok)} .kc.t-warn{--c:var(--s-warn);--on:var(--on-warn)} .kc.t-late{--c:var(--s-late);--on:var(--on-late)}
+.kc .cab{--inv-bg:var(--on);--inv-fg:var(--c);display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 10px;padding:11px 14px;background:var(--c);color:var(--on)}
+.kc .ident{display:flex;align-items:center;gap:8px;font-family:var(--display);font-weight:800;font-size:27px;line-height:1.05;white-space:nowrap}
+.kc .tempo{font-family:var(--mono);font-weight:700;font-size:24px;white-space:nowrap}
+.kc .tempo small{font-family:var(--body);font-size:13.5px;font-weight:700;margin-left:3px}
+.kc .sub{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:13.5px;font-weight:700}
+.ktag{display:inline-block;border:1.5px solid currentColor;border-radius:5px;padding:0 6px;font-size:11.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;line-height:1.5}
+.ktag.cheia{background:var(--inv-bg);color:var(--inv-fg);border-color:var(--inv-bg)}
+.excl{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--inv-bg);color:var(--inv-fg);font-family:var(--display);font-weight:800;font-size:22px;line-height:1;flex:none}
+@keyframes pulsa-excl{50%{transform:scale(1.12)}}
+.excl.pulsa{animation:pulsa-excl 1s ease-in-out infinite}
+.kc .cc{display:flex;flex-direction:column;flex:1;padding:12px 14px 14px}
+.faixa-alt{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:0 0 12px;padding:10px 12px;border-radius:9px;background:var(--inv-bg);color:var(--inv-fg)}
+.faixa-alt .excl{background:var(--inv-fg);color:var(--inv-bg)}
+.faixa-alt b{font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:.03em;line-height:1.1;flex:1 1 9ch;min-width:0}
+.faixa-alt small{font-family:var(--mono);font-weight:700;font-size:15px}
+.faixa-alt button{flex:1 0 100%;min-height:48px;padding:0 16px;border:0;border-radius:8px;background:var(--inv-fg);color:var(--inv-bg);font-weight:800;font-size:15px;letter-spacing:.08em;text-transform:uppercase}
+.kc .aviso{margin:0 0 10px;font-size:13.5px;font-weight:700}
+.kc .itens{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:8px;flex:1}
+.kc .itens li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;font-size:16px;line-height:1.3}
+.kc .q{font-family:var(--mono);font-weight:700;min-width:2.2ch;text-align:right}
+.kc .d{font-weight:700}
+.kc .obs{margin-top:4px;font-size:13.5px;font-weight:800}
+.kc li.tirado .d,.kc li.tirado .q{text-decoration:line-through;text-decoration-thickness:2px}
+.kc .avancar{width:100%;min-height:48px;border-radius:9px;border:0;background:var(--c);color:var(--on);font-family:var(--display);font-weight:800;font-size:14.5px;letter-spacing:.08em;text-transform:uppercase}
+.k-alerta{display:flex;align-items:stretch;min-height:56px;color:#fff;background:#1E6FA8}
+.k-alerta .lado{display:grid;place-items:center;padding:0 14px;background:rgba(0,0,0,.22);font-weight:800;font-size:13px;letter-spacing:.08em;text-transform:uppercase}
+.k-alerta .txt{flex:1;min-width:0;display:flex;align-items:center;padding:8px 14px;font-family:var(--display);font-weight:800;font-size:18px;overflow-wrap:anywhere}
+
+/* ── painel da loja (gaveta do pedido) ── */
+.gav{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 30px rgba(15,34,48,.08);max-width:660px;margin:0 auto}
+.gav-cab{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.gav-cab h2{font-family:var(--display);font-size:20px;margin:0;flex:1 1 auto}
+.chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-size:12.5px;font-weight:700;background:var(--info-bg);color:var(--info)}
+.chip.ok{background:var(--ok-bg);color:var(--ok)} .chip.warn{background:var(--warn-bg);color:var(--warn)} .chip.ouro{background:var(--ouro-bg);color:var(--ouro)}
+.gav-sec{padding:14px 18px;border-bottom:1px solid var(--line)}
+.gav-sec:last-child{border-bottom:0}
+.gav-sec h3{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);margin:0 0 8px;font-family:var(--display)}
+.mud{list-style:none;margin:0 0 8px;padding:0;display:grid;gap:6px}
+.mud li{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;font-weight:600}
+.sinal{display:inline-grid;place-items:center;min-width:24px;height:24px;border-radius:6px;background:var(--navy);color:#fff;font-family:var(--mono);font-weight:700;font-size:13px}
+.linha-v{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 12px;font-size:14px;padding:5px 0;border-top:1px solid var(--line)}
+.linha-v > span:first-child{color:var(--ink-2);font-weight:600}
+.hist{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.hist li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;font-size:14px}
+.hist time{font-family:var(--mono);font-weight:700;color:var(--ink-2)}
+.alerta-rep{background:var(--warn-bg);color:var(--warn);border:1px solid #F0C9AE;border-radius:12px;padding:12px 14px}
+.alerta-rep b{display:block;font-size:15px;margin-bottom:4px}
+.ok-rep{background:var(--ok-bg);color:var(--ok);border-radius:12px;padding:12px 14px;font-weight:700}
+.acoes-l{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.bt-a{min-height:40px;padding:0 14px;border-radius:10px;font-weight:700;font-size:14px;border:1.5px solid var(--line-2);background:#fff;color:var(--ink)}
+.bt-a.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.bt-a.perigo{color:var(--crit);border-color:#E7B8B8}
+.sinal.pin{background:transparent;color:inherit;font-size:16px}
+.mini.topo{margin:0 0 8px}
+.aj-linha.sem-borda{border-top:0;padding:0 0 4px}
+
+/* ── ajustes ── */
+.aj{max-width:880px;margin:0 auto}
+.migalha{font-size:13px;color:var(--ink-2);margin:0 0 4px}
+.grupo{background:var(--card);border:1px solid var(--line);border-radius:14px;margin:0 0 10px;overflow:hidden}
+.g-cab{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px;padding:12px 16px;font-family:var(--display);font-weight:800}
+.g-cab .cont{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);font-weight:700}
+.grupo.fechado .g-cab{color:var(--ink-2);font-weight:700}
+.novo-tag{font-family:var(--body);font-size:11px;background:var(--ouro-bg);color:var(--ouro);border-radius:999px;padding:2px 8px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;margin-left:6px;vertical-align:2px}
+.aj-linha{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;align-items:center;padding:12px 16px;border-top:1px solid var(--line)}
+.aj-linha p{margin:2px 0 0;font-size:13px;color:var(--ink-2)}
+.aj-linha label b,.aj-linha > div > b{font-weight:700}
+@media (max-width:560px){.aj-linha{grid-template-columns:minmax(0,1fr)}}
+.sw{width:52px;height:30px;border-radius:999px;background:var(--line-2);border:0;position:relative;flex:none}
+.sw::after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.sw[aria-checked="true"]{background:var(--ok)}
+.sw[aria-checked="true"]::after{left:25px}
+.sel{min-height:42px;border:1px solid var(--line-2);border-radius:10px;padding:0 10px;background:#fff;font-weight:600;max-width:100%}
+.barra-salvar{position:sticky;bottom:12px;margin:16px auto 0;display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:space-between;background:var(--navy);color:#fff;border-radius:14px;padding:12px 14px;box-shadow:0 10px 30px rgba(15,34,48,.3)}
+.barra-salvar .bt-a{border-color:#3A5568}
+.barra-salvar div{display:flex;flex-wrap:wrap;gap:8px}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ok);color:#fff;padding:10px 16px;border-radius:12px;font-weight:700;z-index:50;max-width:calc(100vw - 32px)}
+
+/* ── plano e decisões ── */
+.notas{max-width:1000px;margin:0 auto}
+.notas h2{font-family:var(--display);font-size:19px;margin:24px 0 8px}
+.notas p,.notas li{max-width:920px}
+.notas ul,.notas ol{padding-left:22px}
+.medidas{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),1fr));gap:10px;margin:8px 0}
+.medida{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.medida b{display:block;font-family:var(--display);font-size:14.5px;margin-bottom:4px}
+.medida .num{display:block;font-family:var(--mono);font-size:24px;font-weight:700}
+.medida p{margin:4px 0 0;font-size:13.5px;color:var(--ink-2)}
+.pr{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:0 0 10px}
+.pr h3{margin:0 0 6px;font-family:var(--display);font-size:16px}
+.pr ul{margin:6px 0 0}
+.mig{display:inline-block;background:var(--warn-bg);color:var(--warn);font-weight:800;font-size:12.5px;border-radius:8px;padding:3px 10px;margin:8px 0 0}
+.zip{display:inline-block;background:var(--info-bg);color:var(--info);font-weight:800;font-size:12.5px;border-radius:8px;padding:3px 10px;margin:8px 0 0}
+.dec{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--gold);border-radius:12px;padding:12px 14px;margin:0 0 10px}
+.dec h3{margin:0 0 6px;font-size:15.5px;font-family:var(--display)}
+.dec ol{margin:4px 0 0;padding-left:22px}
+.dec li{margin:3px 0}
+.rec{display:inline-block;background:var(--ok-bg);color:var(--ok);font-weight:800;font-size:12px;border-radius:999px;padding:1px 8px;margin-left:4px}
+.aprov{background:var(--ok-bg);color:var(--ok);border-radius:12px;padding:12px 14px;font-weight:600;margin:8px 0 14px}
+/* ── a trava (28/11/2026) ── */
+.faixa-pausa{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:0 0 12px;padding:10px 12px;border-radius:9px;background:var(--inv-bg);color:var(--inv-fg)}
+.faixa-pausa .pausa-ic{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--inv-fg);color:var(--inv-bg);font-weight:800;font-size:17px;flex:none}
+.faixa-pausa b{font-family:var(--display);font-weight:800;font-size:21px;letter-spacing:.03em;line-height:1.1;flex:1 1 12ch;min-width:0}
+.faixa-pausa small{flex-basis:100%;font-weight:700;font-size:14.5px}
+.faixa-pausa .ate{font-family:var(--mono);font-weight:700;font-size:15px}
+.kc .avancar[aria-disabled="true"]{background:var(--k-panel-2);color:var(--k-muted);border:2px dashed var(--k-line);cursor:not-allowed}
+.kc .muda{margin:0 0 10px;padding:8px 10px;border:1.5px solid var(--k-line);border-radius:8px;font-size:14px;font-weight:700}
+.kc .muda span{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--k-muted);margin-bottom:2px}
+.k-alerta.pausa{background:#3D4A55}
+.travado{display:flex;flex-direction:column;gap:6px;background:var(--warn-bg);color:var(--warn);border-radius:12px;padding:12px 14px;font-weight:600}
+.travado b{font-size:15px}
+.dlg-fixo{position:relative;background:rgba(15,34,48,.08);border-radius:16px;padding:16px;display:flex;justify-content:center}
+.dlg-fixo .dlg{box-shadow:0 10px 30px rgba(15,34,48,.25)}
+.dlg .bts{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:6px}
+.linha-tempo{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.linha-tempo li{display:grid;grid-template-columns:4.5ch minmax(0,1fr);gap:10px;font-size:14px}
+.linha-tempo time{font-family:var(--mono);font-weight:700;color:var(--ink-2)}
+.campo{display:block;font-size:13px;font-weight:700;color:var(--ink-2);margin:10px 0 4px}
+.inp{display:block;width:100%;box-sizing:border-box;min-height:40px;border:1.5px solid var(--line-2);border-radius:10px;padding:0 12px;font:inherit;font-size:14.5px;background:#fff;color:var(--ink)}
+.inp:focus-visible{outline:3px solid var(--gold);outline-offset:1px}
+.mono{font-family:var(--mono);font-size:12.5px;overflow-wrap:anywhere}
+</style>
+</head>
+<body>
+<header class="proto">
+  <strong>Protótipo · o pedido em alteração pelo cliente</strong>
+  <span class="obs">28/11/2026 · para o dono aprovar · nada aqui fala com o Regem</span>
+  <nav class="abas" aria-label="Vistas do protótipo">
+    <button type="button" class="aba" data-grupo="vista" data-valor="robo">No WhatsApp</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="kds">KDS</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="painel">Painel e despacho</button>
+    <button type="button" class="aba" data-grupo="vista" data-valor="notas">Plano e decisões</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ═════════════ 1. NO WHATSAPP ═════════════ -->
+<section class="vista" id="v-robo" aria-labelledby="t-robo">
+  <h1 id="t-robo">No WhatsApp</h1>
+  <p class="intro">Assim que o atendente entende que o cliente quer mudar um pedido já feito e monta a conferência da mudança, o Regem <b>segura o pedido na cozinha</b>: ele não fica pronto nem sai para entrega enquanto o cliente confere. A trava acaba quando o cliente confirma (a mudança entra e sai a via "PEDIDO ALTERADO"), quando ele desiste, quando paga o Pix do item novo ou em 10 minutos sem resposta. Use os botões para ver cada final.</p>
+  <div class="ctls">
+    <div class="ctl"><span>O pedido:</span>
+      <button type="button" data-grupo="pago" data-valor="entrega">paga na entrega</button>
+      <button type="button" data-grupo="pago" data-valor="pix">já pago no Pix</button></div>
+    <div class="ctl"><span>O final:</span>
+      <button type="button" data-grupo="final" data-valor="confirmou">o cliente confirmou</button>
+      <button type="button" data-grupo="final" data-valor="desistiu">o cliente desistiu</button>
+      <button type="button" data-grupo="final" data-valor="sumiu">sem resposta em 10 min</button>
+      <button type="button" data-grupo="final" data-valor="liberou">a loja liberou</button></div>
+  </div>
+
+  <div class="fones">
+    <article class="caso">
+      <h2><span class="n">1</span> A conversa</h2>
+      <div class="fone alto"><div class="vidro">
+        <div class="wa-topo"><span class="av">BP</span><div><b>Burger da Praça</b><small>conta comercial</small></div></div>
+        <div class="wa">
+          <span class="wa-dia">Hoje</span>
+          <div class="bolha"><p>✅ <b>Pedido nº 123 registrado!</b> Já está em produção.</p><small>19:42</small></div>
+          <div class="bolha eu"><p>Esqueci a batata! Dá pra pôr no meu pedido?</p><small>19:50</small></div>
+          <div class="bolha" data-teste="segurei"><p>Dá sim 👍 <b>Pedi para a cozinha segurar o seu pedido</b> enquanto você confere — ele não sai sem a sua resposta.</p><small>19:50</small></div>
+          <div class="bolha" data-mostra="pago:entrega"><p><b>Mudança no pedido nº 123</b><br>➕ 1 Batata frita média — R$ 14,00<br>Total: R$ 45,00 → <b>R$ 59,00</b> · dinheiro, troco para R$ 50</p><small>19:50</small></div>
+          <div class="wa-bts" data-mostra="pago:entrega"><span>Pode alterar</span><span>Mudar o troco</span><span>Deixar como estava</span></div>
+          <div class="bolha" data-mostra="pago:pix"><p><b>Mudança no pedido nº 123</b><br>➕ 1 Batata frita média — R$ 14,00<br>Total: R$ 45,00 → <b>R$ 59,00</b></p><p>Este pedido já foi pago no Pix. Para pôr o item, eu te mando um Pix de <b>R$ 14,00</b>. Ele vale 10 minutos — enquanto isso, o pedido fica seguro na cozinha.</p><small>19:50</small></div>
+          <div class="wa-bts" data-mostra="pago:pix"><span>Mandar o Pix</span><span>Deixar como estava</span></div>
+
+          <div class="bolha eu" data-mostra="final:confirmou pago:entrega"><p>Pode alterar</p><small>19:51</small></div>
+          <div class="bolha" data-mostra="final:confirmou pago:entrega" data-teste="fim-confirmou"><p>✅ Pronto! Pedido nº 123 alterado — a cozinha já recebeu a mudança e o pedido segue.</p><p>Total: R$ 59,00 — troco para R$ 50.</p><small>19:51</small></div>
+          <div class="bolha eu" data-mostra="final:confirmou pago:pix"><p>Mandar o Pix</p><small>19:51</small></div>
+          <div class="bolha" data-mostra="final:confirmou pago:pix"><p>Aqui está o Pix de R$ 14,00 para pôr 1x Batata frita média no pedido nº 123 👇<br>Vale por 10 minutos. Assim que o pagamento cair, o item entra no pedido e eu te aviso aqui.</p><small>19:51</small></div>
+          <div class="bolha" data-mostra="final:confirmou pago:pix"><p class="mono">00020101021226…5802BR</p><small>19:51</small></div>
+          <div class="bolha" data-mostra="final:confirmou pago:pix" data-teste="fim-pix"><p>✅ Pagamento recebido! 1x Batata frita média entrou no pedido nº 123, e ele segue na cozinha.</p><p>Total: R$ 59,00.</p><small>19:54</small></div>
+
+          <div class="bolha eu" data-mostra="final:desistiu"><p>Deixar como estava</p><small>19:51</small></div>
+          <div class="bolha" data-mostra="final:desistiu" data-teste="fim-desistiu"><p>Tudo certo! O pedido nº 123 segue como estava, e a cozinha já continuou 👍</p><small>19:51</small></div>
+
+          <div class="bolha" data-mostra="final:sumiu" data-teste="fim-sumiu"><p>Como não tive a sua resposta, o pedido nº 123 <b>segue como estava</b> ✅ e a cozinha continuou.</p><p>Se ainda quiser pôr a batata, é só me dizer — enquanto ele não sair, dá para mudar.</p><small>20:00</small></div>
+
+          <div class="bolha" data-mostra="final:liberou" data-teste="fim-liberou"><p>A loja precisou seguir com o pedido nº 123 <b>como estava</b>, sem a mudança.</p><p data-mostra="pago:pix">O Pix da batata foi cancelado — nada foi cobrado.</p><p>Se quiser, alguém da equipe fala com você por aqui.</p><small>19:56</small></div>
+        </div>
+        <div class="wa-escrever"><span>Mensagem</span></div>
+      </div></div>
+      <p class="leg">O atendente <b>não promete</b> que a cozinha parou: diz que <b>pediu</b> para segurar. A trava vale do momento em que a conferência sai até um dos finais; com o Pix, até o pagamento entrar ou o Pix vencer (os mesmos 10 minutos).</p>
+    </article>
+
+    <article class="caso">
+      <h2><span class="n">2</span> A linha do tempo</h2>
+      <div class="gav" style="max-width:420px">
+        <div class="gav-cab"><h2>Pedido 123</h2><span class="chip warn" data-mostra="final:confirmou|desistiu|sumiu|liberou">Trava encerrada</span></div>
+        <div class="gav-sec">
+          <ul class="linha-tempo">
+            <li><time>19:42</time><span>Pedido feito pelo atendente · em produção</span></li>
+            <li><time>19:50</time><span><b>Travado</b>: o cliente está alterando (até 20:00)</span></li>
+            <li data-mostra="final:confirmou pago:entrega"><time>19:51</time><span>O cliente confirmou → alterado · via "PEDIDO ALTERADO" · <b>destravado</b></span></li>
+            <li data-mostra="final:confirmou pago:pix"><time>19:51</time><span>Pix de R$ 14,00 enviado (vale até 20:01) · a trava acompanha o Pix</span></li>
+            <li data-mostra="final:confirmou pago:pix"><time>19:54</time><span>Pix pago → alterado · via "PEDIDO ALTERADO" · <b>destravado</b></span></li>
+            <li data-mostra="final:desistiu"><time>19:51</time><span>O cliente desistiu · <b>destravado</b>, segue como estava</span></li>
+            <li data-mostra="final:sumiu"><time>20:00</time><span>Sem resposta em 10 min · <b>destravado</b> sozinho, segue como estava</span></li>
+            <li data-mostra="final:liberou"><time>19:56</time><span>Ana (gerente) liberou: "entregador já está aqui" · a mudança foi descartada<span data-mostra="pago:pix"> e o Pix cancelado</span></span></li>
+          </ul>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<!-- ═════════════ 2. KDS ═════════════ -->
+<section class="vista" id="v-kds" aria-labelledby="t-kds" hidden>
+  <h1 id="t-kds">KDS da cozinha</h1>
+  <p class="intro">O cartão do pedido travado ganha a faixa invertida <b>⏸ CLIENTE ALTERANDO</b>, com a hora em que a trava acaba e o que o cliente está mudando. O <b>Pronto</b> fica bloqueado (e o despacho também): a cozinha segura o pedido. A cor continua só a do tempo — o destaque é a faixa invertida, como a do "PEDIDO ALTERADO". O som toca uma vez quando a trava chega.</p>
+  <div class="ctls">
+    <div class="ctl"><span>Tema:</span>
+      <button type="button" data-grupo="tema" data-valor="claro">claro</button>
+      <button type="button" data-grupo="tema" data-valor="escuro">escuro</button></div>
+    <div class="ctl"><span>Situação:</span>
+      <button type="button" data-grupo="kds" data-valor="travado">o cliente está alterando</button>
+      <button type="button" data-grupo="kds" data-valor="alterado">o cliente confirmou</button>
+      <button type="button" data-grupo="kds" data-valor="segue">desistiu ou venceu</button></div>
+  </div>
+  <div class="kds" id="kds" data-tema="claro">
+    <div class="k-topo">
+      <span class="k-logo" aria-hidden="true">R</span>
+      <span class="k-marca"><b>Cozinha</b><span>KDS · por pedido</span></span>
+      <span class="k-esp"></span>
+      <span class="k-relogio">19:52</span>
+    </div>
+    <div class="k-grade">
+      <article class="kc t-warn" aria-label="Senha 123, 10 minutos, o cliente está alterando" data-teste="cartao-123">
+        <div class="cab">
+          <span class="ident">Senha 123</span>
+          <span class="tempo">10<small>min</small></span>
+          <span class="sub"><span>Em preparo · WhatsApp</span><span class="ktag" data-mostra="kds:alterado">Alterado</span><span class="ktag" data-mostra="kds:segue">Segue como estava</span></span>
+        </div>
+        <div class="cc">
+          <div class="faixa-pausa" data-mostra="kds:travado" data-teste="faixa-pausa">
+            <span class="pausa-ic" aria-hidden="true">⏸</span>
+            <b>CLIENTE ALTERANDO</b>
+            <span class="ate">até 20:00</span>
+            <small>Segure o pedido: não finalize nem despache.</small>
+          </div>
+          <div class="muda" data-mostra="kds:travado"><span>O cliente quer</span>➕ 1 Batata frita média</div>
+          <div class="faixa-alt" data-mostra="kds:alterado">
+            <span class="excl" aria-hidden="true">!</span>
+            <b>PEDIDO ALTERADO</b>
+            <small>19:51</small>
+            <button type="button">Visto</button>
+          </div>
+          <ul class="itens">
+            <li><span class="q">1×</span><div><span class="d">X-Bacon</span><div class="obs"><span class="ktag cheia">Obs</span> sem cebola</div></div></li>
+            <li><span class="q">1×</span><div><span class="d">Coca-Cola lata</span></div></li>
+            <li data-mostra="kds:alterado"><span class="q">1×</span><div><span class="d">Batata frita média</span> <span class="ktag cheia">Novo</span></div></li>
+          </ul>
+          <button type="button" class="avancar" data-mostra="kds:travado" aria-disabled="true" title="O cliente está alterando este pedido">Aguarde o cliente</button>
+          <button type="button" class="avancar" data-mostra="kds:alterado|segue">Pronto</button>
+        </div>
+      </article>
+      <article class="kc t-ok" aria-label="Senha 130, 3 minutos, em preparo">
+        <div class="cab">
+          <span class="ident">Senha 130</span>
+          <span class="tempo">3<small>min</small></span>
+          <span class="sub"><span>Em preparo · iFood #8842</span></span>
+        </div>
+        <div class="cc">
+          <ul class="itens">
+            <li><span class="q">2×</span><div><span class="d">X-Salada</span></div></li>
+            <li><span class="q">1×</span><div><span class="d">Batata frita média</span></div></li>
+          </ul>
+          <button type="button" class="avancar">Pronto</button>
+        </div>
+      </article>
+    </div>
+    <div class="k-alerta pausa" data-mostra="kds:travado" role="status" data-teste="rodape-pausa">
+      <span class="lado">Pausado</span>
+      <span class="txt"><span>Senha 123: o cliente está alterando até 20:00 — segure o pedido</span></span>
+    </div>
+    <div class="k-alerta" data-mostra="kds:alterado" role="status">
+      <span class="lado">Alterado</span>
+      <span class="txt"><span>Senha 123: + 1 Batata frita média — toque em Visto no cartão</span></span>
+    </div>
+  </div>
+  <p class="mini">Confirmou: a faixa vira a do "PEDIDO ALTERADO" de sempre (com a via nova e o Visto). Desistiu ou venceu: a faixa some e sobra a etiqueta "Segue como estava" por 2 minutos. Na visão "por item" e no KDS de despacho, a mesma faixa no pedido inteiro. A TV de senhas não muda.</p>
+</section>
+
+<!-- ═════════════ 3. PAINEL E DESPACHO ═════════════ -->
+<section class="vista" id="v-painel" aria-labelledby="t-painel" hidden>
+  <h1 id="t-painel">Painel e despacho</h1>
+  <p class="intro">Delivery › Painel. O pedido travado mostra "Cliente alterando até 20:00". "Pronto", "Despachar" e "Saiu para entrega" — no painel, no KDS de despacho e no app do entregador — respondem que o cliente está alterando. Quem precisa seguir (o entregador chegou, o cliente sumiu) usa <b>Liberar o pedido</b>: a mudança é descartada, o Pix do item é cancelado e o cliente recebe o aviso.</p>
+  <div class="ctls">
+    <div class="ctl"><span>Ver:</span>
+      <button type="button" data-grupo="painel" data-valor="gaveta">a gaveta do pedido</button>
+      <button type="button" data-grupo="painel" data-valor="despachar">ao tocar em "Despachar"</button>
+      <button type="button" data-grupo="painel" data-valor="liberar">"Liberar o pedido"</button></div>
+  </div>
+
+  <div class="gav" data-mostra="painel:gaveta" data-teste="gaveta-travado">
+    <div class="gav-cab">
+      <h2>Pedido 123</h2>
+      <span class="chip">Em produção</span>
+      <span class="chip warn">⏸ Cliente alterando até 20:00</span>
+    </div>
+    <div class="gav-sec">
+      <div class="travado" role="status">
+        <b>O cliente está alterando este pedido pelo WhatsApp</b>
+        <span>Quer: ➕ 1 Batata frita média (R$ 14,00). A cozinha está segurando o pedido até ele confirmar, desistir ou às 20:00.</span>
+      </div>
+    </div>
+    <div class="gav-sec">
+      <div class="acoes-l" style="margin-top:0">
+        <button type="button" class="bt-a" aria-disabled="true" title="O cliente está alterando">🛵 Despachar</button>
+        <button type="button" class="bt-a" data-grupo="painel" data-valor="liberar">Liberar o pedido</button>
+        <button type="button" class="bt-a">🖨️ Reimprimir</button>
+      </div>
+      <p class="mini">"Liberar o pedido" pede a senha do gerente (como cancelar) e fica no histórico com o motivo.</p>
+    </div>
+  </div>
+
+  <div class="dlg-fixo" data-mostra="painel:despachar" data-teste="despacho-recusado">
+    <div class="dlg" role="dialog" aria-labelledby="t-desp">
+      <h3 id="t-desp">O cliente está alterando o pedido 123</h3>
+      <p>Ele está conferindo uma mudança pelo WhatsApp (➕ 1 Batata frita média). O pedido fica seguro até ele responder ou até as 20:00.</p>
+      <p class="mini" style="margin:0 0 8px">Se precisar seguir agora, libere o pedido: ele sai como estava, sem a mudança.</p>
+      <div class="bts"><button type="button" class="bt-a pri" data-grupo="painel" data-valor="gaveta">Esperar</button><button type="button" class="bt-a" data-grupo="painel" data-valor="liberar">Liberar o pedido</button></div>
+    </div>
+  </div>
+
+  <div class="dlg-fixo" data-mostra="painel:liberar" data-teste="liberar">
+    <div class="dlg" role="dialog" aria-labelledby="t-lib">
+      <h3 id="t-lib">Liberar o pedido 123?</h3>
+      <p>O pedido segue <b>como estava</b>, sem a batata. A mudança é descartada, o Pix do item é cancelado se houver um aberto (nada é cobrado) e o cliente recebe: "A loja precisou seguir com o pedido nº 123 como estava, sem a mudança."</p>
+      <label class="campo" for="motivo-lib">Motivo (vai para o histórico)</label>
+      <input id="motivo-lib" class="inp" value="entregador já está aqui">
+      <label class="campo" for="senha-lib">Senha do gerente</label>
+      <input id="senha-lib" class="inp" value="••••" autocomplete="new-password">
+      <div class="bts"><button type="button" class="bt-a" data-grupo="painel" data-valor="gaveta">Voltar</button><button type="button" class="bt-a perigo">Liberar o pedido</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ 4. PLANO E DECISÕES ═════════════ -->
+<section class="vista" id="v-notas" aria-labelledby="t-notas" hidden>
+  <h1 id="t-notas">Plano e decisões</h1>
+  <div class="notas">
+    <p>Pedido do dono (28/11/2026): "quando o cliente tentar editar o pedido e o atendimento entender, ele trava o pedido e o pedido entra em modo edição pelo cliente na cozinha, pedindo a pausa até que o cliente conclua a alteração, para não ter o risco do pedido sair." Este protótipo continua o aprovado em 03/11 (<code>regem-alteracao-pedido.html</code>): a conferência, a via "PEDIDO ALTERADO" e o "Visto" ficam como estão.</p>
+
+    <h2>Decisões (a recomendada primeiro)</h2>
+    <div class="dec"><h3>TR-1 · Quando a trava começa</h3><ol>
+      <li>Quando o atendente manda a <b>conferência da mudança</b> ("Mudança no pedido nº …" com os botões) <span class="rec">recomendada</span></li>
+      <li>Só quando o cliente toca em "Pode alterar" (protege menos: o pedido pode sair enquanto ele lê).</li></ol></div>
+    <div class="dec"><h3>TR-2 · O que a cozinha faz</h3><ol>
+      <li><b>Segura o pedido inteiro</b>: faixa "CLIENTE ALTERANDO" no cartão; Pronto, Despachar e Saiu para entrega recusam com o motivo <span class="rec">recomendada</span></li>
+      <li>Só avisa (a faixa), sem travar os botões.</li></ol></div>
+    <div class="dec"><h3>TR-3 · Quanto tempo</h3><ol>
+      <li>Até o cliente confirmar, desistir ou <b>10 minutos</b> — com o Pix do item, até o pagamento entrar ou o Pix vencer (os mesmos 10 minutos) <span class="rec">recomendada</span></li>
+      <li>5 minutos (pouco para pagar um Pix — o problema de 27/11).</li></ol></div>
+    <div class="dec"><h3>TR-4 · Liberar à mão</h3><ol>
+      <li>"Liberar o pedido" no painel e no KDS de despacho, com a <b>senha do gerente</b> e o motivo; descarta a mudança, cancela o Pix aberto e avisa o cliente <span class="rec">recomendada</span></li>
+      <li>Qualquer pessoa libera sem senha.</li></ol></div>
+    <div class="dec"><h3>TR-5 · Quando vence sem resposta</h3><ol>
+      <li>Destrava sozinho; o cliente recebe "segue como estava" e que ainda dá para mudar enquanto o pedido não sair <span class="rec">recomendada</span></li>
+      <li>Abre um caso para a equipe ligar para o cliente.</li></ol></div>
+    <div class="dec"><h3>TR-6 · O som</h3><ol>
+      <li>Toca <b>uma vez</b> quando a trava chega (a faixa fica visível até acabar) <span class="rec">recomendada</span></li>
+      <li>Repete a cada minuto, como o "PEDIDO ALTERADO".</li></ol></div>
+    <div class="dec"><h3>TR-7 · Onde vale</h3><ol>
+      <li>Nos pedidos que o atendente pode alterar (WhatsApp e cardápio do Regem). iFood e 99 não: quem altera é a plataforma <span class="rec">recomendada</span></li></ol></div>
+    <div class="dec"><h3>TR-8 · O que o atendente diz</h3><ol>
+      <li>"<b>Pedi</b> para a cozinha segurar o seu pedido" — nunca "a cozinha parou" (a trava chega ao servidor da loja pelo sincronismo, em segundos) <span class="rec">recomendada</span></li></ol></div>
+
+    <h2>O plano</h2>
+    <div class="pr"><h3>T1 · A trava no servidor</h3><ul>
+      <li>A marca no pedido (até quando e o que muda), que viaja ao servidor da loja pelo sincronismo; o atendente a põe ao mandar a conferência e a tira em cada final.</li>
+      <li>Pronto, Despachar e Saiu para entrega recusam com o motivo enquanto ela vale (no servidor da loja e na nuvem); "Liberar o pedido" com a senha do gerente, a auditoria e o aviso ao cliente.</li>
+      <li>A rotina que destrava o que venceu e avisa o cliente.</li></ul>
+      <span class="mig">1 migration (a marca no pedido)</span> <span class="zip">.zip e .exe (o sincronismo leva a marca)</span></div>
+    <div class="pr"><h3>T2 · O KDS e o painel</h3><ul>
+      <li>A faixa "CLIENTE ALTERANDO" no cartão (por pedido, por item e despacho), o Pronto bloqueado, o rodapé e o som; o chip e o "Liberar o pedido" no painel.</li></ul>
+      <span class="zip">.zip</span></div>
+  </div>
+</section>
+
+</main>
+
+<script>
+(() => {
+  const estado = { vista: 'robo', pago: 'entrega', final: 'confirmou', tema: 'claro', kds: 'travado', painel: 'gaveta' };
+  const vale = (cond) => cond.trim().split(/\s+/).every((c) => {
+    const [g, v] = c.split(':');
+    return v.split('|').includes(estado[g]);
+  });
+  function aplicar() {
+    for (const el of document.querySelectorAll('[data-mostra]')) el.hidden = !vale(el.dataset.mostra);
+    for (const b of document.querySelectorAll('[data-grupo]')) b.setAttribute('aria-pressed', String(estado[b.dataset.grupo] === b.dataset.valor));
+    for (const s of document.querySelectorAll('.vista')) s.hidden = s.id !== 'v-' + estado.vista;
+    document.getElementById('kds').dataset.tema = estado.tema;
+  }
+  document.addEventListener('click', (e) => {
+    const g = e.target.closest('[data-grupo]');
+    if (g) { estado[g.dataset.grupo] = g.dataset.valor; aplicar(); }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && estado.vista === 'painel' && estado.painel !== 'gaveta') { estado.painel = 'gaveta'; aplicar(); }
+  });
+  aplicar();
+})();
+</script>
+</body>
+</html>

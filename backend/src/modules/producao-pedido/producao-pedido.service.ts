@@ -57,6 +57,7 @@ import { FUSO_SQL, instanteDe } from '../../common/fuso-sql';
 import { SONS_DO_ALTERADO, SOM_DO_ALTERADO_PADRAO, type SomDoAlterado } from '../pedido-alterado/pedido-alterado';
 import { logisticaDasComandas } from '../delivery/logistica-canal';
 import { ChegadaService } from '../chegada/chegada.service';
+import { PedidoTravaService } from '../pedido-trava/pedido-trava.service';
 import { ModuloService } from '../modulo/modulo.service';
 import {
   linhasDaViaDoRepetido,
@@ -234,7 +235,22 @@ export class ProducaoPedidoService {
     @Optional() private readonly chegadaInj?: ChegadaService,
     // O módulo KDS ligado para a loja (plano + liga/desliga). Opcional: os testes montam sem ele.
     @Optional() private readonly moduloInj?: ModuloService,
+    // A trava do pedido enquanto o cliente altera (mig 517). Opcional: os testes montam sem ela (o "Pronto" segue livre).
+    @Optional() private readonly travas?: PedidoTravaService,
   ) {}
+
+  /**
+   * A trava do pedido enquanto o cliente altera (mig 517, TR-2): o pedido de canal da venda `comandaId` (o cartão se liga
+   * ao pedido pela venda) com a trava valendo → 409 `PEDIDO_EM_ALTERACAO`. Venda sem pedido de canal (balcão, mesa): nada.
+   */
+  private async exigirPedidoSemTrava(tenantId: string, comandaId: string | null | undefined): Promise<void> {
+    if (!this.travas || !comandaId) return;
+    const r: any = await this.db.execute(sql`
+      select id from pedido_externo where tenant_id = ${tenantId}::uuid and comanda_id = ${comandaId}::uuid
+       order by criado_em desc, id limit 1`);
+    const pe = (Array.isArray(r) ? r : (r?.rows ?? []))[0];
+    if (pe) await this.travas.exigirSemTrava(tenantId, String(pe.id));
+  }
 
   private chegadaLocal?: ChegadaService;
   private get chegada(): ChegadaService {
@@ -2856,11 +2872,22 @@ export class ProducaoPedidoService {
       new Logger('KDS').warn(`horário da encomenda no KDS: ${e?.message ?? e}`);
       return new Map<string, { para: string; comeca: string | null; agendado: boolean }>();
     });
+    // A trava do pedido enquanto o cliente altera (mig 517): a faixa "CLIENTE ALTERANDO" e o "Pronto" bloqueado.
+    const travas = await this.travasDasComandas(
+      tenantId,
+      pedidos.map((p) => p.comandaId).filter((c): c is string => !!c),
+    ).catch((e: any) => {
+      new Logger('KDS').warn(`trava do pedido no KDS: ${e?.message ?? e}`);
+      return new Map<string, { ate: string; quer: string }>();
+    });
     const comRepetido = (comLogistica as any[]).map((p) => {
       const m = p.comandaId ? abertas.get(p.comandaId) : undefined;
+      const trava = p.comandaId ? travas.get(p.comandaId) : undefined;
       return {
         ...p,
         repetido: m ? { deNumero: m.deNumero, deEm: m.deEm, texto: textoDoKds(m) } : null,
+        travadoAte: trava?.ate ?? null,
+        travaQuer: trava?.quer ?? null,
         alteracaoNaoVista: alteracaoNaoVista(p),
         enderecoMudouEm: (p.comandaId && enderecos.get(p.comandaId)) || null,
         encomendaPara: (p.comandaId && encomendas.get(p.comandaId)?.para) || null,
@@ -2875,6 +2902,26 @@ export class ProducaoPedidoService {
       pedidos: await this.comChegada(tenantId, opts.unidadeId ?? null, comRepetido),
       nuvemComServidor: await this.abertoPelaNuvemComServidor(tenantId, opts.unidadeId ?? null),
     };
+  }
+
+  /**
+   * A trava do pedido enquanto o cliente altera (mig 517), por comanda (o cartão se liga ao pedido pela venda): até quando
+   * e o que o cliente quer. UMA consulta para a fila inteira, e a MESMA régua do "Pronto" (`PedidoTravaService`).
+   */
+  private async travasDasComandas(tenantId: string, comandaIds: string[]): Promise<Map<string, { ate: string; quer: string }>> {
+    const mapa = new Map<string, { ate: string; quer: string }>();
+    if (!this.travas || !comandaIds.length) return mapa;
+    const r: any = await this.db.execute(sql`
+      select id::text as id, comanda_id::text as comanda from pedido_externo
+       where tenant_id = ${tenantId}::uuid
+         and comanda_id in (${sql.join([...new Set(comandaIds)].map((c) => sql`${c}::uuid`), sql`, `)})`);
+    const linhas = (r.rows ?? r) as any[];
+    const travas = await this.travas.travasAtivas(tenantId, linhas.map((x) => String(x.id)));
+    for (const x of linhas) {
+      const t = travas.get(String(x.id));
+      if (t) mapa.set(String(x.comanda), { ate: t.ate, quer: t.quer });
+    }
+    return mapa;
   }
 
   /**
@@ -3350,6 +3397,10 @@ export class ProducaoPedidoService {
       const proximo = await this.proximoDaEstacao(tenantId, estacao);
       if (proximo) return this.passarAdiante(tenantId, p, estacao, proximo);
     }
+    // A trava do pedido enquanto o cliente altera (mig 517, TR-2): o "Pronto" final da cozinha espera o cliente conferir
+    // a mudança (a passagem entre estações, acima, segue). Sem isto, o cartão ficaria pronto e o pedido não — o reflexo
+    // no Delivery recusaria calado e ninguém tentaria de novo quando a trava acabasse.
+    if (novo === 'pronto') await this.exigirPedidoSemTrava(tenantId, p.comandaId);
     const patch: any = { status: novo };
     // O começo do preparo é o PRIMEIRO: o cartão que passou de estação não perde a hora em que a cozinha começou.
     if (novo === 'preparo' && !p.iniciadoEm) patch.iniciadoEm = new Date();
@@ -4463,7 +4514,17 @@ export class ProducaoPedidoService {
       new Logger('KDS').warn(`logística do canal no despacho: ${e?.message ?? e}`);
       return new Map();
     });
-    const comLogistica = pedidos.map((p) => ({ ...p, logistica: logistica.get(p.comandaId) ?? null }));
+    // A trava do pedido enquanto o cliente altera (mig 517): a faixa no pedido inteiro e o "Despachar" bloqueado.
+    const travas = await this.travasDasComandas(tenantId, comandaIds).catch((e: any) => {
+      new Logger('KDS').warn(`trava do pedido no despacho: ${e?.message ?? e}`);
+      return new Map<string, { ate: string; quer: string }>();
+    });
+    const comLogistica = pedidos.map((p) => ({
+      ...p,
+      logistica: logistica.get(p.comandaId) ?? null,
+      travadoAte: travas.get(p.comandaId)?.ate ?? null,
+      travaQuer: travas.get(p.comandaId)?.quer ?? null,
+    }));
     return {
       cores,
       pedidos: await this.comChegada(tenantId, unidadeId, comLogistica),
@@ -4595,6 +4656,8 @@ export class ProducaoPedidoService {
     const esperando = vivos.filter((c) => c.destinoEquipamentoId === k.id && aberto(c));
     const pendentes = vivos.filter((c) => c.destinoEquipamentoId !== k.id && aberto(c));
     if (!esperando.length && !pendentes.length) throw new ConflictException('O pedido já está pronto.');
+    // A trava do pedido enquanto o cliente altera (mig 517, TR-2): o despacho espera o cliente conferir a mudança.
+    await this.exigirPedidoSemTrava(tenantId, comandaId);
     const nomesFaltando = pendentes.length
       ? [...new Set(await this.nomesDeEquipamentos(tenantId, [...new Set(pendentes.map((c) => c.destinoEquipamentoId).filter(Boolean))] as string[]))]
       : [];

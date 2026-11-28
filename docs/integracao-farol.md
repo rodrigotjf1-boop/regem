@@ -292,6 +292,10 @@ A fila da cozinha da loja do token — o que o KDS mostra, sem o histórico.
   nunca recebe pedido em andamento, e a passagem também vale para a loja sem estações que ligou um KDS ao
   outro (o seguinte só vê o pedido depois que o anterior termina). Sem estações e sem "vai para", nada
   disso muda: um pedido por venda, que só avança.
+- **Cliente alterando o pedido** (desde 28/11/2026, mig 517): enquanto o cliente confere pelo WhatsApp uma mudança no
+  pedido já feito (até 10 minutos; com o Pix do item novo, até ele ser pago ou vencer), o "Pronto" da cozinha espera — o
+  pedido fica em `recebido`/`preparo` nesse tempo e só depois avança. O retrato não muda de formato: é um pedido que
+  demora mais na etapa, não um atraso da cozinha.
 - **Retirada finalizada pelo canal** (desde 11/11/2026; ex.: a loja finaliza na Anota Aí): o pedido da cozinha sai como
   `entregue` mesmo quando a cobrança ainda fica no balcão do Regem (retirada a pagar) — antes ficava `recebido` para sempre.
 - `origem`: `balcao`, `mesa`, `comanda`, `delivery` ou `totem`. `canal`: de onde veio o pedido de

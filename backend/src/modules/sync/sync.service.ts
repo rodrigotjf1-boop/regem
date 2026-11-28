@@ -868,6 +868,12 @@ export class SyncService {
         const decisaoVence = ehAlteracao
           ? sql` or (excluded.situacao <> 'pedida' and pedido_alteracao.situacao = 'pedida')`
           : sql``;
+        // A TRAVA DO PEDIDO EM ALTERAÇÃO (mig 517): a nuvem cria a "ativa"; o fim (o "Liberar o pedido" da loja) que sobe
+        // vale aqui mesmo com a data mais velha (relógio atrasado), e a cópia "ativa" não reabre a trava encerrada. Mesma
+        // regra no pull do servidor da loja (sync-daemon, `condicaoSobrescrever`).
+        const ehTrava = lote.tabela === 'pedido_trava' && colunas.has('situacao');
+        const travaNaoReabre = ehTrava ? sql` and not (pedido_trava.situacao <> 'ativa' and excluded.situacao = 'ativa')` : sql``;
+        const fimDaTravaVence = ehTrava ? sql` or (excluded.situacao <> 'ativa' and pedido_trava.situacao = 'ativa')` : sql``;
         // O "CIENTE" DO AVISO DO KDS (mig 412) não se desfaz: o que subiu com "Ciente" vence mesmo mais velho, e a cópia
         // sem "Ciente" não apaga o daqui. Mesma regra no pull do servidor da loja (sync-daemon, `condicaoSobrescrever`).
         const ehAviso = lote.tabela === 'alerta_kds' && colunas.has('ciente_em');
@@ -894,7 +900,7 @@ export class SyncService {
                 sql`, `,
               )}
               where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
-                and (${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${resolvidoVence}${decisaoVence}${cienteVence}${canceladoDoCartaoVence}${finalDoPedidoVence}${aceiteDaLojaVence}${encerradaVence})${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${finalDoPedidoNaoSai}${naoRessuscita}${naoReabreChamado}${naoVoltaAPedida}${naoDesfazCiente}${naoReabreOrdem}`
+                and (${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}${resolvidoVence}${decisaoVence}${cienteVence}${canceladoDoCartaoVence}${finalDoPedidoVence}${aceiteDaLojaVence}${encerradaVence}${fimDaTravaVence})${naoDesfazRevogacao}${naoReabreCartao}${naoVoltaANovo}${finalDoPedidoNaoSai}${naoRessuscita}${naoReabreChamado}${naoVoltaAPedida}${naoDesfazCiente}${naoReabreOrdem}${travaNaoReabre}`
             : sql`on conflict (id) do nothing`;
         const linhaVals = (linha: any) =>
           sql`(${sql.join([tenantId, ...cols.map((c) => coagir(linha[c]))].map((v) => sql`${v}`), sql`, `)})`;

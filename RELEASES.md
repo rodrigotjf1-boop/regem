@@ -13,6 +13,13 @@
 ## Acumulado (NÃO empacotado) — próxima release (1.30.17)
 
 - _(o #1360, Mister C6a, entrou na `main` logo depois do corte da 1.30.16 e não está no `.exe`; é só da nuvem; o #1362, C6b, também)_
+- **A trava do pedido enquanto o cliente altera — T1, o servidor (28/11; mig 517 `pedido_trava`, que SINCRONIZA nos dois
+  sentidos — aplicar na nuvem antes do merge).** Pede `.zip` (o servidor da loja recusa o "Pronto", o "Despachar" e o "Pronto"
+  do KDS com a trava que desce, e o "Liberar o pedido" daqui sobe) **e `.exe`** (o `sync-daemon.mjs` ganhou a tabela no
+  `PUSH_TABLES` e a regra "encerrada não volta a ativa" no recebimento). **A versão do `.zip` tem de ser a 1.30.17**
+  (`VERSAO_MINIMA_DA_TRAVA`): com o servidor da loja abaixo dela, o robô NÃO trava nem promete segurar (a conferência sai como
+  antes); a loja sem servidor já trava pela nuvem com o deploy. A faixa no KDS e o diálogo no painel (T2) vêm em outro PR, no
+  mesmo `.zip`.
 - **Custo manual, pausa por estoque e custo do combo (27/11; #1393 e #1394; mig 514 — JÁ aplicada na nuvem, só nuvem; ERR-635,
   ERR-636, V122).** Desligar "Controla estoque" tira a pausa por estoque na hora, em todas as lojas; o "Override manual" vazio
   limpa o custo; as importações (Anota Aí, Cardápio Web) não gravam mais 0 no custo; o custo do combo é a soma dos produtos do

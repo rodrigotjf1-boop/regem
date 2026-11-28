@@ -101,6 +101,8 @@ import { chaveTelefone, formasDaChaveTelefone } from '../../common/telefone-chav
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ChegadaService } from '../chegada/chegada.service';
+import { PedidoTravaService } from '../pedido-trava/pedido-trava.service';
+import { VERSAO_MINIMA_DA_TRAVA } from '../pedido-trava/pedido-trava';
 import { idConfigDaLoja } from '../../common/id-deterministico';
 import { validarTokenMP } from '../../common/mercadopago';
 import { validarTokenPagBank } from '../../common/pagbank';
@@ -212,6 +214,9 @@ export class DeliveryService {
     // "Cheguei" na retirada (mig 354): a marca da Retirada e o botão no aviso de pronto. Opcional: os testes montam o
     // serviço sem ela (aí vale uma instância só com o banco).
     @Optional() private readonly chegadaInj?: ChegadaService,
+    // A trava do pedido enquanto o cliente altera (mig 517): "Pronto", "Despachar" e "Entregar" recusam com ela valendo.
+    // Opcional: os testes que montam o serviço sem ela seguem como antes.
+    @Optional() private readonly travas?: PedidoTravaService,
   ) {}
 
   private chegadaLocal?: ChegadaService;
@@ -1354,9 +1359,22 @@ export class DeliveryService {
       : {};
     const comecaDo = (r: any) =>
       r.retiradaTipo === 'agendado' && r.agendamento ? inicioDoPreparo(new Date(r.agendamento), preparoDoTipo(tempos, r.tipo)).toISOString() : null;
+    // A trava do pedido enquanto o cliente altera (mig 517): o "⏸ Cliente alterando até HH:MM" e o "Liberar o pedido". Só
+    // dos pedidos que ainda podem sair (em produção ou prontos), numa consulta; informação a mais — nunca derruba o painel.
+    const travas = await (this.travas
+      ?.travasAtivas(
+        tenantId,
+        base.filter((r) => r.status === 'confirmado' || r.status === 'pronto').map((r) => r.id),
+      )
+      .catch((e: any) => {
+        this.logger.warn(`trava do pedido no painel: ${e?.message ?? e}`);
+        return new Map();
+      }) ?? Promise.resolve(new Map()));
     return base.map((r) => ({
       ...r,
       agendadoComeca: comecaDo(r),
+      travadoAte: travas.get(r.id)?.ate ?? null,
+      travaQuer: travas.get(r.id)?.quer ?? null,
       logistica: logistica.get(r.id) ?? null,
       repetido: repetidos.get(r.id) ?? null,
       clientePedidosCount: r.clienteTelefone ? counts.get(r.clienteTelefone) ?? 1 : 1,
@@ -1755,6 +1773,10 @@ export class DeliveryService {
       throw new BadRequestException(
         'Pedido do totem ainda não foi pago: cobre em PDV · Balcão › Retirada / Encomendas, no "Cobrar e entregar".',
       );
+    // A TRAVA DO PEDIDO ENQUANTO O CLIENTE ALTERA (mig 517, TR-2): o pedido em "confirmado" ou "pronto" não fica pronto,
+    // não sai e não conclui enquanto o cliente confere a mudança pelo WhatsApp — 409 `PEDIDO_EM_ALTERACAO` com a hora e o
+    // que ele quer (a tela oferece "Esperar | Liberar o pedido"). Despachado e entregue seguem (já saiu).
+    if (ped.status === 'confirmado' || ped.status === 'pronto') await this.travas?.exigirSemTrava(tenantId, id);
     if (novo === 'despachado') await this.conferirEntregador(tenantId, dados?.entregadorId);
     const patch: any = { status: novo };
     if (novo === 'pronto') patch.prontoEm = new Date();
@@ -1861,6 +1883,8 @@ export class DeliveryService {
       throw new BadRequestException('Pedido de retirada não vai para entrega.');
     if (!['confirmado', 'pronto'].includes(ped.status))
       throw new BadRequestException('Só é possível despachar um pedido em produção ou pronto.');
+    // A trava do pedido enquanto o cliente altera (mig 517, TR-2): o despacho direto também espera.
+    await this.travas?.exigirSemTrava(tenantId, id);
     await this.conferirEntregador(tenantId, dados?.entregadorId);
     const [row] = await this.db
       .update(pedidoExterno)
@@ -2417,6 +2441,8 @@ export class DeliveryService {
     if (ped.status === 'cancelado') throw new BadRequestException('Pedido cancelado.');
     if (ped.status === 'concluido') throw new BadRequestException('Pedido já concluído.');
     if (ped.status === 'novo') throw new BadRequestException('Aceite o pedido antes de entregar.');
+    // A trava do pedido enquanto o cliente altera (mig 517, TR-2): a retirada também espera o cliente conferir a mudança.
+    await this.travas?.exigirSemTrava(tenantId, id);
 
     const agora = new Date();
     const patch: any = {
@@ -3574,6 +3600,18 @@ export class DeliveryService {
   async quemAplicaAlteracao(tenantId: string, unidadeId: string | null): Promise<'nuvem' | 'servidor' | 'servidor_antigo'> {
     if (!(await edgeAtivo(this.db, tenantId, unidadeId))) return 'nuvem';
     return versaoQueAplica(await this.versaoDoServidorDaLoja(tenantId, unidadeId)) ? 'servidor' : 'servidor_antigo';
+  }
+
+  /**
+   * A trava do pedido enquanto o cliente altera (mig 517) segura o pedido NESTA loja? Sem servidor ligado: sim (a nuvem
+   * recusa o "Pronto"/"Despachar"). Com servidor: só na versão que já conhece a trava (`VERSAO_MINIMA_DA_TRAVA`) — a mais
+   * antiga deixaria o pedido sair, e o robô não pode prometer ao cliente que a cozinha segura. A mesma leitura da versão do
+   * `quemAplicaAlteracao` (as duas fontes do "servidor ligado").
+   */
+  async travaValeNaLoja(tenantId: string, unidadeId: string | null): Promise<boolean> {
+    if (!(await edgeAtivo(this.db, tenantId, unidadeId))) return true;
+    const versao = await this.versaoDoServidorDaLoja(tenantId, unidadeId);
+    return !!versao && compararVersao(versao, VERSAO_MINIMA_DA_TRAVA) >= 0;
   }
 
   /**
