@@ -15,7 +15,7 @@
 // Rodada 7 de segurança, bloco C (28/11/2026, ERR-650): receber a compra, confirmar o recebimento (criam a conta a pagar) e o Pix
 // prioritário passaram a `pin`; nove leituras que listam pessoas da equipe (ciência, faltas, ranking, atendentes, operações de
 // caixa, a escala do dia, do período e da semana, os responsáveis) ganharam `pessoal`; doze leituras de dinheiro, `valores`.
-// Contadas agora: le 265 (167 que o Mister lê; 98 com dado de pessoa) · botao 143 · pin 88 · tela 176 · interna 634.
+// Contadas agora: le 265 (167 que o Mister lê; 98 com dado de pessoa) · botao 143 · pin 88 · tela 176 · interna 635.
 //
 // As marcas:
 //   le       — só lê: o Mister pode consultar (C3), com a permissão do perfil de quem pergunta e o bilhete de uma chamada
