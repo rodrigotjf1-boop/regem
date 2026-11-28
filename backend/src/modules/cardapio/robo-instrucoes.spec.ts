@@ -26,6 +26,63 @@ describe('instruções do robô', () => {
     expect(instrucoesDoDirect({ loja: 'Mister Burguer' }).texto).toContain('Sem markdown: nada de asterisco, cerquilha ou tabela.');
   });
 
+  // .f41 (27/11/2026) — pedido do dono: "um atendimento com carisma, e jogo de cintura nos momentos de reclamação".
+  describe('CARISMA E JOGO DE CINTURA (.f41)', () => {
+    const f1 = texto;
+    const f2 = instrucoesDoRobo({ loja: 'Mister Burguer' }, '2').texto;
+    const direct = instrucoesDoDirect({ loja: 'Mister Burguer' }).texto;
+    const secao = (t: string) => t.slice(t.indexOf('CARISMA E JOGO DE CINTURA'), t.indexOf('SE PERGUNTAREM SE VOCÊ É ROBÔ'));
+
+    it('a versão subiu e a seção está nos dois fluxos do WhatsApp, entre COMO ESCREVER e SE PERGUNTAREM — não no Direct', () => {
+      expect(VERSAO_INSTRUCOES >= '2026-11-27.f41').toBe(true);
+      for (const t of [f1, f2]) {
+        const como = t.indexOf('COMO ESCREVER NO WHATSAPP (');
+        const carisma = t.indexOf('CARISMA E JOGO DE CINTURA');
+        expect(carisma).toBeGreaterThan(como);
+        expect(carisma).toBeLessThan(t.indexOf('SE PERGUNTAREM SE VOCÊ É ROBÔ'));
+        expect(t.split('CARISMA E JOGO DE CINTURA').length).toBe(2);
+      }
+      expect(direct).not.toContain('CARISMA E JOGO DE CINTURA');
+    });
+
+    it('assunto fora do pedido: curto, volta ao pedido, sem política, religião nem polêmica', () => {
+      for (const t of [f1, f2]) {
+        const s = secao(t);
+        expect(s).toContain('responda com interesse em uma ou duas frases e volte ao pedido');
+        expect(s).toContain('Não puxe esse assunto você.');
+        expect(s).toContain('Política, religião ou polêmica');
+        expect(s).toContain('sem torcer contra o time de ninguém');
+      }
+    });
+
+    it('humor leve só com o cliente brincando, uma vez, nunca nos assuntos delicados nem nos perfis profissional e objetivo', () => {
+      for (const t of [f1, f2]) {
+        const s = secao(t);
+        expect(s).toContain('só quando o cliente está de bom humor ou brincando, no máximo uma vez na conversa');
+        expect(s).toContain('nunca sobre o cliente, o nome, a aparência ou a vida dele');
+        for (const delicado of ['reclamação', 'atraso', 'erro no pedido', 'alergia', 'pagamento', 'cancelamento', 'pressa']) {
+          expect(s.slice(s.indexOf('Nunca em '), s.indexOf('No perfil PROFISSIONAL'))).toContain(delicado);
+        }
+        expect(s).toContain('No perfil PROFISSIONAL ou OBJETIVO, sem piada.');
+      }
+    });
+
+    it('reclamação com jogo de cintura: palavras próprias, sem culpar ninguém, calmo diante de ironia — e as regras de chateado seguem', () => {
+      for (const t of [f1, f2]) {
+        const s = secao(t);
+        expect(s).toContain('além de CLIENTE CHATEADO OU IRRITADO');
+        expect(s).toContain('nunca a mesma frase pronta de sempre');
+        expect(s).toContain('sem culpar ninguém (a cozinha, o entregador ou o cliente)');
+        expect(s).toContain('não revide nem mude o tom');
+        expect(t).toContain('Não prometa prazo, desconto, reembolso nem solução');
+      }
+    });
+
+    it('curta: cada letra vai em toda chamada do atendente (no pico, muitas conversas ao mesmo tempo)', () => {
+      expect(secao(f1).length).toBeLessThan(1800);
+    });
+  });
+
   // .f25 (17/11/2026) — pedido do dono: "respostas arrumadas e formatadas com emoticons quando necessário".
   describe('COMO ESCREVER NO WHATSAPP (.f25)', () => {
     const f1 = texto;

@@ -52,6 +52,8 @@
 - _(Atendente — a situação da loja agora nas instruções e a memória por pedido, .f39 (27/11; ERR-629): SEM migration. As
   instruções e o `ver_pedido` são só da nuvem. O `fechaAs` novo do menu vai no próximo `.zip` por ser código comum, sem
   efeito na venda da loja. Não pede `.exe`.)_
+- _(Atendente — carisma e jogo de cintura, .f41 (27/11): SEM migration e só da nuvem — as instruções do robô não rodam no
+  servidor da loja. Não pede `.zip` nem `.exe`.)_
 - _(Atendente — a 99 "fora do horário" dela não fecha mais a loja (27/11; ERR-631): SEM migration e só da nuvem — o veredito
   é do robô. Não pede `.zip` nem `.exe`.)_
 - **Estoque: a unidade "fatia" e o "Duplicar" em Estoque › Produtos (27/11; SEM migration).** Vai no próximo `.zip`: a
