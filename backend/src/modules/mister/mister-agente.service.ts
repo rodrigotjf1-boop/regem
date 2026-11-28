@@ -207,6 +207,16 @@ export class MisterAgenteService implements OnModuleInit {
       if (ultima.wamid) this.numero.mostrarDigitando(ultima.wamid);
       const memoria = await this.fila.memoria(ultima.tenantId, ultima.colaboradorId);
       const fim = await this.responder(escopo, memoria, pergunta);
+      // ERR-647 (rodada 7, MIS-A-02, B-03, B-04): a volta da IA leva até ~2 min — o acesso conferido no começo pode ter caído no
+      // meio (desligou, "Perdi o celular", rebaixado, módulo, chave geral, a sessão com PIN venceu). Confere de novo ANTES de
+      // qualquer envio. Caiu: nada sai — o telefone pode ser o perdido. Continua falando, mas perdeu os valores: avisa sem a resposta.
+      if (!(await this.numero.ler()).ligado) return await fechar('desligado', fim.trilha);
+      const agora = await this.ferramentas.escopo(ultima.tenantId, ultima.colaboradorId, ultima.telefone);
+      if (!agora) return await fechar('sem_acesso', fim.trilha);
+      if (escopo.verValores && !agora.verValores) {
+        await this.dizer(ultima.telefone, TEXTOS_DO_AGENTE.acessoMudou);
+        return await fechar('sem_acesso', fim.trilha);
+      }
       if (fim.motivo) {
         const frase = fraseDoMotivo(fim.motivo, escopo.nivel);
         if (frase) await this.dizer(ultima.telefone, frase);

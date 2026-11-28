@@ -251,8 +251,10 @@ class IaDeMentira extends IaEmpresaService {
       messages: {
         create: async (pedido: any) => {
           this.pedidos.push(JSON.parse(JSON.stringify(pedido)));
-          const passo = this.roteiro.shift();
-          if (!passo) throw new Error('a IA de mentira ficou sem roteiro');
+          const proximo = this.roteiro.shift();
+          if (!proximo) throw new Error('a IA de mentira ficou sem roteiro');
+          // Um passo que é função roda NA HORA do pedido (o que muda no meio da volta da IA) e devolve a resposta.
+          const passo = typeof proximo === 'function' ? await proximo() : proximo;
           if (passo.erro) throw passo.erro;
           return passo;
         },
@@ -1652,6 +1654,49 @@ export function testesDoMisterComPostgres(): void {
       await agente.esvaziar();
       expect((await perguntasDe('carlos'))[1]).toMatchObject({ situacao: 'falhou', motivo: 'desligado', chamadas: 0 });
       expect(ia.pedidos).toEqual([]);
+      expect(numero.enviadas).toEqual([]);
+    });
+
+    // ERR-647 (rodada 7 de segurança, MIS-A-02, B-03, B-04): o acesso era conferido só no começo — a resposta pronta saía ao
+    // telefone que tinha acabado de perder o acesso; a pergunta do celular antigo ia no lote do novo; a memória atravessava a troca.
+    it('ERR-647: o acesso que cai DURANTE a volta da IA não recebe a resposta; o celular antigo não entra no lote nem na memória do novo', async () => {
+      comIa();
+      const tel = telefone();
+      const tel2 = telefone();
+      await ligar('ana', tel);
+      // Uma resposta de antes, na memória da ligação do celular antigo.
+      await perguntar(tel, 'quanto vendi?');
+      ia.roteiro = [falar('Hoje: 12 pedidos.')];
+      expect(await agente.esvaziar()).toBe(1);
+
+      // Ainda na fila, uma pergunta do celular antigo; ela liga outro celular e pergunta dele.
+      await perguntar(tel, 'pergunta do celular antigo');
+      await ligar('ana', tel2);
+      await perguntar(tel2, 'e agora?');
+      numero.pedidos.length = 0;
+      ia.pedidos.length = 0;
+      ia.roteiro = [falar('Agora: 13 pedidos.')];
+      await agente.esvaziar();
+      // A do celular antigo saiu como "sem acesso", sem resposta; a do novo foi respondida sem a pergunta nem a memória do antigo.
+      const fila = await perguntasDe('ana');
+      expect(fila.find((p: any) => p.pergunta === 'pergunta do celular antigo')).toMatchObject({ situacao: 'falhou', motivo: 'sem_acesso' });
+      expect(fila.at(-1)).toMatchObject({ situacao: 'respondida', telefone: tel2 });
+      const enviado = JSON.stringify(ia.pedidos);
+      expect(enviado).not.toContain('pergunta do celular antigo');
+      expect(enviado).not.toContain('Hoje: 12 pedidos.');
+      expect(numero.enviadas.map((m) => m.para)).toEqual([tel2]);
+
+      // Desligado DURANTE a volta da IA: a IA respondeu, nada sai.
+      await perguntar(tel2, 'quanto vendi ontem?');
+      numero.pedidos.length = 0;
+      ia.roteiro = [
+        async () => {
+          await desligarVinculo(db, { tenantId: A, colaboradorId: pessoa.ana, motivo: 'pessoa' });
+          return falar('Ontem: 20 pedidos.');
+        },
+      ];
+      await agente.esvaziar();
+      expect((await perguntasDe('ana')).at(-1)).toMatchObject({ situacao: 'falhou', motivo: 'sem_acesso' });
       expect(numero.enviadas).toEqual([]);
     });
 

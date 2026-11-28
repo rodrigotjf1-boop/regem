@@ -129,6 +129,22 @@ descrever('o bilhete do Mister lê a tela como a pessoa (Postgres e HTTP de verd
     expect(await telas.ler(escopo(a), { rota: 'GET /api/v1/unidades' }, LOJA)).toEqual(recusaDaTela(TEXTOS_DAS_TELAS.semPermissao));
   });
 
+  // ERR-647 (rodada 7 de segurança, MIS-B-04): o guarda do bilhete recusava só "excluída ou bloqueada" — qualquer outra situação
+  // da pessoa passava, e a empresa excluída não era olhada. Agora é a régua do Mister: pessoa ATIVA e empresa viva.
+  it('ERR-647: a pessoa que não está ativa (qualquer situação) e a empresa excluída não leem pelo bilhete', async () => {
+    const a = await empresa('presidente', {});
+    await q(`update colaborador set status = 'desligado' where id = $1`, [a.id]);
+    expect(await telas.ler(escopo(a), { rota: 'GET /api/v1/unidades' }, LOJA)).toEqual(recusaDaTela(TEXTOS_DAS_TELAS.semPermissao));
+    await q(`update colaborador set status = 'ativo' where id = $1`, [a.id]);
+    expect((await telas.ler(escopo(a), { rota: 'GET /api/v1/unidades' }, LOJA)).ok).toBe(true);
+    await q(`update empresa set deleted_at = now() where id = $1`, [a.t]);
+    try {
+      expect(await telas.ler(escopo(a), { rota: 'GET /api/v1/unidades' }, LOJA)).toEqual(recusaDaTela(TEXTOS_DAS_TELAS.semPermissao));
+    } finally {
+      await q(`update empresa set deleted_at = null where id = $1`, [a.t]);
+    }
+  });
+
   it('o gerente sem a permissão da tela recebe a recusa do perfil (as mesmas travas da tela)', async () => {
     const g = await empresa('gerente', {});
     expect(await telas.ler(escopo(g, 'gerente'), { rota: 'GET /api/v1/unidades' }, LOJA)).toEqual(recusaDaTela(TEXTOS_DAS_TELAS.semPermissao));

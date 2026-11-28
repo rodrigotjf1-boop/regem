@@ -98,6 +98,16 @@ export class MisterFilaService {
    * null se não há o que pegar. A conversa que já está sendo respondida não entra.
    */
   async pegar(): Promise<PerguntaNaFila[] | null> {
+    // ERR-647 (rodada 7, MIS-A-02): a pega junta as perguntas da PESSOA — a de um telefone que já não é o dela (trocou de celular,
+    // desligou, ligou de novo) não pode ir no lote do telefone de agora. Sai como "sem acesso" antes de pegar.
+    await this.db.execute(sql`
+      update mister_pergunta q
+         set situacao = 'falhou', motivo = 'sem_acesso', respondida_em = now(), atualizado_em = now()
+       where q.situacao = 'na_fila'
+         and not exists (
+               select 1 from mister_vinculo v
+                where v.tenant_id = q.tenant_id and v.colaborador_id = q.colaborador_id
+                  and v.telefone = q.telefone and v.ligado_em is not null and q.criado_em >= v.ligado_em)`);
     const pegas = linhas(
       await this.db.execute(sql`
         with conversa as (
@@ -198,6 +208,8 @@ export class MisterFilaService {
          where tenant_id = ${tenantId}::uuid and colaborador_id = ${colaboradorId}::uuid and situacao = 'respondida'
            and pergunta is not null and resposta is not null
            and criado_em > now() - make_interval(mins => ${TETOS.memoriaMin})
+           -- ERR-647: a memória é da ligação de AGORA — o celular ligado de novo não vê as respostas do anterior.
+           and criado_em >= coalesce((select ligado_em from mister_vinculo where tenant_id = ${tenantId}::uuid and colaborador_id = ${colaboradorId}::uuid), 'infinity'::timestamptz)
          order by criado_em desc
          limit ${TETOS.memoria}`),
     );
