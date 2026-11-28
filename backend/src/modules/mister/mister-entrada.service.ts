@@ -13,6 +13,10 @@ import { ToqueNoModelo, toqueNoModelo } from './mister-modelos';
 import { TEXTOS_DA_PROPOSTA } from './mister-procedimentos';
 import { TEXTOS_DA_MIDIA } from './mister-midia.regras';
 import { hashDoRemetente } from './mister-aparelho';
+import { ehAcaoDoMister } from './mister-acoes';
+import { PROCEDIMENTO_DO_PLANO } from './mister-plano';
+import { PROCEDIMENTO_DO_PEDIDO } from './mister-pedido';
+import { PROCEDIMENTO_DA_TAREFA } from './mister-tarefas';
 import type { ListaLida } from './mister-lista';
 import {
   CODIGOS_ERRADOS_JANELA_MIN,
@@ -69,6 +73,19 @@ export interface MensagemDoMister {
   codigoDoModelo?: string | null;
   /** M3a: a foto ou o PDF que veio na mensagem (pela API oficial). */
   midia?: MidiaDoMister | null;
+  /** M6b: o hash do aparelho (pela API oficial) — anotado só quando a mensagem é nova (ERR-648). */
+  aparelho?: string | null;
+}
+
+/** ERR-648 (rodada 7, MIS-A-12): a Meta reenvia por até 7 dias; mais velha que isso não é tratada. */
+const MENSAGEM_VELHA_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * ERR-648 (rodada 7, MIS-A-09): a autorização que só QUEM PEDIU decide (a mesma regra do `responder` das propostas): a ação, o
+ * plano, o pedido ao presidente e a tarefa pelo mapa. As outras (os avisos), só o presidente.
+ */
+export function decididaPorQuemPediu(procedimento: unknown): boolean {
+  return ehAcaoDoMister(procedimento) || [PROCEDIMENTO_DO_PLANO, PROCEDIMENTO_DO_PEDIDO, PROCEDIMENTO_DA_TAREFA].includes(String(procedimento) as never);
 }
 
 /** M3a (versão 3 do protótipo): a foto ou o documento que chegou na conversa. O arquivo se baixa pelo `id` da Meta. */
@@ -140,6 +157,8 @@ export type Desfecho =
   | 'codigo_nao_vale'
   | 'codigos_demais'
   | 'codigo_calado'
+  // ERR-648: o código mandado de novo por quem acabou de ligar (toque duplo) — conta como tentativa, sem resposta.
+  | 'codigo_repetido'
   | 'numero_de_outra_pessoa'
   | 'sem_acesso'
   | 'fixa'
@@ -244,6 +263,17 @@ export class MisterEntradaService {
     if (!(await this.numero.doPhoneId(phoneNumberId))) return false;
     await this.numero.anotarEntrada(phoneNumberId).catch((e) => this.logger.warn(`anotar a entrada falhou: ${e?.message ?? e}`));
     for (const m of valor?.messages ?? []) {
+      // ERR-648 (rodada 7, MIS-A-12): sem o id não há trava de repetida — a mensagem não é tratada; e a que chega com mais de
+      // 7 dias (o prazo de reenvio da Meta) é velha: o registro de "já tratei" (30 dias) pode não estar mais lá.
+      if (!m?.id) {
+        this.logger.warn(`mister: mensagem da Meta sem id (tipo=${m?.type}) — ignorada`);
+        continue;
+      }
+      const enviadaEm = Number(m?.timestamp) * 1000;
+      if (Number.isFinite(enviadaEm) && enviadaEm > 0 && Date.now() - enviadaEm > MENSAGEM_VELHA_MS) {
+        this.logger.warn(`mister: mensagem ${m.id} de mais de 7 dias — ignorada`);
+        continue;
+      }
       const resposta = m?.interactive?.button_reply ?? m?.interactive?.list_reply;
       const entrada: MensagemDoMister = {
         telefone: soDigitos(m?.from),
@@ -256,11 +286,9 @@ export class MisterEntradaService {
         midia: midiaDaMeta(m),
       };
       // Versão 6, M6b (A1.0, mig 484): só ANOTA o hash do aparelho, antes de tratar (a mensagem que liga o telefone não
-      // conta, porque o vínculo ainda não existe). Falhar aqui nunca impede a resposta.
-      const aparelho = hashDoRemetente(valor?.contacts, m?.from);
-      if (aparelho && entrada.telefone) {
-        await this.numero.anotarAparelho(entrada.telefone, aparelho).catch((e) => this.logger.warn(`anotar o aparelho falhou: ${e?.message ?? e}`));
-      }
+      // conta, porque o vínculo ainda não existe). Falhar aqui nunca impede a resposta. ERR-648: anotado em `receber`, DEPOIS
+      // da trava de repetida (o reenvio não anota de novo).
+      entrada.aparelho = hashDoRemetente(valor?.contacts, m?.from);
       try {
         const desfecho = await this.receber(entrada);
         this.logger.log(`mister de=${mascarar(entrada.telefone)} tipo=${m?.type} id=${m?.id} → ${desfecho}`);
@@ -305,17 +333,27 @@ export class MisterEntradaService {
     const dito = String(texto ?? '').trim();
     if (!tel || (dito !== '1' && dito !== '2')) return null;
     try {
-      const [p] = linhas(
+      // ERR-648 (rodada 7, MIS-A-09): só as autorizações que ESTA pessoa decide — a de quem pediu (ação, plano, pedido, tarefa)
+      // só por quem pediu; as outras, só pelo presidente — e a da empresa desta conversa antes da outra. Antes pegava a mais nova
+      // entre todas as empresas do telefone, até a de outra pessoa.
+      const abertas = linhas(
         await this.db.execute(sql`
-          select p.id::text as id
+          select p.id::text as id, p.procedimento, p.parametros ->> 'colaboradorId' as "pediu", v.colaborador_id::text as "colaboradorId",
+                 coalesce(pa.nivel, f.categoria::text) as nivel, coalesce(p.tenant_id = cv.tenant_id, false) as "naConversa"
             from mister_proposta p
             join mister_vinculo v on v.tenant_id = p.tenant_id and v.telefone = ${tel} and v.ligado_em is not null
+            join colaborador co on co.id = v.colaborador_id and co.tenant_id = v.tenant_id
+            left join funcao f on f.id = co.funcao_id
+            left join perfil_acesso pa on pa.id = co.perfil_acesso_id
+            left join mister_conversa cv on cv.telefone = ${tel}
            where p.situacao = 'proposta' and p.nivel = 'botao' and p.vence_em > now()
              and not exists (select 1 from mister_conversa c
                               where c.telefone = ${tel} and c.perguntada_em > now() - make_interval(mins => ${PENDENTE_VALE_MIN}))
            order by p.criada_em desc
-           limit 1`),
+           limit 20`),
       );
+      const minhas = abertas.filter((p) => (decididaPorQuemPediu(p.procedimento) ? p.pediu === p.colaboradorId : p.nivel === 'presidente'));
+      const p = minhas.find((x) => x.naConversa === true) ?? minhas[0];
       return p ? `prop:${p.id}:${dito === '1' ? 'sim' : 'nao'}` : null;
     } catch (e: any) {
       if (e?.code === '42P01' || e?.cause?.code === '42P01') return null;
@@ -332,6 +370,7 @@ export class MisterEntradaService {
       const nova = linhas(await this.db.execute(sql`insert into mister_mensagem (wamid, telefone) values (${e.wamid}, ${tel}) on conflict (wamid) do nothing returning wamid`));
       if (!nova.length) return 'repetida';
     }
+    if (e.aparelho) await this.numero.anotarAparelho(tel, e.aparelho).catch((err) => this.logger.warn(`anotar o aparelho falhou: ${err?.message ?? err}`));
     const desfecho = await this.tratar(tel, e);
     if (e.wamid) await this.db.execute(sql`update mister_mensagem set desfecho = ${desfecho.desfecho}, tenant_id = ${desfecho.tenantId ?? null}::uuid where wamid = ${e.wamid}`);
     return desfecho.desfecho;
@@ -420,13 +459,21 @@ export class MisterEntradaService {
 
   private async ligar(tel: string, codigo: string | null): Promise<{ desfecho: Desfecho; tenantId?: string | null }> {
     // Muitos códigos errados: o telefone deixa de ser atendido em códigos até a janela passar (ninguém adivinha código).
-    const [conv] = linhas(
+    // ERR-648 (rodada 7, MIS-A-07): a tentativa é RESERVADA antes de conferir o código, na MESMA instrução que lê o teto (V98)
+    // — mensagens em paralelo não passam das 5 por janela. O acerto zera a contagem (a conversa, depois de ligar).
+    const [reserva] = linhas(
       await this.db.execute(sql`
-        select codigos_errados as errados,
-               (codigos_desde is not null and codigos_desde > now() - make_interval(mins => ${CODIGOS_ERRADOS_JANELA_MIN})) as "naJanela"
-          from mister_conversa where telefone = ${tel}`),
+        insert into mister_conversa (telefone, codigos_errados, codigos_desde, ultima_entrada_em) values (${tel}, 1, now(), now())
+        on conflict (telefone) do update set
+          codigos_errados = case when mister_conversa.codigos_desde is null or mister_conversa.codigos_desde < now() - make_interval(mins => ${CODIGOS_ERRADOS_JANELA_MIN})
+                                 then 1 else mister_conversa.codigos_errados + 1 end,
+          codigos_desde = case when mister_conversa.codigos_desde is null or mister_conversa.codigos_desde < now() - make_interval(mins => ${CODIGOS_ERRADOS_JANELA_MIN})
+                               then now() else mister_conversa.codigos_desde end,
+          ultima_entrada_em = now(), atualizado_em = now()
+        returning codigos_errados as tentativas`),
     );
-    if (conv?.naJanela === true && Number(conv.errados) >= CODIGOS_ERRADOS_MAX) return { desfecho: 'codigo_calado' };
+    const tentativas = Number(reserva?.tentativas) || 0;
+    if (tentativas > CODIGOS_ERRADOS_MAX) return { desfecho: 'codigo_calado' };
 
     const [dono] = codigo
       ? linhas(
@@ -438,7 +485,7 @@ export class MisterEntradaService {
              where g.codigo = ${codigo} and g.codigo_expira_em > now()`),
         )
       : [];
-    if (!dono) return this.codigoErrado(tel);
+    if (!dono) return this.codigoErrado(tel, tentativas);
     if (!(await this.modulos.ativo(dono.tenantId, dono.unidadeId ?? null, MODULO))) {
       await this.responder(tel, { texto: TEXTOS.semAcesso });
       return { desfecho: 'sem_acesso', tenantId: dono.tenantId };
@@ -534,24 +581,15 @@ export class MisterEntradaService {
     return { desfecho: 'ligou', tenantId: g.tenantId };
   }
 
-  private async codigoErrado(tel: string): Promise<{ desfecho: Desfecho }> {
-    // Quem acabou de ligar e mandou o código de novo (toque duplo) não leva "não vale mais".
+  /** O código não vale. `tentativas` = a contagem já reservada nesta janela, com esta (ERR-648: conta ANTES de conferir). */
+  private async codigoErrado(tel: string, tentativas: number): Promise<{ desfecho: Desfecho }> {
+    // Quem acabou de ligar e mandou o código de novo (toque duplo) não leva "não vale mais" — mas a tentativa CONTA (ERR-648:
+    // antes este caminho calava sem contar, e um telefone ligado há pouco testava códigos à vontade).
     const [jaLigou] = linhas(
       await this.db.execute(sql`select 1 from mister_vinculo where telefone = ${tel} and ligado_em > now() - make_interval(mins => ${CODIGO_VALE_MIN}) limit 1`),
     );
-    if (jaLigou) return { desfecho: 'calado' };
-    const [conta] = linhas(
-      await this.db.execute(sql`
-        insert into mister_conversa (telefone, codigos_errados, codigos_desde, ultima_entrada_em) values (${tel}, 1, now(), now())
-        on conflict (telefone) do update set
-          codigos_errados = case when mister_conversa.codigos_desde is null or mister_conversa.codigos_desde < now() - make_interval(mins => ${CODIGOS_ERRADOS_JANELA_MIN})
-                                 then 1 else mister_conversa.codigos_errados + 1 end,
-          codigos_desde = case when mister_conversa.codigos_desde is null or mister_conversa.codigos_desde < now() - make_interval(mins => ${CODIGOS_ERRADOS_JANELA_MIN})
-                               then now() else mister_conversa.codigos_desde end,
-          ultima_entrada_em = now(), atualizado_em = now()
-        returning codigos_errados as errados`),
-    );
-    if (Number(conta?.errados) >= CODIGOS_ERRADOS_MAX) {
+    if (jaLigou) return { desfecho: 'codigo_repetido' };
+    if (tentativas >= CODIGOS_ERRADOS_MAX) {
       await this.responder(tel, { texto: TEXTOS.codigosDemais });
       return { desfecho: 'codigos_demais' };
     }
@@ -611,14 +649,27 @@ export class MisterEntradaService {
     const escolhida = empresaEscolhida({ botaoId: e.botaoId, texto: conv?.perguntada === true ? texto : null }, empresas);
     if (escolhida) {
       const vinculo = vinculos.find((v) => v.tenantId === escolhida)!;
-      await this.db.execute(sql`
-        insert into mister_conversa (telefone, tenant_id, escolhida_em, ultima_entrada_em) values (${tel}, ${escolhida}::uuid, now(), now())
-        on conflict (telefone) do update
-          set tenant_id = excluded.tenant_id, escolhida_em = now(), perguntada_em = null, pendente = null, pendente_em = null,
-              ultima_entrada_em = now(), atualizado_em = now()`);
+      // ERR-648 (rodada 7, MIS-A-08): a mensagem que esperava é lida e consumida na MESMA gravação, com a linha travada — duas
+      // escolhas ao mesmo tempo (toque duplo, botão e número) atendem a pendência uma vez só.
+      const [consumida] = linhas(
+        await this.db.execute(sql`
+          with antes as (select telefone, pendente, pendente_em from mister_conversa where telefone = ${tel} for update)
+          update mister_conversa c
+             set tenant_id = ${escolhida}::uuid, escolhida_em = now(), perguntada_em = null, pendente = null, pendente_em = null,
+                 ultima_entrada_em = now(), atualizado_em = now()
+            from antes
+           where c.telefone = antes.telefone
+          returning case when antes.pendente_em > now() - make_interval(mins => ${PENDENTE_VALE_MIN}) then antes.pendente end as pendente`),
+      );
+      if (!consumida)
+        await this.db.execute(sql`
+          insert into mister_conversa (telefone, tenant_id, escolhida_em, ultima_entrada_em) values (${tel}, ${escolhida}::uuid, now(), now())
+          on conflict (telefone) do update
+            set tenant_id = excluded.tenant_id, escolhida_em = now(), perguntada_em = null, pendente = null, pendente_em = null,
+                ultima_entrada_em = now(), atualizado_em = now()`);
       await this.responder(tel, { texto: TEXTOS.seguindo(vinculo.empresa) });
       // A mensagem que esperava a escolha é atendida agora, já na empresa certa.
-      const pendente = String(conv?.pendente ?? '').trim();
+      const pendente = String(consumida?.pendente ?? '').trim();
       if (pendente) await this.atender(tel, vinculo, pendente, e.wamid ? `${e.wamid}:pendente` : null, e.wamid ?? null);
       return { desfecho: 'escolheu_empresa', tenantId: escolhida };
     }

@@ -798,7 +798,7 @@ export function testesDoMisterComPostgres(): void {
       expect(await mandar(tel, `MISTER ${codigo}`, { wamid: id })).toBe('ligou');
       numero.pedidos.length = 0;
       expect(await mandar(tel, `MISTER ${codigo}`, { wamid: id })).toBe('repetida'); // o reenvio da Meta
-      expect(await mandar(tel, `MISTER ${codigo}`)).toBe('calado'); // o toque duplo de quem acabou de ligar
+      expect(await mandar(tel, `MISTER ${codigo}`)).toBe('codigo_repetido'); // o toque duplo de quem acabou de ligar (ERR-648: conta, sem resposta)
       expect(numero.enviadas).toEqual([]);
       // Outro telefone com o código já usado: não vale, e não liga.
       const outro = telefone();
@@ -843,6 +843,21 @@ export function testesDoMisterComPostgres(): void {
       await q(`update mister_conversa set codigos_desde = now() - interval '61 minutes' where telefone = $1`, [tel]);
       expect(await mandar(tel, `MISTER ${certo}`)).toBe('ligou');
       expect((await q(`select codigos_errados from mister_conversa where telefone = $1`, [tel]))[0].codigos_errados).toBe(0);
+    });
+
+    // ERR-648 (rodada 7 de segurança, MIS-A-07): o teto era lido numa instrução e somado noutra (em paralelo passavam mais de 5), e
+    // o "toque duplo" de quem ligou nos últimos 10 minutos calava SEM contar — esse telefone testava códigos à vontade.
+    it('ERR-648: a tentativa de código conta ANTES de conferir — em paralelo não passam de 5; o código mandado depois de ligar também conta', async () => {
+      const tel = telefone();
+      const desfechos = await Promise.all(Array.from({ length: 10 }, (_, i) => mandar(tel, `MISTER ${200000 + i}`)));
+      expect(desfechos.filter((d) => d !== 'codigo_calado')).toHaveLength(5);
+      // Quem acabou de ligar: o código mandado de novo não leva resposta, mas conta — o 6º na janela fica calado.
+      const tel2 = telefone();
+      const codigo = await ligar('ana', tel2);
+      numero.pedidos.length = 0;
+      for (let i = 1; i <= 5; i++) expect(await mandar(tel2, `MISTER ${300000 + i}`)).toBe('codigo_repetido');
+      expect(await mandar(tel2, `MISTER ${codigo}`)).toBe('codigo_calado');
+      expect(numero.enviadas).toEqual([]);
     });
 
     it('o código de quem deixou de poder não liga: rebaixado, desativado ou com o módulo desligado na empresa', async () => {
@@ -1051,6 +1066,23 @@ export function testesDoMisterComPostgres(): void {
         [A, pessoa.ana],
         [A, pessoa.ana],
       ]);
+    });
+
+    // ERR-648 (rodada 7 de segurança, MIS-A-08): a mensagem que esperava a escolha era lida e consumida em instruções separadas —
+    // duas escolhas ao mesmo tempo (toque duplo, botão e número) a encaminhavam duas vezes.
+    it('ERR-648: duas escolhas da empresa ao mesmo tempo atendem a mensagem que esperava uma vez só', async () => {
+      const tel = telefone();
+      await ligar('ana', tel, A);
+      await ligar('anaB', tel, B);
+      // A conversa sem empresa: a pergunta fica esperando a escolha.
+      await q(`update mister_conversa set tenant_id = null, escolhida_em = null where telefone = $1`, [tel]);
+      expect(await mandar(tel, 'quanto vendi hoje?')).toBe('perguntou_empresa');
+      const escolhas = await Promise.all([
+        mandar(tel, 'x', { botaoId: idDoBotaoDaEmpresa(A) }),
+        mandar(tel, 'x', { botaoId: idDoBotaoDaEmpresa(A) }),
+      ]);
+      expect(escolhas).toEqual(['escolheu_empresa', 'escolheu_empresa']);
+      expect((await q(`select count(*)::int as n from mister_pergunta where telefone = $1 and pergunta = 'quanto vendi hoje?'`, [tel]))[0].n).toBe(1);
     });
 
     it('sem saber de qual empresa, o Mister pergunta, guarda a mensagem e só a atende depois da escolha — na empresa escolhida', async () => {
@@ -6901,6 +6933,22 @@ export function testesDoMisterComPostgres(): void {
         expect((await q(`select desfecho from mister_mensagem where wamid = $1`, [`evo:${MARCA}-4`]))[0].desfecho).toBe('respondeu_proposta');
         expect(pedidosAoEvolution(numero).map((p) => p.corpo.text)).toEqual([TEXTOS_DA_PROPOSTA.recusada]);
 
+        // ── ERR-648 (rodada 7, MIS-A-09): o "1" decide a autorização que ESTA pessoa decide — a tarefa mais nova de OUTRA pessoa
+        // da empresa (só quem pediu decide) não fica com ele.
+        const [daAna] = await q(
+          `insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em)
+           values ($1, null, $2, 'consultar_nota', '{}'::jsonb, 'botao', now() + interval '10 minutes') returning id::text as id`,
+          [A, randomUUID()],
+        );
+        const [doCarlos] = await q(
+          `insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em)
+           values ($1, null, $2, 'fazer_no_regem', $3::jsonb, 'botao', now() + interval '10 minutes') returning id::text as id`,
+          [A, randomUUID(), JSON.stringify({ colaboradorId: pessoa.carlos })],
+        );
+        expect(await entrada.receberDoEvolution(INSTANCIA, { telefone: tel, texto: '2', wamid: `${MARCA}-5`, deMim: false })).toBe(true);
+        expect((await q(`select situacao from mister_proposta where id = $1`, [doCarlos.id]))[0].situacao).toBe('proposta');
+        expect((await q(`select situacao from mister_proposta where id = $1`, [daAna.id]))[0].situacao).toBe('recusada');
+
         // ── Sem janela: o aviso de quem não escreve há dias vai com o TEXTO (não o modelo), pelo Evolution.
         await q(`update mister_vinculo set ultima_entrada_em = now() - interval '3 days' where colaborador_id = $1`, [pessoa.ana]);
         numero.pedidos.length = 0;
@@ -12548,6 +12596,39 @@ export function testesDoMisterComPostgres(): void {
         expect(c).toMatchObject({ disponivel: true, vistos: 1, mudaram: 1 });
         expect(c.telefones).toEqual([{ final: tel.slice(-4), vistoEm: expect.stringMatching(ISO), mudouEm: expect.stringMatching(ISO) }]);
         expect(JSON.stringify(c)).not.toContain('hash-');
+        await limparConversas();
+      });
+
+      // ERR-648 (rodada 7 de segurança, MIS-A-12): o hash era anotado antes da trava de repetida e de qualquer contato único; a
+      // mensagem sem id passava sem trava; a velha (depois da limpeza de 30 dias do "já tratei") seria tratada de novo.
+      it('ERR-648: a mensagem sem id e a de mais de 7 dias não são tratadas; o reenvio não anota o aparelho de novo; contato de outro remetente não vale', async () => {
+        await limparConversas();
+        await numeroConectado(true);
+        const tel = telefone();
+        await ligar('ana', tel);
+        const doMeta = (m: Record<string, unknown>, contatos?: unknown[]) =>
+          entrada.receberDaMeta(PHONE_ID, { ...(contatos ? { contacts: contatos } : {}), messages: [{ from: tel, type: 'text', text: { body: 'PARAR AVISOS' }, ...m }] });
+        // Sem id: ignorada (nada registrado, nada respondido, o aviso não para).
+        numero.pedidos.length = 0;
+        await doMeta({});
+        expect((await linha('ana')).pausado_em).toBeNull();
+        expect(numero.enviadas).toEqual([]);
+        // Com mais de 7 dias: ignorada.
+        const velha = wamid();
+        await doMeta({ id: velha, timestamp: String(Math.floor((Date.now() - 8 * 24 * 3600 * 1000) / 1000)) });
+        expect(await q(`select 1 from mister_mensagem where wamid = $1`, [velha])).toEqual([]);
+        expect((await linha('ana')).pausado_em).toBeNull();
+        // O contato único de OUTRO remetente não anota o hash.
+        await doMeta({ id: wamid() }, [{ wa_id: '5500000000000', identity_key_hash: 'de-outro' }]);
+        expect((await linha('ana')).aparelho_hash).toBeNull();
+        // O reenvio da Meta (o mesmo id) não anota de novo: a hora em que o aparelho foi visto fica a da primeira.
+        const id = wamid();
+        await doMeta({ id }, [{ wa_id: tel, identity_key_hash: 'hash-um' }]);
+        const primeira = (await linha('ana')).aparelho_visto_em;
+        expect(primeira).not.toBeNull();
+        await q(`update mister_vinculo set aparelho_visto_em = now() - interval '1 hour' where colaborador_id = $1`, [pessoa.ana]);
+        await doMeta({ id }, [{ wa_id: tel, identity_key_hash: 'hash-dois' }]);
+        expect((await linha('ana')).aparelho_hash).toBe('hash-um');
         await limparConversas();
       });
 

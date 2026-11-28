@@ -75,7 +75,7 @@ export class MisterSentinelaService {
                  to_char(max(recebida_em) at time zone ${FUSO_SQL}, 'DD/MM HH24:MI') as ate
             from mister_mensagem
            where recebida_em > ${desde} and telefone is not null
-             and desfecho in ('codigo_nao_vale', 'codigos_demais', 'codigo_calado')
+             and desfecho in ('codigo_nao_vale', 'codigos_demais', 'codigo_calado', 'codigo_repetido')
            group by telefone
           having count(*) >= 3
            order by vezes desc, final

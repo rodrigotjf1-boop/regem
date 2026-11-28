@@ -8,7 +8,7 @@ import { CODIGOS_ERRADOS_JANELA_MIN, CODIGOS_ERRADOS_MAX } from './mister.regras
 // Sem IA nesta parte. As regras puras: os desfechos que contam, o texto de cada nota e o "Pede atenção".
 
 /** Os desfechos da entrada (`mister_mensagem.desfecho`) que são das proteções. */
-export const DESFECHOS_DA_SEGURANCA = ['codigo_nao_vale', 'codigos_demais', 'codigo_calado', 'numero_de_outra_pessoa', 'sem_acesso', 'fixa', 'fixa_calada'] as const;
+export const DESFECHOS_DA_SEGURANCA = ['codigo_nao_vale', 'codigos_demais', 'codigo_calado', 'codigo_repetido', 'numero_de_outra_pessoa', 'sem_acesso', 'fixa', 'fixa_calada'] as const;
 export type DesfechoDaSeguranca = (typeof DESFECHOS_DA_SEGURANCA)[number];
 
 /** As notas do filtro de saída (`mister_pergunta.conferencia`), como o console mostra, na ordem do cartão. */
