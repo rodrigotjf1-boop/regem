@@ -628,6 +628,17 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+/* CLIENTE ALTERANDO (mig 517): o mesmo bloco invertido do "Pedido alterado" (as mesmas tintas — contraste medido nos dois
+   temas), com o pedido de segurar em linha própria. */
+.k-trava .ex {
+  font-size: calc(28px * var(--esc));
+}
+.k-trava .tx small {
+  display: block;
+  margin-top: 2px;
+  font-weight: 700;
+  font-size: calc(14px * var(--esc));
+}
 .k-linha-inf {
   font-weight: 700;
   font-size: calc(16px * var(--esc));
@@ -708,6 +719,11 @@
 .k-avancar[aria-busy='true'] {
   opacity: 0.75;
   cursor: wait;
+}
+/* "Aguarde o cliente" (mig 517): o mesmo botão, parado — contorno tracejado, as cores de sempre (contraste mantido). */
+.k-avancar.k-espera {
+  border-style: dashed;
+  cursor: not-allowed;
 }
 .k-card.cancelado .k-ident,
 .k-card.cancelado .k-it {

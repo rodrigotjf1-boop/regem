@@ -120,7 +120,8 @@ describe('RealtimeGateway — ponto marcado: só o aviso', () => {
     expect(Object.keys(payload).sort()).toEqual(['em', 'unidadeId']);
     expect(payload.unidadeId).toBe(LOJA);
     const tudo = JSON.stringify(payload);
-    for (const dado of ['João', '918273', 'abc123def456', 'c1', 'entrada', '11:02']) expect(tudo).not.toContain(dado);
+    // A hora da batida pela data inteira: só "11:02" coincidia com o carimbo do aviso quando o CI rodava às 11:02 UTC (ERR-657).
+    for (const dado of ['João', '918273', 'abc123def456', 'c1', 'entrada', '2026-11-16T11:02']) expect(tudo).not.toContain(dado);
   });
 
   it('sem loja (ou loja estranha): o aviso sai com a loja nula', () => {

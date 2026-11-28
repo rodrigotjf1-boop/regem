@@ -49,6 +49,7 @@ import {
   somarItens,
   textoDaAlteracao,
   textoDoToque,
+  travadoAgora,
   type CorStatus,
   type FiltroEtapa,
   type FormaUso,
@@ -512,6 +513,51 @@ export default function KdsPage() {
     [bip],
   );
 
+  // CLIENTE ALTERANDO (mig 517, TR-6): o pedido desta tela que o cliente está mudando pelo WhatsApp → o rodapé "Pausado" e
+  // o som UMA vez (não repete). O rodapé sai sozinho quando a trava acaba (confirmou, desistiu, venceu, liberado). Pela
+  // leitura da fila, como o "Pedido alterado": vale na nuvem e no servidor da loja, onde a trava desce pelo sync.
+  const travasVistas = useRef<Map<string, string> | null>(null);
+  const avisarTravas = useCallback(
+    (lista: any[]) => {
+      const agora = Date.now();
+      const base = travasVistas.current === null;
+      const mapa = travasVistas.current ?? new Map<string, string>();
+      const ativas = new Set<string>();
+      const novos: any[] = [];
+      for (const p of lista) {
+        if (!travadoAgora(p, agora)) continue;
+        if (!despachoRef.current && !cartaoNaTela(lista, p.id, canalRef.current, subAtivoRef.current)) continue;
+        ativas.add(`trava-${p.id}`);
+        if (mapa.get(p.id) !== String(p.travadoAte)) {
+          if (!base) novos.push(p);
+          mapa.set(p.id, String(p.travadoAte));
+        }
+      }
+      travasVistas.current = mapa;
+      const em = new Date().toISOString();
+      setAlertas((prev) => {
+        const sem = prev.filter((x) => !String(x.id).startsWith('trava-') || ativas.has(String(x.id)));
+        const ja = new Set(sem.map((x) => String(x.id)));
+        const entram = lista
+          .filter((p) => ativas.has(`trava-${p.id}`) && !ja.has(`trava-${p.id}`))
+          .map((p) => ({
+            id: `trava-${p.id}`,
+            titulo: `⏸ Cliente alterando — ${identPedido(p)}`,
+            detalhe: `até ${hm(new Date(p.travadoAte))}${p.travaQuer ? ` · ${p.travaQuer}` : ''} — segure o pedido`,
+            prioridade: 'alta' as const,
+            em,
+            restanteSeg: 60,
+            fica: true,
+            origem: 'Pausado',
+            cartaoId: p.id,
+          }));
+        return entram.length || sem.length !== prev.length ? [...entram, ...sem] : prev;
+      });
+      if (novos.length) bip('aviso');
+    },
+    [bip],
+  );
+
   // Devolve a fila nova (ou null se falhou) — o som de pedido novo confere se o cartão entrou NESTA tela.
   // O urgente que ainda espera o "Ciente" (mig 412): a tela recarregada, ou que ficou sem conexão, recupera do servidor —
   // antes ele se perdia. Só os tipos que esta tela recebe e os que são para este KDS; o que já está no rodapé não repete.
@@ -563,6 +609,7 @@ export default function KdsPage() {
       }
       avisarChegadas(lista);
       if (!despacho) avisarAlteracoes(lista);
+      avisarTravas(lista);
       setFalhaFila(null);
       setFilaLida(true);
       return lista;
@@ -573,7 +620,7 @@ export default function KdsPage() {
       if (seq === filaSeq.current) setFalhaFila({ em: new Date(), motivo: String(e?.message ?? '').slice(0, 120) });
       return null;
     }
-  }, [avisarChegadas, avisarAlteracoes]);
+  }, [avisarChegadas, avisarAlteracoes, avisarTravas]);
 
   useEffect(() => {
     setNow(new Date()); // só no cliente

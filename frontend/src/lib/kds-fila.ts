@@ -367,6 +367,30 @@ export function cartaoNaTela(lista: any[], pedidoId: string, canal: string, sub:
 // O botão segue as ETAPAS DA LOJA, como o servidor (auditoria do KDS, 11/11/2026): com "em preparo" desligado, o toque em
 // "A iniciar" já marca pronto — o botão diz "Pronto" (antes dizia "Iniciar" e o cartão sumia para o KDS seguinte); com
 // "entregue" desligado, o pronto é a última etapa e não há botão (antes "Entregar" dava erro calado). null = sem botão.
+/**
+ * A TRAVA DO PEDIDO ENQUANTO O CLIENTE ALTERA (mig 517; protótipo `mockups/regem-pedido-em-alteracao.html`): o cartão
+ * está segurado AGORA? O servidor manda `travadoAte` (a hora em que a trava acaba sem resposta); passou dela, segue.
+ */
+export function travadoAgora(p: { travadoAte?: string | null; status?: string } | null | undefined, agoraMs: number): boolean {
+  if (!p?.travadoAte || p.status === 'cancelado') return false;
+  const ate = new Date(p.travadoAte).getTime();
+  return Number.isFinite(ate) && ate > agoraMs;
+}
+
+/**
+ * O toque do cartão segurado: só o "Pronto" FINAL espera ("Aguarde o cliente") — a mesma regra do servidor
+ * (`ProducaoPedidoService.avancar`): o "Iniciar" e a passagem para a próxima estação ("Pronto → Montagem") seguem.
+ */
+export function prontoEsperaOCliente(
+  p: { travadoAte?: string | null; status?: string },
+  agoraMs: number,
+  proximoNome?: string | null,
+  etapas: EtapasDaLoja = {},
+): boolean {
+  if (!travadoAgora(p, agoraMs) || proximoNome) return false;
+  return p.status === 'preparo' || (p.status === 'recebido' && etapas.usaPreparo === false);
+}
+
 export function proximaAcaoNaEstacao(status: string, proximoNome?: string | null, etapas: EtapasDaLoja = {}): string | null {
   const viraPronto = status === 'preparo' || (status === 'recebido' && etapas.usaPreparo === false);
   if (viraPronto) return proximoNome ? `Pronto → ${proximoNome}` : 'Pronto';

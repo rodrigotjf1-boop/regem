@@ -10,8 +10,11 @@ import {
   identPedido,
   minutosDesde,
   rotuloDaEstacao,
+  travadoAgora,
   type LimitesTempo,
 } from '@/lib/kds-fila';
+
+const hmDe = (iso: string) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -100,6 +103,10 @@ export function KdsDespacho({
           const min = minutosDesde(p.criadoEm, agoraMs);
           const cancelado = p.situacao === 'cancelado';
           const { principal, forcar } = acoesDoDespacho(p);
+          // CLIENTE ALTERANDO (mig 517): o pedido inteiro espera — "Despachar"/"Chamar a senha" e o "assim mesmo" param
+          // (o servidor também recusa); a "Entregue" do pedido que já saiu segue.
+          const travado = !cancelado && travadoAgora(p, agoraMs);
+          const segura = travado && principal?.acao === 'pronto';
           const itens = agregarItens(p.itens ?? []);
           const fs = (px: number) => Math.round(px * esc);
           // Versão 2 (onda 2 da auditoria, 11/11/2026): o cartão é neutro e a cor do tempo fica só no selo; a senha quebra
@@ -115,7 +122,24 @@ export function KdsDespacho({
                 {p.plataforma ? <span className="k-sub">{p.plataforma}</span> : null}
               </header>
 
+              {travado && (
+                <div className="k-alt k-trava" role="status" data-kds-trava>
+                  <span className="ex" aria-hidden="true">
+                    ⏸
+                  </span>
+                  <span className="tx">
+                    <b>Cliente alterando</b>
+                    <span>até {hmDe(p.travadoAte)}</span>
+                    <small>Segure o pedido: não despache.</small>
+                  </span>
+                </div>
+              )}
               <div className="flex flex-1 flex-col gap-2 px-3 py-2">
+                {travado && p.travaQuer && (
+                  <p className="font-bold" style={{ fontSize: fs(15) }} data-kds-trava-quer>
+                    O cliente quer: {p.travaQuer}
+                  </p>
+                )}
                 {p.estacoes?.length > 0 && (
                   <ul aria-label="Andamento das estações" className="flex flex-wrap gap-1">
                     {p.estacoes.map((e: any) => (
@@ -177,21 +201,22 @@ export function KdsDespacho({
                 <div className="flex flex-wrap gap-1 border-t p-2" style={{ borderColor: T.border }}>
                   <button
                     type="button"
-                    disabled={!principal.liberada || ocupado === p.comandaId}
+                    disabled={segura || !principal.liberada || ocupado === p.comandaId}
                     onClick={() => agir(p, principal.acao)}
                     // Largura mínima: no cartão estreito o botão do gestor desce para a linha de baixo, em vez de espremer
                     // "Pronto: chamar a senha" em três linhas (visto na tela de verdade).
                     className="min-h-[48px] min-w-[12rem] flex-1 px-3 font-extrabold disabled:cursor-not-allowed"
                     style={{
                       fontSize: fs(16),
-                      background: principal.liberada ? ACAO_KDS.fundo : T.panel2,
-                      color: principal.liberada ? ACAO_KDS.texto : T.muted,
+                      background: principal.liberada && !segura ? ACAO_KDS.fundo : T.panel2,
+                      color: principal.liberada && !segura ? ACAO_KDS.texto : T.muted,
                     }}
-                    title={principal.liberada ? undefined : 'Libera quando todas as estações terminarem'}
+                    title={segura ? 'O cliente está alterando este pedido' : principal.liberada ? undefined : 'Libera quando todas as estações terminarem'}
+                    data-kds-espera-cliente={segura ? '' : undefined}
                   >
-                    {ocupado === p.comandaId ? 'Aguarde…' : principal.rotulo}
+                    {segura ? 'Aguarde o cliente' : ocupado === p.comandaId ? 'Aguarde…' : principal.rotulo}
                   </button>
-                  {forcar && (
+                  {forcar && !segura && (
                     <button
                       type="button"
                       onClick={() => {

@@ -853,7 +853,7 @@ export function AjustesDoAtendimento() {
               rotulo: 'O robô cobra no Pix o item posto em pedido já pago',
               tipo: 'chave' as const,
               ajuda:
-                'Pedido do cardápio já pago no Pix e ainda em produção: o robô põe o item e manda ao cliente um Pix só da diferença, que vale 5 minutos. A Central recebe o aviso "segure o pedido" até o pagamento cair; pago, o item entra com a via "PEDIDO ALTERADO". Sem pagar, o pedido segue como estava. Precisa de "O robô faz mudanças simples" ligado.',
+                'Pedido do cardápio já pago no Pix e ainda em produção: o robô põe o item e manda ao cliente um Pix só da diferença, que vale 10 minutos. A cozinha segura o pedido (e a Central recebe o aviso) até o pagamento cair; pago, o item entra com a via "PEDIDO ALTERADO". Sem pagar, o pedido segue como estava. Precisa de "O robô faz mudanças simples" ligado.',
               palavras: 'robô whatsapp pix adicional item pago diferença cobrar pagamento segurar pedido',
             },
           ]

@@ -12,9 +12,11 @@ import {
   linhasDasEscolhas,
   minutosDoCartao,
   prazoDoPreparo,
+  prontoEsperaOCliente,
   proximaAcaoNaEstacao,
   rotuloEtapa,
   senhaDoCartao,
+  travadoAgora,
   type EtapasDaLoja,
   type LimitesTempo,
 } from '@/lib/kds-fila';
@@ -79,6 +81,10 @@ export function KdsCartaoPedido({
   const alterado = p.obs === 'ALTERADO';
   // Pedido ALTERADO que a cozinha ainda não viu (mig 362): o aviso grande com a exclamação e o "Visto" (decisão 6A).
   const naoVisto = !!p.alteracaoNaoVista && !cancelado;
+  // CLIENTE ALTERANDO (mig 517, TR-2): a faixa invertida com a hora e o que ele quer; o "Pronto" final espera o cliente
+  // ("Aguarde o cliente") — o "Iniciar" e a passagem para a próxima estação seguem (a mesma regra do servidor).
+  const travado = travadoAgora(p, agoraMs);
+  const esperaCliente = prontoEsperaOCliente(p, agoraMs, proximoNome, etapas);
   const entregador = textoEntregadorDoCanal(p.logistica);
   const lugar = etiquetasDoLugar(p);
   // O rodapé: o prazo do preparo enquanto o pedido não está pronto; depois dele (e na encomenda que aguarda), a etapa.
@@ -129,6 +135,25 @@ export function KdsCartaoPedido({
       </div>
 
       <div className="k-cc">
+        {/* CLIENTE ALTERANDO (mig 517): o mesmo bloco invertido do "Pedido alterado", com a pausa e a hora em que a trava
+            acaba sem resposta; embaixo, o que o cliente quer mudar. */}
+        {travado && (
+          <div className="k-alt k-trava" role="status" data-kds-trava>
+            <span className="ex" aria-hidden="true">
+              ⏸
+            </span>
+            <span className="tx">
+              <b>Cliente alterando</b>
+              <span>até {hm(new Date(p.travadoAte).getTime())}</span>
+              <small>Segure o pedido: não finalize nem despache.</small>
+            </span>
+          </div>
+        )}
+        {travado && p.travaQuer && (
+          <p className="k-linha-inf" data-kds-trava-quer>
+            <b>O cliente quer:</b> {p.travaQuer}
+          </p>
+        )}
         {/* PEDIDO ALTERADO ainda não visto (mig 362): o bloco invertido, a exclamação, a hora da mudança e o "Visto". Depois
             do Visto sobra a etiqueta "Alterado" e o NOVO no item. */}
         {naoVisto && (
@@ -258,7 +283,13 @@ export function KdsCartaoPedido({
             <span>{cancelado ? 'Cancelado' : rotuloEtapa(p.status)}</span>
           )}
         </span>
-        {!cancelado && acao && (
+        {!cancelado && acao && esperaCliente && (
+          // O cliente está conferindo a mudança: o "Pronto" espera (o servidor também recusa — mig 517).
+          <button type="button" className="k-avancar k-espera" disabled aria-disabled="true" data-kds-espera-cliente title="O cliente está alterando este pedido">
+            Aguarde o cliente
+          </button>
+        )}
+        {!cancelado && acao && !esperaCliente && (
           <button
             type="button"
             className="k-avancar"
