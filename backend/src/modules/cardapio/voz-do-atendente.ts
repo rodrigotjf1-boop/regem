@@ -52,11 +52,17 @@ const SEM_RISADA_NO_ATENDENTE =
  * brincando → alegria; apressado → direta; perda → séria; risada só com o cliente leve e sem tema ruim), mais as proibições
  * do atendente para a risada, e SEMPRE com as pausas (o ritmo calmo, com respiração entre as frases — contrato 1.8.0 do Graph).
  * Quem decide é este código, nunca a IA, e o texto do cliente nunca vai à instrução de voz (o Graph só recebe valores fixos).
+ *
+ * A RISADA SÓ COM O CLIENTE BRINCANDO (o dono, 28/11, no primeiro teste da voz nova: "o riso ficou perfeito, porém não pode
+ * ser usado em qualquer situação — perguntei sobre o cardápio e a atendente já iniciou com o sorriso"). No Mister, a pessoa
+ * animada já ganha a risada; no atendente, o cliente só ANIMADO (uma pergunta comum num tom alegre) recebe a voz alegre, sem
+ * rir — a risada fica para quando ele está BRINCANDO, a mesma régua do humor leve das instruções (.f41).
  */
 export function estiloDaVozDoAtendente(tom: TomDoCliente | null, resposta: unknown, pergunta?: unknown): EstiloDaVoz & { pausas: true } {
   const base = estiloDaVoz(tom, resposta, pergunta);
-  const semRisada = base.risada && SEM_RISADA_NO_ATENDENTE.test(`${normal(resposta)}\n${normal(pergunta)}`);
-  return { tom: base.tom, risada: semRisada ? false : base.risada, pausas: true };
+  const podeRir =
+    base.risada && tom === 'brincando' && !SEM_RISADA_NO_ATENDENTE.test(`${normal(resposta)}\n${normal(pergunta)}`);
+  return { tom: base.tom, risada: podeRir, pausas: true };
 }
 
 /**
