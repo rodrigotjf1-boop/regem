@@ -2025,6 +2025,16 @@ export function entradaDoGraficoPorHora(en: Record<string, unknown>): Record<str
  *    a reação é a resposta (quem chama reage, ou manda o emoji);
  *  • valor em reais que nenhuma ferramenta trouxe NÃO bloqueia (pode ser uma soma), mas fica anotado na trilha.
  */
+/**
+ * Rodada 7, MIS-E-11 (ERR-656): só os links (markdown e soltos) saem do texto — para o que o CÓDIGO montou com nomes de cadastro
+ * (o cartão da proposta, a mensagem da ação), que não passa pelo `filtrarSaida`. O link oficial (o do PIN, os botões) vai à parte.
+ */
+export function semLinksNoTexto(texto: string): string {
+  const t = String(texto ?? '');
+  if (!TEM_LINK_DO_MARKDOWN.test(t) && !TEM_LINK.test(t)) return t;
+  return t.replace(LINK_DO_MARKDOWN, '$1').replace(LINK, '').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+([.,;:!?])/g, '$1');
+}
+
 export function filtrarSaida(texto: string, resultados: unknown[] = []): { texto: string; notas: NotaDaSaida[]; reacao?: Reacao } {
   const notas: NotaDaSaida[] = [];
   const separada = separarReacao(String(texto ?? '').replace(/\r/g, ''));
@@ -2088,6 +2098,10 @@ export const TEXTOS_DO_AGENTE = {
   emManutencao: 'As perguntas ao Mister estão em manutenção. Tente de novo mais tarde.',
   /** ERR-647: o acesso aos valores mudou enquanto a resposta era preparada (a sessão com PIN venceu, a permissão saiu). */
   acessoMudou: 'O seu acesso mudou enquanto eu preparava a resposta. Pergunte de novo, por favor.',
+  /** Rodada 7, MIS-E-14 (ERR-656): no relatório automático, só as consultas. */
+  soLeituraNoRelatorio: 'No relatório automático só dá para LER (as consultas). Anotar, ligar regra, lembrete, link, corrigir ou cadastrar é só na conversa, quando a pessoa pede. Continue o relatório com o que as consultas trazem.',
+  /** Rodada 7 (bloco E): a regra proposta nesta resposta só liga com a resposta da pessoa. */
+  regraEsperaAPessoa: 'A regra que você acabou de propor só é ligada com a resposta da pessoa (ou o botão "Confirmar"): mostre a proposta e espere. Nada foi ligado.',
   limite: (n: number) => `Você chegou ao limite de ${n} perguntas em 24 horas. Volto a responder quando as mais antigas saírem da conta.`,
   limiteDaEmpresa: 'A empresa chegou ao limite de perguntas ao Mister em 24 horas. Volto a responder quando as mais antigas saírem da conta.',
   semChave: (nivel: NivelDoMister) =>

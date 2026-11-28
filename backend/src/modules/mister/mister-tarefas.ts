@@ -29,6 +29,9 @@ export const TEXTOS_DAS_TAREFAS = {
   link: (resumo: string, hora: string) => `Vou fazer:\n${resumo}\n\nPara valer, autorize no Regem com o seu PIN. O pedido vale até ${hora}.`,
   sigaDoPin: 'Mostre o "oQueVouFazer" como veio e diga que o link "Abrir no Regem" chega logo abaixo e pede o PIN. Nada muda sem o PIN; nunca peça o PIN na conversa. Não diga que fez.',
   feita: (frase: string) => `feito: ${frase.charAt(0).toLowerCase()}${frase.slice(1)}.`,
+  /** MIS-D-06 (ERR-655): a lista inteira não cabe numa mensagem que a pessoa confere. */
+  grandeDemais:
+    'O "Vou fazer" desta tarefa ficaria grande demais para a pessoa conferir pela conversa (a lista é longa). Divida em partes menores (por exemplo, até 25 itens por vez) e proponha uma de cada vez, ou indique a tela do Regem.',
 } as const;
 
 /**
@@ -82,8 +85,9 @@ export function apresentacaoDaTarefa(par: { frase?: unknown; resumo?: unknown })
     .split('\n')
     .slice(1)
     .map((l) => l.replace(/^\s*[•–-]\s*/, '').trim())
-    .filter(Boolean)
-    .slice(0, 20);
+    .filter(Boolean);
+  // MIS-D-06 (ERR-655): a página do PIN mostra todas as linhas do "Vou fazer" (antes, as 20 primeiras); o tamanho já foi
+  // limitado ao propor (`RESUMO_NO_MAXIMO`).
   return { titulo: frase ? `Autorizar: ${frase.charAt(0).toLowerCase()}${frase.slice(1)}?` : 'Autorizar o pedido do Mister?', itens: linhas, detalhe: null, valor: null, botao: 'Autorizar' };
 }
 
@@ -185,6 +189,8 @@ export function pedidoDaTarefa(entrada: unknown, loja: LojaDaTarefa, origem: unk
   // inteira (a tarefa que é da empresa, qualquer que seja a loja).
   const onde = loja.variasLojas ? [t.alcance === 'empresa' ? '• Vale para: a empresa inteira (todas as lojas)' : `• Loja: ${loja.unidadeId ? (loja.nome ?? 'a da conversa') : 'todas as lojas'}`] : [];
   const resumo = [`${f.frase}.`, ...onde, ...linhas, ...r.linhas].join('\n');
+  // MIS-D-06 (ERR-655): o "Vou fazer" inteiro tem de caber numa mensagem que a pessoa confere antes de autorizar.
+  if (resumo.length > RESUMO_NO_MAXIMO) return { erro: TEXTOS_DAS_TAREFAS.grandeDemais };
   return { f, t, metodo, caminho, corpo: r.corpo, resumo };
 }
 
@@ -195,8 +201,12 @@ function dataDoCalendario(s: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
 
-/** Quantas linhas de uma lista o "Vou fazer" mostra (o resto vira "e mais N"). */
-const ITENS_NO_RESUMO = 12;
+/**
+ * Rodada 7, MIS-D-06 (ERR-655): o "Vou fazer" mostra TODOS os itens que vão ser gravados — antes eram os 12 primeiros e "e mais
+ * N", e o recebimento de 80 itens gravava quantidades e custos que a pessoa não viu. O que não cabe numa mensagem que dá para
+ * conferir (o WhatsApp corta em 4.096 letras) é recusado antes de virar proposta: a IA divide em partes.
+ */
+export const RESUMO_NO_MAXIMO = 3000;
 
 /**
  * Os campos de um nível (a tarefa, ou um item de uma lista): nenhum desconhecido, os obrigatórios presentes, cada um do tipo
@@ -238,9 +248,8 @@ function conferirCampos(
         const sub = conferirCampos(c.itens ?? [], x as Record<string, unknown>, origem, lojaId, '');
         if ('erro' in sub) return { erro: `"${c.rotulo}", item ${i + 1}: ${sub.erro}` };
         itens.push(sub.corpo);
-        if (i < ITENS_NO_RESUMO) linhas.push(`   – ${sub.linhas.map((l) => l.replace(/^\s*/, '')).join(' · ')}`);
+        linhas.push(`   – ${sub.linhas.map((l) => l.replace(/^\s*/, '')).join(' · ')}`);
       }
-      if (v.length > ITENS_NO_RESUMO) linhas.push(`   – e mais ${v.length - ITENS_NO_RESUMO}`);
       corpo[c.nome] = itens;
       continue;
     }
@@ -262,7 +271,9 @@ function conferirCampos(
                 : c.tipo === 'mes'
                   ? String(r.valor).split('-').reverse().join('/')
                   : String(r.valor);
-    linhas.push(`${marca ? `${marca} ` : ''}${c.rotulo}: ${mostrado}`);
+    // No item de uma lista (sem marca), o rótulo curto: vazio = só o valor (MIS-D-06).
+    const rotulo = marca ? c.rotulo : (c.curto ?? c.rotulo);
+    linhas.push(`${marca ? `${marca} ` : ''}${rotulo ? `${rotulo}: ` : ''}${mostrado}`);
   }
   return { corpo, linhas };
 }

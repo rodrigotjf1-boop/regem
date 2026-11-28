@@ -5,6 +5,7 @@ import { GraphFotoService } from '../graph/graph-foto.service';
 import { MidiaDoMister, MisterEntradaService, QuemMandou, ResultadoDaMidia } from './mister-entrada.service';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { hojeISO } from '../../common/data';
+import { TEXTOS_DO_PIN_FALADO, pareceSoUmPin } from './mister-pin-falado';
 import { FERRAMENTA_OUVIR, MOTIVO_ARGUMENTO_RECUSADO } from '../graph/graph.regras';
 import { MisterConversaConfigService } from './mister-conversa-config.service';
 import { ListaLida, NOTA_DA_LISTA_INCOMPLETA, instrucoesDaListaLida, lerListaLida, notaDaListaLida, pareceListaDeCompras } from './mister-lista';
@@ -278,6 +279,12 @@ export class MisterMidiaService implements OnModuleInit {
       }
       if (ouvido.inaudivel) {
         await this.falar(quem.telefone, TEXTOS_DA_MIDIA.naoOuviu);
+        return 'tratada';
+      }
+      // Rodada 7, MIS-D-13 (ERR-655): o áudio que é só um PIN (falado sem pedido esperando: o PIN falado desligado, o link
+      // vencido, já autorizado) não vira pergunta — nem a fila, nem a IA, nem o "🎧 Entendi" o veem.
+      if (pareceSoUmPin(ouvido.transcricao)) {
+        await this.falar(quem.telefone, TEXTOS_DO_PIN_FALADO.pareceUmPin);
         return 'tratada';
       }
       // O tom fica só na memória, pela mensagem: a pergunta que vai à fila e à IA é a transcrição, sem ele (V7-5).

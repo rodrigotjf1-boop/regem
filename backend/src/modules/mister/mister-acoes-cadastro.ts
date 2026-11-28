@@ -94,3 +94,12 @@ export function conferirCadastro(acao: ParametrosDeCadastro['acao'], en: Record<
   if (pedido.length < 2 || pedido.length > 80) return { erro: 'Diga o pedido de compra pelo nome ou pelo fornecedor, como aparece em Estoque › Pedidos.' };
   return { parametros: { acao: 'excluir_pedido_compra', pedido }, resumo: `Excluir o pedido de compra "${pedido}".` };
 }
+
+/**
+ * Rodada 7, MIS-E-04 (ERR-656): o insumo NOVO pedido pela nota ou pela lista não é criado pela ferramenta do documento — vai pela
+ * ação `cadastrar_insumo` (o "Vou fazer" e o botão), como no protótipo v9 ("Cadastro pela conversa": mostra antes de gravar).
+ */
+export const TEXTOS_DO_CADASTRO_NA_CONVERSA = {
+  antesDoBotao: (linha: number, nome: string, unidade: string) =>
+    `Linha ${linha}: "${nome}" ainda não está em Estoque › Produtos. Cadastro novo mostra antes de gravar: proponha com propor_acao (acao cadastrar_insumo, nome "${nome}", unidade "${unidade}") — a pessoa autoriza no botão — e, depois do "feito", ligue esta linha a ele. Nada foi cadastrado.`,
+} as const;

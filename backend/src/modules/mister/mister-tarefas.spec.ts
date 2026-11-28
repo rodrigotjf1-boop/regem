@@ -1,6 +1,6 @@
 import { TAREFAS_ABERTAS } from './mapa/tarefas-abertas';
 import { funcaoDoMapa } from './mapa/busca-no-mapa';
-import { TEXTOS_DAS_TAREFAS, apresentacaoDaTarefa, camposParaAIa, pedidoDaTarefa, procurarTarefas, tarefasNoMister } from './mister-tarefas';
+import { RESUMO_NO_MAXIMO, TEXTOS_DAS_TAREFAS, apresentacaoDaTarefa, camposParaAIa, pedidoDaTarefa, procurarTarefas, tarefasNoMister } from './mister-tarefas';
 import { procurarTelas } from './mister-telas.service';
 import { idDaTarefa } from './mister-tarefas.service';
 
@@ -116,7 +116,8 @@ describe('C4 Onda 1 · os campos novos e a exclusão', () => {
     expect(p.metodo).toBe('POST');
     expect(p.corpo).toEqual({ notaRef: '17201', itens: [{ compraItemId: ID, qtdRecebida: 2.5, divergencia: 'parcial' }, { compraItemId: ID2, qtdRecebida: 0, validadeIndefinida: true }] });
     expect(p.resumo).toContain('O que chegou: 2 itens');
-    expect(p.resumo).toContain('Como veio: veio em parte');
+    // MIS-D-06 (ERR-655): a linha do item usa o rótulo curto ("chegou", e só o valor em "como veio").
+    expect(p.resumo).toContain('chegou: 2,5 · veio em parte');
     // O item com campo errado é recusado com o número do item.
     const ruim = pedidoDaTarefa({ rota: 'POST /api/v1/compras/listas/{id}/receber', parametros: { id: ID }, campos: { itens: [{ compraItemId: ID, qtdRecebida: -1 }] } }, LOJA);
     expect(ruim).toHaveProperty('erro', expect.stringContaining('item 1'));
@@ -395,6 +396,22 @@ describe('Rodada 7, bloco C (ERR-650) · o mapa e as tarefas', () => {
     }
     // A empresa de uma loja só: nada muda no "Vou fazer".
     expect((pedidoDaTarefa({ rota: 'POST /api/v1/ponto/fechamentos/gerar', campos: { competencia: '2026-10' } }, LOJA) as any).resumo).not.toContain('Vale para');
+  });
+
+  it('MIS-D-06 (ERR-655): o "Vou fazer" mostra TODOS os itens que vão ser gravados; a lista que não cabe numa mensagem é recusada', () => {
+    const uuid = (i: number) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(i).padStart(12, '0')}`;
+    const itens = (n: number) => Array.from({ length: n }, (_, i) => ({ compraItemId: uuid(i + 1), qtdRecebida: i + 1, custoUnitario: 10 + i }));
+    // 40 itens: todos na prévia, cada um com a quantidade e o custo (antes, os 12 primeiros e "e mais 28").
+    const p = pedidoDaTarefa({ rota: 'POST /api/v1/compras/listas/{id}/receber', parametros: { id: ID }, campos: { itens: itens(40) } }, LOJA) as any;
+    expect(p.resumo).not.toContain('e mais');
+    for (let i = 0; i < 40; i++) expect([i, p.resumo]).toEqual([i, expect.stringContaining(`chegou: ${i + 1} · custo: ${(10 + i).toLocaleString('pt-BR')}`)]);
+    expect(p.corpo.itens).toHaveLength(40);
+    expect(p.resumo.length).toBeLessThanOrEqual(RESUMO_NO_MAXIMO);
+    // A página do PIN mostra todas as linhas (antes, as 20 primeiras).
+    expect(apresentacaoDaTarefa({ frase: p.f.frase, resumo: p.resumo }).itens.length).toBe(p.resumo.split('\n').length - 1);
+    // 80 itens com observações longas não cabem numa mensagem conferível: recusa antes de virar proposta.
+    const grande = pedidoDaTarefa({ rota: 'POST /api/v1/fichas', campos: { nome: 'Ficha grande', ingredientes: Array.from({ length: 60 }, (_, i) => ({ insumoNome: `Ingrediente de nome bem comprido número ${i + 1} para encher a linha`, quantidade: 1, unidade: 'grama' })) } }, LOJA);
+    expect(grande).toEqual({ erro: TEXTOS_DAS_TAREFAS.grandeDemais });
   });
 
   it('MIS-C-12: o id do caminho inteiro, e os campos pelo tipo antes de normalizar (lista, hora, data do calendário, opção herdada)', () => {

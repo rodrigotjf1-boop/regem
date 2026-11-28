@@ -55,24 +55,56 @@ export class MisterPinFaladoService implements OnModuleInit {
   async ouvirOPin(quem: QuemMandou, midia: MidiaDoMister, wamid: string | null): Promise<'tratado' | null> {
     if (!pinFaladoLigado() || midia.tipo !== 'audio' || !this.midia) return null;
     if (!(await this.propostas.pinFaladoDe(quem.tenantId, quem.colaboradorId))) return null;
-    if (!(await this.propostas.temPinEsperando(quem.tenantId, quem.colaboradorId))) return null;
-    if (midia.encaminhada) {
-      await this.falar(quem.telefone, TEXTOS_DO_PIN_FALADO.encaminhado);
+    // Rodada 7, MIS-D-11 (ERR-655): a proposta (e a emissão do link) que o áudio autoriza é escolhida AQUI, antes de transcrever;
+    // com mais de uma esperando, o áudio não escolhe.
+    const esperando = await this.propostas.pinsEsperando(quem.tenantId, quem.colaboradorId);
+    if (!esperando.length) return null;
+    // Daqui em diante o áudio é tratado como o PIN e NUNCA volta ao caminho comum (MIS-D-13): nem a proposta que venceu durante
+    // a transcrição, nem um erro, levam o texto com os números à fila ou à IA.
+    try {
+      if (esperando.length > 1) {
+        await this.falar(quem.telefone, TEXTOS_DO_PIN_FALADO.maisDeUm);
+        return 'tratado';
+      }
+      if (midia.encaminhada) {
+        await this.falar(quem.telefone, TEXTOS_DO_PIN_FALADO.encaminhado);
+        return 'tratado';
+      }
+      // MIS-D-12: só a nota de voz gravada na hora (o arquivo de áudio anexado, não).
+      if (midia.voz === false) {
+        await this.falar(quem.telefone, TEXTOS_DO_PIN_FALADO.soNotaDeVoz);
+        return 'tratado';
+      }
+      const texto = await this.midia.transcreverParaOPin(quem.tenantId, midia, wamid);
+      if (texto === null) {
+        await this.falar(quem.telefone, TEXTOS_DO_PIN_FALADO.naoOuvi);
+        return 'tratado';
+      }
+      const pin = pinNoTexto(texto);
+      if (!pin) {
+        await this.falar(quem.telefone, TEXTOS_DO_PIN_FALADO.naoEntendi);
+        return 'tratado';
+      }
+      const r = await this.propostas.autorizarPelaVoz(quem.tenantId, quem.colaboradorId, quem.telefone, pin, esperando[0]);
+      await this.falar(
+        quem.telefone,
+        r.r === 'feito'
+          ? r.oQue
+            ? TEXTOS_DO_PIN_FALADO.autorizadoO(r.oQue)
+            : TEXTOS_DO_PIN_FALADO.autorizado
+          : r.r === 'errado'
+            ? TEXTOS_DO_PIN_FALADO.errado(r.restam ?? 0)
+            : r.r === 'bloqueado'
+              ? TEXTOS_DO_PIN_FALADO.bloqueado
+              : r.r === 'travado_no_dia'
+                ? TEXTOS_DO_PIN_FALADO.travadoNoDia
+                : TEXTOS_DO_PIN_FALADO.semPedido,
+      );
+    } catch (e: any) {
+      this.logger.error(`o PIN falado não foi conferido — ${String(e?.message ?? e).slice(0, 200)}`);
+      await this.falar(quem.telefone, TEXTOS_DO_PIN_FALADO.naoOuviAgora);
       return 'tratado';
     }
-    const texto = await this.midia.transcreverParaOPin(quem.tenantId, midia, wamid);
-    if (texto === null) {
-      await this.falar(quem.telefone, TEXTOS_DO_PIN_FALADO.naoOuvi);
-      return 'tratado';
-    }
-    const pin = pinNoTexto(texto);
-    if (!pin) {
-      await this.falar(quem.telefone, TEXTOS_DO_PIN_FALADO.naoEntendi);
-      return 'tratado';
-    }
-    const r = await this.propostas.autorizarPelaVoz(quem.tenantId, quem.colaboradorId, quem.telefone, pin);
-    if (r.r === 'sem_proposta') return null;
-    await this.falar(quem.telefone, r.r === 'feito' ? TEXTOS_DO_PIN_FALADO.autorizado : r.r === 'errado' ? TEXTOS_DO_PIN_FALADO.errado(r.restam ?? 0) : TEXTOS_DO_PIN_FALADO.bloqueado);
     await this.falar(quem.telefone, TEXTOS_DO_PIN_FALADO.apagueOAudio);
     return 'tratado';
   }

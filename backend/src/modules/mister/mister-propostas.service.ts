@@ -13,7 +13,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { FiscalService } from '../fiscal/fiscal.service';
 import { ModuloService } from '../modulo/modulo.service';
-import { CANAL_NA_TELA, pedidoComoNoQuadro } from './mister-agente.regras';
+import { CANAL_NA_TELA, pedidoComoNoQuadro, semValoresNoTexto } from './mister-agente.regras';
 import { MisterEntradaService, QuemTocou } from './mister-entrada.service';
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { pessoaVale } from './mister-vinculo.service';
@@ -49,6 +49,7 @@ import {
   TEXTOS_DA_SESSAO,
 } from './mister-procedimentos';
 import { estadoDaSessao } from './mister-sessao';
+import { PIN_ERRADOS_NO_DIA, oQueFoiAutorizado } from './mister-pin-falado';
 import { apresentacaoDaConta, apresentacaoDoCupom } from './mister-acoes-loja';
 import { apresentacaoDaClassificacao } from './mister-acoes-banco';
 import { apresentacaoDoCaixa } from './mister-acoes-caixa';
@@ -194,16 +195,33 @@ export class MisterPropostasService implements OnModuleInit {
     parametros: Record<string, unknown>,
     prazoMin: number,
   ): Promise<{ id: string; venceEm: string | Date } | null> {
-    await this.db.execute(sql`
-      insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em)
-      values (${tenantId}::uuid, ${unidadeId}::uuid, ${avisoId}::uuid, ${procedimento}, ${JSON.stringify(parametros)}::jsonb, ${nivel},
-              clock_timestamp() + make_interval(mins => ${prazoMin}::int))
-      on conflict (aviso_id, procedimento) do update
-        set situacao = 'proposta', criada_em = clock_timestamp(), vence_em = excluded.vence_em, parametros = excluded.parametros, nivel = excluded.nivel,
-            unidade_id = excluded.unidade_id, respondida_em = null, autorizada_por = null, telefone_final = null, executada_em = null,
-            conferir_ate = null, concluida_em = null, resultado = null,
-            link_hash = null, link_para = null, link_criado_em = null, link_aberto_em = null, pin_erros = 0, bloqueada_em = null
-        where mister_proposta.situacao in ('vencida', 'recusada', 'nao_deu', 'feita', 'proposta')`);
+    const params = JSON.stringify(parametros);
+    await this.db.transaction(async (tx) => {
+      // Rodada 7, MIS-D-01 (ERR-655): o botão leva só o id da proposta. Pedido NOVO com outros parâmetros (pausar outros canais,
+      // o pedido do gerente que mudou) regravava a MESMA linha — e o "Autorizar" de uma mensagem anterior fazia o pedido novo.
+      // Agora a linha antiga sai do caminho (a pendente vira "substituída"; a terminada fica como foi, no histórico) e o pedido
+      // novo nasce com outro id: cada botão só faz o que a mensagem dele mostrou. O mesmo pedido (os mesmos parâmetros) renova
+      // a linha, como antes.
+      await tx.execute(sql`
+        update mister_proposta
+           set aviso_id = gen_random_uuid(),
+               situacao = case when situacao = 'proposta' then 'vencida' else situacao end,
+               concluida_em = case when situacao = 'proposta' then clock_timestamp() else concluida_em end,
+               resultado = case when situacao = 'proposta' then 'substituída por um pedido novo' else resultado end
+         where aviso_id = ${avisoId}::uuid and procedimento = ${procedimento}
+           and situacao in ('vencida', 'recusada', 'nao_deu', 'feita', 'proposta')
+           and parametros is distinct from ${params}::jsonb`);
+      await tx.execute(sql`
+        insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em)
+        values (${tenantId}::uuid, ${unidadeId}::uuid, ${avisoId}::uuid, ${procedimento}, ${params}::jsonb, ${nivel},
+                clock_timestamp() + make_interval(mins => ${prazoMin}::int))
+        on conflict (aviso_id, procedimento) do update
+          set situacao = 'proposta', criada_em = clock_timestamp(), vence_em = excluded.vence_em, parametros = excluded.parametros, nivel = excluded.nivel,
+              unidade_id = excluded.unidade_id, respondida_em = null, autorizada_por = null, telefone_final = null, executada_em = null,
+              conferir_ate = null, concluida_em = null, resultado = null,
+              link_hash = null, link_para = null, link_criado_em = null, link_aberto_em = null, pin_erros = 0, bloqueada_em = null
+          where mister_proposta.situacao in ('vencida', 'recusada', 'nao_deu', 'feita', 'proposta')`);
+    });
     const [p] = linhas(
       await this.db.execute(sql`
         select id::text as id, vence_em as "venceEm" from mister_proposta
@@ -492,7 +510,9 @@ export class MisterPropostasService implements OnModuleInit {
     if (!s.exigida || s.valida) return false;
     const sessao = await this.proporSessao(tenantId, colaboradorId, s.horas!);
     await this.falar(telefone, texto);
-    if (sessao) await this.enviarLink(sessao.p.id, colaboradorId, telefone, sessao.p.pergunta);
+    // Rodada 7, MIS-D-04 (ERR-655): o link sai só quando a sessão é NOVA. Antes, cada toque mandava outro link — e cada link novo
+    // zerava as 5 tentativas do PIN. Com o link ainda valendo, a pessoa usa o que já recebeu.
+    if (sessao?.nova) await this.enviarLink(sessao.p.id, colaboradorId, telefone, sessao.p.pergunta);
     return true;
   }
 
@@ -744,6 +764,21 @@ export class MisterPropostasService implements OnModuleInit {
           from mister_proposta where situacao = 'executando' and procedimento = 'cancelar_pedido'`),
     );
     for (const p of cancelamentos) if (await this.conferirCancelamento(p, new Date(p.conferirAte).getTime() <= Date.now())) n++;
+    // Rodada 7, MIS-D-05 (ERR-655): a execução que PAROU no meio (o processo reiniciou — há deploy a cada merge — depois de
+    // pegar a execução) ficava em "executando" para sempre: sem resposta à pessoa, a página do link em "Fazendo agora…" e o
+    // mesmo pedido travado ("já autorizada e em andamento"; a sessão com PIN presa deixava a pessoa sem os valores). Passados 15
+    // minutos, fecha como "não deu" — nunca refaz (o efeito pode ter entrado). As que têm conferência própria (impressão,
+    // cancelamento) e o plano (que espera o PIN dos passos e trata os dele) ficam de fora.
+    const paradas = linhas(
+      await this.db.execute(sql`
+        select id::text as id, tenant_id::text as "tenantId", autorizada_por::text as "autorizadaPor", parametros
+          from mister_proposta
+         where situacao = 'executando' and executada_em < now() - make_interval(mins => ${EXECUCAO_PRESA_MIN}::int)
+           and procedimento not in ('imprimir_teste', 'reiniciar_impressao', 'cancelar_pedido', ${PROCEDIMENTO_DO_PLANO})
+           and (parametros ->> 'planoId') is null
+         limit 100`),
+    );
+    for (const p of paradas) if (await this.concluir(p, false, TEXTOS_DA_PROPOSTA.naoConfirmou)) n++;
     return n;
   }
 
@@ -963,8 +998,11 @@ export class MisterPropostasService implements OnModuleInit {
     return p;
   }
 
-  private async vistaDoLink(p: any, erro: string | null = null): Promise<VistaDoLink> {
-    const nome = primeiroNome(p.paraNome);
+  /**
+   * O que a página do link mostra do pedido (o título, as linhas, o detalhe e o valor), pelo procedimento. Rodada 7, MIS-D-11
+   * (ERR-655): a MESMA montagem dá o "PIN conferido: …" da voz.
+   */
+  private async apresentacaoDe(p: any): Promise<ReturnType<typeof apresentacaoDaProposta>> {
     // F4.2b: o cancelamento mostra o pedido como o banco o tem AGORA (o canal, o cliente curto, o valor, o Pix).
     let apresentacao = apresentacaoDaProposta(p.procedimento);
     if (p.procedimento === 'cancelar_pedido') {
@@ -985,8 +1023,37 @@ export class MisterPropostasService implements OnModuleInit {
     if (p.procedimento === 'repetir_campanha' && p.parametros?.campanhaId) apresentacao = apresentacaoDaCampanha(p.parametros);
     // C4 Onda 1: a tarefa de PIN pelo mapa mostra o "Vou fazer" montado pelo Regem.
     if (p.procedimento === PROCEDIMENTO_DA_TAREFA && p.parametros?.resumo) apresentacao = apresentacaoDaTarefa(p.parametros);
+    return apresentacao;
+  }
+
+  private async vistaDoLink(p: any, erro: string | null = null): Promise<VistaDoLink> {
+    const nome = primeiroNome(p.paraNome);
+    const estado = estadoDoLink(p);
+    // Rodada 7, MIS-D-02 (ERR-655): o pedido (o que vai ser feito, o valor, o pedido do cliente relido do banco) só sai ENQUANTO
+    // espera o PIN — o protótipo: "depois do prazo, o link só mostra isto: nem a proposta nem o campo do PIN". Vencido, feito,
+    // recusado ou bloqueado, a resposta pública leva só o desfecho (a página já não desenhava o resto, mas o JSON levava).
+    if (estado !== 'proposta') {
+      return {
+        estado,
+        empresa: String(p.empresa ?? ''),
+        titulo: '',
+        itens: [],
+        detalhe: null,
+        valor: null,
+        botao: '',
+        pedidoPor: '',
+        valeAte: new Date(p.venceEm).toISOString(),
+        valeAteHora: horaNoFuso(new Date(p.venceEm)),
+        restam: tentativasQueRestam(p.pinErros),
+        resultado: p.resultado ?? null,
+        concluidaHora: p.concluidaEm ? horaNoFuso(new Date(p.concluidaEm)) : null,
+        respondida: p.respondidaEm ? { hora: horaNoFuso(new Date(p.respondidaEm)), nome, final: p.telefoneFinal ?? null } : null,
+        erro,
+      };
+    }
+    const apresentacao = await this.apresentacaoDe(p);
     return {
-      estado: estadoDoLink(p),
+      estado,
       empresa: String(p.empresa ?? ''),
       ...apresentacao,
       pedidoPor: `Pedido pelo Mister às ${horaNoFuso(new Date(p.criadaEm))}, para ${nome}${p.procedimento === 'abrir_sessao' || p.procedimento === PROCEDIMENTO_DA_TAREFA || ehAcaoDoMister(p.procedimento) ? '' : ' (presidente)'}.`,
@@ -1024,6 +1091,8 @@ export class MisterPropostasService implements OnModuleInit {
     // A proposta de preço pode ser trocada por um pedido novo: o resumo do código na gravação garante que este PIN vale só
     // para o que ESTE link mostrou.
     const hashDoLink = resumoDoCodigo(String(codigo));
+    // MIS-D-04 (ERR-655): o teto da pessoa no dia vale antes do de cada emissão.
+    if (await this.pinTravadoNoDia(p.tenantId, p.linkPara)) return this.vistaDoLink(p, TEXTOS_DO_LINK.travadoNoDia);
     const [reservada] = linhas(
       await this.db.execute(sql`
         update mister_proposta set pin_erros = pin_erros + 1
@@ -1037,8 +1106,9 @@ export class MisterPropostasService implements OnModuleInit {
       await autorizarPorPinDoUsuario(this.db, p.tenantId, p.linkPara, pin, PROCEDIMENTOS_DO_GERENTE.includes(p.procedimento) ? ['presidente', 'gerente'] : ['presidente']);
     } catch (e: any) {
       if (e?.message !== PIN_INVALIDO) {
-        // Não foi o PIN (o acesso mudou entre a leitura e a conferência): a tentativa volta e o link não vale.
-        await this.db.execute(sql`update mister_proposta set pin_erros = greatest(pin_erros - 1, 0) where id = ${p.id}::uuid`);
+        // Não foi o PIN (o acesso mudou entre a leitura e a conferência): a tentativa volta — só para ESTA emissão (MIS-D-04) —
+        // e o link não vale.
+        await this.db.execute(sql`update mister_proposta set pin_erros = greatest(pin_erros - 1, 0) where id = ${p.id}::uuid and link_hash = ${hashDoLink}`);
         throw new NotFoundException(TEXTOS_DO_LINK.naoVale);
       }
       const restam = tentativasQueRestam(reservada.pinErros);
@@ -1084,13 +1154,16 @@ export class MisterPropostasService implements OnModuleInit {
       await this.db.execute(sql`
         update mister_proposta
            set situacao = 'recusada', respondida_em = now(), autorizada_por = link_para, telefone_final = ${final},
-               concluida_em = now(), resultado = 'não autorizada no Regem'
+               concluida_em = now(), resultado = 'não autorizada pela página do link (sem PIN)'
          where id = ${p.id}::uuid and link_hash = ${resumoDoCodigo(String(codigo))} and situacao = 'proposta' and vence_em > now() and bloqueada_em is null
         returning id`),
     );
     if (mudou) {
-      await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_recusada', p.id, { procedimento: p.procedimento, final }, 'link', p.paraNivel);
-      await this.falar(p.telefone, TEXTOS_DO_LINK.recusada);
+      // Rodada 7, MIS-D-03 (ERR-655): "Não autorizar" não pede o PIN (o protótipo aprovado: só "Autorizar" depende dele) — quem
+      // tem o link recusa. A trilha diz isso (`semPin`), em vez de atribuir a recusa à pessoa como se ela tivesse se identificado,
+      // e a mensagem dela traz o "se não foi você".
+      await this.auditar(p.tenantId, p.linkPara, 'mister_proposta_recusada', p.id, { procedimento: p.procedimento, final, semPin: true }, 'link', p.paraNivel);
+      await this.falar(p.telefone, TEXTOS_DO_LINK.recusadaSemPin);
       this.planoAndou(p.parametros?.planoId);
       await this.avisarQuemPediu(p.tenantId, p.parametros, (nome) => TEXTOS_DO_PEDIDO.presidenteRecusou(nome, resumoGuardado(p.parametros)), p.linkPara);
     }
@@ -1125,17 +1198,36 @@ export class MisterPropostasService implements OnModuleInit {
     return { id: p.id, procedimento: 'ligar_pin_falado', nivel: 'pin', pergunta: `Para ligar o PIN falado, confirme o seu PIN uma vez pelo link (vale até ${horaNoFuso(new Date(p.venceEm))}).`, botoes: [] };
   }
 
-  /** Há uma proposta de PIN esperando ESTA pessoa (o link mandado a ela, no prazo, sem bloqueio)? */
-  async temPinEsperando(tenantId: string, colaboradorId: string): Promise<boolean> {
-    const [p] = linhas(
+  /**
+   * As propostas de PIN esperando ESTA pessoa (o link mandado a ela, no prazo, sem bloqueio), com a emissão do link de cada uma.
+   * Rodada 7, MIS-D-11 (ERR-655): o áudio do PIN falado autoriza UMA delas, escolhida antes de transcrever (com mais de uma,
+   * nenhuma) — antes, a escolha era "a de link mais novo" DEPOIS da transcrição, e um pedido que chegava no meio levava o PIN.
+   */
+  async pinsEsperando(tenantId: string, colaboradorId: string): Promise<Array<{ id: string; linkHash: string }>> {
+    return linhas(
       await this.db.execute(sql`
-        select 1 as tem from mister_proposta
+        select id::text as id, link_hash as "linkHash" from mister_proposta
          where tenant_id = ${tenantId}::uuid and link_para = ${colaboradorId}::uuid and nivel = 'pin' and situacao = 'proposta'
            and vence_em > now() and bloqueada_em is null and link_hash is not null
            and link_criado_em >= (select ligado_em from mister_vinculo where tenant_id = ${tenantId}::uuid and colaborador_id = ${colaboradorId}::uuid)
-         limit 1`),
+         order by link_criado_em desc
+         limit 3`),
+    ).map((l) => ({ id: String(l.id), linkHash: String(l.linkHash) }));
+  }
+
+  /**
+   * Rodada 7, MIS-D-04 (ERR-655): o teto de PIN errado POR PESSOA, entre emissões e canais (página e voz). O de 5 é por emissão
+   * do link e cada link novo começa do zero — quem tinha o celular destravado tocava de novo e ganhava mais 5. A conta é a da
+   * auditoria (cada PIN errado já fica lá, com quem errou), nas últimas 24 horas.
+   */
+  private async pinTravadoNoDia(tenantId: string, colaboradorId: string): Promise<boolean> {
+    const [l] = linhas(
+      await this.db.execute(sql`
+        select count(*)::int as n from audit_log
+         where tenant_id = ${tenantId}::uuid and created_at > now() - interval '24 hours'
+           and actor_id = ${colaboradorId}::uuid and acao = 'mister_proposta_pin_errado'`),
     );
-    return !!p;
+    return Number(l?.n ?? 0) >= PIN_ERRADOS_NO_DIA;
   }
 
   /** Desliga o PIN falado da pessoa (ela mesma, pela conversa, ou o presidente, em Mister › Pessoas). Devolve se estava ligado. */
@@ -1155,19 +1247,27 @@ export class MisterPropostasService implements OnModuleInit {
    * mesmo bloqueio de 5, a autorização uma vez só e a execução pelo caminho de sempre. 'sem_proposta' = não há o que autorizar
    * (o áudio segue como uma pergunta). O PIN nunca vai para a auditoria nem para log.
    */
-  async autorizarPelaVoz(tenantId: string, colaboradorId: string, telefone: string, pin: string): Promise<{ r: 'sem_proposta' | 'feito' | 'errado' | 'bloqueado'; restam?: number }> {
+  async autorizarPelaVoz(
+    tenantId: string,
+    colaboradorId: string,
+    telefone: string,
+    pin: string,
+    alvo: { id: string; linkHash: string },
+  ): Promise<{ r: 'sem_proposta' | 'feito' | 'errado' | 'bloqueado' | 'travado_no_dia'; restam?: number; oQue?: string }> {
+    // MIS-D-11 (ERR-655): a proposta e a emissão do link são as escolhidas ANTES da transcrição (`pinsEsperando`); renovada ou
+    // trocada no meio, o áudio não vale para a nova. Toda gravação abaixo leva o `link_hash` dela.
     const [p] = linhas(
       await this.db.execute(sql`
-        select id::text as id, procedimento, parametros, link_hash as "linkHash"
+        select id::text as id, tenant_id::text as "tenantId", procedimento, parametros, link_hash as "linkHash"
           from mister_proposta
-         where tenant_id = ${tenantId}::uuid and link_para = ${colaboradorId}::uuid and nivel = 'pin' and situacao = 'proposta'
-           and vence_em > now() and bloqueada_em is null and link_hash is not null
+         where id = ${alvo.id}::uuid and link_hash = ${alvo.linkHash}
+           and tenant_id = ${tenantId}::uuid and link_para = ${colaboradorId}::uuid and nivel = 'pin' and situacao = 'proposta'
+           and vence_em > now() and bloqueada_em is null
            -- ERR-642: só o link da ligação de agora (o da ligação anterior não vale, nem falado).
-           and link_criado_em >= (select ligado_em from mister_vinculo where tenant_id = ${tenantId}::uuid and colaborador_id = ${colaboradorId}::uuid)
-         order by link_criado_em desc
-         limit 1`),
+           and link_criado_em >= (select ligado_em from mister_vinculo where tenant_id = ${tenantId}::uuid and colaborador_id = ${colaboradorId}::uuid)`),
     );
     if (!p) return { r: 'sem_proposta' };
+    if (await this.pinTravadoNoDia(tenantId, colaboradorId)) return { r: 'travado_no_dia' };
     const [nivel] = linhas(
       await this.db.execute(sql`
         select coalesce(pa.nivel, f.categoria::text) as nivel from colaborador c
@@ -1185,7 +1285,8 @@ export class MisterPropostasService implements OnModuleInit {
       await autorizarPorPinDoUsuario(this.db, tenantId, colaboradorId, pin, PROCEDIMENTOS_DO_GERENTE.includes(p.procedimento) ? ['presidente', 'gerente'] : ['presidente']);
     } catch (e: any) {
       if (e?.message !== PIN_INVALIDO) {
-        await this.db.execute(sql`update mister_proposta set pin_erros = greatest(pin_erros - 1, 0) where id = ${p.id}::uuid`);
+        // A tentativa volta só para a emissão que a reservou (MIS-D-04).
+        await this.db.execute(sql`update mister_proposta set pin_erros = greatest(pin_erros - 1, 0) where id = ${p.id}::uuid and link_hash = ${p.linkHash}`);
         return { r: 'sem_proposta' };
       }
       const restam = tentativasQueRestam(reservada.pinErros);
@@ -1195,7 +1296,7 @@ export class MisterPropostasService implements OnModuleInit {
         await this.db.execute(sql`
           update mister_proposta
              set situacao = 'recusada', bloqueada_em = now(), concluida_em = now(), resultado = ${`link bloqueado: o PIN errado ${PIN_TENTATIVAS} vezes`}
-           where id = ${p.id}::uuid and situacao = 'proposta' and bloqueada_em is null
+           where id = ${p.id}::uuid and link_hash = ${p.linkHash} and situacao = 'proposta' and bloqueada_em is null
           returning id`),
       );
       if (bloqueou) {
@@ -1211,13 +1312,15 @@ export class MisterPropostasService implements OnModuleInit {
         update mister_proposta
            set situacao = 'autorizada', respondida_em = now(), autorizada_por = link_para, telefone_final = ${final},
                pin_erros = greatest(pin_erros - 1, 0)
-         where id = ${p.id}::uuid and situacao = 'proposta' and vence_em > now() and bloqueada_em is null
+         where id = ${p.id}::uuid and link_hash = ${p.linkHash} and situacao = 'proposta' and vence_em > now() and bloqueada_em is null
         returning id`),
     );
     if (!mudou) return { r: 'sem_proposta' };
     await this.auditar(tenantId, colaboradorId, 'mister_proposta_autorizada', p.id, { procedimento: p.procedimento, final, pela: 'voz' }, 'whatsapp', nivel?.nivel);
     void this.executar(p.id).catch((e) => this.logger.error(`a proposta ${p.id} não executou — ${e?.message ?? e}`));
-    return { r: 'feito' };
+    // MIS-D-11: o "conferido" diz o que foi autorizado (o título da página do link, sem o "Autorizar:").
+    const oQue = oQueFoiAutorizado((await this.apresentacaoDe(p)).titulo);
+    return { r: 'feito', ...(oQue ? { oQue } : {}) };
   }
 
   /**
@@ -1234,7 +1337,11 @@ export class MisterPropostasService implements OnModuleInit {
             from mister_vinculo g
            where g.tenant_id = ${tenantId}::uuid and g.colaborador_id = ${qp.pedidaPor}::uuid and g.ligado_em is not null and g.telefone is not null`),
       );
-      if (l?.telefone) await this.falar(l.telefone, texto(String(l.presidente ?? 'o presidente')));
+      // Rodada 7, MIS-D-10 (ERR-655): o resumo e o resultado são os do presidente; o gerente que não vê valores recebe o "R$"
+      // oculto (o pedido antigo, sem a marca, também — na dúvida, oculto).
+      const t = texto(String(l?.presidente ?? 'o presidente'));
+      const veValores = (parametros as Record<string, unknown> | null)?.pedidaPorVeValores === true;
+      if (l?.telefone) await this.falar(l.telefone, veValores ? t : semValoresNoTexto(t));
     } catch (e: any) {
       this.logger.warn(`o aviso a quem pediu não saiu — ${e?.message ?? e}`);
     }
@@ -1272,6 +1379,8 @@ export class MisterPropostasService implements OnModuleInit {
 const PROCEDIMENTOS_DO_GERENTE: readonly string[] = ['abrir_sessao', 'ligar_pin_falado', PROCEDIMENTO_DA_TAREFA, ...ACOES_DE_PIN];
 /** ERR-644: a autorização que ficou parada (reinício, deploy) além disto não executa — a pessoa pede de novo. */
 const EXECUCAO_PARADA_MAX_MIN = 10;
+/** MIS-D-05 (ERR-655): a execução parada há mais que isto (acima dos 10 min da régua e de qualquer chamada normal) fecha como "não deu". */
+const EXECUCAO_PRESA_MIN = 15;
 
 /** M6j: o perfil gravado com a ação (quem pediu); as outras propostas são do presidente. */
 const perfilDe = (p: { parametros?: any }): string => (p.parametros?.nivel === 'gerente' ? 'gerente' : 'presidente');

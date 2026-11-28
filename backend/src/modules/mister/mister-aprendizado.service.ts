@@ -73,13 +73,26 @@ export class MisterAprendizadoService implements OnModuleInit {
   }
 
   /** As linhas dos exemplos para a pergunta (até 3), contando o uso. Com o ajuste desligado ou sem nada parecido, nada. Nunca lança. */
-  async exemplosParaAConversa(tenantId: string, pergunta: string, verValores: boolean): Promise<string[]> {
+  async exemplosParaAConversa(
+    tenantId: string,
+    pergunta: string,
+    verValores: boolean,
+    quem: { colaboradorId: string; todaEmpresa: boolean; pinPendente?: boolean } | null = null,
+  ): Promise<string[]> {
     try {
+      // Rodada 7, MIS-E-06 (ERR-656): com o PIN da sessão pendente, nenhum exemplo (os valores e os dados de pessoas esperam o PIN).
+      if (quem?.pinPendente) return [];
       if (!(await this.conversa.daEmpresa(tenantId)).aprenderTarefas) return [];
+      // MIS-E-06: o exemplo é o pedido e o "Vou fazer" de alguém (nomes, motivos, a loja). Só o presidente da empresa inteira (que já
+      // vê todas as lojas) recebe os de todos; os outros, só os próprios — antes, o gerente da loja B recebia o ajuste de ponto da
+      // loja A, com o nome e o motivo.
+      const sohOsProprios = !quem || !quem.todaEmpresa;
       const lista = linhas(
         await this.db.execute(sql`
           select id::text as id, pedido, feito, atualizado_em as "atualizadoEm" from mister_aprendizado
-           where tenant_id = ${tenantId}::uuid order by atualizado_em desc limit 200`),
+           where tenant_id = ${tenantId}::uuid
+             ${sohOsProprios ? sql`and colaborador_id = ${quem?.colaboradorId ?? null}::uuid` : sql``}
+           order by atualizado_em desc limit 200`),
       );
       const escolhidos = escolherExemplos(pergunta, lista);
       if (!escolhidos.length) return [];

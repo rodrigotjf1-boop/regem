@@ -51,7 +51,7 @@ import { GraficoDaConversa, valeAImagem } from './grafico/grafico-do-insumo';
 import { PlanoDoGrafico, nomeDoCanal, planoCanais, planoMaisVendidos, planoVendasPorDia, planoVendasPorHora, reaisCurtos, valeOPlano } from './grafico/plano-do-grafico';
 import { GRAFICO_GUARDADO_MIN, refazerPlano } from './grafico/refazer-do-grafico';
 import { lerGraficoLivre, planoLivre, valoresSemOrigem } from './grafico/plano-livre';
-import { origemDe } from './mister-imagem-numeros';
+import { numerosSemOrigem, origemDe } from './mister-imagem-numeros';
 import { TIPOS_DE_GRAFICO_DA_ANALISE, TipoDeGraficoDaAnalise, planoDaMercadoria, planoDasFases, planoDoPico, planoDosCancelamentos } from './grafico/plano-da-analise';
 import {
   FOCOS_DA_ANALISE,
@@ -580,7 +580,8 @@ export class MisterFerramentasService {
     // Versão 10, C6: o motivo é "o Regem ainda não tem"; o caminho, o mais parecido que existe hoje e o pedido anotado.
     if (nome === FERRAMENTA_DO_QUE_FALTA) return { ok: true, dados: { anotado: true, motivo: MOTIVO_NAO_TEM.motivo, siga: SIGA_DO_QUE_FALTA } };
     // Versão 4: as conversas anteriores são da própria pessoa, não de uma loja — respondem também a quem está sem loja.
-    if (nome === 'conversas_anteriores') return this.conversasAnteriores(e, entrada);
+    // Rodada 7, MIS-E-07 (ERR-656): com a sessão com PIN pendente, o que já foi conversado também espera o PIN (pode ter nomes).
+    if (nome === 'conversas_anteriores') return e.pinPendente ? recusa(SESSAO_PEDE_PIN) : this.conversasAnteriores(e, entrada);
     // Versão 4, M4b: a memória também não depende de loja.
     if (nome === FERRAMENTA_DE_LEMBRAR) return this.lembrar(e, entrada);
     // Versão 4, M4d: o lembrete é da pessoa, não de uma loja.
@@ -745,17 +746,24 @@ export class MisterFerramentasService {
   // O último gráfico de cada pessoa (o plano, já com os números) fica na memória deste processo por 30 minutos — o Regem
   // roda a API num processo só; num reinício, o "refazer" pede para pedir o gráfico de novo. Nada de dado vai à IA além do
   // que o gráfico já mostra.
-  private readonly graficos = new Map<string, { plano: PlanoDoGrafico; ate: number }>();
+  // Rodada 7, MIS-E-12 (ERR-656): o gráfico guardado leva o acesso com que foi feito (ver valores, a loja).
+  private readonly graficos = new Map<string, { plano: PlanoDoGrafico; ate: number; verValores: boolean; presa: string | null }>();
   private guardarGrafico(e: EscopoDoMister, plano: PlanoDoGrafico): void {
     const agora = Date.now();
     if (this.graficos.size > 2000) for (const [k, v] of this.graficos) if (v.ate <= agora) this.graficos.delete(k);
-    this.graficos.set(`${e.tenantId}:${e.colaboradorId}`, { plano, ate: agora + GRAFICO_GUARDADO_MIN * 60_000 });
+    this.graficos.set(`${e.tenantId}:${e.colaboradorId}`, { plano, ate: agora + GRAFICO_GUARDADO_MIN * 60_000, verValores: e.verValores, presa: e.presa ?? null });
   }
 
   /** "Não entendi", "não gostei", "em barras deitadas", "destaca o sábado": o último gráfico com outra apresentação. */
   private refazerGrafico(e: EscopoDoMister, en: Record<string, unknown>): ResultadoDaFerramenta {
     const g = this.graficos.get(`${e.tenantId}:${e.colaboradorId}`);
     if (!g || g.ate <= Date.now()) return recusa(`Não tenho um gráfico desta conversa nos últimos ${GRAFICO_GUARDADO_MIN} minutos: peça o gráfico de novo (mostrar_grafico).`);
+    // MIS-E-12: o acesso de AGORA — quem perdeu "ver valores", está com a sessão com PIN pendente ou mudou de loja não recebe o
+    // gráfico guardado (com os números de antes): consulta de novo, com o acesso que tem.
+    if (e.pinPendente || (g.verValores && !e.verValores) || (g.presa ?? null) !== (e.presa ?? null)) {
+      this.graficos.delete(`${e.tenantId}:${e.colaboradorId}`);
+      return recusa('O acesso desta pessoa mudou desde aquele gráfico: peça o gráfico de novo (mostrar_grafico), com o que ela pode ver agora.');
+    }
     const r = refazerPlano(g.plano, { forma: en.forma, titulo: en.titulo, destaque: en.destaque, ordem: en.ordem, mostrarValores: en.mostrarValores });
     if ('erro' in r) return recusa(r.erro);
     if (!midiaNaInstalacao()) return recusa('O gráfico na conversa ainda não está ligado nesta instalação.');
@@ -784,6 +792,11 @@ export class MisterFerramentasService {
     const sem = valoresSemOrigem(g, origemDe(en.__origem));
     if (sem.length)
       return recusa(`Estes valores não vieram de uma consulta desta pergunta: ${sem.slice(0, 3).join('; ')}. Consulte agora e mande os números exatos que vieram (o gráfico só leva o que o Regem trouxe).`);
+    // Rodada 7, MIS-E-11 (ERR-656): o TÍTULO também vai desenhado no PNG — o número dele precisa ter vindo de uma consulta, e quem
+    // não vê valores não recebe R$ nele (antes, só os valores dos itens eram conferidos).
+    const doTitulo = numerosSemOrigem(String(g.titulo ?? ''), origemDe(en.__origem));
+    if (doTitulo.length) return recusa(`O título traz um número que não veio de uma consulta desta pergunta (${doTitulo.slice(0, 2).join('; ')}). Tire o número do título ou use o que a consulta trouxe.`);
+    if (!e.verValores && /R\$\s*\d/.test(String(g.titulo ?? ''))) return recusa('O título não pode ter valor em reais para esta pessoa (o perfil não mostra valores). Tire o valor do título.');
     if (!midiaNaInstalacao()) return recusa('O gráfico na conversa ainda não está ligado nesta instalação: responda com os números em texto.');
     const plano = planoLivre(g, { loja: loja.nome, lidoEm: lidoAgora() });
     this.guardarGrafico(e, plano);

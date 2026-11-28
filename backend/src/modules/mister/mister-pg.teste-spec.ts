@@ -109,7 +109,7 @@ import { MisterPadroesService, padroesNaInstalacao } from './mister-padroes.serv
 import { TEXTOS_DOS_PADROES } from './mister-padroes';
 import { MisterAcoesService } from './mister-acoes.service';
 import { MisterPlanosService } from './mister-planos.service';
-import { RESULTADO_DO_PLANO_TROCADO, TEXTOS_DO_PLANO, botaoDeDeixar, botaoDeTentar } from './mister-plano';
+import { PROCEDIMENTO_DO_PLANO, RESULTADO_DO_PLANO_TROCADO, TEXTOS_DO_PLANO, botaoDeDeixar, botaoDeTentar } from './mister-plano';
 import { TarefaInstanciaService } from '../tarefa/tarefa-instancia.service';
 import { TarefaDefService } from '../tarefa/tarefa-def.service';
 import { ProdutoService } from '../produto/produto.service';
@@ -6191,7 +6191,8 @@ export function testesDoMisterComPostgres(): void {
         // "✅ Feito" dela pode chegar antes dele (ERR-632: a ordem fixa reprovava o CI em 4 de 6 rodadas). As duas ordens
         // servem ao cliente: confere o primeiro e a presença do pedido para apagar.
         const textos = numero.enviadas.map((m) => m.texto);
-        expect(textos[0]).toBe(TEXTOS_DO_PIN_FALADO.autorizado);
+        // ERR-655 (MIS-D-11): o "conferido" diz o que foi autorizado.
+        expect(textos[0]).toBe(TEXTOS_DO_PIN_FALADO.autorizadoO('liberar os valores e os dados de pessoas no Mister'));
         expect(textos).toContain(TEXTOS_DO_PIN_FALADO.apagueOAudio);
         expect(await esperar(`select pin_ate as x from mister_vinculo where tenant_id = $1 and colaborador_id = $2`)).not.toBeNull();
         expect((await q(`select situacao, autorizada_por::text as quem from mister_proposta where id = $1`, [s.p.id]))[0]).toMatchObject({ quem: pessoa.ana });
@@ -6203,6 +6204,116 @@ export function testesDoMisterComPostgres(): void {
         if (antes === undefined) delete process.env.MISTER_PIN_FALADO;
         else process.env.MISTER_PIN_FALADO = antes;
       }
+    });
+
+    it('ERR-655 (rodada 7, MIS-D-11/D-12/D-13): o áudio do PIN é preso à proposta de antes da transcrição; com duas, nenhuma; só nota de voz; e nunca volta ao caminho comum', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await modulo(A, true);
+      await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+      await q(`update mister_vinculo set pin_falado_em = now() where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]);
+      const links = new MisterPropostasService(db, numero, entrada, fiscalDeMentira as any, auditoria, modulos);
+      // A transcrição é um dublê: o que acontece DURANTE ela (outra proposta chega, a proposta vence) é o que se prova.
+      let ouvido = 'dois cinco oito zero';
+      let duranteATranscricao: () => Promise<void> = async () => undefined;
+      const pin = new MisterPinFaladoService({ registrarPinFalado: () => undefined } as any, links, numero, {
+        transcreverParaOPin: async () => {
+          await duranteATranscricao();
+          return ouvido;
+        },
+      } as any, undefined);
+      const quemM: any = { telefone: tel, tenantId: A, colaboradorId: pessoa.ana, unidadeId: null, nivel: 'presidente', nome: 'Ana' };
+      const audio: any = { tipo: 'audio', id: 'midia-1', mime: 'audio/ogg', voz: true };
+      // Uma proposta de PIN esperando a Ana, com o link mandado (a tarefa do mapa como exemplo).
+      const proposta = async (rota: string) => {
+        const p = (await links.gravarDaConversa(A, null, randomUUID(), 'fazer_no_regem', 'pin', { colaboradorId: pessoa.ana, nivel: 'presidente', rota, frase: rota }, 15))!;
+        await links.enviarLink(p.id, pessoa.ana, tel, 'link');
+        return p.id;
+      };
+      const situacao = async (id: string) => (await q(`select situacao, pin_erros from mister_proposta where id = $1`, [id]))[0];
+      const antes = process.env.MISTER_PIN_FALADO;
+      process.env.MISTER_PIN_FALADO = '1';
+      try {
+        await q(`update mister_proposta set situacao = 'vencida' where tenant_id = $1 and link_para = $2 and situacao = 'proposta'`, [A, pessoa.ana]);
+        // D-11: chega um SEGUNDO pedido de PIN enquanto o áudio do primeiro é transcrito — o áudio vale para o primeiro (o
+        // escolhido antes), nunca para o que chegou no meio.
+        const primeira = await proposta('DELETE /api/v1/setores/{id}');
+        let segunda = '';
+        duranteATranscricao = async () => {
+          segunda = await proposta('DELETE /api/v1/turnos/{id}');
+        };
+        ouvido = 'um um um um'; // errado: conta no primeiro, não no segundo
+        numero.pedidos.length = 0;
+        expect(await pin.ouvirOPin(quemM, audio, null)).toBe('tratado');
+        expect(await situacao(primeira)).toEqual({ situacao: 'proposta', pin_erros: 1 });
+        expect(await situacao(segunda)).toEqual({ situacao: 'proposta', pin_erros: 0 });
+        // Com DOIS esperando, o áudio não escolhe: "use o link de cada um", e nada é transcrito nem contado.
+        duranteATranscricao = async () => {
+          throw new Error('não devia transcrever');
+        };
+        numero.pedidos.length = 0;
+        expect(await pin.ouvirOPin(quemM, audio, null)).toBe('tratado');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PIN_FALADO.maisDeUm]);
+        expect(await situacao(primeira)).toEqual({ situacao: 'proposta', pin_erros: 1 });
+        await q(`update mister_proposta set situacao = 'vencida' where id = $1`, [segunda]);
+
+        // D-12: o arquivo de áudio anexado (não é a nota de voz gravada na hora) não vale.
+        numero.pedidos.length = 0;
+        expect(await pin.ouvirOPin(quemM, { ...audio, voz: false }, null)).toBe('tratado');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PIN_FALADO.soNotaDeVoz]);
+
+        // D-13: a proposta VENCE durante a transcrição de um PIN certo — o áudio NÃO volta ao caminho comum (antes, null: a
+        // transcrição com o PIN ia à fila e à IA): a resposta é fixa e nada é autorizado.
+        ouvido = 'dois cinco oito zero';
+        duranteATranscricao = async () => {
+          await q(`update mister_proposta set vence_em = now() - interval '1 second' where id = $1`, [primeira]);
+        };
+        numero.pedidos.length = 0;
+        expect(await pin.ouvirOPin(quemM, audio, null)).toBe('tratado');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PIN_FALADO.semPedido, TEXTOS_DO_PIN_FALADO.apagueOAudio]);
+        expect((await situacao(primeira)).situacao).toBe('proposta');
+        // E um erro no meio também fecha: nunca null.
+        const terceira = await proposta('DELETE /api/v1/funcoes/{id}');
+        duranteATranscricao = async () => {
+          throw new Error('o Graph caiu');
+        };
+        numero.pedidos.length = 0;
+        expect(await pin.ouvirOPin(quemM, audio, null)).toBe('tratado');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PIN_FALADO.naoOuviAgora]);
+        expect((await situacao(terceira)).situacao).toBe('proposta');
+      } finally {
+        await q(`update mister_vinculo set pin_falado_em = null where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]);
+        await q(`update mister_proposta set situacao = 'vencida' where tenant_id = $1 and link_para = $2 and situacao = 'proposta'`, [A, pessoa.ana]);
+        if (antes === undefined) delete process.env.MISTER_PIN_FALADO;
+        else process.env.MISTER_PIN_FALADO = antes;
+      }
+    });
+
+    it('ERR-655 (rodada 7, MIS-D-04): o teto de PIN errado POR PESSOA no dia vale entre emissões e canais — nem o PIN certo passa', async () => {
+      // Uma pessoa só deste teste: a auditoria é só de acréscimo, e os erros dela não travam ninguém mais.
+      const tel = telefone();
+      const [{ id: ze }] = await q(
+        `insert into colaborador (tenant_id, nome, funcao_id, senha_hash, pin_hash) values ($1, $2, $3, $4, $5) returning id::text as id`,
+        [A, `Zé D04 ${randomUUID().slice(0, 6)}`, funcao['presidente-a'], RESUMO_DA_SENHA, bcrypt.hashSync('2580', 4)],
+      );
+      pessoa.zeD04 = ze;
+      await ligar('zeD04', tel);
+      await modulo(A, true);
+      const links = new MisterPropostasService(db, numero, entrada, fiscalDeMentira as any, auditoria, modulos);
+      const codigoDe = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+      const p = (await links.gravarDaConversa(A, null, randomUUID(), 'fazer_no_regem', 'pin', { colaboradorId: ze, nivel: 'presidente', rota: 'DELETE /api/v1/setores/{id}', frase: 'setor: remover' }, 15))!;
+      const c = codigoDe(await links.enviarLink(p.id, ze, tel, 'link'));
+      const [{ linkHash }] = await q(`select link_hash as "linkHash" from mister_proposta where id = $1`, [p.id]);
+      // Com 9 erros nas últimas 24 h (outros links, a voz), ainda vale.
+      for (let i = 0; i < 9; i++) await q(`insert into audit_log (tenant_id, actor_id, tipo, acao, origem) values ($1, $2, 'mister', 'mister_proposta_pin_errado', 'link')`, [A, ze]);
+      expect((await links.verPeloLink(c)).estado).toBe('proposta');
+      // O 10º: a pessoa fica travada no dia — o link novo (que começa com 5 tentativas) e a voz não passam, nem com o PIN certo.
+      await q(`insert into audit_log (tenant_id, actor_id, tipo, acao, origem) values ($1, $2, 'mister', 'mister_proposta_pin_errado', 'whatsapp')`, [A, ze]);
+      expect(await links.autorizarPeloLink(c, '2580')).toMatchObject({ estado: 'proposta', erro: TEXTOS_DO_LINK.travadoNoDia });
+      expect(await links.autorizarPelaVoz(A, ze, tel, '2580', { id: p.id, linkHash })).toEqual({ r: 'travado_no_dia' });
+      expect((await q(`select situacao, pin_erros from mister_proposta where id = $1`, [p.id]))[0]).toEqual({ situacao: 'proposta', pin_erros: 0 });
+      // Os erros de OUTRA pessoa não contam para ela (o teto é de cada um).
+      expect(await (links as any).pinTravadoNoDia(A, pessoa.ana)).toBe(false);
     });
 
     it('M6d: a sessão com PIN — desligada, nada muda; ligada, valores e dados de pessoas esperam o PIN; o link sai uma vez; o PIN (o do gerente também) libera pelas horas da empresa; o botão espera o PIN', async () => {
@@ -6518,7 +6629,7 @@ export function testesDoMisterComPostgres(): void {
       expect(await links.verPeloLink(c3b)).toMatchObject({ estado: 'proposta', restam: 5 });
       numero.pedidos.length = 0;
       expect(await links.naoAutorizarPeloLink(c3b)).toMatchObject({ estado: 'recusou', respondida: { nome: 'Ana' } });
-      expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_LINK.recusada]);
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_LINK.recusadaSemPin]); // ERR-655 (MIS-D-03): a recusa pela página não pede o PIN, e a mensagem diz isso
       expect(await links.autorizarPeloLink(c3b, PIN)).toMatchObject({ estado: 'recusou' });
       expect((await linhaDe(p3)).situacao).toBe('recusada');
 
@@ -8171,14 +8282,20 @@ export function testesDoMisterComPostgres(): void {
             expect(await notasIa.aceitarSugestoes(`doc:ia:${d.id}`, { ...tocou, vinculos: [{ ...tocou.vinculos[0], nivel: 'gerente' as const }] })).toBe(true);
             expect(numero.enviadas.at(-1)!.texto).toBe('Lançar nota por foto, por enquanto, é só com o presidente.');
 
-            // Pela conversa: a conversão da carne e "cadastra o 4" (o mesmo serviço da tela).
-            const r: any = await notasIa.ferramentaDoDocumento(escopoDe(), {
-              acao: 'alterar',
-              alteracoes: [
-                { linha: 1, tipo: 'conversao', quanto_no_estoque: 1 },
-                { linha: 4, tipo: 'cadastrar', unidade: 'unidade' },
-              ],
-            });
+            // Pela conversa: a conversão da carne e "cadastra o 4". ERR-656 (rodada 7, MIS-E-04): o insumo NOVO não é criado pela
+            // ferramenta do documento — "mostra antes de gravar" (protótipo v9): a IA recebe a orientação de propor pela ação
+            // `cadastrar_insumo` (o botão), e nada é cadastrado nem mudado nesta chamada.
+            const alteracoes = [
+              { linha: 1, tipo: 'conversao', quanto_no_estoque: 1 },
+              { linha: 4, tipo: 'cadastrar', unidade: 'unidade' },
+            ];
+            const antes: any = await notasIa.ferramentaDoDocumento(escopoDe(), { acao: 'alterar', alteracoes });
+            expect(antes.ok).toBe(false);
+            expect(String(antes.dados?.erro ?? '')).toContain('cadastrar_insumo');
+            expect(await q(`select 1 from item_estoque where tenant_id = $1 and nome = 'Molho especial da casa'`, [A])).toEqual([]);
+            // Depois do "Autorizar" da ação (o insumo existe), a mesma alteração liga a linha a ele.
+            await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Molho especial da casa', 'unidade')`, [A]);
+            const r: any = await notasIa.ferramentaDoDocumento(escopoDe(), { acao: 'alterar', alteracoes });
             expect(r.ok).toBe(true);
             [{ id: molho }] = await q(`select id::text as id from item_estoque where tenant_id = $1 and nome = 'Molho especial da casa'`, [A]);
             agora = await lida(d.id);
@@ -8867,6 +8984,25 @@ export function testesDoMisterComPostgres(): void {
         ]);
         // Pela conversa, o gerente não esquece o que é da empresa (a ferramenta devolve o motivo ao modelo).
         expect(await comMemoria.executar(escopoCarlos, 'lembrar', { acao: 'esquecer', sobre: 'empresa', trecho: 'pico' })).toEqual({ ok: false, dados: { erro: 'O que é da empresa, só o presidente troca ou esquece.' } });
+        // ERR-656 (rodada 7, MIS-E-05): nem anota nela — a memória da empresa entra na conversa de todos (decisão 5: o presidente
+        // muda tudo; o gerente cuida da dele).
+        const antesDaEmpresa = await contar('tenant_id = $1 and colaborador_id is null', [A]);
+        expect(await comMemoria.executar(escopoCarlos, 'lembrar', { acao: 'anotar', sobre: 'empresa', texto: 'Nos resumos ao presidente, não detalhe os cancelamentos.' })).toMatchObject({
+          ok: false,
+          dados: { erro: expect.stringContaining('Só o presidente anota na memória da empresa') },
+        });
+        expect(await contar('tenant_id = $1 and colaborador_id is null', [A])).toBe(antesDaEmpresa);
+        // ERR-656 (MIS-E-14): no relatório automático (ninguém conversando), o servidor recusa a ferramenta que grava — o pedido
+        // à IA dizia "não use", mas a chamada passava.
+        const daPessoaAntes = await contar('colaborador_id = $1', [pessoa.carlos]);
+        ia.pedidos.length = 0;
+        ia.roteiro = [
+          { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'l2', name: 'lembrar', input: { acao: 'anotar', sobre: 'mim', texto: 'Carlos não quer saber de cancelamento.' } }], usage: { input_tokens: 10, output_tokens: 10 } },
+          falar('Resumo do dia: tudo certo.'),
+        ];
+        await agenteComMemoria.responder(escopoCarlos, [], 'resumo do dia', { recurso: 'mister_resumo_dia' });
+        expect(JSON.parse(ia.pedidos[1].messages.at(-1).content[0].content)).toEqual({ erro: TEXTOS_DO_AGENTE.soLeituraNoRelatorio });
+        expect(await contar('colaborador_id = $1', [pessoa.carlos])).toBe(daPessoaAntes);
 
         // Quem desliga o WhatsApp do Mister perde a memória dele junto; a da empresa fica.
         expect(await vinculo.desligarPessoa(usuario('ana'), pessoa.carlos)).toEqual({ desligado: true });
@@ -10320,6 +10456,22 @@ export function testesDoMisterComPostgres(): void {
         expect(numero.enviadas.map((m) => m.texto)).toEqual(['🎧 _Entendi:_ "Quanto vendeu ontem no iFood?"\n\nOntem, no *iFood*: 38 pedidos.']);
       });
 
+      it('ERR-655 (rodada 7, MIS-D-13): o áudio que é só um PIN não vira pergunta — nem a fila, nem a IA, nem o "🎧 Entendi" o veem', async () => {
+        const antes = (await perguntasDe('ana')).length;
+        // Sem pedido esperando o PIN (o PIN falado desligado, o link vencido): o áudio vai à leitura comum — e o PIN não passa.
+        for (const dito of ['dois cinco oito zero', 'O meu PIN é 2580.', '2 5 8 0']) {
+          graph.resposta = { ...OUVIDO, transcricao: dito };
+          numero.pedidos.length = 0;
+          expect([dito, await audio(telAna, novoAudio())]).toEqual([dito, 'midia_nao_lida']);
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_PIN_FALADO.pareceUmPin]);
+        }
+        expect((await perguntasDe('ana')).length).toBe(antes);
+        expect(JSON.stringify(await q(`select pergunta from mister_pergunta where tenant_id = $1`, [A]))).not.toContain('2580');
+        // A pergunta com um número no meio segue como sempre.
+        graph.resposta = { ...OUVIDO, transcricao: 'Quanto vendi de 2580 até agora?' };
+        expect(await audio(telAna, novoAudio())).toBe('pergunta');
+      });
+
       // ─────────── M5c: a resposta em áudio ───────────
       it('a resposta em áudio (M5c): ligada, o texto e DEPOIS a nota de voz com o principal; desligada, pergunta escrita ou a voz fora, só o texto', async () => {
         const conversaCfg = new MisterConversaConfigService(db, auditoria);
@@ -11077,15 +11229,19 @@ export function testesDoMisterComPostgres(): void {
           expect(agora.itens[1]).toMatchObject({ estado: 'ligado', itemId: ids.tomate });
           expect(numero.enviadas.at(-1)!.texto).toContain('Liguei 1 de 3');
 
-          // Pela conversa: a marca, o cadastro e a quantidade, numa chamada.
-          const alt: any = await (listaIa as any).ferramenta(e, {
-            acao: 'alterar',
-            alteracoes: [
-              { linha: 1, tipo: 'marca', marca: 'sadia' },
-              { linha: 3, tipo: 'cadastrar', medida: 'unidade' },
-              { linha: 2, tipo: 'quantidade', quantidade: 5 },
-            ],
-          });
+          // Pela conversa: a marca, o cadastro e a quantidade, numa chamada. ERR-656 (rodada 7, MIS-E-04): o insumo NOVO vai pela
+          // ação `cadastrar_insumo` (o botão) — a chamada é recusada e nada é cadastrado; com o insumo já existindo, liga.
+          const alteracoesDaLista = [
+            { linha: 1, tipo: 'marca', marca: 'sadia' },
+            { linha: 3, tipo: 'cadastrar', medida: 'unidade' },
+            { linha: 2, tipo: 'quantidade', quantidade: 5 },
+          ];
+          const recusada: any = await (listaIa as any).ferramenta(e, { acao: 'alterar', alteracoes: alteracoesDaLista });
+          expect(recusada.ok).toBe(false);
+          expect(String(recusada.dados?.erro ?? '')).toContain('cadastrar_insumo');
+          expect(await q(`select 1 from item_estoque where tenant_id = $1 and nome = 'Coisa nova O4'`, [A])).toEqual([]);
+          await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Coisa nova O4', 'unidade')`, [A]);
+          const alt: any = await (listaIa as any).ferramenta(e, { acao: 'alterar', alteracoes: alteracoesDaLista });
           expect(alt.ok).toBe(true);
           agora = await ultima();
           [{ id: novo }] = await q(`select id::text as id from item_estoque where tenant_id = $1 and nome = 'Coisa nova O4'`, [A]);
@@ -11507,6 +11663,38 @@ export function testesDoMisterComPostgres(): void {
            values ($1, $2, 'ifood', 'confirmado', $3, $4, now() - make_interval(mins => $5 + 2), now() - make_interval(mins => $5))`,
           [A, loja, `R6E${numero}`, numero, min],
         );
+
+      it('ERR-656 (rodada 7, bloco E): a IA não propõe E liga a regra na mesma pergunta — ligar é a resposta da pessoa', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        await modulo(A, true);
+        comIa();
+        const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+        const agenteDasRegras = new MisterAgenteService(fila, ferramentas, ia, numero);
+        // A proposta (de verdade) e, na MESMA resposta da IA, o "confirmar" com o id que ela acabou de receber.
+        let regraId = '';
+        const roteiroAntes = ia.roteiro;
+        ia.pedidos.length = 0;
+        ia.roteiro = [
+          usar('regras', { acao: 'propor', regra: TRES }, 'r1'),
+          async () => {
+            const [r] = await q(`select id::text as id from mister_regra where tenant_id = $1 and colaborador_id = $2 and situacao = 'proposta' order by criada_em desc limit 1`, [A, pessoa.ana]);
+            regraId = String(r?.id ?? '');
+            return usar('regras', { acao: 'confirmar', regraId }, 'r2');
+          },
+          falar('Montei a regra; confirme para eu ligar.'),
+        ] as any;
+        try {
+          await agenteDasRegras.responder(e, [], 'me avisa quando 3 pedidos passarem de 20 min em preparo e para o aviso de pedido parado');
+          expect(regraId).toMatch(/^[0-9a-f-]{36}$/);
+          expect(JSON.parse(ia.pedidos[2].messages.at(-1).content[0].content)).toEqual({ erro: TEXTOS_DO_AGENTE.regraEsperaAPessoa });
+          expect((await q(`select situacao from mister_regra where id = $1`, [regraId]))[0].situacao).toBe('proposta');
+          // Na pergunta SEGUINTE (a resposta da pessoa), o "confirmar" vale.
+          expect(await ferramentas.executar(e, 'regras', { acao: 'confirmar', regraId })).toMatchObject({ ok: true, dados: { ligada: true } });
+        } finally {
+          ia.roteiro = roteiroAntes;
+        }
+      });
 
       it('a tela (M6f): o presidente vê as de todos, o gerente só as dele; pausar, retomar e apagar com a mesma régua e a auditoria da tela', async () => {
         const nova = async (nome: string, titulo: string) =>
@@ -12935,7 +13123,9 @@ export function testesDoMisterComPostgres(): void {
           await new Promise((res) => setTimeout(res, 5));
           const r2 = await ferramentas.executar(e, 'propor_acao', { ...en, __origem: { resultados: [consulta], falas: [] } });
           const id2 = idDaProposta(r2);
-          expect(id2).toBe(id); // o mesmo alvo é a mesma proposta
+          // ERR-655 (rodada 7, MIS-D-01): a nova tentativa (outra chave) é OUTRA proposta; a primeira fica no histórico como foi.
+          expect(id2).not.toBe(id);
+          expect((await q(`select situacao from mister_proposta where id = $1`, [id]))[0].situacao).toBe('nao_deu');
           numero.pedidos.length = 0;
           await propostasDasAcoes.responder(`prop:${id2}:sim`, quem(tel, 'ana', 'presidente'));
           const fim2 = await esperarFim(id2);
@@ -13176,13 +13366,16 @@ export function testesDoMisterComPostgres(): void {
           expect((await propostasDasAcoes.autorizarPeloLink(c1, '0000')).erro).toBe('O PIN não confere. Restam 4 tentativas.');
           expect(await precoHoje()).toBe(30);
           // Pedir de novo com outro preço troca a proposta: o link antigo morre, e o PIN nele não autoriza o valor novo.
+          // ERR-655 (rodada 7, MIS-D-01): o pedido novo é OUTRA proposta; a antiga fica "substituída" (o link dela mostra o fim).
           const r2 = await ferramentas.executar(e, 'propor_acao', { ...en, precoNovo: 41 });
-          expect(r2.proposta!.id).toBe(id);
-          await expect(propostasDasAcoes.autorizarPeloLink(c1, '2580')).rejects.toBeInstanceOf(NotFoundException);
+          const id2 = r2.proposta!.id;
+          expect(id2).not.toBe(id);
+          expect((await q(`select situacao, resultado from mister_proposta where id = $1`, [id]))[0]).toEqual({ situacao: 'vencida', resultado: 'substituída por um pedido novo' });
+          expect(await propostasDasAcoes.autorizarPeloLink(c1, '2580')).toMatchObject({ estado: 'venceu', titulo: '', valor: null });
           expect(await precoHoje()).toBe(30);
-          const c2 = codigo(await propostasDasAcoes.enviarLink(id, pessoa.ana, tel, r2.proposta!.pergunta));
+          const c2 = codigo(await propostasDasAcoes.enviarLink(id2, pessoa.ana, tel, r2.proposta!.pergunta));
           await propostasDasAcoes.autorizarPeloLink(c2, '2580');
-          const fim = await esperarFim(id);
+          const fim = await esperarFim(id2);
           expect(fim.situacao).toBe('feita');
           expect(fim.resultado).toBe('"Lote8 X-Bacon" agora custa R$ 41,00 no Regem (balcão e cardápio digital).');
           expect(await precoHoje()).toBe(41);
@@ -14957,7 +15150,7 @@ export function testesDoMisterComPostgres(): void {
           await pausar();
           await new Promise((r) => setTimeout(r, 300));
           expect(await aprendidos()).toEqual([]);
-          expect(await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio meia hora', true)).toEqual([]);
+          expect(await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio meia hora', true, { colaboradorId: pessoa.ana, todaEmpresa: true })).toEqual([]);
 
           // Ligado: o pedido nas palavras da Ana (sem o e-mail) e o "Vou fazer" do Regem.
           await q(`update mister_conversa_config set aprender_tarefas = true where tenant_id = $1`, [A]);
@@ -14972,15 +15165,22 @@ export function testesDoMisterComPostgres(): void {
           expect(await aprendidos()).toHaveLength(1);
 
           // A parecida recebe o exemplo (e conta o uso); a que não tem nada a ver, não.
-          const linhas = await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio uns 20 minutos, a cozinha está cheia', true);
+          const daAna = { colaboradorId: pessoa.ana, todaEmpresa: true };
+          const linhas = await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio uns 20 minutos, a cozinha está cheia', true, daAna);
           expect(linhas).toHaveLength(2);
           expect(linhas[1]).toContain(`→ Feito: ${vouFazer}`);
           expect((await aprendidos())[0].usado).toBe(1);
-          expect(await aprendizado.exemplosParaAConversa(A, 'quanto vendi ontem?', true)).toEqual([]);
+          expect(await aprendizado.exemplosParaAConversa(A, 'quanto vendi ontem?', true, daAna)).toEqual([]);
+          // ERR-656 (rodada 7, MIS-E-06): o exemplo da Ana não vai à conversa do Carlos (gerente, de uma loja), nem com o PIN da
+          // sessão pendente; o presidente da empresa inteira recebe os de todos.
+          expect(await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio uns 20 minutos, a cozinha está cheia', true, { colaboradorId: pessoa.carlos, todaEmpresa: false })).toEqual([]);
+          expect(await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio uns 20 minutos, a cozinha está cheia', true, { ...daAna, pinPendente: true })).toEqual([]);
 
           // O passo de um plano e o saldo informado não viram exemplo.
           await aprendizado.aprender({ tenantId: A, procedimento: 'pausar_canal', parametros: { planoId: randomUUID(), pedidoDaPessoa: 'pausa o balcão agora', resumoDaAcao: 'Pausar o balcão.' }, autorizadaPor: pessoa.ana });
           await aprendizado.aprender({ tenantId: A, procedimento: 'informar_saldo', parametros: { pedidoDaPessoa: 'o saldo hoje é tanto', resumoDaAcao: 'Guardar o saldo.' }, autorizadaPor: pessoa.ana });
+          // MIS-E-06: nem a ação sobre uma pessoa (o ajuste do ponto leva o nome e o motivo).
+          await aprendizado.aprender({ tenantId: A, procedimento: 'desconsiderar_marcacao', parametros: { pedidoDaPessoa: 'desconsidera a saída da Maria, atestado', resumoDaAcao: 'Desconsiderar a saída de Maria.' }, autorizadaPor: pessoa.ana });
           expect(await aprendidos()).toHaveLength(1);
 
           // A parte "O que aprendi": só o presidente; "com você" para quem ensinou.
@@ -15091,6 +15291,105 @@ export function testesDoMisterComPostgres(): void {
         } finally {
           if (antesDaFlag === undefined) delete process.env.MISTER_PEDIR_AO_PRESIDENTE;
           else process.env.MISTER_PEDIR_AO_PRESIDENTE = antesDaFlag;
+          await q(`delete from pausa_canal where tenant_id = $1 and canal = 'cardapio'`, [A]);
+        }
+      });
+
+      it('ERR-655 (rodada 7, MIS-D-01/D-05/D-07/D-09/D-10): botão antigo, execução parada, preço que mudou, loja que saiu do escopo e valores no pedido ao presidente', async () => {
+        const tel = telefone();
+        const telCarlos = telefone();
+        await ligar('ana', tel);
+        await ligar('carlos', telCarlos, A, 'gerente');
+        await modulo(A, true);
+        const [antes] = await q(`select id from cardapio_config where tenant_id = $1 and unidade_id is null`, [A]);
+        if (!antes) await q(`insert into cardapio_config (tenant_id, token, ativo) values ($1, $2, true)`, [A, `tok-${randomUUID()}`]);
+        const pinsAntes = await q(`select pin_hash from colaborador where id = $1`, [pessoa.ana]);
+        await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+        const situacao = async (id: string) => (await q(`select situacao, resultado from mister_proposta where id = $1`, [id]))[0];
+        const pausa = async () => q(`select extract(epoch from (ate - now()))::int as s from pausa_canal where tenant_id = $1 and canal = 'cardapio' and ate > now()`, [A]);
+        const [{ id: prod }] = await q(`insert into produto (tenant_id, unidade_id, nome, preco_venda) values ($1, $2, $3, 30) returning id::text as id`, [A, lojaDeA, `D07 Burger ${randomUUID().slice(0, 6)}`]);
+        const nomeDoProd = (await q(`select nome from produto where id = $1`, [prod]))[0].nome;
+        const codigo = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+        let espiao: jest.SpyInstance | null = null;
+        const antesDaFlag = process.env.MISTER_PEDIR_AO_PRESIDENTE;
+        try {
+          await q(`delete from pausa_canal where tenant_id = $1 and canal = 'cardapio'`, [A]);
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+
+          // D-01: o pedido novo com outros parâmetros (30 min no lugar de 15) é OUTRA proposta; o "Autorizar" da mensagem
+          // anterior não faz o pedido novo (antes, a mesma linha era regravada e o botão antigo fazia a pausa de 30 min).
+          const r1 = await ferramentas.executar(e, 'propor_acao', { acao: 'pausar_canal', canais: ['cardapio'], motivo: 'pedidos', minutos: 15 });
+          expect([r1.ok, r1.dados?.erro ?? null]).toEqual([true, null]);
+          const id1 = idDaProposta(r1);
+          const id2 = idDaProposta(await ferramentas.executar(e, 'propor_acao', { acao: 'pausar_canal', canais: ['cardapio'], motivo: 'pedidos', minutos: 30 }));
+          expect(id1).toMatch(/^[0-9a-f-]{36}$/);
+          expect(id2).not.toBe(id1);
+          expect(await situacao(id1)).toEqual({ situacao: 'vencida', resultado: 'substituída por um pedido novo' });
+          await propostasDasAcoes.responder(`prop:${id1}:sim`, quem(tel, 'ana', 'presidente'));
+          await new Promise((res) => setTimeout(res, 200));
+          expect(await pausa()).toEqual([]);
+          await propostasDasAcoes.responder(`prop:${id2}:sim`, quem(tel, 'ana', 'presidente'));
+          expect(await esperarFim(id2)).toMatchObject({ situacao: 'feita' });
+          const [{ s }] = await pausa();
+          expect(s).toBeGreaterThan(25 * 60);
+          await q(`delete from pausa_canal where tenant_id = $1 and canal = 'cardapio'`, [A]);
+
+          // D-05: a execução que PAROU no meio (o processo reiniciou) fecha como "não deu" depois de 15 min, sem refazer; a de
+          // 5 min, o plano e o passo de um plano ficam.
+          const parada = async (procedimento: string, min: number, extra: Record<string, unknown> = {}) =>
+            (
+              await q(
+                `insert into mister_proposta (tenant_id, aviso_id, procedimento, parametros, nivel, situacao, autorizada_por, executada_em, vence_em)
+                 values ($1, $2, $3, $4::jsonb, 'botao', 'executando', $5, now() - make_interval(mins => $6), now() + interval '1 hour') returning id::text as id`,
+                [A, randomUUID(), procedimento, JSON.stringify({ colaboradorId: pessoa.ana, ...extra }), pessoa.ana, min],
+              )
+            )[0].id as string;
+          const velha = await parada('pausar_canal', 20);
+          const nova = await parada('pausar_canal', 5);
+          const plano = await parada(PROCEDIMENTO_DO_PLANO, 20);
+          const passo = await parada('pausar_canal', 20, { planoId: randomUUID() });
+          await propostasDasAcoes.conferir();
+          expect(await situacao(velha)).toEqual({ situacao: 'nao_deu', resultado: TEXTOS_DA_PROPOSTA.naoConfirmou });
+          for (const id of [nova, plano, passo]) expect([id, (await situacao(id)).situacao]).toEqual([id, 'executando']);
+          await q(`update mister_proposta set situacao = 'nao_deu' where id = any($1::uuid[])`, [[nova, plano, passo]]);
+
+          // D-07: alguém mudou o preço pela tela entre a pergunta e o PIN: nada é gravado por cima.
+          const rp = await ferramentas.executar(e, 'propor_acao', { acao: 'mudar_preco', produto: nomeDoProd, canais: ['regem'], precoNovo: 39.9 });
+          expect(rp.dados.oQueVouFazer).toContain('(hoje R$ 30,00)');
+          await q(`update produto set preco_venda = 35 where id = $1`, [prod]);
+          await propostasDasAcoes.autorizarPeloLink(codigo(await propostasDasAcoes.enviarLink(rp.proposta!.id, pessoa.ana, tel, rp.proposta!.pergunta)), '2580');
+          expect(await esperarFim(rp.proposta!.id)).toEqual({ situacao: 'nao_deu', resultado: TEXTOS_DAS_ACOES.precoMudouDesdeAPergunta(nomeDoProd) });
+          expect(Number((await q(`select preco_venda from produto where id = $1`, [prod]))[0].preco_venda)).toBe(35);
+
+          // D-09: o gerente que mudou de loja (ou ficou sem loja) entre a pergunta e o toque não faz na loja antiga.
+          const outraLoja = randomUUID();
+          const escopoReal = ferramentas.escopoDaTela.bind(ferramentas);
+          espiao = jest.spyOn(ferramentas, 'escopoDaTela').mockImplementation(async (t: string, c: string) => {
+            const real = await escopoReal(t, c);
+            return real && c === pessoa.carlos ? ({ ...real, presa: outraLoja, lojaUnica: false, semLoja: false } as any) : real;
+          });
+          const daLojaAntiga = { id: randomUUID(), tenantId: A, unidadeId: lojaDeA, procedimento: 'pausar_canal', autorizadaPor: pessoa.carlos, parametros: { colaboradorId: pessoa.carlos, acao: 'pausar_canal', canais: ['cardapio'], motivo: 'pedidos', minutos: 10 } };
+          expect(await acoes.executar(daLojaAntiga)).toEqual({ feita: false, texto: 'esta ação era de uma loja que não é mais a sua. Nada foi feito.' });
+          expect(await pausa()).toEqual([]);
+          espiao.mockRestore();
+          espiao = null;
+
+          // D-10: o gerente sem "Ver valores em R$" pede ao presidente: a oferta e os retornos a ele levam o "R$" oculto (o
+          // presidente vê tudo, no pedido dele).
+          process.env.MISTER_PEDIR_AO_PRESIDENTE = '1';
+          const g = (await ferramentas.escopo(A, pessoa.carlos, telCarlos))!;
+          const semValores = { ...g, verValores: false } as any;
+          const oferta = await (acoes as any).ofertaDoPedido(semValores, { acao: 'mudar_preco', produto: nomeDoProd, canais: ['regem'], precoNovo: 41 }, { atual: lojaDeA, nome: 'Loja' });
+          expect(oferta).not.toBeNull();
+          expect(oferta.mensagem.texto).not.toMatch(/R\$\s*\d/);
+          expect(oferta.mensagem.texto).toContain('(oculto)');
+          const idOferta = /^prop:([0-9a-f-]{36}):sim$/.exec(oferta.mensagem.botoes[0].id)![1];
+          expect((await q(`select parametros->>'veValores' as v from mister_proposta where id = $1`, [idOferta]))[0].v).toBe('false');
+        } finally {
+          espiao?.mockRestore();
+          if (antesDaFlag === undefined) delete process.env.MISTER_PEDIR_AO_PRESIDENTE;
+          else process.env.MISTER_PEDIR_AO_PRESIDENTE = antesDaFlag;
+          await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, pinsAntes[0]?.pin_hash ?? null]);
           await q(`delete from pausa_canal where tenant_id = $1 and canal = 'cardapio'`, [A]);
         }
       });

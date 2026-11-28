@@ -74,6 +74,7 @@ import {
 } from './mister-nota-pedido';
 import type { PedidoDaNota } from '../../common/nota-por-foto';
 import { Resposta } from './mister.regras';
+import { TEXTOS_DO_CADASTRO_NA_CONVERSA } from './mister-acoes-cadastro';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -1221,23 +1222,11 @@ export class MisterNotasService implements OnModuleInit {
         const it = nota.itens[a.linha - 1];
         const nome = a.nome ?? it.nomeNovo ?? it.descricao;
         const ja = acharInsumo(nome, insumos);
-        let insumo: { id: string; nome: string; nomeComercial?: string | null; unidadeMedida: string };
-        if ('insumo' in ja) insumo = ja.insumo;
-        else {
-          try {
-            const novo: any = await this.estoque.createItem(
-              e.tenantId,
-              { nome, unidadeMedida: normalizarUnidade(a.unidade ?? it.unidade ?? '') ?? 'unidade', ...(d.fornecedorId ? { fornecedorIds: [d.fornecedorId] } : {}) } as any,
-              null,
-              { colaboradorId: e.colaboradorId, categoria: 'presidente' },
-            );
-            insumo = { id: novo.id, nome: novo.nome, unidadeMedida: novo.unidadeMedida };
-            insumos.push({ id: novo.id, nome: novo.nome, nomeComercial: null, unidadeMedida: novo.unidadeMedida });
-          } catch (err: any) {
-            const msg = err instanceof BadRequestException ? String((err.getResponse() as any)?.message ?? err.message) : 'não deu para cadastrar';
-            return { erro: `Linha ${a.linha}: não consegui cadastrar "${nome}": ${msg}` };
-          }
-        }
+        // Rodada 7, MIS-E-04 (ERR-656): o insumo NOVO não é criado aqui. O protótipo v9 ("Cadastro pela conversa"): ele monta o
+        // cadastro e MOSTRA antes de gravar — o cadastro vai pela ação `cadastrar_insumo`, com o "Vou fazer" e o botão; depois do
+        // "Autorizar", a linha liga ao insumo pelo nome. Antes, a IA cadastrava na hora (o texto lido da nota podia pedir isso).
+        if (!('insumo' in ja)) return { erro: TEXTOS_DO_CADASTRO_NA_CONVERSA.antesDoBotao(a.linha, nome, normalizarUnidade(a.unidade ?? it.unidade ?? '') ?? 'unidade') };
+        const insumo: { id: string; nome: string; nomeComercial?: string | null; unidadeMedida: string } = ja.insumo;
         const conv = (await this.conversoes(e.tenantId, [insumo.id], tx)).get(insumo.id) ?? [];
         const fator = fatorParaEstoque(unidadeImpressa(it.unidade), insumo.unidadeMedida, conv);
         Object.assign(it, { insumoId: insumo.id, insumoNome: insumo.nome, insumoNomeComercial: insumo.nomeComercial ?? null, unidadeDoEstoque: insumo.unidadeMedida, fator, fatorProposto: null, fatorConfirmado: false, estado: fator == null ? 'fator' : 'ligado', sugestoes: [], duvida: null, pelaIa: false, propostaDaIa: false });
