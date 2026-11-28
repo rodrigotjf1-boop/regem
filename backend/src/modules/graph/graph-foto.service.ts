@@ -196,6 +196,8 @@ export class GraphFotoService {
    * (`franquia-esgotada`, `demora`, `voz-desligada`, `fora-do-formato`…). A chave de idempotência é a de quem chama (a mesma
    * resposta repetida não gasta de novo). V7d: `estilo` (contrato 1.7.0) só vai quando vier; sem ele, a chamada é a de antes.
    * O Graph antigo recusa o `estilo` com `argumento-recusado`, e quem chamou repete sem ele.
+   * Contrato 1.8.0 (o atendente virtual, 27/11): `estilo.pausas` e `opcoes.voz` (`feminina`) também só vão quando vierem; o
+   * Graph de antes da 1.8.0 os recusa da mesma forma (`argumento-recusado`).
    */
   async falar(
     tenantId: string,
@@ -204,7 +206,8 @@ export class GraphFotoService {
     chave: string,
     prazoMs: number,
     aoFalhar?: (motivo: string) => void,
-    estilo?: { tom: string; risada: boolean } | null,
+    estilo?: { tom: string; risada: boolean; pausas?: boolean } | null,
+    opcoes?: { voz?: 'masculina' | 'feminina' } | null,
   ): Promise<Buffer | null> {
     const falhou = (motivo: string): null => {
       aoFalhar?.(motivo);
@@ -215,7 +218,13 @@ export class GraphFotoService {
     if (prazoMs < PRAZO_MINIMO_MS) return falhou('sem-prazo');
     let chamada: Promise<unknown>;
     try {
-      chamada = this.cliente(cfg, lig.segredo, prazoMs).chamar(FERRAMENTA_FALAR, estilo ? { texto, chaveIdempotencia: chave, estilo } : { texto, chaveIdempotencia: chave });
+      const voz = opcoes?.voz;
+      chamada = this.cliente(cfg, lig.segredo, prazoMs).chamar(FERRAMENTA_FALAR, {
+        texto,
+        chaveIdempotencia: chave,
+        ...(estilo ? { estilo } : {}),
+        ...(voz ? { voz } : {}),
+      });
     } catch (e: any) {
       return falhou(await this.depoisDaFalha(tenantId, lig, e));
     }
@@ -243,7 +252,7 @@ export class GraphFotoService {
     } catch (e: any) {
       // A voz ainda não ligada no Graph (o Google recusou): `integracao-parada` — diz qual, e a ligação segue valendo.
       if (e instanceof ErroMcp && e.tipo === 'ferramenta' && (e.dados as any)?.codigo === 'integracao-parada') return falhou('voz-desligada');
-      if (estilo && recusouArgumento(e)) return falhou(MOTIVO_ARGUMENTO_RECUSADO);
+      if ((estilo || opcoes?.voz) && recusouArgumento(e)) return falhou(MOTIVO_ARGUMENTO_RECUSADO);
       return falhou(await this.depoisDaFalha(tenantId, lig, e));
     } finally {
       if (relogio) clearTimeout(relogio);

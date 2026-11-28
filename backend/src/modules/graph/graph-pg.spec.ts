@@ -801,5 +801,28 @@ descrever('o DMS Graph no Regem (Postgres real, Graph e DMS ID de mentira)', () 
       expect(motivos.at(-1)).toBe('argumento-recusado');
       expect((await ligacaoDe(t)).revogada_em).toBeNull();
     });
+
+    // A voz do atendente (27/11, contrato 1.8.0 do Graph): `estilo.pausas` e `voz: 'feminina'` só vão quando vierem.
+    it('o atendente (1.8.0): a voz feminina e as pausas vão nos argumentos; o Graph antigo que os recusa vira `argumento-recusado`', async () => {
+      const { t, ana } = await empresa();
+      await ligar(ana);
+      const lig = (await graphFoto.ligacaoParaFoto(t))!;
+      const OGG = Buffer.concat([Buffer.from('OggS'), randomBytes(60)]);
+      porta = () => ({ content: [{ type: 'text', text: '{}' }], structuredContent: { tipoArquivo: 'audio', mimeType: 'audio/ogg', audioBase64: OGG.toString('base64'), caracteres: 9, voz: 'gemini', franquia: { mes: MES, usados: 94, total: 500 } } });
+      const motivos: string[] = [];
+      const aoFalhar = (m: string) => motivos.push(m);
+      const estilo = { tom: 'calmo', risada: false, pausas: true };
+      expect((await graphFoto.falar(t, lig, 'Sinto muito.', 'regem-atendente-v1234567', 1_500, aoFalhar, estilo, { voz: 'feminina' }))?.equals(OGG)).toBe(true);
+      expect(JSON.stringify(chamadasMcp.at(-1)!.args)).toBe(JSON.stringify({ texto: 'Sinto muito.', chaveIdempotencia: 'regem-atendente-v1234567', estilo, voz: 'feminina' }));
+      // Sem as opções (o Mister), o corpo segue o de antes, byte a byte.
+      await graphFoto.falar(t, lig, 'Sinto muito.', 'regem-falar-semvoz1234', 1_500, aoFalhar, { tom: 'calmo', risada: false }, null);
+      expect(JSON.stringify(chamadasMcp.at(-1)!.args)).toBe(JSON.stringify({ texto: 'Sinto muito.', chaveIdempotencia: 'regem-falar-semvoz1234', estilo: { tom: 'calmo', risada: false } }));
+      expect(motivos).toEqual([]);
+      // O Graph de antes da 1.8.0 recusa a voz: o motivo diz, e a ligação não sofre.
+      porta = () => recusa('parametro-invalido', {});
+      expect(await graphFoto.falar(t, lig, 'Sinto muito.', 'regem-atendente-v2234567', 1_500, aoFalhar, null, { voz: 'feminina' })).toBeNull();
+      expect(motivos).toEqual(['argumento-recusado']);
+      expect((await ligacaoDe(t)).revogada_em).toBeNull();
+    });
   });
 });

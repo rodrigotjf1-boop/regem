@@ -54,6 +54,8 @@
   efeito na venda da loja. Não pede `.exe`.)_
 - _(Atendente — carisma e jogo de cintura, .f41 (27/11): SEM migration e só da nuvem — as instruções do robô não rodam no
   servidor da loja. Não pede `.zip` nem `.exe`.)_
+- _(Atendente — a voz pelo DMS Graph, `publico/bot/voz` (27/11): SEM migration e só da nuvem (`@CloudOnly`; o Graph só fala
+  pela nuvem). Não pede `.zip` nem `.exe`. Vale com o Graph 0.13.0 implantado e o fluxo 2.7 do n8n importado.)_
 - _(Atendente — a 99 "fora do horário" dela não fecha mais a loja (27/11; ERR-631): SEM migration e só da nuvem — o veredito
   é do robô. Não pede `.zip` nem `.exe`.)_
 - **Estoque: a unidade "fatia" e o "Duplicar" em Estoque › Produtos (27/11; SEM migration).** Vai no próximo `.zip`: a

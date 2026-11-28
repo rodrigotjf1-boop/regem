@@ -37,6 +37,8 @@ import { GraphModule } from '../graph/graph.module';
 import { MidiaModule } from '../midia/midia.module';
 import { BannerIaController } from './banner-ia.controller';
 import { BannerIaService } from './banner-ia.service';
+import { RoboVozController } from './robo-voz.controller';
+import { VozDoAtendenteService } from './voz-do-atendente.service';
 
 @Module({
   // WhatsappModule: o resumo do pedido feito pelo robô sai por escrito pela via da loja (robo-pedido.service.ts).
@@ -49,7 +51,8 @@ import { BannerIaService } from './banner-ia.service';
   // GraphModule (mig 450): a foto vai primeiro ao DMS Graph, com a ligação da empresa; a IA da empresa fica de reserva.
   imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule, CashbackModule, WhatsappModule, ChegadaModule, AniversarioModule, InstagramModule, MessengerModule, ModuloModule, IaModule, GraphModule, MidiaModule],
   // DiasEspeciaisController (mig 512, H1): os dias especiais do horário da loja.
-  controllers: [CardapioController, BannerIaController, CardapioPublicoController, EventosCardapioController, RoboConsultasController, RoboPedidoController, DiasEspeciaisController],
+  // RoboVozController (27/11, fase A do "atendente com o jeito do Mister"): a voz do atendente pelo DMS Graph.
+  controllers: [CardapioController, BannerIaController, CardapioPublicoController, EventosCardapioController, RoboConsultasController, RoboPedidoController, DiasEspeciaisController, RoboVozController],
   // LembreteDoCarrinhoProcessor: o lembrete do pedido que ficou pela metade no robô (mig 349; só nuvem).
   // AvisoDaMudancaProcessor: a decisão do servidor da loja sobre a mudança pedida pelo robô chega ao cliente (mig 363; só nuvem).
   // EstornoPixService/Processor: o estorno do Pix no cancelamento do pedido pago online (mig 372; só nuvem).
@@ -75,6 +78,8 @@ import { BannerIaService } from './banner-ia.service';
     ComprovanteDoClienteService,
     // A leitura da foto do cliente por IA (16/11/2026; nasce desligada — ROBO_FOTOS_IA=1): a descrição vai ao atendente.
     FotoDoClienteService,
+    // A voz do atendente pelo DMS Graph (27/11): a fala feminina com o tom de cada resposta e as pausas.
+    VozDoAtendenteService,
   ],
 })
 export class CardapioModule {}
