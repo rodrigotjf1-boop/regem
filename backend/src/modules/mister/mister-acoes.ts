@@ -852,6 +852,8 @@ export const TEXTOS_DAS_ACOES = {
     `"${nome}" agora custa ${preco} ${onde}.${temApp ? ' O app recebe o preço novo pela fila de envio.' : ''}`,
   precoEmParte: (nome: string, preco: string, feito: string, falta: string, motivo: string | null) =>
     `"${nome}" ficou com ${preco} ${feito}, mas não mudou ${falta}${motivo ? ` (${motivo})` : ''}. Confira em Delivery › Gestão do catálogo.`,
+  /** Rodada 7, MIS-D-07 (ERR-655): o preço mudou pela tela entre a pergunta e o PIN. */
+  precoMudouDesdeAPergunta: (nome: string) => `o preço de "${nome}" mudou desde a pergunta (alguém mexeu pela tela). Nada foi gravado por cima: peça de novo para ver o preço de agora.`,
   precoNaoMudou: (nome: string, motivo: string | null) => `o preço de "${nome}" não mudou${motivo ? `: ${motivo}` : ''}. Nada foi feito.`,
   // Lote 9.
   semPermissaoHorario: 'O seu perfil no Regem não dá acesso às configurações da loja: o horário não muda por aqui. Quem muda o perfil é o presidente.',

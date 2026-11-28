@@ -33,7 +33,7 @@ import { PausaDoCanalService } from '../delivery/pausa-do-canal.service';
 import { ProdutoService } from '../produto/produto.service';
 import { TarefaInstanciaService } from '../tarefa/tarefa-instancia.service';
 import { TarefaDefService } from '../tarefa/tarefa-def.service';
-import { pedidoComoNoQuadro } from './mister-agente.regras';
+import { pedidoComoNoQuadro, semValoresNoTexto } from './mister-agente.regras';
 import {
   ACOES,
   AcaoDoMister,
@@ -1812,11 +1812,15 @@ export class MisterAcoesService implements OnModuleInit {
       avisoId,
       PROCEDIMENTO_DO_PEDIDO,
       'botao',
-      { colaboradorId: e.colaboradorId, nivel: e.nivel, para: pres.id, entrada, loja: lojaDoPedido.atual, lojaNome: lojaDoPedido.nome, acao: pronta.acao, resumoDoPedido: pronta.resumo },
+      // MIS-D-10: `veValores` = o gerente vê valores (os retornos a ele seguem o mesmo).
+      { colaboradorId: e.colaboradorId, nivel: e.nivel, para: pres.id, entrada, loja: lojaDoPedido.atual, lojaNome: lojaDoPedido.nome, acao: pronta.acao, resumoDoPedido: pronta.resumo, veValores: e.verValores === true },
       PRAZO_DO_PEDIDO_MIN,
     );
     if (!p) return null;
-    return { presidente: pres.nome, mensagem: { texto: TEXTOS_DO_PEDIDO.perguntaAoGerente(pres.nome, pronta.resumo), botoes: botoesDaProposta(p.id, BOTOES_DO_PEDIDO) } };
+    // Rodada 7, MIS-D-10 (ERR-655): o resumo é montado com o perfil do PRESIDENTE (é ele quem autoriza); o gerente que não vê
+    // valores recebe o mesmo resumo com o "R$" oculto — antes recebia o preço de hoje, o valor da conta, o da promoção.
+    const resumoAoGerente = e.verValores ? pronta.resumo : semValoresNoTexto(pronta.resumo);
+    return { presidente: pres.nome, mensagem: { texto: TEXTOS_DO_PEDIDO.perguntaAoGerente(pres.nome, resumoAoGerente), botoes: botoesDaProposta(p.id, BOTOES_DO_PEDIDO) } };
   }
 
   /**
@@ -1842,7 +1846,8 @@ export class MisterAcoesService implements OnModuleInit {
       avisoId,
       pronta.acao,
       pronta.def.nivel,
-      { ...pronta.parametros, pedidaPor: gerenteId, pedidaPorNome: gerenteNome, resumoDoPedido: pronta.resumo },
+      // MIS-D-10 (ERR-655): os retornos ao gerente (recusou, venceu, feito, não deu) só levam valores se ele os vê.
+      { ...pronta.parametros, pedidaPor: gerenteId, pedidaPorNome: gerenteNome, resumoDoPedido: pronta.resumo, pedidaPorVeValores: par.veValores === true },
       PRAZO_DO_PRESIDENTE_MIN,
     );
     if (!prop) return { feita: false, texto: 'esse mesmo pedido já foi autorizado pelo presidente e está em andamento; o resultado chega aqui.' };
@@ -2009,6 +2014,20 @@ export class MisterAcoesService implements OnModuleInit {
   ): Promise<{ feita: boolean; texto: string }> {
     if (!this.produtos || !a.produtoId) return { feita: false, texto: 'o cadastro dos produtos não está disponível agora. Nada foi feito.' };
     const nome = a.mudanca?.nome ?? a.produto;
+    // Rodada 7, MIS-D-07 (ERR-655): a pessoa autorizou "de R$ X para R$ Y". Se alguém mudou o preço pela tela entre a pergunta
+    // e o PIN, o preço de agora não é o "de" que ela viu: nada é gravado por cima, e ela pergunta de novo com o preço novo.
+    if (a.mudanca?.canais?.length) {
+      const [agora] = linhas(
+        await this.db.execute(sql`
+          select preco_venda::text as "precoVenda", preco_ifood::text as "precoIfood", preco_99::text as "preco99"
+            from produto where id = ${a.produtoId}::uuid and tenant_id = ${p.tenantId}::uuid and deleted_at is null`),
+      );
+      if (!agora) return { feita: false, texto: 'o produto não foi encontrado. Nada foi feito.' };
+      const centavos = (v: unknown) => (v === null || v === undefined || v === '' ? null : Math.round(Number(v) * 100));
+      const deAgora = (c: CanalDoProduto) => centavos(c === 'regem' ? agora.precoVenda : c === 'ifood' ? agora.precoIfood : agora.preco99);
+      const mudou = a.mudanca.canais.some((x) => a.canais.includes(x.canal) && deAgora(x.canal) !== centavos(x.de));
+      if (mudou) return { feita: false, texto: TEXTOS_DAS_ACOES.precoMudouDesdeAPergunta(nome) };
+    }
     let motivo: string | null = null;
     for (const canal of a.canais) {
       try {
@@ -2374,8 +2393,14 @@ export class MisterAcoesService implements OnModuleInit {
       const a = def.id === 'mudar_horario' ? 'às configurações da loja' : def.id === 'pagar_conta' ? 'ao Financeiro' : def.pedeVerValores ? 'à mudança de preço' : def.permissao === 'meu_dia' ? 'às Tarefas' : def.permissao === 'loja' ? 'ao cadastro dos produtos' : def.permissao === 'estoque' ? 'ao lançamento do estoque' : 'ao Delivery';
       return { feita: false, texto: `o seu perfil não dá mais acesso ${a}. Nada foi feito.` };
     }
+    // Rodada 7, MIS-D-09 (ERR-655): a LOJA também é conferida de novo. O gerente que mudou de loja (ou ficou sem loja) entre a
+    // pergunta e o toque não faz mais na loja antiga — e a pessoa que vai à tela é montada com a loja DELA agora, não a da
+    // proposta (antes, a da proposta anulava a conferência de loja dos serviços).
+    if (e.nivel !== 'presidente' && !e.lojaUnica && (e.semLoja || (e.presa && p.unidadeId && p.unidadeId !== e.presa))) {
+      return { feita: false, texto: 'esta ação era de uma loja que não é mais a sua. Nada foi feito.' };
+    }
     const parametros = p.parametros as ParametrosDaAcao & { pedidoId?: string; pedido?: string; instanciaId?: string; titulo?: string; produtoId?: string; nome?: string };
-    const user: AuthUser = { tenantId: p.tenantId, colaboradorId: quem, categoria: e.nivel, unidadeId: e.nivel === 'presidente' ? null : (p.unidadeId ?? null), nome: e.nome ?? null } as AuthUser;
+    const user: AuthUser = { tenantId: p.tenantId, colaboradorId: quem, categoria: e.nivel, unidadeId: e.nivel === 'presidente' ? null : (e.presa ?? p.unidadeId ?? null), nome: e.nome ?? null } as AuthUser;
     const motivo = (err: any) => String(err?.response?.message ?? err?.message ?? 'o serviço recusou').slice(0, 240);
     // M6l e lote 7 cuidam da própria falha: o `catch` abaixo confere pedido, canal e tarefa, que aqui não existem.
     if (parametros.acao === 'criar_imagem') {

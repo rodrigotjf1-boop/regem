@@ -138,6 +138,8 @@ export const botoesDaProposta = (propostaId: string, titulos: { autorizar: strin
 
 /** As respostas ao toque. */
 export const TEXTOS_DA_PROPOSTA = {
+  /** Rodada 7, MIS-D-05 (ERR-655): a execução parou no meio (o servidor reiniciou) — fecha sem refazer. */
+  naoConfirmou: 'não consegui confirmar se foi feito (o Regem reiniciou no meio). Confira no Regem antes de pedir de novo.',
   autorizada: (p: ProcedimentoDoMister) =>
     p === 'criar_imagem'
       ? TEXTOS_DAS_ACOES.imagemGerando
@@ -244,8 +246,12 @@ export function apresentacaoDaProposta(procedimento: string): { titulo: string; 
 export const TEXTOS_DO_LINK = {
   /** O rótulo do botão de link na conversa (até 20 letras). */
   botao: 'Abrir no Regem',
+  /** Rodada 7, MIS-D-04 (ERR-655): o teto de PIN errado da pessoa nas últimas 24 horas (links e voz somados). */
+  travadoNoDia: 'Foram muitos PIN errados nas últimas 24 horas: pelo Mister o PIN fica travado até amanhã. Nada foi feito; faça pela tela do Regem.',
   autorizada: 'Autorizado no Regem, com o seu PIN. Estou fazendo agora; aviso aqui quando terminar.',
   recusada: 'Certo: você não autorizou no Regem. Nada foi feito.',
+  /** MIS-D-03 (ERR-655): a recusa pela página não pede o PIN — a mensagem diz o que fazer se não foi a pessoa. */
+  recusadaSemPin: 'Certo: "Não autorizar" no link, e nada foi feito. Se não foi você que tocou, me peça de novo.',
   bloqueada: 'O link foi bloqueado: o PIN foi digitado errado 5 vezes. Nada foi feito. Para tentar de novo, me peça outra vez. Se não foi você, avise o suporte.',
   /** A frase do PIN errado na página. */
   pinErrado: (restam: number) =>

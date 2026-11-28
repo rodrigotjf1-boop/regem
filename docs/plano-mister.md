@@ -3294,6 +3294,19 @@ senha do Regem antes do código; 5 erradas em 15 minutos travam o código por 15
 conferir, V98), e outro código pede a senha de novo. Na troca de celular, depois do "Pronto" ao novo, o antigo recebe o aviso
 ("se não foi você, avise o presidente e troque a senha"): o texto dentro das 24 horas, o modelo `mister_aviso` fora delas.
 
+**Rodada 7 — bloco D, "propostas, botões e página do PIN" (28/11/2026; ERR-655, V125; SEM migration; só na nuvem):** os 13
+achados conferidos no código; o D-08 não procede (o público da campanha já é conferido de novo na execução).
+- **D-13 (o grave):** o áudio do PIN, depois de saber que há pedido esperando, nunca volta ao caminho comum (a proposta que vence
+  na transcrição, um erro: frase fixa); a entrada falha fechada; e a leitura comum recusa a transcrição que é só um PIN.
+- **D-11 e D-12:** o áudio autoriza a proposta e a emissão do link escolhidas antes da transcrição (com duas, nenhuma); o
+  "PIN conferido" diz o quê; só a nota de voz gravada na hora vale.
+- **D-01:** pedido com outros parâmetros é proposta nova; a antiga fica "substituída" — cada botão faz o que a mensagem dele mostrou.
+- **D-04:** teto de 10 PIN errados por pessoa em 24 h (link e voz); o link da sessão sai só quando ela é nova.
+- **D-05:** a execução parada há 15 min fecha como "não deu", sem refazer. **D-02:** o link vencido ou usado não devolve mais o
+  pedido. **D-03:** a recusa sem PIN fica registrada como tal. **D-06:** todas as linhas no "Vou fazer". **D-07:** o "de" do preço
+  conferido antes de gravar. **D-09:** a loja de agora na execução. **D-10:** o R$ oculto ao gerente sem valores no pedido ao
+  presidente.
+
 ### Dias especiais H2b — o feriado pelo Mister (27/11/2026; SEM migration; só na nuvem)
 
 Fase H2b do protótipo `mockups/regem-dias-especiais.html` (aba "No Mister"; decisões 4 e 8).
