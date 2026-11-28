@@ -1,0 +1,1011 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regem · P49 · o Mister com o marketing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* REGEM · PROTÓTIPO P49 — O MISTER COM O MARKETING DO LIAME — versão 1, APROVADA PELO DONO em 28/11/2026 ("aprovados"), com as decisões D-PC-40 a D-PC-49 como recomendadas.
+   De onde vem: o plano de conteúdo do Liame (`docs/plano-conteudo.md` do Liame, §9 e §11), aprovado pelo dono em
+   28/11/2026 com as decisões D-PC-1 a D-PC-18 na recomendação. Valem aqui as já aprovadas D-PC-12 (o Liame envia, o
+   Regem guarda e o Mister lê do próprio banco), D-PC-13 (o presidente vê; o gerente só se o presidente liberar, sem os
+   blocos de dinheiro) e D-PC-14 (na primeira fase o Mister mostra e manda o link; não muda o plano).
+   Base: `mockups/regem-mister.html` (versões 1, 2 e 3 aprovadas): a faixa do protótipo, os botões de situação, as
+   partes do Mister, o "Vai para" com o "Mudar" em gaveta e as conversas no celular. A tela de autorizar segue a página
+   real da autorização por clique (Hub DMS, F3 parte C, `autorizacao-clique.tela.ts`, textos aprovados em 21/10/2026):
+   1 Quem pede, 2 A loja, 3 O que o Liame vai ver (ou "O que muda"), 4 O que ele não pode, 5 a senha.
+   O que tem:
+   - "Autorização no Regem": a permissão nova `marketing.resumo.enviar` na ligação nova, no pedido de "mais uma
+     permissão", deixada desligada, recusada, aberta por um gerente, carregando, com erro, e o Liame em
+     Configurações › Aplicativos conectados (com "Parar de receber o resumo").
+   - "Mister na loja": o cartão "Marketing (Liame)" no Resumo (7 situações) e o grupo "Marketing (Liame)" em Avisos e
+     relatórios: cinco avisos com o "Vai para", o ajuste do gerente e o bloco no resumo da semana.
+   - "No celular": onze conversas (pergunta, resumo da semana, sugestões, avisos, mudar o plano, gerente liberado e não
+     liberado, permissão não liberada, esperando o primeiro resumo, resumo velho).
+   - "Notas e decisões": D-PC-40 a D-PC-49 com a recomendada primeiro e o que a PC11 precisa no Regem.
+   Fatos (reais, do §1.2 do plano, lidos na nuvem do Liame em 27/11/2026, só agregados): os 50 posts mais novos da
+   Mister Burgers (14/09 a 26/11/2026): 39 fotos, 7 carrosséis, 4 Reels; alcance médio 814 (foto), 864 (carrossel) e
+   3.009 (Reels); mediano 518, 636 e 1.813; envios por mil alcançados 2,1, 2,5 e 5,7; o Reels alcança cerca de 3,7 vezes
+   a foto e é enviado 2,7 vezes mais; o último Reels saiu em 16/10; 32 dos 50 posts saíram entre 17h e 18h59 e nenhum
+   numa quarta; 22 fotos e vídeos na biblioteca; os mais vendidos aparecem com o nome do canal ("TRIO 08").
+   De exemplo (não conferido): os números de cada semana, as campanhas e a verba, os planos e as datas deles, os pedidos
+   pelo link, os nomes das pessoas (Rodrigo, presidente; Carlos, gerente), a loja "Mister Burgers Tijuca", as horas e
+   os caminhos de tela do Liame que ainda não existem ("Enviar o resumo ao Mister").
+   Onde a tela real difere, de propósito: os botões "Situação do protótipo" não existem no app; as conversas mostram o
+   que a IA pode responder, não frases fixas (regra do dono de 25/11: o Mister é IA, não roteiro). */
+:root{
+  --bg:#EDF0F4; --card:#FFFFFF; --ink:#132536; --ink-2:#43586C; --line:#DEE5EC; --line-2:#C8D2DC;
+  --gold:#E2A340; --on-gold:#281B06; --gold-ink:#7A5209; --gold-bg:#FFF9EC; --navy:#0F2230;
+  --ok:#0F6647; --ok-bg:#E3F4EC; --crit:#B93232; --crit-bg:#FBE9E9; --warn:#9A4B1C; --warn-bg:#FCEDE4; --info:#2C6699; --info-bg:#E6F0F8;
+  --neutro:#43586C; --neutro-bg:#EAEFF4; --foco:#3A7FB8; --liame:#5A43D8;
+  --c-wa:#0B6E3A; --wa-fundo:#EDE6DB; --wa-dele:#FFFFFF; --wa-meu:#D9F5CF;
+  --proto:#0B1822; --proto-txt:#C9D5DF; --proto-txt2:#8FA3B4; --proto-linha:#2A3B4A; --d-azul:#7CC0F5;
+  --radius:12px; --display:"Archivo","Segoe UI",system-ui,sans-serif; --body:"Figtree","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font:15px/1.5 var(--body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+[hidden]{display:none!important}
+h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance}
+h1{font-size:26px;line-height:1.15} h2{font-size:18px} h3{font-size:16px} h4{font-size:14px}
+p{margin:0 0 10px;overflow-wrap:anywhere} p:last-child{margin-bottom:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--foco);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.pular{position:absolute;left:8px;top:-60px;background:var(--gold);color:var(--on-gold);padding:8px 12px;border-radius:8px;font-weight:700;z-index:99}
+.pular:focus{top:8px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.quebra{overflow-wrap:anywhere;word-break:break-word}
+.sub{color:var(--ink-2)} .peq{font-size:13.5px}
+.exemplo{font:700 10.5px var(--display);background:var(--neutro-bg);color:var(--neutro);padding:1px 6px;border-radius:4px;letter-spacing:.04em;white-space:nowrap;vertical-align:1px}
+.real{font:700 10.5px var(--display);background:var(--ok-bg);color:var(--ok);padding:1px 6px;border-radius:4px;letter-spacing:.04em;white-space:nowrap;vertical-align:1px}
+
+/* faixa do protótipo */
+.proto{background:var(--proto);color:var(--proto-txt);padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.proto .titulo{font-family:var(--display);font-weight:700;color:#fff}
+.abas{display:flex;flex-wrap:wrap;gap:6px}
+.aba{background:transparent;border:1px solid var(--proto-linha);color:var(--proto-txt);padding:6px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.aba[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-weight:700}
+.proto .nota{font-size:12.5px;color:var(--proto-txt2);flex:1 1 220px;min-width:0}
+.proto :focus-visible{outline-color:var(--d-azul)}
+.vista{display:none} .vista.ativa{display:block}
+
+/* casca do app da loja */
+.app{display:grid;grid-template-columns:240px minmax(0,1fr);min-height:80vh}
+.lado{background:var(--navy);color:#C9D5DF;padding:16px 12px}
+.marca{font-family:var(--display);font-weight:800;color:#fff;font-size:18px;padding:4px 8px 14px;letter-spacing:.02em}
+.marca small{display:block;font:500 11.5px var(--body);color:#8FA3B4;letter-spacing:0}
+.lado ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.lado li{padding:8px 10px;border-radius:8px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.lado li.atual{background:rgba(226,163,64,.2);color:#fff;box-shadow:inset 3px 0 0 var(--gold);font-weight:600}
+.lado li.filho{padding-left:22px;font-size:14px}
+.principal{min-width:0;container-type:inline-size;container-name:principal}
+.topo{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between}
+.onde{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
+.quem{font-size:13.5px;color:var(--ink-2)}
+.menu-cel{display:none;font-size:13px;color:var(--ink-2)}
+.pagina{padding:20px;max-width:1160px}
+.cab{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+.cab .sub{max-width:68ch;margin-top:4px}
+.partes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--line)}
+.parte{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:999px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink-2)}
+.parte[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+
+/* peças */
+.cartao{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;min-width:0}
+.cartao > h2,.cartao > h3{margin-bottom:6px}
+.cartao.destaque{border-color:var(--gold);box-shadow:inset 3px 0 0 var(--gold)}
+.grade2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px}
+.grade2 > .cartao{margin-bottom:0}
+.ctls{border:1px dashed var(--line-2);background:#FFFBF0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--gold-ink)}
+.ctl{background:#fff;border:1px solid var(--line-2);padding:4px 10px;border-radius:999px;cursor:pointer;min-height:32px;color:var(--ink)}
+.ctl[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+.selo{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.selo.ok{background:var(--ok-bg);color:var(--ok)} .selo.crit{background:var(--crit-bg);color:var(--crit)}
+.selo.warn{background:var(--warn-bg);color:var(--warn)} .selo.info{background:var(--info-bg);color:var(--info)} .selo.neutro{background:var(--neutro-bg);color:var(--neutro)}
+.selo.liame{background:#EEEAFF;color:var(--liame)}
+.btn{background:#fff;border:1px solid var(--line-2);padding:8px 14px;border-radius:10px;cursor:pointer;min-height:40px;font-weight:600;color:var(--ink);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;text-align:center}
+.btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.btn.perigo{color:var(--crit);border-color:#E3B5B5}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.acoes{display:flex;flex-wrap:wrap;gap:8px}
+.faixa{border-radius:10px;padding:10px 14px;margin-bottom:14px;border:1px solid}
+.faixa.crit{background:var(--crit-bg);border-color:#E3B5B5;color:#7A1E1E} .faixa.warn{background:var(--warn-bg);border-color:#EBC7B0;color:#6F3410}
+.faixa.info{background:var(--info-bg);border-color:#BFD6EA;color:#1D4C77} .faixa.ok{background:var(--ok-bg);border-color:#B5DCC8;color:#0B4A33}
+a{color:var(--info);text-underline-offset:2px}
+.vazio{text-align:center;color:var(--ink-2);padding:26px 12px;border:1px dashed var(--line-2);border-radius:10px}
+.vazio .grande{font-size:28px;display:block;margin-bottom:4px}
+.linhas{list-style:none;margin:0;padding:0}
+.linhas li{display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:space-between;align-items:baseline;padding:10px 0;border-top:1px solid var(--line)}
+.linhas li:first-child{border-top:0}
+.linhas li > div{min-width:0;flex:1 1 240px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:8px;margin:12px 0}
+.kpi{border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+.kpi b{display:block;font:700 18px var(--mono);font-variant-numeric:tabular-nums}
+.kpi span{font-size:12.5px;color:var(--ink-2)}
+.esqueleto{display:block;height:12px;border-radius:6px;background:linear-gradient(90deg,#E6ECF1,#F4F7F9,#E6ECF1);background-size:200% 100%;animation:brilho 1.4s infinite;margin:8px 0}
+.esqueleto.c{width:60%} .esqueleto.m{width:80%}
+@keyframes brilho{from{background-position:200% 0}to{background-position:-200% 0}}
+
+/* tabela que vira cartões pelo espaço da peça */
+.tab{width:100%;border-collapse:collapse}
+.tab th{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px 10px;border-bottom:2px solid var(--line-2)}
+.tab td{padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.tab td.num,.tab th.num{text-align:right}
+@container principal (max-width: 820px){
+  .tab thead{display:none}
+  .tab,.tab tbody,.tab tfoot,.tab tr,.tab td{display:block;width:100%}
+  .tab tr{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:#fff}
+  .tab td{padding:4px 0;border:0;text-align:left!important}
+  .tab td[data-rot]::before{content:attr(data-rot);display:block;font:600 11px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+  .tab td .acoes .btn{flex:1 1 140px}
+}
+
+/* formulário, chave liga/desliga, ajustes */
+.campo{display:grid;gap:4px;margin-bottom:12px;max-width:520px}
+.campo label{font-weight:600;font-size:14px}
+.campo input,.campo select{border:1px solid var(--line-2);border-radius:10px;padding:9px 12px;min-height:42px;background:#fff;width:100%;min-width:0}
+.campo input[aria-invalid="true"]{border-color:var(--crit)}
+.campo .ajuda{font-size:13.5px;color:var(--ink-2)}
+.erro{color:var(--crit);font-size:13.5px;font-weight:600;margin:4px 0 0}
+.liga{position:relative;width:52px;height:30px;border-radius:999px;border:1px solid var(--line-2);background:var(--neutro-bg);cursor:pointer;flex:none;padding:0}
+.liga::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:left .15s}
+.liga[aria-checked="true"]{background:var(--ok);border-color:var(--ok)} .liga[aria-checked="true"]::after{left:25px}
+.aj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:12px 10px;border-top:1px solid var(--line)}
+.aj:first-of-type{border-top:0}
+.aj.mudou{background:var(--gold-bg);box-shadow:inset 3px 0 0 var(--gold)}
+.aj .t{font-weight:600} .aj .d{font-size:13.5px;color:var(--ink-2)}
+.aj .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end;min-width:0}
+.destinos{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.destinos .selo{white-space:normal}
+.btn-peq{min-height:32px;padding:4px 10px;font-size:13px}
+.grupo-aj{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-2);margin:16px 0 2px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.marcar{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 12px;display:grid;gap:8px}
+.marcar legend{font-weight:700;padding:0 4px}
+.marcar label{display:flex;gap:8px;align-items:center;min-height:32px}
+.marcar select{border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;min-height:38px;background:#fff;max-width:100%}
+.estado-liga{font-size:13px;color:var(--ink-2);min-width:68px}
+.barra-salvar{position:sticky;bottom:0;background:var(--navy);color:#fff;border-radius:12px 12px 0 0;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;z-index:5}
+.barra-salvar .btn{border-color:#3C5568;background:transparent;color:#fff} .barra-salvar .btn.pri{background:var(--gold);border-color:var(--gold);color:var(--on-gold)}
+.barra-salvar :focus-visible{outline-color:var(--d-azul)}
+@container principal (max-width: 620px){
+  .aj{grid-template-columns:minmax(0,1fr)}
+  .aj .ctrl{justify-content:flex-start}
+}
+
+/* gaveta e diálogo */
+.fundo{position:fixed;inset:0;background:rgba(15,34,48,.45);z-index:40;display:none}
+.fundo.aberto{display:block}
+.gaveta{position:fixed;top:0;right:0;bottom:0;width:min(520px,100%);background:#fff;z-index:41;display:none;flex-direction:column;box-shadow:-8px 0 24px rgba(15,34,48,.18)}
+.gaveta.aberto{display:flex}
+.dialogo{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(540px,calc(100% - 24px));max-height:calc(100% - 24px);background:#fff;z-index:43;display:none;flex-direction:column;border-radius:14px;box-shadow:0 12px 40px rgba(15,34,48,.3)}
+.dialogo.aberto{display:flex}
+.fundo.alto{z-index:42}
+.pn-cab{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+.pn-cab h3{min-width:0;overflow-wrap:anywhere}
+.pn-corpo{padding:18px;overflow:auto;flex:1;min-height:0}
+.pn-rodape{padding:12px 18px;border-top:1px solid var(--line);background:#F7F9FB;display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;border-radius:0 0 14px 14px}
+.gaveta .pn-rodape{border-radius:0}
+.fechar{background:transparent;border:0;font-size:18px;cursor:pointer;min-width:40px;min-height:40px;border-radius:8px;flex:none}
+.bloco{border-top:1px solid var(--line);padding:12px 0}
+.bloco:first-of-type{border-top:0;padding-top:0}
+.bloco > h4{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);margin-bottom:6px}
+.bloco ul{margin:0;padding-left:18px} .bloco li{margin-bottom:4px}
+.avisos{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;display:grid;gap:8px;width:min(440px,calc(100% - 24px))}
+.aviso{background:var(--navy);color:#fff;border-radius:10px;padding:10px 14px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+
+/* a página de autorizar (fora do menu, como a real) */
+.moldura-wrap{padding:0 20px 28px;container-type:inline-size;container-name:principal}
+.moldura{max-width:780px;margin:0 auto;border:1px solid var(--line-2);border-radius:14px;overflow:hidden;background:var(--bg);box-shadow:0 8px 28px rgba(19,37,54,.1)}
+.m-topo{background:var(--navy);color:#fff;display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 16px}
+.m-marca{font:800 16px var(--display);display:flex;gap:8px;align-items:center}
+.disco{width:30px;height:30px;border-radius:50%;background:#fff;color:var(--navy);display:grid;place-items:center;font:800 11px var(--display);flex:none;letter-spacing:-.02em}
+.m-quem{text-align:right;font-size:12px;color:#C9D5DF;min-width:0;line-height:1.3}
+.m-quem b{display:block;color:#fff;font-size:13px}
+.m-corpo{padding:22px 16px 30px;display:grid;justify-items:center}
+.aut{width:100%;max-width:640px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px;min-width:0}
+.aut.curto{max-width:480px;text-align:center;display:grid;gap:10px;justify-items:center}
+.par{display:flex;gap:10px;align-items:center;color:var(--ink-2);margin-bottom:12px}
+.selo-app{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font:800 18px var(--display);color:#fff;background:var(--liame);flex:none}
+.par .disco{width:44px;height:44px;background:var(--navy);color:#fff;font-size:14px}
+.troca{font-size:18px}
+.aut .titulo-aut{font-size:22px;line-height:1.2;margin-bottom:6px}
+.t-sec{border-top:1px solid var(--line);padding-top:14px;margin-top:16px}
+.t-sec > h3{display:flex;gap:8px;align-items:center;font-size:15px;margin-bottom:8px}
+.t-sec > h3 .n{width:24px;height:24px;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;font:700 12px var(--mono);flex:none}
+.t-sec h4{font:600 11.5px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);margin:14px 0 6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.t-ajuda{font-size:13.5px;color:var(--ink-2);margin:0 0 8px}
+.perm{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.perm li{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:2px 10px;align-items:start;border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}
+.perm li.novo{border-color:var(--gold);background:var(--gold-bg)}
+.perm li.desl .marca-p{color:var(--ink-2)}
+.perm .marca-p{grid-row:1 / span 4;font-weight:800;color:var(--ok);line-height:1.5}
+.perm .linha{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;min-width:0}
+.perm .txt{font-size:13.5px;color:var(--ink-2);grid-column:2;min-width:0;overflow-wrap:anywhere}
+.perm .sem{font-size:13px;color:var(--warn);font-weight:600;grid-column:2}
+.perm .lado-p{grid-column:3;grid-row:1 / span 2}
+.perm details{grid-column:2;font-size:13.5px}
+.perm.mini li{grid-template-columns:22px minmax(0,1fr);padding:6px 10px}
+summary{cursor:pointer;color:var(--info);font-weight:600;min-height:32px;display:flex;align-items:center;gap:4px}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"▸";font-size:11px;transition:transform .15s}
+details[open] > summary::before{transform:rotate(90deg)}
+details.ja{margin-top:10px}
+.chip{display:inline-block;font-size:11.5px;font-weight:700;padding:1px 8px;border-radius:999px;white-space:nowrap}
+.chip.ok{background:var(--ok-bg);color:var(--ok)} .chip.atencao{background:var(--warn-bg);color:var(--warn)} .chip.neutro{background:var(--neutro-bg);color:var(--neutro)} .chip.novo{background:var(--gold);color:var(--on-gold)}
+.quem-pede{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.quem-pede li{border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}
+.quem-pede .linha{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.quem-pede .txt{display:block;font-size:13.5px;color:var(--ink-2);overflow-wrap:anywhere}
+.t-loja{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;align-items:start;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.t-loja input{width:20px;height:20px;margin:2px 0 0}
+.t-loja small{grid-column:2;color:var(--ink-2);font-size:13px}
+.botoes-aut{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.botoes-aut .btn{flex:1 1 200px}
+.rodape-aut{font-size:12.5px;color:var(--ink-2);margin-top:12px}
+.lista-ok{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;text-align:left;font-size:14px}
+.lista-ok li::before{content:"✓ ";color:var(--ok);font-weight:800}
+.lista-ok li.fora::before{content:"— ";color:var(--ink-2)}
+
+/* celular */
+.celulares{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr));gap:22px 18px;align-items:start}
+.caso h3{margin-bottom:2px} .caso .sub{font-size:13.5px;margin-bottom:8px}
+.cel{border:8px solid #1B2A36;border-radius:28px;background:var(--wa-fundo);overflow:hidden;max-width:360px}
+.cel-topo{background:var(--c-wa);color:#fff;padding:10px 14px;display:flex;gap:10px;align-items:center}
+.cel-topo .foto{width:34px;height:34px;border-radius:50%;background:#fff;color:var(--c-wa);display:grid;place-items:center;font:800 15px var(--display);flex:none}
+.cel-topo b{display:block;line-height:1.2} .cel-topo span{font-size:12.5px;opacity:.9}
+.conv{padding:12px 10px;display:grid;gap:8px;min-height:150px;align-content:start}
+.bolha{max-width:90%;padding:7px 10px;border-radius:10px;font-size:14px;line-height:1.4;box-shadow:0 1px 1px rgba(0,0,0,.12);overflow-wrap:anywhere}
+.bolha.dele{background:var(--wa-dele);justify-self:start;border-top-left-radius:2px}
+.bolha.meu{background:var(--wa-meu);justify-self:end;border-top-right-radius:2px}
+.bolha .hora{display:block;text-align:right;font-size:11px;color:#5E6E7A;margin-top:2px}
+.bolha i{color:#43586C}
+.botoes-wa{display:grid;gap:4px;margin-top:6px}
+.botoes-wa span{background:#fff;border:1px solid #D5DDE3;border-radius:8px;padding:6px 8px;text-align:center;color:#0B5CAD;font-weight:600;font-size:13.5px}
+.dia-wa{justify-self:center;background:#E1F2FB;color:#43586C;font-size:12px;padding:3px 10px;border-radius:8px}
+.fase{font:700 11px var(--display);letter-spacing:.06em;text-transform:uppercase;color:var(--gold-ink)}
+.sep{display:flex;align-items:center;gap:10px;margin:30px 0 6px}
+.sep::after{content:"";flex:1;height:1px;background:var(--line-2)}
+
+/* notas */
+.notas{padding:20px;max-width:1000px;margin-inline:auto;container-type:inline-size;container-name:principal}
+.notas .cartao ul,.notas .cartao ol{margin:6px 0 0;padding-left:20px} .notas .cartao li{margin-bottom:6px}
+.decisao{border-top:1px solid var(--line);padding:12px 0}
+.decisao:first-of-type{border-top:0}
+.decisao h3{font-size:15px;margin-bottom:4px}
+.decisao .rec{background:var(--ok-bg);border-radius:8px;padding:8px 10px;margin:6px 0}
+.decisao .rec b:first-child{color:var(--ok)}
+.codigo-l{font-family:var(--mono);font-size:13px;background:var(--neutro-bg);border-radius:4px;padding:0 4px;overflow-wrap:anywhere}
+.topo-sec{padding:20px 20px 4px;max-width:1160px;margin-inline:auto}
+
+@media (max-width: 900px){
+  .app{grid-template-columns:minmax(0,1fr)} .lado{display:none} .menu-cel{display:inline}
+  .pagina,.notas{padding:14px} .topo{padding:10px 14px} .moldura-wrap{padding:0 14px 20px} .topo-sec{padding:14px 14px 4px}
+  .btn,.parte{min-height:44px}
+}
+@container principal (max-width: 420px){
+  .aut{padding:14px} .m-corpo{padding:16px 8px 22px}
+  .perm li{grid-template-columns:22px minmax(0,1fr)}
+  .perm .lado-p{grid-column:2;grid-row:auto;justify-self:start;margin-top:6px}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important;scroll-behavior:auto!important} }
+</style>
+</head>
+<body data-aut="nova" data-mkt="recebendo" data-av="liberada">
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="proto">
+  <span class="titulo">Protótipo · P49 · O Mister com o marketing</span>
+  <nav class="abas" aria-label="Partes do protótipo">
+    <button class="aba" data-aba="autorizar" aria-pressed="true">Autorização no Regem</button>
+    <button class="aba" data-aba="loja" aria-pressed="false">Mister na loja</button>
+    <button class="aba" data-aba="celular" aria-pressed="false">No celular</button>
+    <button class="aba" data-aba="notas" aria-pressed="false">Notas e decisões</button>
+  </nav>
+  <span class="nota">Para aprovação · 28/11/2026. Números do Instagram reais (só agregados); o resto, de exemplo. Nada aqui fala com o Regem nem com o Liame.</span>
+</header>
+
+<div id="conteudo">
+
+<!-- ═════════════════════ AUTORIZAÇÃO NO REGEM ═════════════════════ -->
+<section class="vista ativa" id="v-autorizar" aria-labelledby="h-autorizar">
+  <div class="topo-sec">
+    <h1 id="h-autorizar">Autorização no Regem</h1>
+    <p class="sub" style="max-width:82ch;margin-top:6px">O Liame pede pelo botão dele (no Liame, Contas conectadas › Regem). A página abre no Regem, fora do menu, e só o presidente decide, com a senha. A permissão nova é a única que <strong>escreve</strong> no Regem: o Liame grava o resumo do marketing para o Mister ler, e nada mais.</p>
+    <div class="ctls" role="group" aria-label="Situação do protótipo na autorização"><span>Situação do protótipo:</span>
+      <button class="ctl" data-ctl="aut" data-valor="nova" aria-pressed="true">ligação nova</button>
+      <button class="ctl" data-ctl="aut" data-valor="mais" aria-pressed="false">pede mais uma permissão</button>
+      <button class="ctl" data-ctl="aut" data-valor="feito" aria-pressed="false">autorizou</button>
+      <button class="ctl" data-ctl="aut" data-valor="desligada" aria-pressed="false">deixou desligada</button>
+      <button class="ctl" data-ctl="aut" data-valor="negou" aria-pressed="false">disse "agora não"</button>
+      <button class="ctl" data-ctl="aut" data-valor="gerente" aria-pressed="false">um gerente abriu</button>
+      <button class="ctl" data-ctl="aut" data-valor="carregando" aria-pressed="false">carregando</button>
+      <button class="ctl" data-ctl="aut" data-valor="erro" aria-pressed="false">erro</button>
+      <button class="ctl" data-ctl="aut" data-valor="conectados" aria-pressed="false">Aplicativos conectados</button>
+    </div>
+  </div>
+
+  <div class="moldura-wrap" data-mostra="aut:nova|mais|feito|desligada|negou|gerente|carregando|erro">
+    <div class="moldura">
+      <div class="m-topo">
+        <span class="m-marca"><span class="disco" aria-hidden="true">R.O.</span>Regem</span>
+        <span class="m-quem"><b>Mister Burgers</b><span data-mostra="aut:nova|mais|feito|desligada|negou|carregando|erro">Rodrigo · presidente</span><span data-mostra="aut:gerente">Carlos · gerente</span></span>
+      </div>
+      <div class="m-corpo">
+
+        <!-- ligação nova e "mais uma permissão": o mesmo formulário, montado no servidor -->
+        <form class="aut" data-mostra="aut:nova|mais" id="form-aut" novalidate aria-labelledby="aut-titulo">
+          <div class="par" aria-hidden="true"><span class="selo-app">L</span><span class="troca">⇄</span><span class="disco">R.O.</span></div>
+          <h2 class="titulo-aut" id="aut-titulo"><span data-mostra="aut:nova">O Liame quer ler as vendas da sua loja</span><span data-mostra="aut:mais">O Liame pede mais uma permissão</span></h2>
+          <p class="sub" data-mostra="aut:nova">O Liame mede quais anúncios viraram pedido no caixa. Ele só lê o que estiver marcado aqui; não muda pedido, preço nem cardápio. Agora ele também pode mandar ao Regem o resumo do marketing, para o Mister: você decide abaixo.</p>
+          <p class="sub" data-mostra="aut:mais">O Liame já lê a Mister Burgers Tijuca desde 30/09/2026 <span class="exemplo">exemplo</span> e agora pede também para mandar ao Regem o resumo do marketing, para o Mister. Se você disser não, ele continua com o que já tinha.</p>
+
+          <section class="t-sec" aria-labelledby="s-quem">
+            <h3 id="s-quem"><span class="n">1</span>Quem pede</h3>
+            <ul class="quem-pede">
+              <li><span class="linha"><b>Liame</b><span class="chip ok">✓ Produto da DMS</span></span><span class="txt">Aplicativo da DMS Tecnologias, a mesma distribuição do Regem.</span></li>
+              <li><span class="linha"><b>A conta Mister Burgers no Liame</b><span class="chip ok">A mesma empresa desta loja</span></span><span class="txt">Pela raiz do CNPJ, conferida pelo servidor. CNPJ e e-mail aparecem aqui na tela real.</span></li>
+            </ul>
+          </section>
+
+          <section class="t-sec" aria-labelledby="s-loja">
+            <h3 id="s-loja"><span class="n">2</span>A loja</h3>
+            <label class="t-loja"><input type="checkbox" checked id="aut-loja"><span><b>Mister Burgers Tijuca</b> <span class="chip neutro">Matriz</span> <span class="chip ok" data-mostra="aut:mais">Conectada desde 30/09/2026</span></span>
+              <small data-mostra="aut:nova">Com uma loja só, ela já vem marcada.</small>
+              <small data-mostra="aut:mais">O que já foi liberado continua valendo. Autorizar soma o que está em "O que muda".</small></label>
+          </section>
+
+          <!-- ligação nova: tudo o que o Liame vê e, num grupo próprio, o que ele envia -->
+          <section class="t-sec" aria-labelledby="s-ve" data-mostra="aut:nova">
+            <h3 id="s-ve"><span class="n">3</span>O que o Liame vai ver</h3>
+            <h4>Necessárias</h4>
+            <p class="t-ajuda">Sem estas, o Liame não funciona. Para não liberar, cancele.</p>
+            <ul class="perm">
+              <li><span class="marca-p" aria-hidden="true">✓</span><span class="linha"><b>Pedidos</b></span><span class="txt">Pedidos confirmados e cancelados, com itens, canal, cupom usado e de qual anúncio ou link o cliente veio; e as entregas somadas por bairro, sem dado do cliente.</span></li>
+              <li><span class="marca-p" aria-hidden="true">✓</span><span class="linha"><b>Aviso de cliente anonimizado</b></span><span class="txt">Quando um cliente pede para ser esquecido no Regem, o aplicativo recebe o aviso para apagar o que tiver dele.</span></li>
+              <li><span class="marca-p" aria-hidden="true">✓</span><span class="linha"><b>Cupons</b> e <b>usos dos cupons</b></span><span class="txt">Os cupons da loja, com regra e validade, e em qual pedido cada um foi usado.</span></li>
+              <li><span class="marca-p" aria-hidden="true">✓</span><span class="linha"><b>Canais da Central de atendimento</b></span><span class="txt">Quais contas do Instagram e páginas do Facebook a Central do Regem atende. Sem mensagens e sem dados de cliente.</span></li>
+            </ul>
+            <h4>Opcionais · você decide</h4>
+            <ul class="perm">
+              <li class="desl"><span class="marca-p" aria-hidden="true">🔒</span><span class="linha"><b>Custo dos itens</b></span><span class="txt">O custo de cada item vendido, pela ficha técnica.</span><span class="lado-p"><button class="liga" type="button" role="switch" aria-checked="false" aria-label="Custo dos itens" data-solto></button></span></li>
+              <li class="desl"><span class="marca-p" aria-hidden="true">🔒</span><span class="linha"><b>Criar cupom de campanha</b></span><span class="txt">Criar cupons de campanha na loja e desativar os que ele mesmo criou.</span><span class="lado-p"><button class="liga" type="button" role="switch" aria-checked="false" aria-label="Criar cupom de campanha" data-solto></button></span></li>
+              <li class="desl"><span class="marca-p" aria-hidden="true">🔒</span><span class="linha"><b>Tamanho dos públicos do perfil</b></span><span class="txt">Quantos clientes há em cada público do perfil. Só os números.</span><span class="lado-p"><button class="liga" type="button" role="switch" aria-checked="false" aria-label="Tamanho dos públicos do perfil" data-solto></button></span></li>
+            </ul>
+            <h4>Dados dos seus clientes · você decide</h4>
+            <ul class="perm">
+              <li class="desl"><span class="marca-p" aria-hidden="true">🔒</span><span class="linha"><b>Telefone do cliente no pedido</b><span class="chip atencao">Dado pessoal</span></span><span class="txt">O telefone de quem fez o pedido. Sem nome, e-mail e endereço.</span><span class="lado-p"><button class="liga" type="button" role="switch" aria-checked="false" aria-label="Telefone do cliente no pedido" data-solto></button></span></li>
+            </ul>
+            <h4 id="h-envia-nova">O que o Liame envia ao seu Regem · você decide <span class="chip novo">Novo</span></h4>
+            <p class="t-ajuda">É o único que grava no Regem. O Liame só guarda este resumo para o Mister ler; não muda nada da loja.</p>
+            <ul class="perm" aria-labelledby="h-envia-nova">
+              <li class="novo" data-perm-mkt><span class="marca-p" aria-hidden="true" data-marca-mkt>🔒</span>
+                <span class="linha"><b id="r-mkt">Resumo do marketing para o Mister</b></span>
+                <span class="txt">Mandar ao Regem o resumo do marketing: os números do plano de conteúdo, das postagens e das campanhas, as sugestões e os avisos. Sem dado de cliente.</span>
+                <span class="sem" data-sem-mkt>Desligado: o Mister não fala do marketing. O resto funciona.</span>
+                <details><summary>Por que o Liame pede</summary><p>Para o Mister responder como vai o marketing e avisar o que pede atenção, sem você abrir o Liame.</p></details>
+                <details><summary>O que vai e o que nunca vai</summary>
+                  <p><strong>Vai:</strong> o plano e o que saiu; o alcance, os envios e os salvos de cada formato; os pedidos e a receita que vieram pelos links e cupons do plano; a verba e o retorno das campanhas; a meta do plano; as fotos que faltam; as datas que vêm aí; as sugestões com o número de cada uma; os avisos (conta desconectada, post que falhou, aprovação vencendo).</p>
+                  <p><strong>Nunca vai:</strong> nome ou telefone de cliente, texto de comentário ou de Direct, senha ou chave de acesso.</p></details>
+                <span class="lado-p"><button class="liga" type="button" role="switch" aria-checked="false" aria-labelledby="r-mkt" id="sw-mkt"></button></span></li>
+            </ul>
+          </section>
+
+          <!-- mais uma permissão: só o que muda, e o que já vale -->
+          <section class="t-sec" aria-labelledby="s-muda" data-mostra="aut:mais">
+            <h3 id="s-muda"><span class="n">3</span>O que muda</h3>
+            <ul class="perm">
+              <li class="novo"><span class="marca-p" aria-hidden="true">＋</span>
+                <span class="linha"><b>Resumo do marketing para o Mister</b><span class="chip neutro">Novo</span><span class="chip ok">Grava no Regem</span></span>
+                <span class="txt">Mandar ao Regem o resumo do marketing: os números do plano de conteúdo, das postagens e das campanhas, as sugestões e os avisos. Sem dado de cliente. O Liame só guarda este resumo para o Mister ler; não muda nada da loja.</span>
+                <details><summary>Por que o Liame pede</summary><p>Para o Mister responder como vai o marketing e avisar o que pede atenção, sem você abrir o Liame.</p></details></li>
+            </ul>
+            <details class="ja"><summary>Já liberado desde 30/09/2026 (6)</summary>
+              <ul class="perm mini">
+                <li><span class="marca-p" aria-hidden="true">✓</span><b>Pedidos</b></li>
+                <li><span class="marca-p" aria-hidden="true">✓</span><b>Aviso de cliente anonimizado</b></li>
+                <li><span class="marca-p" aria-hidden="true">✓</span><b>Cupons</b></li>
+                <li><span class="marca-p" aria-hidden="true">✓</span><b>Usos dos cupons</b></li>
+                <li><span class="marca-p" aria-hidden="true">✓</span><b>Canais da Central de atendimento</b></li>
+                <li><span class="marca-p" aria-hidden="true">✓</span><b>Custo dos itens</b></li>
+              </ul></details>
+          </section>
+
+          <section class="t-sec" aria-labelledby="s-nao">
+            <h3 id="s-nao"><span class="n">4</span>O que o Liame não pode</h3>
+            <ul class="perm">
+              <li><span class="marca-p" aria-hidden="true">🔒</span><span class="linha"><b>Mudar pedido, preço ou cardápio</b></span><span class="txt">A integração não tem nenhuma rota que mude a venda ou o cardápio. O resumo do marketing só fica guardado para o Mister.</span></li>
+              <li><span class="marca-p" aria-hidden="true">🔒</span><span class="linha"><b>Mexer nos cupons da loja</b></span><span class="txt">Com a permissão ligada, ele só desativa os cupons que ele mesmo criou.</span></li>
+              <li><span class="marca-p" aria-hidden="true">🔒</span><span class="linha"><b>Ver quem é o cliente</b></span><span class="txt">Nome, e-mail e endereço ficam no Regem.</span></li>
+              <li><span class="marca-p" aria-hidden="true">🔒</span><span class="linha"><b>Falar pelo Mister</b></span><span class="txt">Quem escreve ao presidente é o Mister do Regem, com os números do resumo. O Liame não manda mensagem pelo número do Mister.</span></li>
+              <li><span class="marca-p" aria-hidden="true">🔒</span><span class="linha"><b>Entrar no seu Regem</b></span><span class="txt">O Liame não recebe a sua senha nem a sua sessão.</span></li>
+            </ul>
+          </section>
+
+          <section class="t-sec" aria-labelledby="s-senha">
+            <h3 id="s-senha"><span class="n">5</span>Confirme com a sua senha</h3>
+            <div class="campo">
+              <label for="aut-senha">Senha do Regem</label>
+              <input id="aut-senha" type="text" autocomplete="off" spellcheck="false" style="-webkit-text-security:disc" aria-describedby="aut-senha-ajuda">
+              <span class="ajuda" id="aut-senha-ajuda">A mesma de entrar no Regem, nunca o PIN. O Liame não recebe a senha.</span>
+              <p class="erro" id="aut-senha-erro" role="alert" hidden>Digite a sua senha do Regem para autorizar.</p>
+            </div>
+          </section>
+
+          <div class="botoes-aut">
+            <button class="btn" type="button" id="aut-cancelar"><span data-mostra="aut:nova">Cancelar</span><span data-mostra="aut:mais">Agora não</span></button>
+            <button class="btn pri" type="submit" id="aut-autorizar"><span data-mostra="aut:nova">Autorizar o Liame</span><span data-mostra="aut:mais">Liberar o resumo</span></button>
+          </div>
+          <p class="rodape-aut">Fica guardado o que você leu e decidiu, com a data. Você revoga quando quiser em Configurações › Aplicativos conectados.</p>
+        </form>
+
+        <!-- resultados -->
+        <div class="aut curto" data-mostra="aut:feito" role="status">
+          <span class="selo ok">autorizado</span>
+          <h2>Pronto: o Liame passa a mandar o resumo do marketing</h2>
+          <p class="sub">O primeiro resumo da semana chega na segunda, 30/11, às 07:00, e a atualização do dia, amanhã às 07:00. A partir daí, o Mister responde sobre o marketing e avisa o que pede atenção.</p>
+          <ul class="lista-ok"><li>O Liame continua lendo as vendas da Mister Burgers Tijuca.</li><li>Os presidentes da empresa recebem um e-mail com o que mudou.</li><li>O gerente só vê o marketing se você liberar em Mister › Avisos e relatórios.</li></ul>
+          <p class="sub peq">Voltando ao Liame…</p>
+        </div>
+        <div class="aut curto" data-mostra="aut:desligada" role="status">
+          <span class="selo ok">autorizado</span>
+          <h2>Pronto: o Liame passa a ler as vendas da sua loja</h2>
+          <ul class="lista-ok"><li>Pedidos, cupons, o aviso de cliente anonimizado e os canais da Central.</li><li class="fora">Resumo do marketing para o Mister: ficou desligado. O Mister não fala do marketing.</li></ul>
+          <p class="sub">Para ligar depois, peça pelo Liame (Contas conectadas › Regem › Enviar o resumo ao Mister). A confirmação volta a ser aqui, com a sua senha.</p>
+          <p class="sub peq">Voltando ao Liame…</p>
+        </div>
+        <div class="aut curto" data-mostra="aut:negou" role="status">
+          <span class="selo neutro">nada mudou</span>
+          <h2>O Liame continua com o que já tinha</h2>
+          <p class="sub">Ele segue lendo as vendas da Mister Burgers Tijuca e não manda o resumo do marketing. Se o presidente perguntar ao Mister sobre os posts, o Mister diz que não recebe o marketing e como liberar (conversa 9).</p>
+          <p class="sub peq">Voltando ao Liame…</p>
+        </div>
+        <div class="aut curto" data-mostra="aut:gerente" role="alert">
+          <span class="selo warn">só o presidente</span>
+          <h2>Só o presidente autoriza o Liame</h2>
+          <p class="sub">Você entrou como Carlos, gerente da Mister Burgers. Peça a um presidente da empresa para abrir o pedido pelo Liame.</p>
+          <div class="acoes"><a class="btn" href="#" data-aviso="Volta ao Liame (o endereço vem pronto do servidor).">Voltar ao Liame</a><button class="btn" type="button" data-aviso="Sai e abre a entrada do Regem; depois volta a este pedido.">Entrar com outro usuário</button></div>
+        </div>
+        <div class="aut curto" data-mostra="aut:carregando" role="status" aria-busy="true">
+          <span class="sr">Abrindo o pedido do Liame…</span>
+          <span class="esqueleto m" aria-hidden="true" style="width:70%"></span><span class="esqueleto" aria-hidden="true" style="width:90%"></span><span class="esqueleto c" aria-hidden="true"></span>
+          <p class="sub peq">Abrindo o pedido do Liame…</p>
+        </div>
+        <div class="aut curto" data-mostra="aut:erro" role="alert">
+          <span class="selo crit">não abriu</span>
+          <h2>Não foi possível abrir a autorização</h2>
+          <p class="sub">O Regem não conseguiu ler o pedido agora. Nada foi autorizado.</p>
+          <div class="acoes"><button class="btn pri" type="button" data-ctl="aut" data-valor="carregando">Tentar de novo</button><a class="btn" href="#" data-aviso="Volta ao Liame (o endereço vem pronto do servidor).">Voltar ao Liame</a></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Configurações › Aplicativos conectados, com o Liame -->
+  <div data-mostra="aut:conectados">
+    <div class="app">
+      <nav class="lado" aria-label="Menu do aplicativo (Aplicativos conectados)">
+        <div class="marca">REGEM<small>No comando de todo o negócio</small></div>
+        <ul>
+          <li>Painel</li><li>Delivery</li><li>Atendimento</li><li>Mister</li><li>Configurações</li>
+          <li class="filho">Loja</li><li class="filho">Acessos &amp; perfis</li>
+          <li class="filho atual" aria-current="page">Aplicativos conectados</li><li class="filho">Servidor local</li>
+        </ul>
+      </nav>
+      <div class="principal">
+        <div class="topo"><span><span class="menu-cel">☰ Menu · </span><span class="onde">Configurações</span></span><span class="quem">Rodrigo · presidente</span></div>
+        <main class="pagina">
+          <div class="cab"><div><h2 style="font-size:24px">Aplicativos conectados <span class="sub peq mono">· 2 acessos</span></h2><p class="sub">Quem lê os dados das suas lojas com a sua autorização, o que cada um recebe e, agora, o que cada um envia.</p></div></div>
+          <div class="cartao">
+            <table class="tab">
+              <caption class="sr">Aplicativos conectados, com a loja, o que recebem e enviam e o último acesso</caption>
+              <thead><tr><th>Aplicativo</th><th>Loja</th><th>Recebe e envia</th><th>Último acesso</th><th><span class="sr">Ações</span></th></tr></thead>
+              <tbody>
+                <tr><td data-rot="Aplicativo"><strong>Liame</strong><div class="sub peq">marketing · produto da DMS</div></td><td data-rot="Loja">Mister Burgers Tijuca</td><td data-rot="Recebe e envia">Recebe 6 permissões · <span class="selo ok">envia o resumo do marketing</span></td><td data-rot="Último acesso"><span class="mono">hoje 07:00</span> <span class="exemplo">exemplo</span></td><td><div class="acoes"><button class="btn" type="button" data-abre="gav-liame">Ver o acesso</button></div></td></tr>
+                <tr><td data-rot="Aplicativo"><strong>Farol</strong><div class="sub peq">câmera da cozinha · produto da DMS</div></td><td data-rot="Loja">Mister Burgers Tijuca</td><td data-rot="Recebe e envia">Recebe 3 permissões</td><td data-rot="Último acesso"><span class="mono">hoje 11:52</span> <span class="exemplo">exemplo</span></td><td><div class="acoes"><button class="btn" type="button" data-aviso="Fora deste protótipo: a gaveta do Farol já está no app.">Ver o acesso</button></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ MISTER NA LOJA ═════════════════════ -->
+<section class="vista" id="v-loja" aria-label="Mister na loja">
+  <div class="app">
+    <nav class="lado" aria-label="Menu do aplicativo">
+      <div class="marca">REGEM<small>No comando de todo o negócio</small></div>
+      <ul>
+        <li>Painel</li><li>Delivery</li><li>Atendimento</li><li>Estoque</li><li>Relatórios</li>
+        <li class="atual" aria-current="page">Mister</li>
+        <li>Visão C&amp;O</li><li>Configurações</li>
+      </ul>
+    </nav>
+    <div class="principal">
+      <div class="topo">
+        <span><span class="menu-cel">☰ Menu · </span><span class="onde">Mister</span></span>
+        <span class="quem">Rodrigo · presidente · todas as lojas</span>
+      </div>
+      <main class="pagina">
+        <div class="cab"><div><h1>Mister</h1><p class="sub">O administrador virtual da sua loja. Ele avisa, responde e pede a sua autorização pelo WhatsApp.</p></div></div>
+        <div class="partes" role="group" aria-label="Partes do Mister">
+          <button class="parte" data-parte="resumo" aria-pressed="true">Resumo</button>
+          <button class="parte" data-fora="Pessoas" aria-pressed="false">Pessoas</button>
+          <button class="parte" data-fora="Regras" aria-pressed="false">Regras</button>
+          <button class="parte" data-fora="IA e uso" aria-pressed="false">IA e uso</button>
+          <button class="parte" data-parte="avisos" aria-pressed="false">Avisos e relatórios</button>
+          <button class="parte" data-fora="Documentos" aria-pressed="false">Documentos</button>
+          <button class="parte" data-fora="Modelos de compra" aria-pressed="false">Modelos de compra</button>
+          <button class="parte" data-fora="O que aprendi" aria-pressed="false">O que aprendi</button>
+          <button class="parte" data-fora="Histórico" aria-pressed="false">Histórico</button>
+          <button class="parte" data-fora="Jeito e memória" aria-pressed="false">Jeito e memória</button>
+        </div>
+
+        <!-- RESUMO -->
+        <div data-parte-vista="resumo">
+          <div class="ctls" role="group" aria-label="Situação do protótipo no cartão do marketing"><span>Situação do protótipo:</span>
+            <button class="ctl" data-ctl="mkt" data-valor="recebendo" aria-pressed="true">recebendo</button>
+            <button class="ctl" data-ctl="mkt" data-valor="nao" aria-pressed="false">permissão não liberada</button>
+            <button class="ctl" data-ctl="mkt" data-valor="semliame" aria-pressed="false">Liame não conectado</button>
+            <button class="ctl" data-ctl="mkt" data-valor="esperando" aria-pressed="false">esperando o primeiro</button>
+            <button class="ctl" data-ctl="mkt" data-valor="velho" aria-pressed="false">resumo velho</button>
+            <button class="ctl" data-ctl="mkt" data-valor="carregando" aria-pressed="false">carregando</button>
+            <button class="ctl" data-ctl="mkt" data-valor="erro" aria-pressed="false">erro ao carregar</button>
+          </div>
+
+          <div class="cartao destaque" aria-labelledby="h-mkt">
+            <div class="cab" style="margin-bottom:6px"><h2 id="h-mkt">Marketing (Liame)</h2>
+              <span data-mostra="mkt:recebendo"><span class="selo ok">recebendo</span></span>
+              <span data-mostra="mkt:nao"><span class="selo neutro">não liberado</span></span>
+              <span data-mostra="mkt:semliame"><span class="selo neutro">Liame não conectado</span></span>
+              <span data-mostra="mkt:esperando"><span class="selo info">esperando o primeiro resumo</span></span>
+              <span data-mostra="mkt:velho"><span class="selo warn">sem resumo novo há 5 dias</span></span>
+            </div>
+
+            <div data-mostra="mkt:recebendo">
+              <p class="sub">O Liame manda o resumo do marketing; o Mister responde sobre os posts e as campanhas e avisa o que pede atenção. Os números são do Liame, com a data de cada envio.</p>
+              <p class="peq"><strong>Último resumo:</strong> hoje, 07:00 (a atualização do dia) · o da semana: segunda, 23/11, às 07:00. <span class="exemplo">exemplo</span></p>
+              <div class="kpis">
+                <div class="kpi"><b>5 de 6</b><span>posts da semana saíram</span></div>
+                <div class="kpi"><b>3.009</b><span>alcance médio do Reels (814 da foto) <span class="real">real</span></span></div>
+                <div class="kpi"><b>14</b><span>pedidos pelo link dos posts, na semana</span></div>
+                <div class="kpi"><b>2</b><span>avisos de marketing abertos</span></div>
+              </div>
+              <p class="sub peq">Quem vê: você. O gerente não vê (Avisos e relatórios › Marketing). Os números da semana são de exemplo; o do Reels e o da foto são os reais dos últimos 50 posts.</p>
+              <div class="acoes"><button class="btn" type="button" data-ir-parte="avisos">Ver os avisos de marketing</button><a class="btn" href="#" data-aviso="Abre o Liame na Agenda (o endereço vem pronto no resumo do Liame).">Abrir no Liame</a></div>
+            </div>
+            <div data-mostra="mkt:nao">
+              <p>O Liame está ligado ao Regem e lê as vendas, mas não manda o resumo do marketing. Sem ele, o Mister não fala dos posts nem das campanhas.</p>
+              <p class="sub">Para liberar: no Liame, Contas conectadas › Regem › "Enviar o resumo ao Mister". A confirmação é aqui no Regem, com a sua senha.</p>
+              <div class="acoes"><a class="btn pri" href="#" data-aviso="Abre o Liame em Contas conectadas › Regem.">Abrir no Liame</a></div>
+            </div>
+            <div data-mostra="mkt:semliame">
+              <div class="vazio"><span class="grande" aria-hidden="true">📣</span>O Liame não está conectado ao Regem. Quando estiver, e com a permissão do resumo liberada, o marketing aparece aqui e no Mister.</div>
+            </div>
+            <div data-mostra="mkt:esperando">
+              <p>Liberado hoje às 10:40 por você. O primeiro resumo da semana chega na segunda, 30/11, às 07:00, e a atualização do dia, amanhã às 07:00.</p>
+              <p class="sub">Até lá, o Mister diz que ainda não tem os números do marketing.</p>
+            </div>
+            <div data-mostra="mkt:velho">
+              <div class="faixa warn" role="status"><strong>O Liame não manda resumo desde segunda, 23/11, às 07:00.</strong> O Mister responde com os números daquela semana, sempre dizendo a data. Com 8 dias sem nada, ele avisa você.</div>
+              <div class="acoes"><a class="btn" href="#" data-aviso="Abre o Liame em Contas conectadas › Regem.">Conferir no Liame</a><button class="btn" type="button" data-ir-conectados>Ver em Aplicativos conectados</button></div>
+            </div>
+            <div data-mostra="mkt:carregando" role="status" aria-busy="true"><span class="sr">Carregando o marketing…</span><span class="esqueleto m" aria-hidden="true"></span><span class="esqueleto" aria-hidden="true"></span><span class="esqueleto c" aria-hidden="true"></span></div>
+            <div data-mostra="mkt:erro"><div class="vazio" role="alert"><span class="grande" aria-hidden="true">⚠️</span>Não consegui carregar o marketing agora.<br><button class="btn" type="button" style="margin-top:8px" data-ctl="mkt" data-valor="carregando">Tentar de novo</button></div></div>
+          </div>
+
+          <div class="grade2">
+            <div class="cartao">
+              <h2>O que o Mister faz por esta empresa</h2>
+              <ul class="linhas">
+                <li><div><strong>Avisos no WhatsApp e no Regem</strong><div class="sub peq">O problema que a loja resolve chega para quem está ligado.</div></div><span class="selo ok">ligado</span></li>
+                <li><div><strong>Perguntas sobre a loja</strong><div class="sub peq">"Como está a loja agora?", "por que o pedido atrasou?"</div></div><span class="selo ok">ligado</span></li>
+                <li><div><strong>Resumo do dia e da semana</strong><div class="sub peq">No horário que você escolher.</div></div><span class="selo ok">ligado</span></li>
+                <li><div><strong>Marketing do Liame</strong> <span class="selo liame">novo</span><div class="sub peq">"Como foram os posts da semana?", as sugestões do Liame e os avisos de marketing.</div></div>
+                  <span data-mostra="mkt:recebendo|velho"><span class="selo ok">ligado</span></span><span data-mostra="mkt:esperando"><span class="selo info">esperando</span></span><span data-mostra="mkt:nao|semliame|carregando|erro"><span class="selo neutro">desligado</span></span></li>
+              </ul>
+            </div>
+            <div class="cartao">
+              <h2>Últimos avisos</h2>
+              <ul class="linhas">
+                <li data-mostra="mkt:recebendo"><div><strong>Marketing · aprovação vencendo</strong><div class="sub peq">O lote de posts da semana de 30/11 espera aprovação no Liame até domingo, 22:00.</div></div><span class="mono peq">hoje 18:00</span></li>
+                <li data-mostra="mkt:recebendo"><div><strong>Marketing · a conta do Instagram voltou</strong><div class="sub peq">Ficou 26 min desconectada do Liame.</div></div><span class="mono peq">hoje 14:31</span></li>
+                <li data-mostra="mkt:nao|semliame|esperando|velho|carregando|erro"><div><strong>Loja Tijuca · o servidor voltou</strong><div class="sub peq">Ficou 9 min sem sinal, com 3 pedidos esperando.</div></div><span class="mono peq">hoje 19:51</span></li>
+                <li><div><strong>Loja Tijuca · impressora da cozinha parada</strong><div class="sub peq">Voltou sozinha em 6 min.</div></div><span class="mono peq">hoje 13:10</span></li>
+              </ul>
+              <p class="sub peq" style="margin-top:8px">Avisos e horas de exemplo.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- AVISOS E RELATÓRIOS -->
+        <div data-parte-vista="avisos" hidden>
+          <div class="ctls" role="group" aria-label="Situação do protótipo nos avisos de marketing"><span>Situação do protótipo:</span>
+            <button class="ctl" data-ctl="av" data-valor="liberada" aria-pressed="true">permissão liberada</button>
+            <button class="ctl" data-ctl="av" data-valor="nao" aria-pressed="false">permissão não liberada</button>
+          </div>
+          <div class="faixa info">Os outros grupos (Na loja, Servidor da loja, Fiscal, O próprio Mister, Documentos e dinheiro, Pessoas e ponto) e os relatórios ficam como estão no app. Aqui entra só o grupo novo, <strong>Marketing (Liame)</strong>, no fim da lista.</div>
+          <div class="faixa warn" data-mostra="av:nao" role="status"><strong>O Liame ainda não manda o resumo do marketing.</strong> Os avisos abaixo ficam valendo e começam a chegar quando a permissão for liberada pelo Liame.</div>
+          <div class="cartao" id="ajustes-mkt">
+            <h2>Marketing (Liame) <span class="sub peq">· 7 ajustes</span></h2>
+            <p class="sub">O que o Mister avisa sobre o marketing, quem mais vê e se entra no resumo da semana. Os quatro primeiros avisos vêm do Liame; o quinto, o próprio Regem confere.</p>
+            <h3 class="grupo-aj">Avisos <span class="selo liame">do Liame</span></h3>
+            <div class="aj"><div><div class="t" id="avm1">Conta do Instagram ou da Meta desconectada</div><div class="d">O Liame perdeu a ligação com a conta: os posts programados e as campanhas param até ligar de novo.</div>
+              <div class="destinos"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do presidente</span><button class="btn btn-peq" type="button" data-abre="gav-destino" data-nome="Conta do Instagram ou da Meta desconectada" data-destinos="presidente" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" type="button" role="switch" aria-checked="true" aria-labelledby="avm1"></button></div></div>
+            <div class="aj"><div><div class="t" id="avm2">Publicação que falhou</div><div class="d">Um post aprovado não saiu na hora marcada e o Liame não conseguiu de novo.</div>
+              <div class="destinos"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do presidente</span><button class="btn btn-peq" type="button" data-abre="gav-destino" data-nome="Publicação que falhou" data-destinos="presidente" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" type="button" role="switch" aria-checked="true" aria-labelledby="avm2"></button></div></div>
+            <div class="aj"><div><div class="t" id="avm3">Aprovação vencendo</div><div class="d">Um lote de posts ou uma campanha espera aprovação no Liame e vence nas próximas horas. Sem aprovação, nada sai.</div>
+              <div class="destinos"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do presidente</span><button class="btn btn-peq" type="button" data-abre="gav-destino" data-nome="Aprovação vencendo" data-destinos="presidente" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" type="button" role="switch" aria-checked="true" aria-labelledby="avm3"></button></div></div>
+            <div class="aj"><div><div class="t" id="avm4">Plano de conteúdo acabando sem o próximo</div><div class="d">Faltam 3 dias para o plano acabar e não há outro pedido.</div>
+              <div class="destinos"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do presidente</span><button class="btn btn-peq" type="button" data-abre="gav-destino" data-nome="Plano de conteúdo acabando sem o próximo" data-destinos="presidente" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" type="button" role="switch" aria-checked="true" aria-labelledby="avm4"></button></div></div>
+            <h3 class="grupo-aj">Aviso <span class="selo neutro">do Regem</span></h3>
+            <div class="aj"><div><div class="t" id="avm5">O Liame parou de mandar o resumo</div><div class="d">Oito dias sem resumo, com a permissão liberada. Os números do marketing ficam velhos até voltar.</div>
+              <div class="destinos"><span class="sub peq">Vai para:</span><span class="selo neutro">WhatsApp do presidente</span><span class="selo neutro">Suporte da DMS</span><button class="btn btn-peq" type="button" data-abre="gav-destino" data-nome="O Liame parou de mandar o resumo" data-destinos="presidente,dms" data-escala="" data-escala-para="">Mudar</button></div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" type="button" role="switch" aria-checked="true" aria-labelledby="avm5"></button></div></div>
+            <h3 class="grupo-aj">Quem mais vê e o resumo da semana</h3>
+            <div class="aj"><div><div class="t" id="avm6">O gerente vê o marketing da loja dele</div><div class="d">Pelo Mister: o plano, as postagens, o material, as datas e as sugestões, sem valores. Os pedidos, a receita e a verba das campanhas ficam só com o presidente. Vale para todos os gerentes da empresa.</div></div>
+              <div class="ctrl"><span class="estado-liga">Desligado</span><button class="liga" type="button" role="switch" aria-checked="false" aria-labelledby="avm6"></button></div></div>
+            <div class="aj"><div><div class="t" id="avm7">Marketing no resumo da semana</div><div class="d">Um bloco no fim do resumo da semana do Mister, com os números do Liame e a data deles.</div></div>
+              <div class="ctrl"><span class="estado-liga">Ligado</span><button class="liga" type="button" role="switch" aria-checked="true" aria-labelledby="avm7"></button></div></div>
+            <div class="barra-salvar" id="barra-salvar" hidden>
+              <span id="barra-texto" role="status">1 alteração ainda não salva</span>
+              <span class="acoes"><button class="btn" type="button" id="aj-descartar">Descartar</button><button class="btn pri" type="button" id="aj-salvar">Salvar alterações</button></span>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ NO CELULAR ═════════════════════ -->
+<section class="vista" id="v-celular" aria-label="No celular">
+  <main class="notas" style="max-width:1240px">
+    <h1>Como fica a conversa no WhatsApp</h1>
+    <p class="sub" style="margin:6px 0 18px;max-width:82ch">Onze situações. O Mister escreve com a IA, a partir da consulta nova "o marketing da loja": os textos abaixo mostram o que ele pode responder, não frases fixas. Todo número vem do resumo do Liame, com a data; nenhum dado de cliente entra na conversa. <span class="real">real</span> marca os números do Instagram da Mister Burgers; o resto é de exemplo.</p>
+    <div class="celulares">
+
+      <article class="caso"><h3>1. "Como foram os posts da semana?"</h3><p class="sub">Os blocos A (o plano), B (o desempenho) e C (o que virou venda), em números. <span class="fase">PC11 · consulta</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="dia-wa">sábado, 28/11</div>
+          <div class="bolha meu">como foram os posts da semana?<span class="hora">10:12</span></div>
+          <div class="bolha dele"><b>Marketing da Mister Burgers · 23 a 27/11</b><br><i>Pela atualização do Liame de hoje, 07:00.</i><br><br><b>Plano</b> (engajamento, 23/11 a 20/12): saíram 5 dos 6 posts da semana, 4 fotos e 1 carrossel. O Reels de quinta não saiu: falta o vídeo do TRIO 08, que está em "Foto a produzir".<br><br><b>Desempenho:</b> alcance médio de 590 nas fotos e 702 no carrossel; 1,9 e 2,6 envios por mil alcançados. Seguidores: +21.<br><br><b>Vendas pelos posts:</b> 14 pedidos pelo link, R$ 672,00, e o cupom do plano usado 5 vezes.<br><br>Para comparar: nos seus últimos 50 posts, o Reels alcançou em média 3.009 pessoas e a foto, 814.<span class="hora">10:12</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>2. O resumo da semana, com o marketing</h3><p class="sub">Segunda de manhã, no horário de "Avisos e relatórios". O bloco do marketing vem no fim. <span class="fase">PC11 · resumo</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="dia-wa">segunda, 30/11</div>
+          <div class="bolha dele"><b>Resumo da semana de 23/11 a 29/11 · Mister Burgers</b><br>912 pedidos · R$ 41.870,00 (+4% contra a semana anterior)<br>Tempo médio: 26 min · 9 cancelamentos<br><br><b>Marketing (Liame, resumo de hoje 07:00)</b><br>6 de 7 posts saíram. Alcance somado de 4.420 pessoas, 9% abaixo da média das 4 semanas.<br>17 pedidos pelo link dos posts (R$ 816,00).<br>Campanha "Trio da semana": R$ 96 de R$ 150 gastos, 11 pedidos, R$ 8,73 por pedido.<br>Meta do plano: 2,2 envios por mil alcançados, contra 2,5. Está abaixo.<div class="botoes-wa"><span>Ver no Regem</span></div><span class="hora">09:00</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>3. As sugestões, com o número de cada uma</h3><p class="sub">O bloco H. Continuar, ajustar ou mudar, sempre com o porquê. <span class="fase">PC11 · consulta</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">o que eu mudo no plano?<span class="hora">10:20</span></div>
+          <div class="bolha dele">O Liame sugere três coisas para a semana de 30/11:<br><br><b>1. Trocar 2 fotos por 2 Reels.</b> O Reels alcança cerca de 3,7 vezes a foto (3.009 contra 814, na média dos seus últimos 50 posts) e é enviado 2,7 vezes mais. E não sai Reels desde 16/10, há 6 semanas. <span class="real">real</span><br><br><b>2. Mostrar o TRIO 08.</b> É o mais vendido dos últimos 28 dias e nunca apareceu no Instagram. <span class="real">real</span><br><br><b>3. Impulsionar o carrossel de quarta</b> com R$ 30 por 5 dias: foi o melhor da semana em envios. <span class="exemplo">exemplo</span><br><br>Quer mudar? A mudança é no Liame, e passa pela aprovação de lá.<div class="botoes-wa"><span>Abrir o plano no Liame</span></div><span class="hora">10:20</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>4. Aviso: conta desconectada e post que falhou</h3><p class="sub">O bloco I, na hora, pelo "Vai para" do grupo Marketing. <span class="fase">PC11 · avisos</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha dele">⚠️ <b>Marketing</b> · a conta do Instagram desconectou do Liame às 14:05.<br>Os posts programados e as campanhas param até ligar de novo.<div class="botoes-wa"><span>Abrir no Liame</span></div><span class="hora">14:05</span></div>
+          <div class="bolha dele">✅ <b>Marketing</b> · a conta do Instagram voltou às 14:31. Ficou 26 min fora; nenhum post atrasou.<span class="hora">14:31</span></div>
+          <div class="bolha dele">⚠️ <b>Marketing</b> · o carrossel das 19:00 não saiu: o Instagram recusou duas vezes. Ele ficou parado no Liame, esperando você decidir.<div class="botoes-wa"><span>Abrir no Liame</span></div><span class="hora">19:16</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>5. Aviso: aprovação vencendo e plano acabando</h3><p class="sub">O que só o presidente resolve, com o prazo. <span class="fase">PC11 · avisos</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="dia-wa">domingo, 29/11</div>
+          <div class="bolha dele">⏱️ <b>Marketing</b> · o lote de posts da semana de 30/11 espera a sua aprovação no Liame até hoje, 22:00. Sem aprovação, os posts de segunda não saem.<div class="botoes-wa"><span>Aprovar no Liame</span></div><span class="hora">18:00</span></div>
+          <div class="dia-wa">quinta, 17/12</div>
+          <div class="bolha dele">📅 <b>Marketing</b> · o plano de conteúdo acaba no domingo, 20/12, e não há o próximo. Depois disso, nada fica programado.<div class="botoes-wa"><span>Pedir o próximo plano</span></div><span class="hora">09:30</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>6. Pedir mudança no plano</h3><p class="sub">Primeira fase: o Mister manda o link da tela certa e não aprova nada (D-PC-14). <span class="fase">PC11 · fase 1</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">troca 2 fotos da semana que vem por Reels<span class="hora">10:24</span></div>
+          <div class="bolha dele">Por aqui eu não mudo o plano, Rodrigo: a mudança é feita no Liame e passa pela aprovação de lá, com o código do app.<br><br>O link abre a semana de 30/11 na Agenda do Liame, com as 2 fotos que eu sugeri trocar.<div class="botoes-wa"><span>Abrir o plano no Liame</span></div><span class="hora">10:24</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>7. Gerente liberado</h3><p class="sub">Sem os pedidos, a receita e a verba (blocos C e D), cortados no servidor. <span class="fase">D-PC-13</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">como foram os posts essa semana?<span class="hora">16:02</span></div>
+          <div class="bolha dele"><b>Marketing da Loja Tijuca · 23 a 27/11</b><br><br>Saíram 5 dos 6 posts. O Reels de quinta não saiu: falta o vídeo do TRIO 08, que está em "Foto a produzir".<br><br>Alcance médio de 590 nas fotos e 702 no carrossel. Seguidores: +21.<br><br>Se der para gravar o vídeo do TRIO 08 até segunda, o Reels entra na semana que vem.<span class="hora">16:02</span></div>
+          <div class="bolha meu">e quantos pedidos vieram dos posts?<span class="hora">16:03</span></div>
+          <div class="bolha dele">Essa parte, Carlos, fica com o presidente: os pedidos, a receita e a verba das campanhas não aparecem para o seu perfil.<span class="hora">16:03</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>8. Gerente não liberado</h3><p class="sub">O Mister diz quem libera e onde. <span class="fase">D-PC-13</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">e o instagram, como está?<span class="hora">16:40</span></div>
+          <div class="bolha dele">Carlos, o marketing da loja está liberado só para o presidente. Se precisar, peça ao Rodrigo: ele libera no Regem, em Mister › Avisos e relatórios.<span class="hora">16:40</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>9. A permissão não foi liberada</h3><p class="sub">O presidente pergunta e o Mister não recebe o marketing. <span class="fase">PC11 · consulta</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">como foram os posts da semana?<span class="hora">10:12</span></div>
+          <div class="bolha dele">Eu ainda não recebo o marketing, Rodrigo. O Liame está ligado ao Regem e lê as vendas, mas a permissão "Resumo do marketing para o Mister" não foi liberada.<br><br>Para liberar: no Liame, Contas conectadas › Regem › "Enviar o resumo ao Mister". A confirmação é no Regem, com a sua senha.<div class="botoes-wa"><span>Abrir no Liame</span></div><span class="hora">10:12</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>10. Esperando o primeiro resumo</h3><p class="sub">Liberou há pouco: o Mister diz quando chega. <span class="fase">PC11 · consulta</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">e o marketing?<span class="hora">11:05</span></div>
+          <div class="bolha dele">Você liberou hoje às 10:40. A primeira atualização do Liame chega amanhã às 07:00, e o resumo da semana, na segunda às 07:00. Até lá eu ainda não tenho os números do marketing.<span class="hora">11:05</span></div>
+        </div></div></article>
+
+      <article class="caso"><h3>11. O resumo está velho</h3><p class="sub">A data do último resumo sempre à mostra; com 8 dias, vira aviso. <span class="fase">D-PC-46</span></p>
+        <div class="cel"><div class="cel-topo"><span class="foto" aria-hidden="true">M</span><div><b>Mister</b><span>Regem</span></div></div><div class="conv">
+          <div class="bolha meu">como foram os posts?<span class="hora">10:12</span></div>
+          <div class="bolha dele">O último resumo do Liame que eu tenho é de segunda, 23/11, às 07:00, há 5 dias. Desde então não chegou nada, então os números podem estar velhos.<br><br>Na semana de 16 a 22/11: saíram 4 posts, todos fotos, com alcance médio de 640.<br><br>Se não chegar nada até terça, eu aviso você.<span class="hora">10:12</span></div>
+          <div class="dia-wa">terça, 01/12</div>
+          <div class="bolha dele">⚠️ <b>Marketing</b> · o Liame não manda o resumo desde segunda, 23/11. Confira no Liame se a ligação com o Regem está funcionando.<div class="botoes-wa"><span>Abrir no Liame</span></div><span class="hora">09:00</span></div>
+        </div></div></article>
+
+    </div>
+  </main>
+</section>
+
+<!-- ═════════════════════ NOTAS E DECISÕES ═════════════════════ -->
+<section class="vista" id="v-notas" aria-label="Notas e decisões">
+  <main class="notas">
+    <h1>Notas do protótipo P49</h1>
+    <p class="sub" style="margin:6px 0 16px">Versão 1, para aprovação · sábado, 28/11/2026 · vem do plano de conteúdo do Liame (§9 e §11), aprovado em 28/11/2026</p>
+
+    <div class="cartao"><h2>O que é</h2>
+      <p>O presidente da loja não precisa abrir o Liame para saber como vai o marketing. O Liame manda ao Regem o resumo (os blocos A a I do plano: o plano em andamento, o desempenho, o que virou venda, as campanhas, o objetivo, o material, o que vem aí, as sugestões e os avisos), só agregado. O Regem guarda; o Mister lê do próprio banco e conversa com esses números, com a IA.</p>
+      <p>Este protótipo cobre as três pontas do lado do Regem: a permissão nova na autorização, o Mister na loja e as conversas.</p></div>
+
+    <div class="cartao"><h2>Já aprovadas no plano (valem aqui)</h2><ul>
+      <li><strong>D-PC-12 · Como o resumo chega ao Mister:</strong> o Liame envia ao Regem pelo escopo novo <span class="codigo-l">marketing.resumo.enviar</span>; o Regem guarda e o Mister lê do próprio banco, sem chamar o Liame no meio da conversa.</li>
+      <li><strong>D-PC-13 · Quem vê:</strong> o presidente. O gerente, só se o presidente liberar, e sem os blocos de dinheiro (C e D).</li>
+      <li><strong>D-PC-14 · O Mister pede mudança no plano?</strong> Na primeira fase, mostra e manda o link. Na segunda, a fala do presidente vira um pedido no Liame, que vai a Aprovações.</li></ul></div>
+
+    <div class="cartao"><h2>Decisões novas (a recomendada primeiro)</h2>
+      <div class="decisao"><h3>D-PC-40 · A permissão nova é necessária ou opcional?</h3>
+        <p class="rec"><b>Recomendo: opcional, nascendo desligada</b> na ligação nova, como o custo e o cupom. No pedido de "mais uma permissão", ela vem sozinha em "O que muda" e o "Liberar o resumo" liga. Texto: "Resumo do marketing para o Mister · Mandar ao Regem o resumo do marketing: os números do plano de conteúdo, das postagens e das campanhas, as sugestões e os avisos. Sem dado de cliente." Desligada: "o Mister não fala do marketing. O resto funciona." A versão do texto da autorização sobe (a prova guarda o que o presidente leu).</p>
+        <p class="sub peq">A outra: necessária para todo Liame novo. Obrigaria o presidente a aceitar escrita no Regem para medir os anúncios.</p></div>
+      <div class="decisao"><h3>D-PC-41 · Onde ela aparece na tela de autorizar?</h3>
+        <p class="rec"><b>Recomendo: num grupo próprio, "O que o Liame envia ao seu Regem"</b>, depois das leituras, porque é a única permissão que grava no Regem. A frase diz que ele só guarda o resumo para o Mister, e "O que o Liame não pode" ganha "Falar pelo Mister".</p>
+        <p class="sub peq">A outra: junto das opcionais. Mais curto, mas mistura ler e gravar.</p></div>
+      <div class="decisao"><h3>D-PC-42 · O resumo é por loja ou da empresa?</h3>
+        <p class="rec"><b>Recomendo: por loja ligada.</b> Cada loja marcada tem a própria ligação (F3-4), então o Liame manda um resumo por ligação: os blocos da marca e as vendas daquela loja. O presidente vê as lojas somadas pelo Mister; o gerente, só a dele (a mesma régua de loja das outras consultas).</p>
+        <p class="sub peq">A outra: um resumo por empresa, sem loja. Simples, mas o gerente veria o marketing de todas as lojas.</p></div>
+      <div class="decisao"><h3>D-PC-43 · Onde o presidente libera o marketing ao gerente?</h3>
+        <p class="rec"><b>Recomendo: um ajuste da empresa</b> em Mister › Avisos e relatórios › Marketing (Liame): "O gerente vê o marketing da loja dele", nascendo desligado. Com ele ligado, o gerente recebe o plano, as postagens, o material, as datas e as sugestões sem valores; os blocos C e D são cortados no servidor, nunca pela IA. Quando o perfil de permissões por hierarquia chegar (decisão do dono de 13/11/2026: fim do projeto), o ajuste passa para lá.</p>
+        <p class="sub peq">A outra: por gerente, na gaveta "Editar o que pode". Ela só entra com o perfil de permissões.</p></div>
+      <div class="decisao"><h3>D-PC-44 · Para onde vão os avisos do marketing?</h3>
+        <p class="rec"><b>Recomendo: um grupo novo, "Marketing (Liame)", com cinco avisos,</b> todos para o WhatsApp do presidente, com o "Mudar" de sempre: conta do Instagram ou da Meta desconectada, publicação que falhou, aprovação vencendo, plano acabando sem o próximo (os quatro vêm do Liame, abertos e fechados por ele) e "o Liame parou de mandar o resumo" (o Regem confere; vai também ao suporte da DMS). Nada na tela da loja nem no KDS: a equipe do salão não resolve.</p></div>
+      <div class="decisao"><h3>D-PC-45 · O marketing entra no resumo da semana do Mister?</h3>
+        <p class="rec"><b>Recomendo: sim, um bloco no fim do resumo da semana,</b> que liga sozinho quando a permissão é liberada, com o ajuste "Marketing no resumo da semana" para tirar. O resumo do dia não leva marketing: a atualização diária do Liame serve só às perguntas.</p></div>
+      <div class="decisao"><h3>D-PC-46 · Quando o número é velho?</h3>
+        <p class="rec"><b>Recomendo: o Mister sempre diz de quando é o resumo</b>, e passa a dizer que pode estar velho quando a atualização do dia tem mais de 36 horas ou o resumo da semana mais de 8 dias. Com 8 dias sem nada e a permissão ligada, abre o aviso "o Liame parou de mandar o resumo".</p></div>
+      <div class="decisao"><h3>D-PC-47 · O link para mudar o plano (a fase 1 da D-PC-14)</h3>
+        <p class="rec"><b>Recomendo: o link vem pronto no resumo do Liame</b>, para a tela exata (a semana do plano na Agenda, a aprovação que vence, Contas conectadas). O Regem só aceita link do endereço do Liame, nunca monta um nem segue outro. O Mister manda o botão e diz que a mudança passa pela aprovação de lá.</p></div>
+      <div class="decisao"><h3>D-PC-48 · Desligar só o resumo do marketing</h3>
+        <p class="rec"><b>Recomendo: "Parar de receber o resumo"</b> em Configurações › Aplicativos conectados › Liame, que tira só essa permissão. O Liame continua lendo as vendas e, no próximo envio, recebe "permissão retirada" e mostra lá. O mesmo botão serve depois para as outras opcionais.</p>
+        <p class="sub peq">A outra: só revogando o Liame inteiro, o que para também a medida dos anúncios.</p></div>
+      <div class="decisao"><h3>D-PC-49 · Quanto tempo o Regem guarda o resumo?</h3>
+        <p class="rec"><b>Recomendo: 13 meses</b>, para comparar com o mesmo mês do ano anterior, apagados por rotina. Quando a permissão sai ou o Liame é revogado, os resumos daquela ligação saem em 30 dias. É dado da própria empresa, sem dado de cliente.</p></div>
+    </div>
+
+    <div class="cartao"><h2>Os números do protótipo</h2><ul>
+      <li><strong>Reais</strong> (§1.2 do plano, lidos na nuvem do Liame em 27/11/2026, só agregados): dos 50 posts mais novos (14/09 a 26/11/2026), 39 fotos, 7 carrosséis e 4 Reels; alcance médio de 814, 864 e 3.009; o Reels alcança cerca de 3,7 vezes a foto e é enviado 2,7 vezes mais; o último Reels saiu em 16/10; o TRIO 08 entre os mais vendidos, com o nome do canal.</li>
+      <li><strong>De exemplo:</strong> os números de cada semana, os pedidos pelo link, as campanhas e a verba, os planos e as datas deles, as horas dos avisos, as pessoas e a loja.</li></ul></div>
+
+    <div class="cartao"><h2>Onde cada tela mora</h2><ul>
+      <li><strong>A autorização:</strong> a página de autorizar do Regem, fora do menu (a mesma do clique do Liame, Orzuni, Farol, RegemCast e GoGeM). Quem pede é o Liame; quem decide é o presidente, com a senha.</li>
+      <li><strong>Configurações › Aplicativos conectados:</strong> o bloco novo "Envia ao Regem" na gaveta do Liame, com "Parar de receber o resumo".</li>
+      <li><strong>Mister › Resumo:</strong> o cartão "Marketing (Liame)". <strong>Mister › Avisos e relatórios:</strong> o grupo "Marketing (Liame)".</li>
+      <li><strong>No Liame</strong> (é da PC10, não deste protótipo): o botão "Enviar o resumo ao Mister" em Contas conectadas › Regem, que abre esta autorização.</li></ul></div>
+
+    <div class="cartao"><h2>O que a PC11 precisa no Regem (plano próprio antes do código)</h2><ol>
+      <li><strong>O escopo:</strong> <span class="codigo-l">marketing.resumo.enviar</span> na lista de escopos da integração, com o rótulo, a frase, o motivo e o "desligado" no catálogo do clique; nas opcionais do Liame; o grupo "envia" na tela montada pelo servidor; a versão do texto sobe; o texto de "Aplicativos conectados" e o do e-mail aos presidentes.</li>
+      <li><strong>A rota de entrada</strong> (a primeira que o Liame grava no Regem): pelo acesso da loja, com o escopo; o corpo com decorador em todo campo (V100), até 64 KB, com a versão do formato; links só do endereço do Liame; idempotente pela ligação, pelo tipo (semana, dia ou aviso) e pela referência, ficando o mais novo pelo horário de geração no Liame; a mesma régua de acesso das outras portas (V75: empresa e loja vivas, a ligação viva, o acesso da empresa da linha); permissão retirada devolve um código próprio.</li>
+      <li><strong>A tabela</strong> <span class="codigo-l">marketing_resumo</span>, só na nuvem (<span class="codigo-l">-- @cloud-only</span>, com RLS): empresa, loja, ligação, tipo, referência, período, gerado no Liame, recebido (<span class="codigo-l">clock_timestamp()</span>), os blocos em jsonb e a situação do aviso; índice único pela ligação, tipo e referência; a rotina que apaga com 13 meses e 30 dias depois da revogação. O número da migration sai da <span class="codigo-l">origin/main</span> na hora.</li>
+      <li><strong>O sync:</strong> a tabela como só da nuvem no <span class="codigo-l">sync-daemon.mjs</span> (V21) e os testes de <span class="codigo-l">modules/sync/</span> com Postgres. Não toca o servidor da loja: sem <span class="codigo-l">.exe</span>.</li>
+      <li><strong>O Mister:</strong> a consulta nova "o marketing da loja" (leitura, com a data de cada resumo, a régua de loja e o corte de C e D para o gerente no servidor); a linha no mapa do Regem (V81), com a marca de valores nos blocos C e D (V124); casos na avaliação (liberado, não liberado, velho, gerente liberado e não liberado); o bloco no resumo da semana (F3.2), pela mesma consulta. As sugestões chegam do Liame com o motivo e o número; o Mister escreve com as palavras dele (regra de 25/11).</li>
+      <li><strong>Os avisos:</strong> o grupo "Marketing (Liame)" na lista de tipos de aviso, com os cinco tipos (o tipo do aviso é texto: sem migration por ele). Os quatro do Liame chegam pela mesma rota, abertos e fechados pela chave; o quinto, por uma rotina do Regem. Fora das 24 horas, o modelo <span class="codigo-l">mister_aviso</span> que já existe.</li>
+      <li><strong>As telas:</strong> o cartão no Resumo, o grupo e os dois ajustes em Avisos e relatórios (o do gerente e o do resumo da semana, por empresa), o bloco "Envia ao Regem" e "Parar de receber o resumo" em Aplicativos conectados; os roteiros de tela nas 16 larguras.</li>
+      <li><strong>Fora do código:</strong> a Política de Privacidade do Regem ganha o recebimento do resumo do Liame (só agregado); o manifesto DMS e o <span class="codigo-l">docs/openapi.json</span> ganham o escopo e a rota (mudança aditiva).</li>
+      <li><strong>Fases sugeridas:</strong> PC11a, o escopo, a tela de autorizar, a rota, a tabela e o sync (uma migration); PC11b, a consulta do Mister, o mapa, a avaliação e o resumo da semana; PC11c, os avisos, as telas do Mister e o "Parar de receber". O Liame manda pela PC10.</li></ol></div>
+  </main>
+</section>
+
+</div>
+
+<!-- painéis -->
+<div class="fundo" id="fundo"></div>
+
+<aside class="gaveta" id="gav-destino" role="dialog" aria-modal="true" aria-labelledby="gav-destino-t">
+  <div class="pn-cab"><h3 id="gav-destino-t">Para onde vai: <span data-nome-aqui>Aviso</span></h3><button class="fechar" type="button" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo">
+    <p class="sub">Escolha quem fica sabendo deste aviso. O sino do Regem recebe sempre, e o que você mudar aqui vale para todas as lojas da empresa.</p>
+    <fieldset class="marcar"><legend>Na hora</legend>
+      <label><input type="checkbox" name="destino" value="presidente"> WhatsApp do presidente</label>
+      <label><input type="checkbox" name="destino" value="gerente"> WhatsApp do gerente da loja</label>
+      <label><input type="checkbox" name="destino" value="tela"> Tela do Regem na loja</label>
+      <label><input type="checkbox" name="destino" value="kds"> KDS da cozinha</label>
+      <label><input type="checkbox" name="destino" value="atendimento"> Caso no Atendimento</label>
+      <label><input type="checkbox" name="destino" value="dms"> Suporte da DMS</label>
+    </fieldset>
+    <fieldset class="marcar"><legend>Se ninguém resolver</legend>
+      <label for="gd-escala">Depois de</label>
+      <select id="gd-escala"><option value="">não avisar mais ninguém</option><option value="5">5 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="120">2 horas</option></select>
+      <div class="sub peq" style="margin:8px 0 4px">avisar também:</div>
+      <label><input type="checkbox" name="escala" value="gerente"> WhatsApp do gerente da loja</label>
+      <label><input type="checkbox" name="escala" value="presidente"> WhatsApp do presidente</label>
+    </fieldset>
+    <p class="sub peq">O gerente só recebe aviso de marketing com "O gerente vê o marketing da loja dele" ligado. Pelo WhatsApp, o aviso chega a quem ligou o próprio número em Pessoas e não respondeu PARAR AVISOS.</p>
+  </div>
+  <div class="pn-rodape"><button class="btn" type="button" data-fecha>Cancelar</button><button class="btn pri" type="button" data-fecha data-aviso="Destino do aviso salvo.">Salvar</button></div>
+</aside>
+
+<aside class="gaveta" id="gav-liame" role="dialog" aria-modal="true" aria-labelledby="gav-liame-t">
+  <div class="pn-cab"><h3 id="gav-liame-t">Liame · Mister Burgers Tijuca</h3><button class="fechar" type="button" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo">
+    <div class="bloco"><h4>Recebe</h4><ul>
+      <li>Pedidos</li><li>Aviso de cliente anonimizado</li><li>Cupons e usos dos cupons</li><li>Canais da Central de atendimento</li><li>Custo dos itens</li></ul>
+      <p class="sub peq" style="margin-top:6px">Não recebe: criar cupom de campanha, tamanho dos públicos do perfil e telefone do cliente no pedido.</p></div>
+    <div class="bloco"><h4>Envia ao Regem <span class="chip novo">Novo</span></h4>
+      <p><strong>Resumo do marketing para o Mister</strong> <span class="selo ok">recebendo</span></p>
+      <p class="sub peq">Último resumo: hoje, 07:00 (a atualização do dia) · o da semana: segunda, 23/11, às 07:00. Liberado por Rodrigo em 28/11/2026, às 10:40. <span class="exemplo">exemplo</span></p>
+      <p class="sub peq">O Liame só guarda o resumo para o Mister ler; não muda nada da loja.</p>
+      <button class="btn perigo" type="button" data-abre="dlg-parar">Parar de receber o resumo</button></div>
+    <div class="bloco"><h4>Autorização</h4><p class="peq">Por Rodrigo, presidente, em 30/09/2026, para a Mister Burgers Tijuca. <span class="exemplo">exemplo</span></p></div>
+    <div class="bloco"><h4>Último acesso</h4><p class="peq mono">hoje 07:00 · mandou o resumo<br>hoje 06:58 · leu os pedidos</p></div>
+  </div>
+  <div class="pn-rodape"><button class="btn" type="button" data-fecha>Fechar</button><button class="btn perigo" type="button" data-aviso="Fora deste protótipo: revogar o Liame já existe no app.">Revogar</button></div>
+</aside>
+
+<div class="dialogo" id="dlg-parar" role="alertdialog" aria-modal="true" aria-labelledby="dlg-parar-t" aria-describedby="dlg-parar-d">
+  <div class="pn-cab"><h3 id="dlg-parar-t">Parar de receber o resumo do marketing</h3><button class="fechar" type="button" data-fecha aria-label="Fechar">✕</button></div>
+  <div class="pn-corpo"><p id="dlg-parar-d">O Liame continua lendo as vendas. O Mister para de falar do marketing e os avisos de marketing param. Os resumos que já chegaram saem em 30 dias. Para voltar, o Liame pede de novo e você confirma com a senha.</p></div>
+  <div class="pn-rodape"><button class="btn" type="button" data-fecha>Cancelar</button><button class="btn perigo" type="button" data-fecha data-aviso="O Regem parou de receber o resumo do marketing.">Parar de receber</button></div>
+</div>
+
+<div class="avisos" id="avisos" aria-live="polite"></div>
+
+<script>
+(function(){
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const corpo = document.body;
+
+  function avisar(texto){
+    const a = document.createElement('div'); a.className = 'aviso'; a.textContent = texto;
+    $('#avisos').appendChild(a); setTimeout(() => a.remove(), 3200);
+  }
+
+  /* estados: data-ctl="grupo" data-valor="x" troca; data-mostra="grupo:a|b" aparece */
+  function aplicar(){
+    $$('[data-mostra]').forEach((el) => {
+      const [grupo, valores] = el.dataset.mostra.split(':');
+      el.hidden = !valores.split('|').includes(corpo.dataset[grupo]);
+    });
+    $$('.ctl[data-ctl]').forEach((b) => b.setAttribute('aria-pressed', String(corpo.dataset[b.dataset.ctl] === b.dataset.valor)));
+  }
+  function estado(grupo, valor){
+    corpo.dataset[grupo] = valor; aplicar();
+    if (grupo === 'aut') {
+      $('#aut-senha').value = ''; erroSenha(false);
+      // cada pedido abre do zero, como na página real: as opcionais voltam desligadas
+      if (valor === 'nova' || valor === 'mais') $$('#form-aut .liga').forEach((c) => { if (c.getAttribute('aria-checked') === 'true') virar(c); });
+    }
+  }
+
+  function vista(id){
+    if (!$('#v-' + id)) id = 'autorizar';
+    $$('.vista').forEach((v) => v.classList.toggle('ativa', v.id === 'v-' + id));
+    $$('.aba').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.aba === id)));
+    history.replaceState(null, '', '#' + id);
+    window.scrollTo(0, 0);
+  }
+  function parte(id){
+    $$('[data-parte-vista]').forEach((p) => { p.hidden = p.dataset.parteVista !== id; });
+    $$('.parte[data-parte]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.parte === id)));
+  }
+
+  /* gaveta e diálogos: foco preso, Esc fecha só o de cima, o foco volta para quem abriu */
+  const pilha = [];
+  const focaveis = (el) => $$('button, [href], input, select, summary, [tabindex]:not([tabindex="-1"])', el).filter((x) => !x.disabled && x.offsetParent !== null);
+  function abrir(id, de){
+    const p = $('#' + id); if (!p) return;
+    if (de && de.dataset.nome) $$('[data-nome-aqui]', p).forEach((n) => { n.textContent = de.dataset.nome; });
+    if (de && de.dataset.destinos !== undefined) {
+      const vai = de.dataset.destinos.split(','), escala = (de.dataset.escalaPara || '').split(',');
+      $$('input[name="destino"]', p).forEach((c) => { c.checked = vai.includes(c.value); });
+      $$('input[name="escala"]', p).forEach((c) => { c.checked = escala.includes(c.value); });
+      $('#gd-escala', p).value = de.dataset.escala || '';
+    }
+    pilha.push({ p, de: de || null });
+    p.classList.add('aberto'); $('#fundo').classList.add('aberto');
+    $('#fundo').classList.toggle('alto', pilha.length > 1);
+    (focaveis(p)[0] || p).focus();
+  }
+  function fechar(){
+    const topo = pilha.pop(); if (!topo) return;
+    topo.p.classList.remove('aberto');
+    if (!pilha.length) $('#fundo').classList.remove('aberto');
+    $('#fundo').classList.toggle('alto', pilha.length > 1);
+    if (topo.de && document.contains(topo.de)) topo.de.focus();
+  }
+  document.addEventListener('keydown', (e) => {
+    const topo = pilha[pilha.length - 1]; if (!topo) return;
+    if (e.key === 'Escape') { e.preventDefault(); fechar(); return; }
+    if (e.key !== 'Tab') return;
+    const f = focaveis(topo.p); if (!f.length) return;
+    const primeiro = f[0], ultimo = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === primeiro) { e.preventDefault(); ultimo.focus(); }
+    else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primeiro.focus(); }
+  });
+
+  /* ajustes do marketing: conta o que mudou e mostra a barra */
+  const chaves = $$('#ajustes-mkt .liga');
+  chaves.forEach((c) => { c.dataset.original = c.getAttribute('aria-checked'); });
+  function barra(){
+    let n = 0;
+    chaves.forEach((c) => {
+      const mudou = c.getAttribute('aria-checked') !== c.dataset.original;
+      c.closest('.aj').classList.toggle('mudou', mudou); if (mudou) n++;
+    });
+    $('#barra-salvar').hidden = n === 0;
+    $('#barra-texto').textContent = n === 1 ? '1 alteração ainda não salva' : n + ' alterações ainda não salvas';
+  }
+  function virar(c){
+    const ligado = c.getAttribute('aria-checked') !== 'true';
+    c.setAttribute('aria-checked', String(ligado));
+    const rot = c.parentElement.querySelector('.estado-liga'); if (rot) rot.textContent = ligado ? 'Ligado' : 'Desligado';
+    const li = c.closest('.perm li'); if (li && !li.hasAttribute('data-perm-mkt')) { li.classList.toggle('desl', !ligado); const m = li.querySelector('.marca-p'); if (m) m.textContent = ligado ? '✓' : '🔒'; }
+    if (c.id === 'sw-mkt') { $('[data-sem-mkt]').hidden = ligado; $('[data-marca-mkt]').textContent = ligado ? '✓' : '🔒'; }
+  }
+
+  function erroSenha(mostrar){
+    $('#aut-senha-erro').hidden = !mostrar;
+    if (mostrar) $('#aut-senha').setAttribute('aria-invalid', 'true'); else $('#aut-senha').removeAttribute('aria-invalid');
+    $('#aut-senha').setAttribute('aria-describedby', mostrar ? 'aut-senha-ajuda aut-senha-erro' : 'aut-senha-ajuda');
+  }
+  $('#form-aut').addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!$('#aut-senha').value.trim()) { erroSenha(true); $('#aut-senha').focus(); return; }
+    const ligada = corpo.dataset.aut === 'mais' || $('#sw-mkt').getAttribute('aria-checked') === 'true';
+    estado('aut', ligada ? 'feito' : 'desligada');
+    window.scrollTo(0, 0);
+  });
+
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('button, a'); if (!t) return;
+    if (t.matches('a[href="#"]')) e.preventDefault();
+    if (t.dataset.aba) return vista(t.dataset.aba);
+    if (t.dataset.parte) return parte(t.dataset.parte);
+    if (t.dataset.fora) return avisar('Fora deste protótipo: a parte "' + t.dataset.fora + '" já está no app.');
+    if (t.dataset.irParte) return parte(t.dataset.irParte);
+    if (t.hasAttribute('data-ir-conectados')) { vista('autorizar'); estado('aut', 'conectados'); return; }
+    if (t.matches('.liga')) {
+      virar(t);
+      if (t.closest('#ajustes-mkt')) barra();
+      return;
+    }
+    if (t.id === 'aut-cancelar') { estado('aut', 'negou'); window.scrollTo(0, 0); return; }
+    if (t.dataset.ctl) estado(t.dataset.ctl, t.dataset.valor);
+    if (t.dataset.fecha !== undefined) fechar();
+    if (t.dataset.abre) abrir(t.dataset.abre, t);
+    if (t.dataset.aviso) avisar(t.dataset.aviso);
+    if (t.id === 'aj-descartar') { chaves.forEach((c) => { if (c.getAttribute('aria-checked') !== c.dataset.original) virar(c); }); barra(); avisar('Alterações descartadas.'); }
+    if (t.id === 'aj-salvar') { chaves.forEach((c) => { c.dataset.original = c.getAttribute('aria-checked'); }); barra(); avisar('Ajustes do marketing salvos.'); }
+  });
+  $('#aut-senha').addEventListener('input', () => { if (!$('#aut-senha-erro').hidden) erroSenha(false); });
+  $('#fundo').addEventListener('click', () => { const topo = pilha[pilha.length - 1]; if (topo && topo.p.getAttribute('role') !== 'alertdialog') fechar(); });
+
+  aplicar();
+  vista((location.hash || '#autorizar').slice(1));
+})();
+</script>
+</body>
+</html>
