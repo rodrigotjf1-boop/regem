@@ -3,6 +3,7 @@ import {
   TEXTOS_DO_PONTO_DO_MES,
   botoesDoPontoDoMes,
   competenciaDoAviso,
+  contadorDoAviso,
   finalDoWhatsapp,
   lerBotaoDoPontoDoMes,
   linhaDasPendencias,
@@ -73,17 +74,23 @@ describe('o arquivo do ponto do mês do Mister (M3e parte 2) — as regras', () 
   });
 
   it('os botões: "Enviar ao contador" só com o responsável; "Ver antes" sempre; o que não é do ponto não se lê', () => {
-    expect(botoesDoPontoDoMes(AVISO, true)).toEqual([
-      { id: `pmes:enviar:${AVISO}`, titulo: 'Enviar ao contador' },
+    // Rodada 7, MIS-I-10 (ERR-661): o "Enviar ao contador" leva o contador que o aviso mostrou (o id e o final).
+    const CONTADOR = { id: 'c0c0c0c0-0000-4000-8000-000000000009', final: '7788' };
+    expect(botoesDoPontoDoMes(AVISO, CONTADOR)).toEqual([
+      { id: `pmes:enviar:${AVISO}:${CONTADOR.id}:7788`, titulo: 'Enviar ao contador' },
       { id: `pmes:ver:${AVISO}`, titulo: 'Ver antes' },
     ]);
-    expect(botoesDoPontoDoMes(AVISO, false)).toEqual([{ id: `pmes:ver:${AVISO}`, titulo: 'Ver antes' }]);
+    expect(botoesDoPontoDoMes(AVISO, null)).toEqual([{ id: `pmes:ver:${AVISO}`, titulo: 'Ver antes' }]);
     // O título cabe no botão da Meta (até 20 letras).
-    for (const b of botoesDoPontoDoMes(AVISO, true)) expect(b.titulo.length).toBeLessThanOrEqual(20);
-    expect(botoesDoPontoDoMes(AVISO, true)[0].id.startsWith(PREFIXO_DO_PONTO_DO_MES)).toBe(true);
-    expect(lerBotaoDoPontoDoMes(`pmes:enviar:${AVISO}`)).toEqual({ acao: 'enviar', avisoId: AVISO });
-    expect(lerBotaoDoPontoDoMes(`pmes:ver:${AVISO.toUpperCase()}`)).toEqual({ acao: 'ver', avisoId: AVISO });
-    for (const torto of [`pmes:apagar:${AVISO}`, `pmes:enviar:${AVISO}x`, 'pmes:enviar:1', `rec:pub:${AVISO}`, '', null]) expect(lerBotaoDoPontoDoMes(torto)).toBeNull();
+    for (const b of botoesDoPontoDoMes(AVISO, CONTADOR)) expect(b.titulo.length).toBeLessThanOrEqual(20);
+    expect(botoesDoPontoDoMes(AVISO, CONTADOR)[0].id.startsWith(PREFIXO_DO_PONTO_DO_MES)).toBe(true);
+    expect(lerBotaoDoPontoDoMes(`pmes:enviar:${AVISO}:${CONTADOR.id}:7788`)).toEqual({ acao: 'enviar', avisoId: AVISO, contadorId: CONTADOR.id, final: '7788' });
+    // O botão antigo (sem o contador) ainda se lê — e o toque não manda (o responsável pode ter mudado).
+    expect(lerBotaoDoPontoDoMes(`pmes:enviar:${AVISO}`)).toEqual({ acao: 'enviar', avisoId: AVISO, contadorId: null, final: null });
+    expect(lerBotaoDoPontoDoMes(`pmes:ver:${AVISO.toUpperCase()}`)).toEqual({ acao: 'ver', avisoId: AVISO, contadorId: null, final: null });
+    for (const torto of [`pmes:apagar:${AVISO}`, `pmes:enviar:${AVISO}x`, 'pmes:enviar:1', `rec:pub:${AVISO}`, `pmes:enviar:${AVISO}:${CONTADOR.id}:77`, '', null]) expect(lerBotaoDoPontoDoMes(torto)).toBeNull();
+    expect(contadorDoAviso({ contadorId: CONTADOR.id, contadorFinal: '7788' })).toEqual(CONTADOR);
+    expect(contadorDoAviso({ contadorId: CONTADOR.id })).toBeNull();
   });
 
   it('o nome do PDF e as frases', () => {

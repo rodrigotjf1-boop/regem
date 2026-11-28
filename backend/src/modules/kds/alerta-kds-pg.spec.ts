@@ -113,6 +113,17 @@ descrever('avisos do KDS guardados e o Farol (Postgres)', () => {
     await expect(svc.ciente(T, 'nao-e-id', { nome: 'X' })).rejects.toThrow('Aviso não encontrado.');
   });
 
+  it('ERR-661 · MIS-I-14: a tela de uma loja não dá "Ciente" no aviso de outra loja; o da empresa inteira, sim', async () => {
+    const { aviso } = await svc.guardarEMostrar({ tenantId: T, unidadeId: U1, titulo: 'Só da loja 1', fica: true, prioridade: 'danger' });
+    limpar();
+    await expect(svc.ciente(T, aviso.id, { nome: 'Da loja 2' }, null, U2)).rejects.toThrow('Aviso não encontrado.');
+    expect(emitidos).toEqual([]);
+    expect((await q(`select ciente_em from alerta_kds where id = $1`, [aviso.id]))[0].ciente_em).toBeNull();
+    expect(await svc.ciente(T, aviso.id, { nome: 'Da loja 1' }, null, U1)).toMatchObject({ ok: true, por: 'Da loja 1', jaEstava: false });
+    const { aviso: daEmpresa } = await svc.guardarEMostrar({ tenantId: T, unidadeId: null, titulo: 'Da empresa', fica: true, prioridade: 'danger' });
+    expect(await svc.ciente(T, daEmpresa.id, { nome: 'Da loja 2' }, null, U2)).toMatchObject({ ok: true, jaEstava: false });
+  });
+
   it('a tela recarregada recupera o urgente sem "Ciente": 12 h, a loja dela (e a empresa inteira), o lado dela', async () => {
     const id = async (o: any) => (await svc.guardarEMostrar({ tenantId: T, titulo: 'p', ...o })).aviso.id;
     const fica = await id({ unidadeId: U1, fica: true, titulo: 'fica U1' });

@@ -167,6 +167,24 @@ descrever('código da trava no assistente do instalador (ERR-124)', () => {
     expect(r2.situacao).toBe('codigo');
   });
 
+  it('ERR-661 (rodada 7, MIS-I-01): o gerente de uma loja só instala e move o servidor DA LOJA DELE; sem loja, nenhuma', async () => {
+    const e = await empresaComServidor({ trava: false, lojas: 2 });
+    // O dono vira gerente preso à 2ª loja (a do servidor existente é a Matriz).
+    const [gerente] = await q(`insert into perfil_acesso (tenant_id, nome, nivel) values ($1,'Gerente','gerente') returning id`, [e.t]);
+    await q(`update colaborador set perfil_acesso_id = $1, unidade_id = $2 where email = $3`, [gerente.id, e.unidades[1], e.email]);
+    const dados = { email: e.email, senha: SENHA, fingerprint: 'fp-gerente' };
+    // A loja de outra pessoa: recusa, sem criar nada.
+    await expect(svc.verificarInstalacao({ ...dados, unidadeId: e.unidades[0] })).rejects.toThrow(ForbiddenException);
+    // Sem dizer a loja: é a dele (não pergunta a lista).
+    expect(((await svc.verificarInstalacao(dados)) as any).situacao).not.toBe('escolher_loja');
+    // Mover o servidor da Matriz (a ativação está na máquina dele): recusa antes de qualquer código.
+    await expect(svc.reautorizarSolicitar({ ...dados, metodo: 'email' })).rejects.toThrow(ForbiddenException);
+    expect(await pedidosDe(e.t)).toHaveLength(0);
+    // Sem loja nenhuma: não instala em loja nenhuma.
+    await q(`update colaborador set unidade_id = null where email = $1`, [e.email]);
+    await expect(svc.verificarInstalacao(dados)).rejects.toThrow(ForbiddenException);
+  });
+
   it('S3-02: conta excluída, bloqueada ou desligada não instala nem move o servidor', async () => {
     const e = await empresaComServidor({ trava: false });
     const dados = { email: e.email, senha: SENHA, fingerprint: 'fp-conta-fora' };

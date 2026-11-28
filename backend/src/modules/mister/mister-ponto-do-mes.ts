@@ -89,14 +89,24 @@ export type AcaoDoPontoDoMes = 'enviar' | 'ver';
 
 /** Os botões do aviso (só o presidente): "Enviar ao contador" (com o responsável cadastrado) e "Ver antes". O protótipo diz
  * "Enviar à contabilidade", mas a Meta aceita até 20 letras no título do botão (são 22): "Enviar ao contador" (18). */
-export const botoesDoPontoDoMes = (avisoId: string, comContador: boolean) => [
-  ...(comContador ? [{ id: `${PREFIXO_DO_PONTO_DO_MES}enviar:${avisoId}`, titulo: 'Enviar ao contador' }] : []),
+/**
+ * Rodada 7, MIS-I-10 (ERR-661): o "Enviar ao contador" leva o contador que o aviso MOSTROU (o id e o final do WhatsApp) — antes,
+ * o toque mandava ao contador ativo mais recente, e quem editasse o cadastro entre o aviso e o toque recebia o espelho de ponto
+ * da empresa inteira.
+ */
+export const botoesDoPontoDoMes = (avisoId: string, contador: { id: string; final: string } | null) => [
+  ...(contador ? [{ id: `${PREFIXO_DO_PONTO_DO_MES}enviar:${avisoId}:${contador.id}:${contador.final}`, titulo: 'Enviar ao contador' }] : []),
   { id: `${PREFIXO_DO_PONTO_DO_MES}ver:${avisoId}`, titulo: 'Ver antes' },
 ];
 
-export function lerBotaoDoPontoDoMes(botaoId: unknown): { acao: AcaoDoPontoDoMes; avisoId: string } | null {
-  const m = /^pmes:(enviar|ver):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(String(botaoId ?? ''));
-  return m ? { acao: m[1] as AcaoDoPontoDoMes, avisoId: m[2].toLowerCase() } : null;
+/** O contador que o aviso mostrou (o id e o final), dos dados do aviso — ou null (aviso antigo, sem o final: sem o botão). */
+export const contadorDoAviso = (d: any): { id: string; final: string } | null =>
+  d?.contadorId && /^\d{4}$/.test(String(d?.contadorFinal ?? '')) ? { id: String(d.contadorId), final: String(d.contadorFinal) } : null;
+
+const UUID_DO_BOTAO = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+export function lerBotaoDoPontoDoMes(botaoId: unknown): { acao: AcaoDoPontoDoMes; avisoId: string; contadorId: string | null; final: string | null } | null {
+  const m = new RegExp(`^pmes:(enviar|ver):(${UUID_DO_BOTAO})(?::(${UUID_DO_BOTAO}):(\\d{4}))?$`, 'i').exec(String(botaoId ?? ''));
+  return m ? { acao: m[1] as AcaoDoPontoDoMes, avisoId: m[2].toLowerCase(), contadorId: m[3]?.toLowerCase() ?? null, final: m[4] ?? null } : null;
 }
 
 /** O nome do PDF do espelho: "Espelho de ponto · outubro 2026 · Mister Burger.pdf" (sem barra nem aspas). */
@@ -111,6 +121,8 @@ export const TEXTOS_DO_PONTO_DO_MES = {
   jaEnviado: (hora: string, competencia: string) => `O ponto de ${nomeDoMes(competencia)} já foi enviado à contabilidade, às ${hora}.`,
   enviando: 'O envio à contabilidade já está em andamento. Espere a confirmação.',
   semContador: 'Não há responsável da contabilidade cadastrado. Cadastre em Pessoas › Gerenciamento de ponto e mande de lá.',
+  // Rodada 7, MIS-I-10: o responsável não é mais o que o aviso mostrou (trocado, editado ou desativado) — nada foi mandado.
+  responsavelMudou: 'O responsável da contabilidade mudou desde este aviso: não mandei. Confira em Pessoas › Gerenciamento de ponto e mande de lá.',
   soPresidente: 'Só o presidente manda o ponto à contabilidade pelo Mister.',
   naoVale: 'Este aviso do ponto não está mais aberto. O envio fica em Pessoas › Gerenciamento de ponto.',
   falhou: 'Não consegui mandar à contabilidade agora. Toque em "Enviar ao contador" de novo daqui a pouco, ou mande em Pessoas › Gerenciamento de ponto.',

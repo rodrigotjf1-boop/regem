@@ -86,11 +86,17 @@ export class MisterPontoDoMesService implements OnModuleInit {
       this.db
         .execute(sql`update mister_aviso set dados = coalesce(dados, '{}'::jsonb) - 'envioEm' where id = ${a.id}::uuid`)
         .catch((e: any) => this.logger.warn(`a reserva do aviso ${a.id} não saiu — ${e?.message ?? e}`));
+    // Rodada 7, MIS-I-10 (ERR-661): só o contador que o aviso MOSTROU (o id e o final do WhatsApp no botão); o botão antigo,
+    // sem eles, não manda (o responsável pode ter mudado).
+    if (!b.contadorId || !b.final) {
+      await soltar();
+      return this.dizer(quem.telefone, TEXTOS_DO_PONTO_DO_MES.responsavelMudou);
+    }
     let r: any;
     try {
       if (!this.ponto) throw new Error('o serviço do ponto não está neste servidor');
       // O MESMO envio da tela, em nome do presidente que tocou (a auditoria do ponto registra quem mandou).
-      r = await this.ponto.enviarEspelhoContador(a.tenantId, v.colaboradorId, competencia);
+      r = await this.ponto.enviarEspelhoContador(a.tenantId, v.colaboradorId, competencia, { contadorId: b.contadorId, finalDoWhatsapp: b.final });
     } catch (e: any) {
       this.logger.error(`o ponto de ${competencia} da empresa ${a.tenantId} não foi mandado à contabilidade — ${e?.message ?? e}`, e?.stack);
       await soltar();
@@ -98,7 +104,8 @@ export class MisterPontoDoMesService implements OnModuleInit {
     }
     if (r?.precisaResponsavel) {
       await soltar();
-      return this.dizer(quem.telefone, TEXTOS_DO_PONTO_DO_MES.semContador);
+      // Com o contador do aviso: ele não é mais o ativo com aquele número.
+      return this.dizer(quem.telefone, TEXTOS_DO_PONTO_DO_MES.responsavelMudou);
     }
     return this.dizer(quem.telefone, (await this.fraseDoEnviado(a.tenantId, competencia, true)) ?? TEXTOS_DO_PONTO_DO_MES.falhou);
   }

@@ -47,6 +47,27 @@ descrever('pagar e estornar a conta uma vez só (Postgres)', () => {
     await pool.end();
   });
 
+  it('ERR-661 (rodada 7, MIS-I-03): o fornecedor de OUTRA empresa não entra na conta, e a lista não mostra o nome dele', async () => {
+    const OUTRA = randomUUID();
+    await q(`insert into empresa (id, nome) values ($1, 'outra empresa do fornecedor')`, [OUTRA]);
+    try {
+      const [{ id: deFora }] = await q(`insert into fornecedor (tenant_id, nome) values ($1, 'Fornecedor de Fora') returning id::text as id`, [OUTRA]);
+      const [{ id: daCasa }] = await q(`insert into fornecedor (tenant_id, nome) values ($1, 'Fornecedor da Casa') returning id::text as id`, [T]);
+      await expect(financeiro.criar(T, ator, 'presidente', { tipo: 'pagar', descricao: 'Boleto', valor: 10, fornecedorId: deFora } as any)).rejects.toThrow('Fornecedor não encontrado.');
+      const id = await novaConta({ descricao: 'Boleto · fornecedor' });
+      await expect(financeiro.atualizar(T, ator, 'presidente', id, { tipo: 'pagar', descricao: 'Boleto', valor: 10, fornecedorId: deFora } as any)).rejects.toThrow('Fornecedor não encontrado.');
+      await financeiro.atualizar(T, ator, 'presidente', id, { tipo: 'pagar', descricao: 'Boleto · fornecedor', valor: 480, fornecedorId: daCasa } as any);
+      // A linha que chegou por outro caminho (o sincronismo) com o id de fora: a lista não traz o nome de fora.
+      await q(`update titulo_financeiro set fornecedor_id = $2 where id = $1`, [id, deFora]);
+      const lista: any[] = await financeiro.listar(T);
+      expect(lista.find((x) => x.id === id)?.fornecedorNome ?? null).toBeNull();
+    } finally {
+      await q(`update titulo_financeiro set fornecedor_id = null where tenant_id = $1`, [T]);
+      await q(`delete from fornecedor where tenant_id = any($1::uuid[])`, [[T, OUTRA]]);
+      await q(`delete from empresa where id = $1`, [OUTRA]);
+    }
+  });
+
   it('cinco "pagar" ao mesmo tempo: um paga, os outros ouvem "não está aberto" — uma saída só no caixa', async () => {
     const id = await novaConta();
     const r = await varias(5, () => financeiro.pagar(T, ator, 'presidente', id, {} as any));

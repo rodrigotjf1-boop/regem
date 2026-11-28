@@ -2154,7 +2154,7 @@ export class MisterAcoesService implements OnModuleInit {
         select t.id::text as id, t.unidade_id::text as "unidadeId", t.descricao, f.nome as fornecedor, t.valor::text as valor,
                t.vencimento::text as vencimento, t.recorrencia
           from titulo_financeiro t
-          left join fornecedor f on f.id = t.fornecedor_id
+          left join fornecedor f on f.id = t.fornecedor_id and f.tenant_id = t.tenant_id
          where t.tenant_id = ${e.tenantId}::uuid and t.tipo = 'pagar' and t.status = 'aberto' ${sqlUnidade('t.unidade_id', atual)}
            and (t.descricao ilike ${comoTexto(a.conta)} or f.nome ilike ${comoTexto(a.conta)})
            ${a.venceEm ? sql`and to_char(t.vencimento, 'DD/MM') = ${a.venceEm}` : sql``}

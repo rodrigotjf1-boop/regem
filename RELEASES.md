@@ -128,6 +128,11 @@
 - _(ERR-660 — rodada 7, bloco H: custo e abuso do Mister (o teto do dia em US$ na IA incluída antes de chamar, a mídia dentro do
   teto, o dono da pega, o prazo total, as pendências, os toques do convite, a rodada pelo sinal de vida) (28/11): SEM migration e
   só da nuvem (a IA da empresa e o Mister não rodam na loja). Não pede `.zip` nem `.exe`.)_
+- _(ERR-661 — rodada 7, bloco I: avisos e regras do Mister (a régua de agora na regra, no vigia, no aviso antigo e na supressão do
+  aviso padrão, boleto e ponto só a quem pode ver, o ponto ao contador que o botão mostrou, a fonte "tarefas" com permissão, a loja
+  no assistente da instalação, no "Ciente" e no KDS, o fornecedor da empresa no título) (28/11): SEM migration. O Mister é só da
+  nuvem, mas a tela dos avisos do servidor da loja, o "Ciente" do KDS, o título a pagar e o ponto rodam no servidor da loja: entra
+  no PRÓXIMO `.zip` (não pede `.exe`).)_
 - **Mister C7 — aprender pela tarefa feita (26/11; mig 508, só na nuvem).** O `sync-daemon.mjs` ganhou `mister_aprendizado` na
   lista das tabelas só da nuvem (SO_NUVEM). Na loja não muda nada: a tabela não existe no banco dela e nada a escreve. Vai no
   próximo `.exe` por ter tocado o `sync-daemon` (sem pressa; o daemon antigo não lê a tabela).

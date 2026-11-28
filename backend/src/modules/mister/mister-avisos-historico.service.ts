@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { hojeISO, somarDias } from '../../common/data';
 import { noPeriodo } from '../../common/fuso-sql';
+import { sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { Destino, GRUPO_DA_SEGURANCA, NOME_DO_DESTINO, TIPOS_DA_DISTRIBUICAO, TIPOS_DE_AVISO, TIPOS_DE_SEGURANCA } from './mister-avisos.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -78,7 +79,7 @@ export class MisterAvisosHistoricoService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
   /** Mister › Histórico: os avisos da empresa. `dias` 1 = hoje, 7, 30. */
-  async historico(tenantId: string, filtros: { situacao?: unknown; busca?: unknown; grupo?: unknown; dias?: unknown }) {
+  async historico(tenantId: string, filtros: { situacao?: unknown; busca?: unknown; grupo?: unknown; dias?: unknown }, atual: string | null = null) {
     const situacao: SituacaoDoFiltro = (SITUACOES as readonly string[]).includes(String(filtros.situacao)) ? (filtros.situacao as SituacaoDoFiltro) : 'todos';
     const dias = Number(filtros.dias ?? 7);
     if (!(PERIODOS_DO_HISTORICO as readonly number[]).includes(dias)) throw new BadRequestException('O período é hoje, 7 ou 30 dias.');
@@ -98,7 +99,10 @@ export class MisterAvisosHistoricoService {
        -- Os avisos SÓ DA DISTRIBUIÇÃO (o segredo tirado da resposta) não são da loja: só o Console › Avisos os mostra.
        and a.tipo not in (${sql.join(TIPOS_DA_DISTRIBUICAO.map((x) => sql`${x}`), sql`, `)})
        ${tipos.length ? sql`and a.tipo in (${sql.join(tipos.map((x) => sql`${x}`), sql`, `)})` : sql``}
-       ${t ? sql`and a.titulo ilike ${`%${t}%`}` : sql``}`;
+       ${t ? sql`and a.titulo ilike ${`%${t}%`}` : sql``}
+       -- Rodada 7, MIS-I-06 (ERR-661): a loja de quem consulta (e os avisos da empresa toda, sem loja) — V4/V48. O presidente
+       -- preso a uma loja via o boleto (R$, linha digitável) e o ponto (nomes) das outras.
+       ${sqlUnidadeOuRede('a.unidade_id', atual)}`;
     const [c] = linhas(
       await this.db.execute(sql`
         select count(*)::int as todos, count(*) filter (where a.situacao = 'aberto')::int as aberto,
