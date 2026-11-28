@@ -13,12 +13,14 @@ import {
 
 // O Pix do item novo no pedido já pago (mig 373): o que o cliente e a equipe leem em cada passo.
 describe('Pix do item novo — os textos', () => {
-  it('o Pix vale 5 minutos (o pedido do dono) e o cliente lê isso antes de pagar', () => {
-    expect(VALIDADE_DO_PIX_DO_ADICIONAL_MIN).toBe(5);
+  // 28/11: era 5 min e o código vencia antes de o cliente conseguir pagar ("o pix dizia 5 min só que já era criado e
+  // expirava") — o mesmo prazo do Pix do pedido, que o cliente paga sem problema.
+  it('o Pix vale 10 minutos (o mesmo do Pix do pedido) e o cliente lê isso antes de pagar', () => {
+    expect(VALIDADE_DO_PIX_DO_ADICIONAL_MIN).toBe(10);
     expect(textoDoPix('57', '1x Coca lata', 6)).toBe(
       [
         'Aqui está o Pix de R$ 6,00 para pôr 1x Coca lata no pedido nº 57 👇',
-        'Vale por 5 minutos. Assim que o pagamento cair, o item entra no pedido e eu te aviso aqui.',
+        'Vale por 10 minutos. Assim que o pagamento cair, o item entra no pedido e eu te aviso aqui.',
         'Se não for pago a tempo, o código expira e o pedido pode sair sem o item.',
       ].join('\n'),
     );

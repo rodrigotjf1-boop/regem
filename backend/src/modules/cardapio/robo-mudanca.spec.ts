@@ -187,7 +187,7 @@ describe('pôr item no pedido já pago no Pix', () => {
         'Total: R$ 45,00 → R$ 59,00',
         '',
         'Este pedido já foi pago no Pix. Para pôr o item, eu te mando um Pix de R$ 14,00.',
-        'Ele vale 5 minutos: se não for pago a tempo, o código expira e o pedido pode sair sem o item.',
+        'Ele vale 10 minutos: se não for pago a tempo, o código expira e o pedido pode sair sem o item.',
         '',
         'Mando o Pix? 👇',
       ].join('\n'),

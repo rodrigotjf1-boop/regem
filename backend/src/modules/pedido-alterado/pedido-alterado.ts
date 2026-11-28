@@ -264,13 +264,22 @@ const valorNaVia = (n: number) => r2(n).toFixed(2).replace('.', ',');
 const SEPARADOR = '@C ========================';
 
 /**
+ * "Descarte TODAS as vias anteriores" em letra DOBRADA (2×), como no protótipo aprovado (`regem-alteracao-pedido.html`, a
+ * frase em `p2`): até 28/11 ela saía no tamanho normal, só em negrito, e não chamava atenção (o dono: "verifique se a
+ * reimpressão sai com a frase para descartar a via anterior em destaque"). Em 2× cabem 16 letras por linha no papel de
+ * 58 mm (24 no de 80): três linhas que servem aos dois papéis.
+ */
+export const LINHAS_DO_DESCARTE = ['@CBD Descarte TODAS', '@CBD as vias', '@CBD anteriores'] as const;
+const DESTAQUE_DO_ALTERADO = ['@CBD4 PEDIDO', '@CBD4 ALTERADO', ...LINHAS_DO_DESCARTE];
+
+/**
  * O DESTAQUE no alto da via da COZINHA (decisão 5A): "PEDIDO" e "ALTERADO" no tamanho máximo da impressora (4×), um em
- * cada linha — cabem nos dois papéis (8 letras em 58 mm) —, "Descarte TODAS as vias anteriores" e o que mudou. A
+ * cada linha — cabem nos dois papéis (8 letras em 58 mm) —, "Descarte TODAS as vias anteriores" em 2× e o que mudou. A
  * impressora não imprime branco no preto: o destaque é o tamanho, o negrito e as linhas duplas. Sem "·" e "→" (fora do
  * ASCII, somem na impressora sem página de código).
  */
 export function linhasDoAlteradoNaCozinha(m: Mudanca, hora: string): string {
-  const l = ['@CBD4 PEDIDO', '@CBD4 ALTERADO', '@CB Descarte TODAS as vias anteriores', SEPARADOR, `@CB O QUE MUDOU - ${hora}`];
+  const l = [...DESTAQUE_DO_ALTERADO, SEPARADOR, `@CB O QUE MUDOU - ${hora}`];
   for (const i of m.itens) {
     l.push(`@B ${i.acao === 'por' ? '+ NOVO ' : '- TIRAR'} ${qtd(i.quantidade)} ${textoNaVia(i.descricao)}`);
   }
@@ -280,7 +289,7 @@ export function linhasDoAlteradoNaCozinha(m: Mudanca, hora: string): string {
 
 /** O mesmo destaque na via do CAIXA e do ENTREGADOR, com os valores, o endereço novo e a taxa. */
 export function linhasDoAlteradoNoEntregador(m: Mudanca, hora: string): string {
-  const l = ['@CBD4 PEDIDO', '@CBD4 ALTERADO', '@CB Descarte TODAS as vias anteriores', SEPARADOR, `@CB O QUE MUDOU - ${hora}`];
+  const l = [...DESTAQUE_DO_ALTERADO, SEPARADOR, `@CB O QUE MUDOU - ${hora}`];
   for (const i of m.itens) {
     const sinal = i.acao === 'por' ? '+' : '-';
     // A barra separa as duas colunas da linha: na descrição ela vira "/".

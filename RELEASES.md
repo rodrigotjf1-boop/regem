@@ -56,6 +56,9 @@
   servidor da loja. Não pede `.zip` nem `.exe`.)_
 - _(Atendente — a voz pelo DMS Graph, `publico/bot/voz` (27/11): SEM migration e só da nuvem (`@CloudOnly`; o Graph só fala
   pela nuvem). Não pede `.zip` nem `.exe`. Vale com o Graph 0.13.0 implantado e o fluxo 2.7 do n8n importado.)_
+- **Via do pedido alterado: "Descarte TODAS as vias anteriores" em letra dobrada (28/11; SEM migration; ERR-654).** A via é
+  montada também pelo servidor da loja (a cozinha e o caixa imprimem por ele): vai no próximo `.zip`. O Pix do item
+  adicionado com 10 min (ERR-653) é só da nuvem. Não pede `.exe`.
 - _(Atendente — a 99 "fora do horário" dela não fecha mais a loja (27/11; ERR-631): SEM migration e só da nuvem — o veredito
   é do robô. Não pede `.zip` nem `.exe`.)_
 - **Estoque: a unidade "fatia" e o "Duplicar" em Estoque › Produtos (27/11; SEM migration).** Vai no próximo `.zip`: a

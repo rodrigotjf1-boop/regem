@@ -274,7 +274,7 @@ descrever('o robô põe item no pedido já pago no Pix (Postgres)', () => {
         'Total: R$ 45,00 → R$ 57,00',
         '',
         'Este pedido já foi pago no Pix. Para pôr o item, eu te mando um Pix de R$ 12,00.',
-        'Ele vale 5 minutos: se não for pago a tempo, o código expira e o pedido pode sair sem o item.',
+        'Ele vale 10 minutos: se não for pago a tempo, o código expira e o pedido pode sair sem o item.',
         '',
         'Mando o Pix? 👇',
       ].join('\n'),
@@ -291,7 +291,7 @@ descrever('o robô põe item no pedido já pago no Pix (Postgres)', () => {
     expect(l.doCliente().slice(1)).toEqual([
       [
         'Aqui está o Pix de R$ 12,00 para pôr 1x Batata de teste no pedido nº 57 👇',
-        'Vale por 5 minutos. Assim que o pagamento cair, o item entra no pedido e eu te aviso aqui.',
+        'Vale por 10 minutos. Assim que o pagamento cair, o item entra no pedido e eu te aviso aqui.',
         'Se não for pago a tempo, o código expira e o pedido pode sair sem o item.',
       ].join('\n'),
       '00020126PIX12CODIGO', // o código SOZINHO, para copiar com um toque
