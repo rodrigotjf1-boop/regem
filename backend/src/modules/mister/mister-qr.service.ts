@@ -127,14 +127,23 @@ export class MisterQrService {
     // ERR-649 (rodada 7 de segurança, MIS-A-05): a forma do Mister só passa a ser o QR na conexão que a Diretoria PEDIU (saindo
     // de "conectando", o QR gerado no console). A reconexão sozinha do celular ainda pareado (a Evolution reiniciou) não desfaz
     // a escolha da API oficial feita no console.
-    await this.db.execute(sql`
-      update mister_numero
-         set instancia_situacao = 'conectado', instancia_motivo = null, atualizado_em = now(),
-             provedor = case when instancia_situacao = 'conectando' then 'evolution' else provedor end,
-             instancia_situacao_em = case when instancia_situacao = 'conectado' then instancia_situacao_em else now() end,
-             instancia_conectada_em = case when instancia_situacao = 'conectado' then instancia_conectada_em else now() end,
-             instancia_numero = coalesce(${numero}, instancia_numero)
-       where id = 1 and instancia = ${instancia}`);
+    // Rodada 7, MIS-G-08 (ERR-659): o celular que a Diretoria DESCONECTOU ("sem") não volta por um aviso atrasado nem por uma
+    // reconexão da Evolution (o logout pode ter falhado): só um QR novo (que passa por "conectando") conecta de novo.
+    const mudou = linhas(
+      await this.db.execute(sql`
+        update mister_numero
+           set instancia_situacao = 'conectado', instancia_motivo = null, atualizado_em = now(),
+               provedor = case when instancia_situacao = 'conectando' then 'evolution' else provedor end,
+               instancia_situacao_em = case when instancia_situacao = 'conectado' then instancia_situacao_em else now() end,
+               instancia_conectada_em = case when instancia_situacao = 'conectado' then instancia_conectada_em else now() end,
+               instancia_numero = coalesce(${numero}, instancia_numero)
+         where id = 1 and instancia = ${instancia} and instancia_situacao <> 'sem'
+        returning id`),
+    );
+    if (!mudou.length) {
+      this.logger.warn('mister: o celular desconectado no console voltou a abrir na Evolution — ignorado (gere um QR novo para conectar)');
+      return this.numero.ler();
+    }
     void this.anunciarNumeroNovo().catch((e) => this.logger.warn(`mister: o aviso do número novo não saiu — ${e?.message ?? e}`));
     return this.numero.ler();
   }

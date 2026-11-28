@@ -5,6 +5,7 @@ import {
   Header,
   Headers,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   Req,
@@ -183,9 +184,8 @@ export class DistribuicaoController {
   @UseGuards(DistribuicaoGuard, PerfilDistGuard)
   @PerfilDist('diretoria')
   async conectarNumeroDoMister(@DistUser() u: DistCtx, @Body() dto: any) {
-    const r = await this.mister.conectar(dto, u);
-    await this.service.auditar(u, 'conectou_numero_mister', undefined, { forma: r.numero.forma, final: String(r.numero.numero ?? '').slice(-4), avisos: r.avisos.length });
-    return r;
+    // Rodada 7, MIS-G-06: a auditoria vai na transação da conexão (com o id de quem conectou).
+    return this.mister.conectar(dto, u);
   }
 
   @Post('mister/numero/desconectar')
@@ -441,19 +441,16 @@ export class DistribuicaoController {
   @Post('mister/instrucoes/publicar')
   @UseGuards(DistribuicaoGuard, PerfilDistGuard)
   @PerfilDist('diretoria')
-  async publicarCandidataDoMister(@DistUser() u: DistCtx) {
-    const r = await this.instrucoesDoMister.publicar(u?.nome ?? null);
-    await this.service.auditar(u, 'publicou_instrucoes_do_mister', undefined, { candidata: r.id, tipo: r.tipo, versao: r.versao });
-    return r;
+  async publicarCandidataDoMister(@DistUser() u: DistCtx, @Body('candidataId', new ParseUUIDPipe()) candidataId: string) {
+    // Rodada 7, MIS-G-02/G-06: a candidata que a tela mostrou; a auditoria vai na transação da publicação.
+    return this.instrucoesDoMister.publicar(u, candidataId);
   }
 
   @Post('mister/instrucoes/descartar')
   @UseGuards(DistribuicaoGuard, PerfilDistGuard)
   @PerfilDist('diretoria')
-  async descartarCandidataDoMister(@DistUser() u: DistCtx) {
-    const r = await this.instrucoesDoMister.descartar(u?.nome ?? null);
-    await this.service.auditar(u, 'descartou_candidata_do_mister', undefined, { candidata: r.id });
-    return r;
+  async descartarCandidataDoMister(@DistUser() u: DistCtx, @Body('candidataId', new ParseUUIDPipe()) candidataId: string) {
+    return this.instrucoesDoMister.descartar(u, candidataId);
   }
 
   @Post('mister/seguranca/analise/decisao')

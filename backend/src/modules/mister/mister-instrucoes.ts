@@ -22,7 +22,8 @@ export function aplicarTrocas(base: string, trocas: TrocaPublicada[]): { texto: 
   const quebradas: string[] = [];
   for (const t of trocas) {
     const i = linhas.indexOf(t.sai);
-    if (i < 0 || !t.sai.trim()) {
+    // Rodada 7, MIS-G-05: a linha que aparece mais de uma vez não diz QUAL trocar — fica de fora (avisada), nunca a primeira.
+    if (i < 0 || !t.sai.trim() || linhas.indexOf(t.sai, i + 1) >= 0) {
       quebradas.push(t.id);
       continue;
     }
@@ -121,6 +122,8 @@ export interface RodadaParaComparar {
   total: number;
   feitas: number;
   casos: CasoComparado[];
+  /** O modelo que respondeu na avaliação (mig 424). Ausente nas rodadas antigas. */
+  modelo?: string | null;
 }
 
 /**
@@ -143,6 +146,14 @@ export function regraDePublicar(p: {
   const b = p.base;
   if (!b || b.situacao !== 'terminou' || b.versao !== p.versaoNoAr || b.feitas < b.total)
     return { pode: false, motivo: 'A versão no ar ainda não tem uma avaliação inteira para comparar. Rode a avaliação dela antes.', ...nada };
+  // Rodada 7, MIS-G-03 (ERR-659): a comparação só vale com a MESMA régua — o mesmo modelo e as mesmas perguntas. Antes, a base
+  // escolhida pela versão do texto podia ter outro modelo ou menos casos, e a pergunta nova que a candidata errava ficava de
+  // fora ("sem errada nova").
+  if (b.modelo && c.modelo && b.modelo !== c.modelo)
+    return { pode: false, motivo: 'As duas avaliações foram feitas com modelos diferentes. Rode a avaliação da versão no ar de novo.', ...nada };
+  const naBase = new Map(b.casos.map((x) => [x.id, x.pergunta]));
+  if (b.total !== c.total || c.casos.some((x) => naBase.get(x.id) !== x.pergunta))
+    return { pode: false, motivo: 'As perguntas da avaliação mudaram desde a avaliação da versão no ar. Rode a avaliação dela de novo.', ...nada };
   const cmp = compararAvaliacoes(b.casos, c.casos);
   if (cmp.novas.length) return { pode: false, motivo: `${cmp.novas.length === 1 ? '1 pergunta passou' : `${cmp.novas.length} perguntas passaram`} a errar com a candidata.`, ...cmp };
   return { pode: true, motivo: null, ...cmp };

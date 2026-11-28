@@ -3341,6 +3341,20 @@ os 11 achados conferidos no código por três leituras.
   pede bucket privado e um plano próprio (hoje 0 contas com foto na nuvem); e o `redirect: 'error'` no download, que pede conferir
   com a Meta de verdade antes.
 
+**Rodada 7 — bloco G, "console da distribuição do Mister" (28/11/2026; ERR-659, V128; SEM migration; só na nuvem):** os 10 achados
+conferidos no código por duas leituras.
+- **G-01:** a chave do console nunca é a das lojas — sem `DIST_JWT_SECRET`, uma chave derivada (quem estava no console entra de novo
+  uma vez).
+- **G-02:** "Publicar" e "Descartar" levam a candidata que a tela mostrou; outra no lugar dela é recusada ("recarregue").
+- **G-03:** publicar compara com a mesma régua — o mesmo modelo e as mesmas perguntas nas duas avaliações.
+- **G-05:** a leitura das trocas que falha segue com o último texto lido; a linha repetida não é trocada.
+- **G-06:** publicar, descartar e conectar o número auditam na mesma transação (com o id de quem fez).
+- **G-07:** conectar o número oficial confere que ele é da conta da Meta e exige a assinatura confirmada (senão não grava).
+- **G-08:** o celular desconectado no console só volta com um QR novo.
+- **G-09:** o nome de ferramenta inventado pela IA não vai à trilha, à Qualidade nem ao Sentinela. **G-10:** o erro interno fica no log.
+- **Para depois:** G-04 (o executor fictício da avaliação diverge das rotas em fechamentos com `turnos` — qualidade do portão, não
+  segurança) e o `DIST_JWT_SECRET` obrigatório na subida (pede o dono pôr a variável antes).
+
 ### Dias especiais H2b — o feriado pelo Mister (27/11/2026; SEM migration; só na nuvem)
 
 Fase H2b do protótipo `mockups/regem-dias-especiais.html` (aba "No Mister"; decisões 4 e 8).

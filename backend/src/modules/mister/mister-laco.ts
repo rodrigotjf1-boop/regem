@@ -1,6 +1,6 @@
 import { FalhaDaIa, PedidoDeIa, RespostaDaIa } from '../ia/ia-empresa.service';
 import { PRECOS_POR_MILHAO } from '../ia/ia.regras';
-import { FERRAMENTAS, FERRAMENTAS_DA_ANALISE, INSTRUCOES_DO_MISTER, MODELO_DAS_ANALISES, MODELO_DAS_PERGUNTAS, MotivoSemResposta, RECURSO_DAS_PERGUNTAS, TETOS, TrocaDaMemoria, entradaParaATrilha, ferramentasDaConversa, perguntaDaMemoria, podeRodarJunto } from './mister-agente.regras';
+import { FERRAMENTAS, FERRAMENTAS_DA_ANALISE, INSTRUCOES_DO_MISTER, MODELO_DAS_ANALISES, MODELO_DAS_PERGUNTAS, MotivoSemResposta, RECURSO_DAS_PERGUNTAS, TETOS, TrocaDaMemoria, ehFerramenta, entradaParaATrilha, ferramentasDaConversa, perguntaDaMemoria, podeRodarJunto } from './mister-agente.regras';
 
 /** O modelo das perguntas: o da distribuição (`MISTER_MODELO_PERGUNTAS`), se estiver na tabela de preços; senão o padrão. */
 export function modeloDasPerguntas(): string {
@@ -185,7 +185,9 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
           return { type: 'tool_result', tool_use_id: p.id, content: JSON.stringify({ erro: 'Limite de consultas desta pergunta atingido. Responda com o que já tem.' }), is_error: true };
         }
         const { feito, ms } = feitos[i];
-        trilha.ferramentas.push({ nome: String(p.name).slice(0, 60), ms, ok: feito.ok, entrada: entradaParaATrilha(p.input) });
+        // Rodada 7, MIS-G-09 (ERR-659): o nome que a IA inventou ("ignore as regras…") não vai à trilha — a Qualidade o mostra
+        // e o Sentinela o manda à IA da distribuição. Só os nomes do catálogo.
+        trilha.ferramentas.push({ nome: ehFerramenta(p.name) ? p.name : 'desconhecida', ms, ok: feito.ok, entrada: entradaParaATrilha(p.input) });
         portas.colher?.(feito);
         if (feito.ok) resultados.push(feito.dados);
         return { type: 'tool_result', tool_use_id: p.id, content: JSON.stringify(feito.dados), ...(feito.ok ? {} : { is_error: true }) };
