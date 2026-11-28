@@ -190,6 +190,8 @@ export type Desfecho =
   | 'proposta_nao_achada'
   | 'documento'
   | 'midia_nao_lida'
+  /** Rodada 7, MIS-H-06: a foto/documento/áudio chegou com o teto do dia atingido — nada foi lido (nenhuma IA paga). */
+  | 'limite_de_midia'
   /** Versão 10, C5: o áudio era o PIN falado (conferido pelo código; nada seguiu para a fila nem para a IA). */
   | 'pin_falado'
   | 'calado'
@@ -772,6 +774,16 @@ export class MisterEntradaService {
         return 'tratado' as const;
       });
       if (r === 'tratado') return { desfecho: 'pin_falado', tenantId: v.tenantId };
+    }
+    // Rodada 7, MIS-H-06 (ERR-660): a foto, o documento e o áudio gastam IA (o Sonnet, até três leituras) ANTES da fila — fora do
+    // teto de perguntas. Agora o teto do dia vale antes de qualquer leitura: o da pessoa e o da empresa (perguntas) e o de
+    // leituras de mídia da empresa. A planilha (lida sem IA) não conta.
+    if (midia && !(midia.tipo === 'documento' && ehPlanilha(midia.mime))) {
+      const limite = await this.fila.limiteDeMidia(v.tenantId, v.colaboradorId);
+      if (limite) {
+        await this.responder(tel, { texto: limite });
+        return { desfecho: 'limite_de_midia', tenantId: v.tenantId };
+      }
     }
     if (midia && this.midia) {
       const r = await this.midia(quem, midia, wamid).catch((err: any) => {

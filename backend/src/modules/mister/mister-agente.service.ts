@@ -190,7 +190,9 @@ export class MisterAgenteService implements OnModuleInit {
     const ids = lote.map((p) => p.id);
     const ultima = lote[lote.length - 1];
     const pergunta = juntarPerguntas(lote.map((p) => p.pergunta));
-    const fechar = (motivo: MotivoSemResposta, trilha?: Trilha) => this.fila.concluir(ids, { motivo, trilha, perguntaJunta: pergunta });
+    // Rodada 7, MIS-H-04 (ERR-660): o carimbo da pega — só esta execução fecha estas linhas (e só ela envia, conferido antes).
+    const pegaEm = lote[0].pegaEm ?? null;
+    const fechar = (motivo: MotivoSemResposta, trilha?: Trilha) => this.fila.concluir(ids, { motivo, trilha, perguntaJunta: pergunta, pegaEm });
     try {
       // A chave geral e a pessoa, conferidas de novo: entre a pergunta e a resposta o acesso pode ter mudado.
       if (!(await this.numero.ler()).ligado) return await fechar('desligado');
@@ -222,6 +224,11 @@ export class MisterAgenteService implements OnModuleInit {
       // ERR-647 (rodada 7, MIS-A-02, B-03, B-04): a volta da IA leva até ~2 min — o acesso conferido no começo pode ter caído no
       // meio (desligou, "Perdi o celular", rebaixado, módulo, chave geral, a sessão com PIN venceu). Confere de novo ANTES de
       // qualquer envio. Caiu: nada sai — o telefone pode ser o perdido. Continua falando, mas perdeu os valores: avisa sem a resposta.
+      // MIS-H-04: a volta passou do prazo da pega e outra execução já pegou estas perguntas: esta não envia nem fecha nada.
+      if (!(await this.fila.aindaEDaPega(ids, pegaEm))) {
+        this.logger.warn(`mister: a pega de ${mascarar(ultima.telefone)} venceu e já é de outra execução — esta não envia`);
+        return;
+      }
       if (!(await this.numero.ler()).ligado) return await fechar('desligado', fim.trilha);
       const agora = await this.ferramentas.escopo(ultima.tenantId, ultima.colaboradorId, ultima.telefone);
       if (!agora) return await fechar('sem_acesso', fim.trilha);
@@ -250,7 +257,7 @@ export class MisterAgenteService implements OnModuleInit {
         fim.anexos.length + fim.imagens.length + fim.links.length + fim.abrir.length + fim.botoes.length + fim.propostas.length + fim.graficos.length + fim.mensagens.length;
       if (!saida.texto && saida.reacao && !extras) {
         if (!reagiu && !(await this.dizer(ultima.telefone, saida.reacao))) return await fechar('envio', trilha);
-        return await this.fila.concluir(ids, { resposta, trilha, perguntaJunta: pergunta });
+        return await this.fila.concluir(ids, { resposta, trilha, perguntaJunta: pergunta, pegaEm });
       }
       // M3c.2: o relatório da resposta. Pedido "em PDF": o PDF vai logo depois. Senão, o botão "PDF" no balão — só pela
       // API oficial (a conexão por QR não tem botão, e o "1" de lá é da autorização) e só quando o texto cabe.
@@ -316,7 +323,7 @@ export class MisterAgenteService implements OnModuleInit {
       // Versão 6, M6d: a sessão com PIN pendente — o link para confirmar, depois da resposta (uma vez por link que vale).
       if (escopo.pinPendente)
         await this.ferramentas.linkDaSessao(escopo, ultima.telefone).catch((e: any) => this.logger.warn(`mister: o link da sessão com PIN não saiu — ${e?.message ?? e}`));
-      await this.fila.concluir(ids, { resposta, trilha, perguntaJunta: pergunta });
+      await this.fila.concluir(ids, { resposta, trilha, perguntaJunta: pergunta, pegaEm });
     } catch (e: any) {
       this.logger.error(`mister: a pergunta ${ultima.id} de ${mascarar(ultima.telefone)} não foi respondida — ${e?.message ?? e}`, e?.stack);
       await this.dizer(ultima.telefone, TEXTOS_DO_AGENTE.passageira);

@@ -86,7 +86,7 @@ import { MisterFilaService } from './mister-fila.service';
 import { MisterRelatoriosConfigService } from './mister-relatorios-config.service';
 import { MisterResumoArquivoService, TEXTOS_DO_RESUMO_EM_ARQUIVO } from './mister-resumo-arquivo.service';
 import { lerBotaoDoGrafico } from './grafico/plano-do-resumo';
-import { MisterRelatoriosService, agoraNaOperacao } from './mister-relatorios.service';
+import { MisterRelatoriosService, TOQUES_ESGOTADOS, agoraNaOperacao } from './mister-relatorios.service';
 import { MisterQualidadeService } from './mister-qualidade.service';
 import { MisterAvaliacaoService } from './mister-avaliacao.service';
 import { MisterSegurancaService } from './mister-seguranca.service';
@@ -1457,6 +1457,45 @@ export function testesDoMisterComPostgres(): void {
       expect((await perguntasDe('ana'))[0]).toMatchObject({ situacao: 'falhou', motivo: 'interrompida' });
       expect(numero.enviadas).toEqual([{ para: tel, texto: TEXTOS_DO_AGENTE.demorou, botoes: [] }]);
       expect(ia.pedidos).toEqual([]);
+    });
+
+    it('ERR-660 (rodada 7, MIS-H-04): a execução vencida — que outra já pegou — não fecha as linhas da nova nem envia', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await perguntar(tel, 'como está a loja?');
+      const [velha] = (await fila.pegar())!;
+      expect(velha.pegaEm).toEqual(expect.any(String));
+      await q(`update mister_pergunta set pega_em = now() - interval '4 minutes' where id = $1`, [velha.id]);
+      await fila.devolverVencidas();
+      const [nova] = (await fila.pegar())!;
+      expect(nova.id).toBe(velha.id);
+      // A velha não é mais a dona: não envia (conferido antes) e não fecha.
+      expect(await fila.aindaEDaPega([velha.id], velha.pegaEm)).toBe(false);
+      await fila.concluir([velha.id], { resposta: 'a velha', pegaEm: velha.pegaEm });
+      expect((await perguntasDe('ana'))[0]).toMatchObject({ situacao: 'respondendo', resposta: null });
+      // A nova fecha.
+      expect(await fila.aindaEDaPega([nova.id], nova.pegaEm)).toBe(true);
+      await fila.concluir([nova.id], { resposta: 'a nova', pegaEm: nova.pegaEm });
+      expect((await perguntasDe('ana'))[0]).toMatchObject({ situacao: 'respondida', resposta: 'a nova' });
+    });
+
+    it('ERR-660 (rodada 7, MIS-H-02/H-03): a interrompida conta no teto do dia; a pessoa tem no máximo 20 esperando e uma pega leva no máximo 20', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      const dono = { tenantId: A, colaboradorId: pessoa.ana, unidadeId: lojaDeA, nivel: 'presidente' as const, telefone: tel };
+      // H-02: a interrompida (o processo caiu no meio, sem gravar as chamadas) conta.
+      const antes = (await fila.usoEm24h(A, pessoa.ana)).pessoa;
+      await fila.enfileirar(dono, 'pergunta interrompida', `h02-${randomUUID()}`, null);
+      await q(`update mister_pergunta set situacao = 'falhou', motivo = 'interrompida', chamadas = 0 where colaborador_id = $1 and pergunta = 'pergunta interrompida'`, [pessoa.ana]);
+      expect((await fila.usoEm24h(A, pessoa.ana)).pessoa).toBe(antes + 1);
+      // H-03: 25 mensagens seguidas — só 20 esperam; a pega leva as 20 (as mais antigas).
+      const entraram: boolean[] = [];
+      for (let i = 0; i < 25; i++) entraram.push(await fila.enfileirar(dono, `rajada ${i}`, `h03-${randomUUID()}`, null));
+      expect(entraram.filter(Boolean)).toHaveLength(20);
+      const lote = (await fila.pegar())!;
+      expect(lote).toHaveLength(20);
+      expect(lote[0].pergunta).toBe('rajada 0');
+      await fila.concluir(lote.map((p) => p.id), { motivo: 'erro', pegaEm: lote[0].pegaEm });
     });
 
     it('o agente responde com a ferramenta: o dado vem do serviço da tela, a resposta sai pelo número do Mister e a trilha fica gravada', async () => {
@@ -4554,8 +4593,11 @@ export function testesDoMisterComPostgres(): void {
         const servico = new MisterAvaliacaoService(db, iaDeMentira({ errar: ['c02'] }) as any);
         const [{ id: parada }] = await q(`insert into mister_avaliacao (versao, consultas, modelo, total, iniciada_em) values ('00000000', 17, 'claude-haiku-5-5', 40, now() - interval '1 minute') returning id::text as id`);
         await expect(servico.rodar('Rita')).rejects.toThrow('Já tem uma avaliação rodando');
-        // Passou do prazo: a tela já recebe "interrompida", e a próxima rodada não trava.
-        await q(`update mister_avaliacao set iniciada_em = now() - interval '25 minutes' where id = $1`, [parada]);
+        // ERR-660 (rodada 7, MIS-H-10): começou há 30 min, mas deu sinal de vida agora — ainda está de pé (não libera outra).
+        await q(`update mister_avaliacao set iniciada_em = now() - interval '30 minutes', atualizado_em = now() where id = $1`, [parada]);
+        await expect(servico.rodar('Rita')).rejects.toThrow('Já tem uma avaliação rodando');
+        // Sem sinal de vida há mais do prazo: a tela já recebe "interrompida", e a próxima rodada não trava.
+        await q(`update mister_avaliacao set atualizado_em = now() - interval '11 minutes' where id = $1`, [parada]);
         expect((await servico.lista()).rodadas.find((x: any) => x.id === parada)?.situacao).toBe('interrompida');
         const r = await servico.rodar('Rita');
         expect(await terminar(r.id)).toMatchObject({ situacao: 'terminou', acertos: CASOS_DA_AVALIACAO.length - 1 });
@@ -4563,6 +4605,19 @@ export function testesDoMisterComPostgres(): void {
         expect(velha).toEqual({ situacao: 'interrompida', motivo: 'o servidor reiniciou no meio da rodada' });
         const nova = (await servico.lista()).rodadas.find((x: any) => x.id === r.id);
         expect(nova).toMatchObject({ falhas: 1, oQueFalhou: [{ pergunta: 'Quanto eu vendi hoje?', falha: 'a resposta não traz 4.321,45' }] });
+      });
+
+      it('ERR-660 (rodada 7, MIS-H-10): a rodada que deixou de estar de pé no meio para os trabalhadores — nada de casos novos pagos', async () => {
+        const ia = iaDeMentira();
+        const servico = new MisterAvaliacaoService(db, ia as any);
+        const [{ id }] = await q(`insert into mister_avaliacao (versao, consultas, modelo, total) values ('00000000', 17, 'claude-haiku-5-5', $1) returning id::text as id`, [CASOS_DA_AVALIACAO.length]);
+        // A rodada vira "interrompida" (venceu; outra começou): os 3 trabalhadores gravam o caso em andamento e param.
+        await q(`update mister_avaliacao set situacao = 'interrompida' where id = $1`, [id]);
+        await servico.executar(id, 'claude-haiku-5-5', CASOS_DA_AVALIACAO);
+        const perguntasFeitas = new Set(ia.pedidos.map((p: any) => String(p.messages[0].content))).size;
+        expect(perguntasFeitas).toBeLessThanOrEqual(3);
+        expect((await q(`select situacao, feitas from mister_avaliacao where id = $1`, [id]))[0]).toEqual({ situacao: 'interrompida', feitas: 0 });
+        await q(`delete from mister_avaliacao where id = $1`, [id]);
       });
 
       it('a chave da distribuição recusada para a rodada; sem a chave, nem começa; id torto não acha', async () => {
@@ -7516,6 +7571,18 @@ export function testesDoMisterComPostgres(): void {
       expect(pedidos).toHaveLength(3);
       expect(numero.enviadas.map((m) => m.texto)).toEqual(['*Resumo da loja*\n5 pedidos']);
 
+      // ERR-660 (rodada 7, MIS-H-08): cada toque que tenta com a IA conta — no 3º, acabou (a IA que falha não reabre sem limite).
+      await q(`update mister_relatorio set situacao = 'nao_enviado', motivo = 'convite_enviado', texto = null where id = $1`, [convite.id]);
+      resposta = { texto: null, motivo: 'sem_chave', trilha };
+      numero.pedidos.length = 0;
+      expect(await mandar(telCarlos, 'Ver resumo', { codigoDoModelo: `mister:resumo:${convite.id}` })).toBe('tocou_modelo'); // o 3º toque
+      expect(pedidos).toHaveLength(4);
+      expect(await mandar(telCarlos, 'Ver resumo', { codigoDoModelo: `mister:resumo:${convite.id}` })).toBe('tocou_modelo'); // o 4º: não chama
+      expect(pedidos).toHaveLength(4);
+      expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_AGENTE.semChave('gerente'), TOQUES_ESGOTADOS]);
+      resposta = { texto: '**Resumo da loja**\n5 pedidos', motivo: null, trilha, resultados: [] }; // o resto do teste, com a IA
+      pedidos.splice(3); // a chamada desta prova sai da conta do resto do teste
+
       // Sem o modelo aprovado na Meta: fica "fora da janela e sem modelo".
       await q(`delete from mister_relatorio where tenant_id = $1`, [A]);
       await q(`update mister_vinculo set ultima_entrada_em = now() - interval '25 hours' where colaborador_id = $1`, [pessoa.carlos]);
@@ -8084,6 +8151,25 @@ export function testesDoMisterComPostgres(): void {
         await Promise.all([foto(telAna, novaMidia()), foto(telAna, novaMidia())]);
         expect(await titulos()).toHaveLength(1);
         expect((await docs()).filter((d) => d.situacao === 'lancado')).toHaveLength(1);
+      });
+
+      it('ERR-660 (rodada 7, MIS-H-06): com o teto de leituras do dia atingido, a foto não é lida (nenhuma IA paga) e a pessoa sabe', async () => {
+        await q(
+          `insert into ia_uso_dia (tenant_id, dia, recurso, provedor, modelo, origem, chamadas, falhas, tokens_entrada, tokens_cache_escrita, tokens_cache_leitura, tokens_saida)
+           values ($1, $2::date, 'mister_documento', 'anthropic', 'claude-sonnet-5-5', 'distribuicao', $3, 0, 0, 0, 0, 0)
+           on conflict (tenant_id, dia, recurso, provedor, modelo, origem) do update set chamadas = excluded.chamadas`,
+          [A, hojeISO(), TETOS.leiturasDeMidiaPorEmpresaNoDia],
+        );
+        try {
+          ia.pedidos.length = 0;
+          numero.pedidos.length = 0;
+          expect(await foto(telAna, novaMidia())).toBe('limite_de_midia');
+          expect(ia.pedidos).toEqual([]);
+          expect(baixou()).toEqual([]);
+          expect(numero.enviadas.map((m) => m.texto)).toEqual([TEXTOS_DO_AGENTE.limiteDeMidia]);
+        } finally {
+          await q(`delete from ia_uso_dia where tenant_id = $1 and recurso = 'mister_documento' and modelo = 'claude-sonnet-5-5' and origem = 'distribuicao'`, [A]);
+        }
       });
 
       it('ERR-658 (rodada 7, MIS-F-06): o nome do fornecedor com OUTRO CNPJ não lança sozinho nem liga o fornecedor', async () => {

@@ -213,4 +213,44 @@ describe('mister — rodarNaOrdem e as vagas do processo', () => {
     expect(fins.every((f) => f.motivo === null)).toBe(true);
     expect(maximo).toBe(TETOS.consultasNoProcesso);
   });
+
+  it('ERR-660 (rodada 7, MIS-H-05): o prazo é TOTAL — a chamada seguinte recebe só o que sobrou; com pouco, não chama', async () => {
+    const agora = jest.spyOn(Date, 'now');
+    let relogio = 1_000_000;
+    agora.mockImplementation(() => relogio);
+    try {
+      const m = montar([pede(['vendas_do_periodo', 't1']), pede(['vendas_do_periodo', 't2']), fala('fim')], () => 0);
+      const pedirOriginal = m.portas.pedir;
+      // Cada chamada "leva" 30 s do relógio.
+      m.portas.pedir = async (p) => {
+        const r = await pedirOriginal(p);
+        relogio += 30_000;
+        return r;
+      };
+      const fim = await responderComFerramentas(m.portas, [], 'quanto vendi?');
+      // 1ª: 30 s (sobram 75); 2ª: 30 s (sobram 45); 3ª: só os 15 s que sobraram dos 75 — nunca mais 30 s fixos.
+      expect(m.pedidos.map((p) => p.prazoMs)).toEqual([30_000, 30_000, 15_000]);
+      expect(fim.motivo).toBeNull();
+      // Com 72 s gastos, não chama mais.
+      relogio = 2_000_000;
+      const m2 = montar([pede(['vendas_do_periodo', 't1']), fala('fim')], () => 0);
+      const pedir2 = m2.portas.pedir;
+      m2.portas.pedir = async (p) => {
+        const r = await pedir2(p);
+        relogio += 72_000;
+        return r;
+      };
+      expect((await responderComFerramentas(m2.portas, [], 'quanto vendi?')).motivo).toBe('nao_fechou');
+      expect(m2.pedidos).toHaveLength(1);
+    } finally {
+      agora.mockRestore();
+    }
+  });
+
+  it('ERR-660 (MIS-H-05): a pergunta que já somou o teto de tokens de entrada não chama mais', async () => {
+    const grande = { entrada: TETOS.tokensDeEntradaPorPergunta, saida: 1, cacheEscrita: 0, cacheLeitura: 0 };
+    const m = montar([{ ...pede(['vendas_do_periodo', 't1']), uso: grande } as any, fala('não devia chegar aqui')], () => 0);
+    expect((await responderComFerramentas(m.portas, [], 'quanto vendi?')).motivo).toBe('nao_fechou');
+    expect(m.pedidos).toHaveLength(1);
+  });
 });

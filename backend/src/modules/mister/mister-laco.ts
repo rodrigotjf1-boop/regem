@@ -129,7 +129,10 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
 
   try {
     for (let volta = 1; volta <= TETOS.voltas; volta++) {
-      if (Date.now() - inicio > TETOS.prazoMs) return { texto: null, motivo: 'nao_fechou', trilha };
+      // Rodada 7, MIS-H-05 (ERR-660): o que SOBROU do prazo da pergunta vai à chamada (V106); pouco demais, ou a pergunta já
+      // somou o teto de tokens de entrada, não chama mais.
+      const resta = TETOS.prazoMs - (Date.now() - inicio);
+      if (resta < TETOS.prazoMinimoDaChamadaMs || trilha.tokensEntrada >= TETOS.tokensDeEntradaPorPergunta) return { texto: null, motivo: 'nao_fechou', trilha };
       let r: RespostaDaIa;
       try {
         r = await portas.pedir({
@@ -140,7 +143,7 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
           system,
           tools: portas.todasAsFerramentas ? FERRAMENTAS : ferramentasDaConversa(),
           messages,
-          prazoMs: TETOS.prazoDaChamadaMs,
+          prazoMs: Math.min(TETOS.prazoDaChamadaMs, resta),
         });
       } catch (e) {
         // V7e: o modelo maior falhou (sem acesso, limite, demora). A análise já está na conversa: o modelo de sempre responde.

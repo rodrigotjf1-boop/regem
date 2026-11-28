@@ -126,7 +126,7 @@ export class MisterMidiaService implements OnModuleInit {
       const mime = tipoDoAudio(arquivo.mime ?? midia.mime);
       if (!mime) return null;
       const duracao = mime === 'audio/ogg' ? duracaoDoOggOpus(arquivo.buffer) : null;
-      if (duracao != null && duracao > 30) return null;
+      if (duracao == null || duracao > 30) return null; // MIS-H-07: sem a duração medida, não vai ao Graph
       const ouvido = await this.graph.analisar(
         tenantId,
         lig,
@@ -257,7 +257,14 @@ export class MisterMidiaService implements OnModuleInit {
         return 'tratada';
       }
       const duracao = mime === 'audio/ogg' ? duracaoDoOggOpus(arquivo.buffer) : null;
-      if (duracao != null && duracao > AUDIO_MAX_SEGUNDOS) {
+      // Rodada 7, MIS-H-07 (ERR-660): o áudio cuja duração não deu para medir (mp3/aac anexado, Ogg sem Opus) não vai ao Graph —
+      // 5 MB de mp3 eram 40 minutos pagos pela franquia, sem o teto de 3 minutos. A nota de voz do WhatsApp é sempre Ogg/Opus.
+      if (duracao == null) {
+        this.logger.log(`áudio do Mister não ouvido (duração não medida, tipo ${mime})`);
+        await this.falar(quem.telefone, TEXTOS_DA_MIDIA.audioTipo);
+        return 'tratada';
+      }
+      if (duracao > AUDIO_MAX_SEGUNDOS) {
         await this.falar(quem.telefone, TEXTOS_DA_MIDIA.audioLongo);
         return 'tratada';
       }

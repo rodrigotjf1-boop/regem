@@ -125,6 +125,9 @@
 - _(ERR-659 — rodada 7, bloco G: o console da distribuição do Mister (a chave do console separada da das lojas, publicar com a
   candidata da tela, a auditoria na transação, conectar o número conferindo a conta e a assinatura, o QR desconectado não volta)
   (28/11): SEM migration e só da nuvem (o console e o Mister não rodam na loja). Não pede `.zip` nem `.exe`.)_
+- _(ERR-660 — rodada 7, bloco H: custo e abuso do Mister (o teto do dia em US$ na IA incluída antes de chamar, a mídia dentro do
+  teto, o dono da pega, o prazo total, as pendências, os toques do convite, a rodada pelo sinal de vida) (28/11): SEM migration e
+  só da nuvem (a IA da empresa e o Mister não rodam na loja). Não pede `.zip` nem `.exe`.)_
 - **Mister C7 — aprender pela tarefa feita (26/11; mig 508, só na nuvem).** O `sync-daemon.mjs` ganhou `mister_aprendizado` na
   lista das tabelas só da nuvem (SO_NUVEM). Na loja não muda nada: a tabela não existe no banco dela e nada a escreve. Vai no
   próximo `.exe` por ter tocado o `sync-daemon` (sem pressa; o daemon antigo não lê a tabela).

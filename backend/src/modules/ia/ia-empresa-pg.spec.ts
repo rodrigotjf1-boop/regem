@@ -141,6 +141,40 @@ descrever('a IA da empresa (Postgres)', () => {
     expect((await svc.situacao(T)).origem).toBe('incluida');
   });
 
+  it('ERR-660 (rodada 7, MIS-H-01): na IA incluída, o teto do dia da empresa é conferido ANTES de chamar; a chave própria e a outra empresa não param', async () => {
+    const antesDoTeto = process.env.IA_INCLUIDA_TETO_USD_DIA;
+    process.env.IA_INCLUIDA_TETO_USD_DIA = '0.5';
+    try {
+      // O gasto de hoje da empresa já passa do teto (1 milhão de tokens de saída do Haiku = US$ 0,50).
+      await q(
+        `insert into ia_uso_dia (tenant_id, dia, recurso, provedor, modelo, origem, chamadas, falhas, tokens_entrada, tokens_cache_escrita, tokens_cache_leitura, tokens_saida)
+         values ($1, $2::date, 'mister_perguntas', 'anthropic', 'claude-haiku-5-5', 'distribuicao', 9, 0, 0, 0, 0, 1000000)`,
+        [T, hojeISO()],
+      );
+      await expect(svc.pedir(T, pedido)).rejects.toMatchObject({ name: 'FalhaDaIa', motivo: 'teto_atingido', origem: 'distribuicao' });
+      expect(svc.chamadas).toEqual([]);
+      // A outra empresa, na mesma IA incluída, segue.
+      expect((await svc.pedir(FORA, pedido)).origem).toBe('distribuicao');
+      // O modelo sem preço conta pelo mais caro (nunca a menos).
+      await q(`delete from ia_uso_dia where tenant_id = $1`, [T]);
+      await q(
+        `insert into ia_uso_dia (tenant_id, dia, recurso, provedor, modelo, origem, chamadas, falhas, tokens_entrada, tokens_cache_escrita, tokens_cache_leitura, tokens_saida)
+         values ($1, $2::date, 'mister_perguntas', 'anthropic', 'modelo-sem-preco', 'distribuicao', 1, 0, 0, 0, 0, 30000)`,
+        [T, hojeISO()],
+      );
+      await expect(svc.pedir(T, pedido)).rejects.toMatchObject({ motivo: 'teto_atingido' });
+      // Com a chave própria, o teto da incluída não vale (o custo é da empresa).
+      process.env.SEGREDOS_CHAVE = SEGREDOS;
+      svc.comportamento = () => RESPOSTA();
+      await salvar(CHAVE_A);
+      svc.chamadas.length = 0;
+      expect((await svc.pedir(T, pedido)).origem).toBe('lojista');
+    } finally {
+      if (antesDoTeto === undefined) delete process.env.IA_INCLUIDA_TETO_USD_DIA;
+      else process.env.IA_INCLUIDA_TETO_USD_DIA = antesDoTeto;
+    }
+  });
+
   it('a distribuição pode parar de atender quem não tem chave própria (IA_CHAVE_DA_DISTRIBUICAO_DESLIGADA)', async () => {
     process.env.IA_CHAVE_DA_DISTRIBUICAO_DESLIGADA = '1';
     expect(await svc.temAcesso(T)).toBe(false);

@@ -3355,6 +3355,21 @@ conferidos no código por duas leituras.
 - **Para depois:** G-04 (o executor fictício da avaliação diverge das rotas em fechamentos com `turnos` — qualidade do portão, não
   segurança) e o `DIST_JWT_SECRET` obrigatório na subida (pede o dono pôr a variável antes).
 
+**Rodada 7 — bloco H, "custo e abuso" (28/11/2026; ERR-660, V129; SEM migration; só na nuvem):** os 10 achados conferidos no
+código por duas leituras.
+- **H-01 (o grave):** na IA que a DMS inclui, o gasto de hoje da empresa é conferido ANTES de cada chamada — teto de US$ 2 por
+  empresa por dia (`IA_INCLUIDA_TETO_USD_DIA` muda); o console pode ter a própria chave (`ANTHROPIC_API_KEY_CONSOLE`). Em 28/11
+  nenhuma empresa usava a incluída.
+- **H-06:** foto, documento e áudio respeitam o teto de perguntas e um teto de 150 leituras de mídia por empresa por dia, antes
+  de ler. **H-07:** o áudio sem a duração medida (mp3/aac anexado) não é ouvido.
+- **H-04:** cada pega tem dono — a execução vencida não envia nem fecha as linhas da nova. **H-05:** o prazo de 75 s é total
+  (a chamada recebe o que sobrou) e a pergunta tem teto de 400 mil tokens de entrada.
+- **H-02:** a pergunta interrompida conta no teto. **H-03:** até 20 perguntas esperando por pessoa e 20 por pega.
+- **H-08:** 3 toques por convite de relatório; a trava de emergência vale também nos relatórios.
+- **H-10:** a rodada da avaliação vence por 10 min sem sinal de vida (não pelo início), e os trabalhadores param quando ela cai.
+- **Para depois:** H-09 (o Mentor reservar antes da IA — só a Diretoria, 3 por minuto), o prazo das ferramentas e o teto em
+  dinheiro por reserva (pede migration).
+
 ### Dias especiais H2b — o feriado pelo Mister (27/11/2026; SEM migration; só na nuvem)
 
 Fase H2b do protótipo `mockups/regem-dias-especiais.html` (aba "No Mister"; decisões 4 e 8).
