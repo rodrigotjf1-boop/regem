@@ -81,7 +81,11 @@ export class MisterQrService {
         update mister_numero
            set instancia = ${instancia}, ${outro ? sql`instancia_numero = null,` : sql``} atualizado_em = now()
          where id = 1`);
-      if (qr.jaConectado) return { ...(await this.conferir()), qr: null };
+      // ERR-649: "conectando" marca que a Diretoria PEDIU o QR — é o que deixa a conexão trocar a forma do Mister.
+      if (qr.jaConectado) {
+        await this.marcar('conectando', null);
+        return { ...(await this.conferir()), qr: null };
+      }
       await this.marcar('conectando', null);
       this.logger.log(`mister: QR Code gerado para a instância ${instancia} por ${autor?.nome ?? '?'}`);
       return { ...(await this.numero.ler()), qr: { imagem: qr.imagem, codigo: qr.codigo } };
@@ -120,9 +124,13 @@ export class MisterQrService {
 
   private async conectou(instancia: string, doAviso: string | null = null): Promise<NumeroDoMister> {
     const numero = doAviso ?? numeroDoDono(await this.numero.evolutionDono(instancia));
+    // ERR-649 (rodada 7 de segurança, MIS-A-05): a forma do Mister só passa a ser o QR na conexão que a Diretoria PEDIU (saindo
+    // de "conectando", o QR gerado no console). A reconexão sozinha do celular ainda pareado (a Evolution reiniciou) não desfaz
+    // a escolha da API oficial feita no console.
     await this.db.execute(sql`
       update mister_numero
-         set instancia_situacao = 'conectado', instancia_motivo = null, provedor = 'evolution', atualizado_em = now(),
+         set instancia_situacao = 'conectado', instancia_motivo = null, atualizado_em = now(),
+             provedor = case when instancia_situacao = 'conectando' then 'evolution' else provedor end,
              instancia_situacao_em = case when instancia_situacao = 'conectado' then instancia_situacao_em else now() end,
              instancia_conectada_em = case when instancia_situacao = 'conectado' then instancia_conectada_em else now() end,
              instancia_numero = coalesce(${numero}, instancia_numero)
