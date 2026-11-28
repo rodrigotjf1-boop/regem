@@ -358,7 +358,7 @@ svg .media-t{fill:#B93232;font-size:9.5px;font-weight:700}
 @media (prefers-reduced-motion: reduce){ *{transition:none!important;scroll-behavior:auto!important} }
 </style>
 </head>
-<body data-situacao="tudo" data-pessoas="com" data-chave="ok" data-uso="com" data-numero="conectado" data-ligar="esperando" data-docs="com">
+<body data-situacao="tudo" data-pessoas="com" data-chave="ok" data-uso="com" data-numero="conectado" data-ligar="senha" data-docs="com">
 <a class="pular" href="#conteudo">Pular para o conteúdo</a>
 
 <header class="proto">
@@ -1280,11 +1280,26 @@ svg .media-t{fill:#B93232;font-size:9.5px;font-weight:700}
   <div class="pn-cab"><h3 id="dlg-ligar-t">Ligar o meu WhatsApp ao Mister</h3><button class="fechar" data-fecha aria-label="Fechar">✕</button></div>
   <div class="pn-corpo">
     <div class="ctls"><span>Situação do protótipo:</span>
-      <button class="ctl" data-ctl="ligar" data-valor="esperando" aria-pressed="true">esperando</button>
+      <button class="ctl" data-ctl="ligar" data-valor="senha" aria-pressed="true">pede a senha</button>
+      <button class="ctl" data-ctl="ligar" data-valor="senha-errada" aria-pressed="false">senha errada</button>
+      <button class="ctl" data-ctl="ligar" data-valor="travado" aria-pressed="false">5 erradas</button>
+      <button class="ctl" data-ctl="ligar" data-valor="esperando" aria-pressed="false">esperando</button>
       <button class="ctl" data-ctl="ligar" data-valor="ligado" aria-pressed="false">a mensagem chegou</button>
       <button class="ctl" data-ctl="ligar" data-valor="vencido" aria-pressed="false">código vencido</button>
     </div>
     <p>Faça no <strong>seu</strong> celular: o número que mandar a mensagem fica ligado a você.</p>
+    <!-- Rodada 7 de segurança, MIS-A-06 (aprovado pelo dono em 28/11/2026): o código pede a senha de quem está logado (o PC
+         da loja é compartilhado). A senha não fica guardada pelo navegador; 5 erradas em 15 minutos travam o código por 15
+         minutos (a entrada no Regem segue). Outro código pede a senha de novo. Quando o celular troca, o antigo é avisado. -->
+    <div data-mostra="ligar:senha|senha-errada|travado">
+      <div class="campo">
+        <label for="dlg-ligar-senha">Confirme a sua senha do Regem</label>
+        <span class="ajuda">A mesma de entrar no Regem. O código liga um celular à sua conta, e o computador da loja pode estar aberto para outra pessoa.</span>
+        <div class="acoes"><input id="dlg-ligar-senha" type="text" autocomplete="off" style="-webkit-text-security:disc;flex:1 1 12rem" value="••••••"><button class="btn pri" data-ctl="ligar" data-valor="esperando">Gerar o código</button></div>
+      </div>
+      <div class="faixa crit" data-mostra="ligar:senha-errada" role="alert">Senha errada. Restam 4 tentativas antes de travar por 15 minutos.</div>
+      <div class="faixa crit" data-mostra="ligar:travado" role="alert">Foram 5 senhas erradas. Espere 15 minutos para gerar o código de novo.</div>
+    </div>
     <div data-mostra="ligar:esperando">
       <ol class="passos">
         <li>Aponte a câmera do celular para o código abaixo. Ou, no celular, abra o WhatsApp por este link.</li>
@@ -1297,7 +1312,7 @@ svg .media-t{fill:#B93232;font-size:9.5px;font-weight:700}
       </div>
     </div>
     <div class="faixa ok" data-mostra="ligar:ligado" role="status"><strong>Ligado.</strong> Final <span class="mono">4321</span>. O Mister já respondeu no seu WhatsApp.</div>
-    <div data-mostra="ligar:vencido"><div class="faixa warn" role="status">O código venceu. Gere outro para ligar.</div><button class="btn pri" data-ctl="ligar" data-valor="esperando">Gerar outro código</button></div>
+    <div data-mostra="ligar:vencido"><div class="faixa warn" role="status">O código venceu. Gere outro para ligar (a senha é pedida de novo).</div><button class="btn pri" data-ctl="ligar" data-valor="senha">Gerar outro código</button></div>
   </div>
   <div class="pn-rodape"><button class="btn" data-fecha>Fechar</button></div>
 </div>

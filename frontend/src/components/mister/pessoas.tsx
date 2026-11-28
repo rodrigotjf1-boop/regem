@@ -12,6 +12,8 @@ import { Selo, texto2 } from '@/components/ui/lista';
 import { ResponsiveTable, type Column } from '@/components/ui/responsive-table';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Dialogo } from '@/components/ui/sobreposto';
+import { Input } from '@/components/ui/input';
+import { useSenhaSemSalvar } from '@/lib/use-senha-sem-salvar';
 
 // MISTER › PESSOAS (protótipo `mockups/regem-mister.html`, aprovado em 13/11/2026; rotas da mig 417).
 // Quem fala com o Mister: presidente e gerentes. Cada um liga o PRÓPRIO WhatsApp, pelo celular dele — o código sai aqui
@@ -366,18 +368,28 @@ function DialogoDeLigar({ desdeAntes, aoFechar, aoLigar }: { desdeAntes: string 
   const [erro, setErro] = useState('');
   const [venceu, setVenceu] = useState(false);
   const [ligado, setLigado] = useState<string | null>(null); // o final do número que ligou
+  // Rodada 7, MIS-A-06 (ERR-651): o código pede a senha de quem está logado (o PC da loja é compartilhado). A senha não fica
+  // guardada pelo navegador (campo da senha de autorização, V54) e sai da tela assim que o código é gerado.
+  const [senha, setSenha] = useState('');
+  const [pedindoSenha, setPedindoSenha] = useState(true);
+  const [gerando, setGerando] = useState(false);
+  const campoSenha = useSenhaSemSalvar();
   // O aviso de "ligou" por referência: a espera não recomeça a cada desenho de quem abriu o diálogo.
   const aoLigarAgora = useRef(aoLigar);
   aoLigarAgora.current = aoLigar;
 
   const gerar = useCallback(async () => {
+    if (!senha || gerando) return;
     setErro('');
     setVenceu(false);
     setCodigo(null);
     setQr('');
+    setGerando(true);
     try {
-      const r = (await api.post('/mister/whatsapp/codigo', {})) as Meu;
+      const r = (await api.post('/mister/whatsapp/codigo', { senha })) as Meu;
       if (!r.codigo) throw new Error('Não deu para gerar o código agora. Tente de novo.');
+      setSenha('');
+      setPedindoSenha(false);
       setCodigo(r.codigo);
       if (r.codigo.link)
         QRCode.toDataURL(r.codigo.link, { width: 220, margin: 1 })
@@ -385,12 +397,20 @@ function DialogoDeLigar({ desdeAntes, aoFechar, aoLigar }: { desdeAntes: string 
           .catch(() => setQr(''));
     } catch (e) {
       setErro(mensagem(e, 'Não deu para gerar o código agora. Tente de novo.'));
+    } finally {
+      setGerando(false);
     }
-  }, []);
+  }, [senha, gerando]);
 
-  useEffect(() => {
-    void gerar();
-  }, [gerar]);
+  /** Outro código pede a senha de novo. */
+  const pedirDeNovo = () => {
+    setErro('');
+    setVenceu(false);
+    setCodigo(null);
+    setQr('');
+    setSenha('');
+    setPedindoSenha(true);
+  };
 
   useEffect(() => {
     if (!codigo || venceu || ligado) return;
@@ -434,10 +454,43 @@ function DialogoDeLigar({ desdeAntes, aoFechar, aoLigar }: { desdeAntes: string 
           <p className="rounded-lg border border-ok/40 bg-ok/10 px-3 py-2" role="status">
             <strong>Ligado.</strong> {ligado && <>Final <span className="font-mono">{ligado}</span>. </>}O Mister já respondeu no seu WhatsApp.
           </p>
+        ) : pedindoSenha ? (
+          <form
+            className="space-y-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void gerar();
+            }}
+          >
+            <label htmlFor="mister-codigo-senha" className="block font-semibold">
+              Confirme a sua senha do Regem
+            </label>
+            <p className={`text-xs ${texto2}`}>A mesma de entrar no Regem. O código liga um celular à sua conta, e o computador da loja pode estar aberto para outra pessoa.</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                id="mister-codigo-senha"
+                {...campoSenha}
+                className="min-w-0 flex-1 basis-48"
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                aria-invalid={erro ? true : undefined}
+                aria-describedby={erro ? 'mister-codigo-erro' : undefined}
+                data-foco-inicial
+              />
+              <Button type="submit" disabled={!senha || gerando}>
+                {gerando ? 'Gerando…' : 'Gerar o código'}
+              </Button>
+            </div>
+            {erro && (
+              <p id="mister-codigo-erro" className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2" role="alert">
+                {erro}
+              </p>
+            )}
+          </form>
         ) : erro ? (
           <div className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2" role="alert">
             <span className="min-w-0 flex-1">{erro}</span>
-            <Button type="button" variant="outline" onClick={() => void gerar()}>
+            <Button type="button" variant="outline" onClick={pedirDeNovo}>
               Tentar de novo
             </Button>
           </div>
@@ -447,8 +500,8 @@ function DialogoDeLigar({ desdeAntes, aoFechar, aoLigar }: { desdeAntes: string 
           </p>
         ) : venceu ? (
           <div className="flex flex-wrap items-center gap-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2" role="status">
-            <span className="min-w-0 flex-1">O código venceu. Gere outro para ligar.</span>
-            <Button type="button" onClick={() => void gerar()}>
+            <span className="min-w-0 flex-1">O código venceu. Gere outro para ligar (a senha é pedida de novo).</span>
+            <Button type="button" onClick={pedirDeNovo}>
               Gerar outro código
             </Button>
           </div>

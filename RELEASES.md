@@ -96,6 +96,9 @@
   pela tela — a tarefa do dia de outra loja ou já concluída não se exclui, o checklist vigente não muda de item, o fechamento do
   ponto enviado ao contador não é recalculado (28/11): SEM migration. A tarefa do dia e o checklist rodam também no servidor da
   loja: entra no PRÓXIMO `.zip` (não pede `.exe`).)_
+- _(ERR-651 — rodada 7, MIS-A-06: gerar o código de ligar o WhatsApp ao Mister pede a senha (5 erradas travam 15 min) e o
+  celular antigo é avisado na troca (28/11; mig 516, só na nuvem): o Mister e a tabela são só da nuvem. Não pede `.zip` nem
+  `.exe`.)_
 - **Mister C7 — aprender pela tarefa feita (26/11; mig 508, só na nuvem).** O `sync-daemon.mjs` ganhou `mister_aprendizado` na
   lista das tabelas só da nuvem (SO_NUVEM). Na loja não muda nada: a tabela não existe no banco dela e nada a escreve. Vai no
   próximo `.exe` por ter tocado o `sync-daemon` (sem pressa; o daemon antigo não lê a tabela).

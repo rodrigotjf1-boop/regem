@@ -39,13 +39,16 @@ export class MisterController {
     return this.vinculo.meu(user);
   }
 
-  /** Gera o código de ligar (vale 10 minutos e uma vez). */
+  /**
+   * Gera o código de ligar (vale 10 minutos e uma vez). Pede a senha de quem está logado (rodada 7, MIS-A-06, ERR-651): o PC
+   * da loja é compartilhado. O corpo é `{ senha }`; o serviço confere (como as outras rotas deste módulo).
+   */
   @Post('whatsapp/codigo')
   @CloudOnly()
   @Roles('presidente', 'gerente')
   @RequireModulo('mister')
-  gerarCodigo(@CurrentUser() user: AuthUser) {
-    return this.vinculo.gerarCodigo(user);
+  gerarCodigo(@CurrentUser() user: AuthUser, @Body() dto: unknown) {
+    return this.vinculo.gerarCodigo(user, (dto as { senha?: unknown } | null)?.senha);
   }
 
   /** Desliga o meu WhatsApp do Mister. */

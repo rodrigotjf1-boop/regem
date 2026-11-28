@@ -3287,6 +3287,13 @@ janela de pico do C-06 já estava corrigida (ERR-646). Corrigidos:
 - **Pela tela também (C-06, C-07, C-09):** a tarefa do dia de outra loja ou já concluída não se exclui; os itens do checklist
   mudam só antes da aprovação; o fechamento do ponto enviado ao contador não é recalculado (o reenvio, sim).
 
+**Rodada 7 — A-06, a senha ao gerar o código (28/11/2026; ERR-651; mig 516, só na nuvem; decisão do dono):** o código de ligar
+saía para quem estivesse com a sessão aberta — no PC compartilhado da loja, outra pessoa ligava o próprio celular à conta de um
+gerente. Agora o diálogo "Ligar o meu WhatsApp ao Mister" (Mister › Pessoas; protótipo `regem-mister.html` atualizado) pede a
+senha do Regem antes do código; 5 erradas em 15 minutos travam o código por 15 minutos (a tentativa reservada antes de
+conferir, V98), e outro código pede a senha de novo. Na troca de celular, depois do "Pronto" ao novo, o antigo recebe o aviso
+("se não foi você, avise o presidente e troque a senha"): o texto dentro das 24 horas, o modelo `mister_aviso` fora delas.
+
 ### Dias especiais H2b — o feriado pelo Mister (27/11/2026; SEM migration; só na nuvem)
 
 Fase H2b do protótipo `mockups/regem-dias-especiais.html` (aba "No Mister"; decisões 4 e 8).
