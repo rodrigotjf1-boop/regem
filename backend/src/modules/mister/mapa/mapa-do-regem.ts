@@ -1153,6 +1153,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'POST /api/v1/publico/bot/pedido/pagamento', marca: 'interna', frase: 'robo pedido: pagamento' },
   { rota: 'POST /api/v1/publico/bot/pedido/registrar', marca: 'interna', frase: 'robo pedido: registrar' },
   { rota: 'POST /api/v1/publico/bot/responder', marca: 'interna', frase: 'robo resposta: responder' },
+  { rota: 'POST /api/v1/publico/bot/voz', marca: 'interna', frase: 'robo voz: a fala do atendente pelo DMS Graph' },
   { rota: 'POST /api/v1/publico/cardapio/{token}/atendimento', marca: 'interna', frase: 'cardapio publico: atendimento' },
   { rota: 'POST /api/v1/publico/cardapio/{token}/cashback/resgatar', marca: 'interna', frase: 'cardapio publico: cashback resgatar' },
   { rota: 'POST /api/v1/publico/cardapio/{token}/cliente/aniversario', marca: 'interna', frase: 'cliente publico: aniversario' },
