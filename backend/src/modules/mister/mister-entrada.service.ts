@@ -11,6 +11,7 @@ import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.servi
 import { pessoaVale } from './mister-vinculo.service';
 import { MODELO_DO_AVISO, ToqueNoModelo, toqueNoModelo } from './mister-modelos';
 import { dentroDaJanelaDoWhatsapp } from './mister-avisos.regras';
+import { TEXTOS_DO_PIN_FALADO } from './mister-pin-falado';
 import { TEXTOS_DA_PROPOSTA } from './mister-procedimentos';
 import { TEXTOS_DA_MIDIA } from './mister-midia.regras';
 import { hashDoRemetente } from './mister-aparelho';
@@ -97,6 +98,11 @@ export interface MidiaDoMister {
   mime: string | null;
   /** Versão 10, C5: a Meta marcou a mensagem como encaminhada (`context.forwarded`) — o áudio encaminhado não vale como PIN. */
   encaminhada?: boolean;
+  /**
+   * Rodada 7, MIS-D-12 (ERR-655): no áudio da Meta, se é a NOTA DE VOZ gravada na hora (`audio.voice`); o arquivo de áudio
+   * anexado (um áudio antigo, de outro lugar) vem `false` e não vale como PIN. Sem a informação (outra entrada): ausente.
+   */
+  voz?: boolean;
   /** M5a: o que a pessoa escreveu junto da foto (a legenda da Meta, `caption`). */
   legenda?: string | null;
 }
@@ -112,7 +118,14 @@ export function midiaDaMeta(m: any): MidiaDoMister | null {
   if (!corpo || !id) return null;
   const legenda = typeof corpo?.caption === 'string' && corpo.caption.trim() ? corpo.caption.trim() : null;
   const encaminhada = m?.context?.forwarded === true || m?.context?.frequently_forwarded === true;
-  return { tipo: tipo === 'image' ? 'imagem' : tipo === 'audio' ? 'audio' : 'documento', id, mime: corpo?.mime_type ? String(corpo.mime_type) : null, legenda, ...(encaminhada ? { encaminhada: true } : {}) };
+  return {
+    tipo: tipo === 'image' ? 'imagem' : tipo === 'audio' ? 'audio' : 'documento',
+    id,
+    mime: corpo?.mime_type ? String(corpo.mime_type) : null,
+    legenda,
+    ...(encaminhada ? { encaminhada: true } : {}),
+    ...(tipo === 'audio' ? { voz: corpo?.voice === true } : {}),
+  };
 }
 
 /** Quem mandou a mídia: o vínculo que vale para esta conversa (a empresa já escolhida). */
@@ -751,9 +764,12 @@ export class MisterEntradaService {
     let semGraph = false;
     // Versão 10, C5: o áudio pode ser o PIN falado — conferido pelo código ANTES da leitura da mídia, da fila e da IA.
     if (midia?.tipo === 'audio' && this.pinFalado) {
-      const r = await this.pinFalado(quem, midia, wamid).catch((err: any) => {
+      // Rodada 7, MIS-D-13 (ERR-655): a falha na conferência do PIN FECHA — o áudio não segue para a leitura comum, a fila e a
+      // IA (ele pode ser o PIN).
+      const r = await this.pinFalado(quem, midia, wamid).catch(async (err: any) => {
         this.logger.error(`mister: o PIN falado de ${mascarar(tel)} não foi conferido — ${err?.message ?? err}`);
-        return null;
+        await this.responder(tel, { texto: TEXTOS_DO_PIN_FALADO.naoOuviAgora });
+        return 'tratado' as const;
       });
       if (r === 'tratado') return { desfecho: 'pin_falado', tenantId: v.tenantId };
     }

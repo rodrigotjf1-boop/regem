@@ -209,7 +209,11 @@ describe('a foto no Mister (M5a): as regras', () => {
       id: '555666',
       mime: 'audio/ogg; codecs=opus',
       legenda: null,
+      // Rodada 7, MIS-D-12 (ERR-655): a nota de voz gravada na hora fica marcada; o arquivo de áudio anexado, não.
+      voz: true,
     });
+    expect(midiaDaMeta({ type: 'audio', audio: { id: '555667', mime_type: 'audio/mpeg' } })).toMatchObject({ tipo: 'audio', voz: false });
+    expect(midiaDaMeta({ type: 'image', image: { id: '1', mime_type: 'image/jpeg' } })).not.toHaveProperty('voz');
   });
 
   // V65: o texto que manda a pessoa a uma tela — o caminho conferido no menu e na aba de verdade.

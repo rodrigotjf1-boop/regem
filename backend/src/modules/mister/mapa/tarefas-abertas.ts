@@ -43,6 +43,11 @@ export interface CampoDaTarefa {
   itens?: readonly CampoDaTarefa[];
   /** `lista` e `ids`: quantos itens no máximo (padrão 50). */
   maxItens?: number;
+  /**
+   * Rodada 7, MIS-D-06 (ERR-655): o rótulo na linha de um ITEM de lista no "Vou fazer" (que agora mostra todos): curto, para a
+   * lista caber numa mensagem; vazio = só o valor ("Bacon · chegou: 2,5 · custo: 39,9"). Sem ele, vale o `rotulo`.
+   */
+  curto?: string;
 }
 
 export interface TarefaAberta {
@@ -98,15 +103,15 @@ const CANAIS_DA_OPCAO = { regem: 'Regem', ifood: 'iFood', '99food': '99' } as co
 const APPS_DO_PRECO = { ifood: 'iFood', '99food': '99' } as const;
 /** Um ingrediente da ficha (`CreateIngredienteDto`), sem a ordem. */
 const INGREDIENTE: readonly CampoDaTarefa[] = [
-  { nome: 'insumoNome', tipo: 'texto', rotulo: 'Ingrediente', obrigatorio: true, maxLetras: 120 },
-  { nome: 'quantidade', tipo: 'numero', rotulo: 'Quantidade', min: 0, max: 100000 },
-  { nome: 'unidade', tipo: 'opcao', rotulo: 'Unidade', opcoes: UNIDADES },
-  { nome: 'fatorCorrecao', tipo: 'numero', rotulo: 'Fator de correção', min: 0.01, max: 100 },
-  { nome: 'custoUnitario', tipo: 'numero', rotulo: 'Custo de cada', min: 0, max: 1000000 },
-  { nome: 'itemId', tipo: 'id', rotulo: 'Insumo do estoque' },
-  { nome: 'subFichaId', tipo: 'id', rotulo: 'Ficha usada dentro' },
-  { nome: 'somenteDelivery', tipo: 'booleano', rotulo: 'Só no delivery' },
-  { nome: 'somenteBalcao', tipo: 'booleano', rotulo: 'Só no balcão' },
+  { nome: 'insumoNome', tipo: 'texto', rotulo: 'Ingrediente', obrigatorio: true, maxLetras: 120, curto: '' },
+  { nome: 'quantidade', tipo: 'numero', rotulo: 'Quantidade', min: 0, max: 100000, curto: '' },
+  { nome: 'unidade', tipo: 'opcao', rotulo: 'Unidade', opcoes: UNIDADES, curto: '' },
+  { nome: 'fatorCorrecao', tipo: 'numero', rotulo: 'Fator de correção', min: 0.01, max: 100, curto: 'fator' },
+  { nome: 'custoUnitario', tipo: 'numero', rotulo: 'Custo de cada', min: 0, max: 1000000, curto: 'custo' },
+  { nome: 'itemId', tipo: 'id', rotulo: 'Insumo do estoque', curto: 'insumo' },
+  { nome: 'subFichaId', tipo: 'id', rotulo: 'Ficha usada dentro', curto: 'ficha' },
+  { nome: 'somenteDelivery', tipo: 'booleano', rotulo: 'Só no delivery', curto: 'só delivery' },
+  { nome: 'somenteBalcao', tipo: 'booleano', rotulo: 'Só no balcão', curto: 'só balcão' },
 ];
 
 export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
@@ -214,13 +219,13 @@ export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
         obrigatorio: true,
         maxItens: 80,
         itens: [
-          { nome: 'compraItemId', tipo: 'id', rotulo: 'Item do pedido', obrigatorio: true },
-          { nome: 'qtdRecebida', tipo: 'numero', rotulo: 'Quanto chegou (na unidade do pedido; 0 = não veio)', obrigatorio: true, min: 0, max: 100000 },
-          { nome: 'custoUnitario', tipo: 'numero', rotulo: 'Custo de cada', min: 0, max: 1000000 },
-          { nome: 'validade', tipo: 'data', rotulo: 'Validade' },
-          { nome: 'validadeIndefinida', tipo: 'booleano', rotulo: 'Sem validade' },
-          { nome: 'validadePendente', tipo: 'booleano', rotulo: 'Validade a informar depois' },
-          { nome: 'divergencia', tipo: 'opcao', rotulo: 'Como veio', opcoes: DIVERGENCIAS },
+          { nome: 'compraItemId', tipo: 'id', rotulo: 'Item do pedido', obrigatorio: true, curto: '' },
+          { nome: 'qtdRecebida', tipo: 'numero', rotulo: 'Quanto chegou (na unidade do pedido; 0 = não veio)', obrigatorio: true, min: 0, max: 100000, curto: 'chegou' },
+          { nome: 'custoUnitario', tipo: 'numero', rotulo: 'Custo de cada', min: 0, max: 1000000, curto: 'custo' },
+          { nome: 'validade', tipo: 'data', rotulo: 'Validade', curto: 'validade' },
+          { nome: 'validadeIndefinida', tipo: 'booleano', rotulo: 'Sem validade', curto: 'sem validade' },
+          { nome: 'validadePendente', tipo: 'booleano', rotulo: 'Validade a informar depois', curto: 'validade depois' },
+          { nome: 'divergencia', tipo: 'opcao', rotulo: 'Como veio', opcoes: DIVERGENCIAS, curto: '' },
         ],
       },
     ],
