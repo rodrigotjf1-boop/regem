@@ -9,6 +9,8 @@ import { semValoresNoTexto } from '../mister-agente.regras';
 //  • sai o cliente (o campo "cliente…" que é texto, objeto ou lista; a contagem de clientes fica);
 //  • no objeto com cara de pessoa (tem telefone, e-mail, CPF, endereço ou nascimento) sai também o nome — menos no de empresa
 //    ou de loja (o fornecedor com CNPJ ou razão social; a loja, com o fuso);
+//  • sai a pessoa da equipe pelo papel no nome do campo ("atorNome", "quemNome", "responsavelId", "criadoPor"), e o nome do
+//    objeto que aponta uma (rodada 7, MIS-C-10: nome de colaborador não vai à IA, V10-4);
 //  • todo texto passa pelo `semDadoPessoal` (e-mail e sequência de 9 dígitos), menos o que é só uma data;
 //  • quem não vê valores (`verValores` falso) não recebe campo de dinheiro, e o "R$" no texto vira "(oculto)";
 //  • listas longas, textos longos e níveis fundos são cortados, com a observação do corte. Nada aqui inventa dado.
@@ -37,11 +39,29 @@ const NOME = new Set(['nome', 'name', 'apelido', 'sobrenome', 'nomes']);
 const DE_PESSOA = new Set(['telefone', 'celular', 'fone', 'phone', 'whatsapp', 'email', 'cpf', 'rg', 'endereco', 'address', 'nascimento', 'aniversario']);
 /** O que faz o objeto ser de empresa ou de loja (o nome fica): o fornecedor tem CNPJ; a loja, o fuso. */
 const DE_EMPRESA = new Set(['cnpj', 'razao', 'fantasia', 'timezone', 'fuso']);
+/**
+ * Rodada 7, MIS-C-10 (ERR-650): o PAPEL de uma pessoa da equipe no nome do campo ("atorNome", "quemNome", "responsavelId",
+ * "colaborador", "operador"). Campo assim que é texto, objeto ou lista sai (a contagem — "totalColaboradores" — fica), e o
+ * `nome` do mesmo objeto sai junto: é o nome da pessoa (V10-4: nome de colaborador não vai à IA).
+ */
+const PAPEL_DE_PESSOA = new Set([
+  'colaborador', 'colaboradores', 'operador', 'operadores', 'atendente', 'atendentes', 'responsavel', 'responsaveis',
+  'entregador', 'entregadores', 'funcionario', 'funcionarios', 'garcom', 'garcons', 'motoboy', 'motoboys', 'autor', 'ator',
+  'usuario', 'usuarios', 'aprovador', 'solicitante', 'delegado', 'escalado', 'escalados', 'executor', 'quem', 'pessoa', 'pessoas',
+]);
+/** "criadoPor", "concluidoPorId", "retiradoPorNome", "aprovado_por": quem fez (o "porCanal", "porDia" começa com "por" e fica). */
+const FEITO_POR = /[a-z0-9](Por|_por)(Id|Nome|_id|_nome)?$/;
+const ehDePessoa = (k: string, ps: string[]): boolean => ps.some((p) => PAPEL_DE_PESSOA.has(p)) || FEITO_POR.test(k);
+/** O id que diz que a linha É de uma pessoa da equipe (as palavras do campo, juntas). */
+const PESSOA_DA_LINHA = new Set(['colaborador id', 'funcionario id', 'pessoa id', 'usuario id']);
 /** Dinheiro, para quem não vê valores. */
 const DINHEIRO = new Set([
   'valor', 'valores', 'preco', 'precos', 'custo', 'custos', 'total', 'totais', 'receita', 'faturamento', 'lucro', 'margem',
   'ticket', 'salario', 'cmv', 'desconto', 'descontos', 'taxa', 'taxas', 'liquido', 'pago', 'pagar', 'receber', 'despesa', 'despesas',
   'entrada', 'entradas', 'saida', 'saidas', 'sangria', 'suprimento', 'gorjeta', 'troco', 'repasse', 'repasses', 'cashback', 'reais',
+  // MIS-C-11 (ERR-650): a "venda_bruta" passava. O saldo NÃO entra aqui (o do estoque é quantidade): as leituras que são dinheiro
+  // quase inteiras têm a marca `valores` no mapa e nem vão a quem não vê valores.
+  'bruta', 'brutas', 'faturado',
 ]);
 
 /** As palavras do nome de um campo: "clienteNome" → cliente, nome; "valor_total" → valor, total. Sem acento. */
@@ -84,7 +104,9 @@ function limparUma(valor: unknown, op: OpcoesDaLimpeza, itens: number): LeituraL
     return t;
   };
 
-  const andar = (v: unknown, onde: string, nivel: number): unknown => {
+  // `emPessoa` = debaixo de um campo de pessoa da equipe ("colaboradores": [...], "responsavel": {...}): a lista e as contagens
+  // ficam, sem o nome e o id de cada uma (MIS-C-10).
+  const andar = (v: unknown, onde: string, nivel: number, emPessoa = false): unknown => {
     if (v === null || v === undefined) return v ?? null;
     if (typeof v === 'string') return texto(v, onde);
     if (typeof v === 'number' || typeof v === 'boolean') return v;
@@ -96,7 +118,7 @@ function limparUma(valor: unknown, op: OpcoesDaLimpeza, itens: number): LeituraL
       return '…';
     }
     if (Array.isArray(v)) {
-      const lista = v.slice(0, itens).map((x, i) => andar(x, `${onde}[${i}]`, nivel + 1));
+      const lista = v.slice(0, itens).map((x, i) => andar(x, `${onde}[${i}]`, nivel + 1, emPessoa));
       if (v.length > itens) observacoes.push(`A lista "${onde || 'resposta'}" tem ${v.length} itens; vieram os ${itens} primeiros.`);
       return lista;
     }
@@ -105,6 +127,10 @@ function limparUma(valor: unknown, op: OpcoesDaLimpeza, itens: number): LeituraL
     const palavras = new Map(chaves.map((k) => [k, palavrasDoCampo(k)]));
     const temPessoa = chaves.some((k) => palavras.get(k)!.some((p) => DE_PESSOA.has(p)));
     const temEmpresa = chaves.some((k) => palavras.get(k)!.some((p) => DE_EMPRESA.has(p)));
+    // MIS-C-10: o objeto que É uma pessoa da equipe (a linha da escala, do ranking, da ciência: tem "colaboradorId") — o `nome`
+    // dele é o dela. O que só APONTA uma pessoa (o checklist com "aprovadorId", a tarefa com "colaboradorResolvidoId") guarda o
+    // próprio nome; o campo da pessoa sai pela regra do papel.
+    const daEquipe = chaves.some((k) => typeof obj[k] === 'string' && PESSOA_DA_LINHA.has(palavras.get(k)!.join(' ')));
     const fora: Record<string, unknown> = {};
     for (const k of chaves) {
       const ps = palavras.get(k)!;
@@ -113,13 +139,15 @@ function limparUma(valor: unknown, op: OpcoesDaLimpeza, itens: number): LeituraL
       const sai =
         ps.some((p) => FORA.has(p)) ||
         (!ehNumero && x !== null && ps.some((p) => CLIENTE.has(p))) ||
-        (temPessoa && !temEmpresa && ps.some((p) => NOME.has(p))) ||
+        (typeof x === 'string' && ehDePessoa(k, ps)) ||
+        ((temPessoa || daEquipe || emPessoa) && !temEmpresa && ps.some((p) => NOME.has(p))) ||
+        (emPessoa && ps.length === 1 && ps[0] === 'id') ||
         (!op.verValores && ps.some((p) => DINHEIRO.has(p)));
       if (sai) {
         tirados++;
         continue;
       }
-      fora[k] = andar(x, onde ? `${onde}.${k}` : k, nivel + 1);
+      fora[k] = andar(x, onde ? `${onde}.${k}` : k, nivel + 1, emPessoa || (x !== null && typeof x === 'object' && ehDePessoa(k, ps)));
     }
     return fora;
   };

@@ -2,6 +2,7 @@ import { TAREFAS_ABERTAS } from './mapa/tarefas-abertas';
 import { funcaoDoMapa } from './mapa/busca-no-mapa';
 import { TEXTOS_DAS_TAREFAS, apresentacaoDaTarefa, camposParaAIa, pedidoDaTarefa, procurarTarefas, tarefasNoMister } from './mister-tarefas';
 import { procurarTelas } from './mister-telas.service';
+import { idDaTarefa } from './mister-tarefas.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -164,11 +165,12 @@ describe('C4 Onda 2 · delivery e cardápio', () => {
   const ID2 = '33333333-3333-4333-8333-333333333333';
   const marca = (rota: string) => (pedidoDaTarefa({ rota, parametros: { id: ID, opcaoId: ID2 }, campos: {} }, LOJA) as any).f?.marca ?? funcaoDoMapa(rota)?.marca;
 
-  it('as marcas: excluir o produto, o preço do complemento no app e na etapa e o custo em massa pedem o PIN; o resto é botão', () => {
-    for (const r of ['DELETE /api/v1/produtos/{id}', 'PUT /api/v1/produtos/opcoes/{id}/preco-canal', 'PUT /api/v1/produtos/complementos-catalogo/{id}/opcoes/{opcaoId}/preco', 'PATCH /api/v1/produtos/opcoes/massa/preco']) {
+  it('as marcas: excluir o produto, o preço do complemento no app e na etapa, o custo em massa e o Pix prioritário pedem o PIN; o resto é botão', () => {
+    // Rodada 7, MIS-C-02 (ERR-650): o Pix prioritário ordena as cobranças da empresa inteira — PIN.
+    for (const r of ['DELETE /api/v1/produtos/{id}', 'PUT /api/v1/produtos/opcoes/{id}/preco-canal', 'PUT /api/v1/produtos/complementos-catalogo/{id}/opcoes/{opcaoId}/preco', 'PATCH /api/v1/produtos/opcoes/massa/preco', 'PATCH /api/v1/delivery/pix-prioritario']) {
       expect([r, funcaoDoMapa(r)?.marca]).toEqual([r, 'pin']);
     }
-    for (const r of ['POST /api/v1/delivery/pausas/estender', 'PATCH /api/v1/delivery/pix-prioritario', 'DELETE /api/v1/produtos/categorias/{id}', 'POST /api/v1/produtos/{id}/duplicar', 'DELETE /api/v1/produtos/opcoes/{id}']) {
+    for (const r of ['POST /api/v1/delivery/pausas/estender', 'DELETE /api/v1/produtos/categorias/{id}', 'POST /api/v1/produtos/{id}/duplicar', 'DELETE /api/v1/produtos/opcoes/{id}']) {
       expect([r, funcaoDoMapa(r)?.marca]).toEqual([r, 'botao']);
     }
     expect(marca('DELETE /api/v1/produtos/{id}')).toBe('pin');
@@ -348,5 +350,73 @@ describe('H2b · o dia especial do horário pela conversa', () => {
     expect([m.metodo, m.caminho, m.corpo]).toEqual(['PATCH', `/api/v1/cardapio/dias-especiais/${ID}`, { fecha: '22:00' }]);
     const d = pedidoDaTarefa({ rota: 'DELETE /api/v1/cardapio/dias-especiais/{id}', parametros: { id: ID } }, LOJA) as any;
     expect([d.metodo, d.caminho, d.corpo]).toEqual(['DELETE', `/api/v1/cardapio/dias-especiais/${ID}`, {}]);
+  });
+});
+
+describe('Rodada 7, bloco C (ERR-650) · o mapa e as tarefas', () => {
+  const ID2 = '33333333-3333-4333-8333-333333333333';
+
+  it('MIS-C-01: receber a compra e confirmar o recebimento (criam a conta a pagar) pedem o PIN', () => {
+    for (const r of ['POST /api/v1/compras/listas/{id}/receber', 'POST /api/v1/recebimentos/{id}/confirmar']) expect([r, funcaoDoMapa(r)?.marca]).toEqual([r, 'pin']);
+    const p = pedidoDaTarefa({ rota: 'POST /api/v1/recebimentos/{id}/confirmar', parametros: { id: ID } }, LOJA) as any;
+    expect(p.f.marca).toBe('pin');
+  });
+
+  it('MIS-C-04: a loja entra no id da proposta — o mesmo pedido em duas lojas são duas propostas (a de uma não regrava a da outra)', () => {
+    const corpo = { canal: 'ifood', minutos: 10 };
+    const rota = 'POST /api/v1/delivery/pausas/estender';
+    const naA = idDaTarefa(ID, ID2, rota, '11111111-1111-4111-8111-111111111111', '/api/v1/delivery/pausas/estender', corpo);
+    const naB = idDaTarefa(ID, ID2, rota, '44444444-4444-4444-8444-444444444444', '/api/v1/delivery/pausas/estender', corpo);
+    expect(naA).not.toBe(naB);
+    // O mesmo pedido na mesma loja é a mesma proposta (a repetição não cria outra).
+    expect(idDaTarefa(ID, ID2, rota, '11111111-1111-4111-8111-111111111111', '/api/v1/delivery/pausas/estender', { ...corpo })).toBe(naA);
+    expect(idDaTarefa(ID, ID2, rota, null, '/api/v1/delivery/pausas/estender', corpo)).not.toBe(naA);
+  });
+
+  it('MIS-C-03: a função criada pela conversa é só de operação; a de gestão (presidente, gerente) nasce pela tela', () => {
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/funcoes', campos: { nome: 'Subgerente', categoria: 'gerente' } }, LOJA)).toHaveProperty('erro', expect.stringContaining('supervisao'));
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/funcoes', campos: { nome: 'Dono 2', categoria: 'presidente' } }, LOJA)).toHaveProperty('erro');
+    expect((pedidoDaTarefa({ rota: 'POST /api/v1/funcoes', campos: { nome: 'Chapeiro', categoria: 'execucao' } }, LOJA) as any).corpo).toEqual({ nome: 'Chapeiro', categoria: 'execucao' });
+  });
+
+  it('MIS-C-08: na empresa de mais de uma loja o "Vou fazer" diz onde vale — a loja, todas as lojas ou a empresa inteira', () => {
+    const naLoja = pedidoDaTarefa({ rota: 'POST /api/v1/delivery/pausas/estender', campos: { canal: 'ifood', minutos: 10 } }, { ...LOJA, nome: 'Loja Centro', variasLojas: true }) as any;
+    expect(naLoja.resumo).toContain('• Loja: Loja Centro');
+    const todas = pedidoDaTarefa({ rota: 'POST /api/v1/fiscal/contingencia/transmitir' }, { unidadeId: null, nome: 'todas as lojas', variasLojas: true }) as any;
+    expect(todas.resumo).toContain('• Loja: todas as lojas');
+    for (const [rota, campos] of [
+      ['POST /api/v1/ponto/fechamentos/gerar', { competencia: '2026-10' }],
+      ['PATCH /api/v1/delivery/pix-prioritario', { gateway: 'mercadopago' }],
+      ['POST /api/v1/fichas/embalagem', { mesmaEmbalagem: true }],
+    ] as const) {
+      const e = pedidoDaTarefa({ rota, campos }, { ...LOJA, nome: 'Loja Centro', variasLojas: true }) as any;
+      expect([rota, e.resumo]).toEqual([rota, expect.stringContaining('Vale para: a empresa inteira')]);
+      expect(e.resumo).not.toContain('Loja Centro');
+    }
+    // A empresa de uma loja só: nada muda no "Vou fazer".
+    expect((pedidoDaTarefa({ rota: 'POST /api/v1/ponto/fechamentos/gerar', campos: { competencia: '2026-10' } }, LOJA) as any).resumo).not.toContain('Vale para');
+  });
+
+  it('MIS-C-12: o id do caminho inteiro, e os campos pelo tipo antes de normalizar (lista, hora, data do calendário, opção herdada)', () => {
+    // O parâmetro do caminho é um UUID (as tarefas abertas só recebem ids no caminho).
+    expect(pedidoDaTarefa({ rota: 'DELETE /api/v1/setores/{id}', parametros: { id: 'abc' } }, LOJA)).toHaveProperty('erro', expect.stringContaining('"id"'));
+    expect(pedidoDaTarefa({ rota: 'DELETE /api/v1/setores/{id}', parametros: { id: 12345 } }, LOJA)).toHaveProperty('erro');
+    expect((pedidoDaTarefa({ rota: 'DELETE /api/v1/setores/{id}', parametros: { id: ID.toUpperCase() } }, LOJA) as any).caminho).toBe(`/api/v1/setores/${ID}`);
+    const evento = (campos: Record<string, unknown>) => pedidoDaTarefa({ rota: 'POST /api/v1/calendario-da-loja/eventos', campos: { nome: 'Show', tipo: 'show', dia: '2026-12-24', ...campos } }, LOJA);
+    // A lista não vira data nem hora pelo `String`.
+    expect(evento({ dia: ['2026-12-24'] })).toHaveProperty('erro', expect.stringContaining('data'));
+    expect(evento({ hora: ['21:00'] })).toHaveProperty('erro', expect.stringContaining('hora'));
+    // A hora inteira é conferida (antes, "21:00 e tal" virava "21:00"); a com segundos vale.
+    expect(evento({ hora: '21:00 e tal' })).toHaveProperty('erro', expect.stringContaining('hora'));
+    expect((evento({ hora: '21:00:00' }) as any).corpo.hora).toBe('21:00');
+    // A data que não existe no calendário.
+    expect(evento({ dia: '2026-02-31' })).toHaveProperty('erro', expect.stringContaining('data'));
+    expect(evento({ dia: '2026-13-01' })).toHaveProperty('erro');
+    // A opção herdada do objeto não é uma opção do catálogo.
+    for (const o of ['constructor', 'toString', '__proto__']) expect([o, evento({ tipo: o })]).toEqual([o, { erro: expect.stringContaining('show') }]);
+    // O sim/não não aceita a lista.
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/fichas/embalagem', campos: { mesmaEmbalagem: ['true'] } }, LOJA)).toHaveProperty('erro', expect.stringContaining('true ou false'));
+    // A lista de ids só com textos.
+    expect(pedidoDaTarefa({ rota: 'POST /api/v1/contagem/listas', campos: { nome: 'X', itemIds: [[ID], ID2] } }, LOJA)).toHaveProperty('erro', expect.stringContaining('ids'));
   });
 });

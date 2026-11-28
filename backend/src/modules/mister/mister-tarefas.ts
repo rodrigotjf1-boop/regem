@@ -17,8 +17,8 @@ export const tarefasNoMister = (): boolean => process.env.MISTER_FAZER_TAREFAS =
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
-const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
-const VALOR_DO_PARAMETRO = /^[A-Za-z0-9_.:-]{1,80}$/;
+// A hora com os segundos também vale ("21:00:00"), e só ela: o resto do texto não é cortado antes de conferir (MIS-C-12).
+const HORA = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
 
 export const TEXTOS_DAS_TAREFAS = {
   fora: 'Essa função ainda não está entre as tarefas que o Mister faz pela conversa. Procure com procurar_no_regem: as tarefas que vierem com "campos" são as que dá para fazer.',
@@ -142,11 +142,22 @@ export interface PedidoDaTarefa {
 }
 
 /**
- * Confere o pedido de `fazer_no_regem` (a avaliação usa a MESMA): a tarefa aberta; cada parâmetro do caminho simples; cada
- * campo conhecido, do tipo certo; os obrigatórios presentes; nenhum campo a mais; a loja da conversa no campo `loja`.
- * `origem` = o que as consultas desta pergunta trouxeram (dá o nome do registro escolhido por id).
+ * A loja da conversa, como o "Vou fazer" a mostra. `variasLojas` = a empresa tem mais de uma loja: aí o "Vou fazer" diz em que
+ * loja a tarefa vale (ou que vale para a empresa inteira) — rodada 7, MIS-C-08 (ERR-650).
  */
-export function pedidoDaTarefa(entrada: unknown, loja: { unidadeId: string | null }, origem: unknown[] = []): PedidoDaTarefa | { erro: string } {
+export interface LojaDaTarefa {
+  unidadeId: string | null;
+  nome?: string;
+  variasLojas?: boolean;
+}
+
+/**
+ * Confere o pedido de `fazer_no_regem` (a avaliação usa a MESMA): a tarefa aberta; cada parâmetro do caminho um id (todas as
+ * tarefas abertas recebem ids no caminho); cada campo conhecido, do tipo certo; os obrigatórios presentes; nenhum campo a
+ * mais; a loja da conversa no campo `loja`. `origem` = o que as consultas desta pergunta trouxeram (dá o nome do registro
+ * escolhido por id).
+ */
+export function pedidoDaTarefa(entrada: unknown, loja: LojaDaTarefa, origem: unknown[] = []): PedidoDaTarefa | { erro: string } {
   const en = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
   const t = tarefaAberta(en.rota);
   const f = t ? funcaoDoMapa(t.rota) : undefined;
@@ -158,10 +169,11 @@ export function pedidoDaTarefa(entrada: unknown, loja: { unidadeId: string | nul
   const linhas: string[] = [];
   for (const p of parametrosDoCaminho(f.rota)) {
     const v = params[p];
-    const s = typeof v === 'number' && Number.isFinite(v) ? String(v) : typeof v === 'string' ? v.trim() : '';
-    if (!VALOR_DO_PARAMETRO.test(s) || /^\.+$/.test(s)) return { erro: `Falta o "${p}" desta tarefa (o id que uma leitura trouxe).` };
-    caminho = caminho.replace(`{${p}}`, encodeURIComponent(s));
-    const nome = UUID.test(s) ? nomeNaOrigem(s, origem) : null;
+    // MIS-C-12 (ERR-650): o parâmetro é o id que uma leitura trouxe — um UUID inteiro, conferido antes de ir ao caminho.
+    const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
+    if (!UUID.test(s)) return { erro: `Falta o "${p}" desta tarefa (o id que uma leitura trouxe).` };
+    caminho = caminho.replace(`{${p}}`, s);
+    const nome = nomeNaOrigem(s, origem);
     linhas.push(`• Registro: ${nome ?? `…${s.slice(-6)}`}`);
   }
 
@@ -169,8 +181,18 @@ export function pedidoDaTarefa(entrada: unknown, loja: { unidadeId: string | nul
   // A exclusão vai com o corpo `{}` (ou só os campos que a rota pede, como o motivo): o campo que a tarefa não tem é recusado.
   const r = conferirCampos(t.campos, dados, origem, loja.unidadeId, '•');
   if ('erro' in r) return r;
-  const resumo = [`${f.frase}.`, ...linhas, ...r.linhas].join('\n');
+  // MIS-C-08 (ERR-650): na empresa de mais de uma loja, onde a tarefa vale — a loja da conversa, todas as lojas, ou a empresa
+  // inteira (a tarefa que é da empresa, qualquer que seja a loja).
+  const onde = loja.variasLojas ? [t.alcance === 'empresa' ? '• Vale para: a empresa inteira (todas as lojas)' : `• Loja: ${loja.unidadeId ? (loja.nome ?? 'a da conversa') : 'todas as lojas'}`] : [];
+  const resumo = [`${f.frase}.`, ...onde, ...linhas, ...r.linhas].join('\n');
   return { f, t, metodo, caminho, corpo: r.corpo, resumo };
+}
+
+/** A data AAAA-MM-DD que existe no calendário (o dia 31/02 não passa: o `Date` o levaria a março). */
+function dataDoCalendario(s: string): boolean {
+  if (!DATA.test(s)) return false;
+  const d = new Date(`${s}T12:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
 
 /** Quantas linhas de uma lista o "Vou fazer" mostra (o resto vira "e mais N"). */
@@ -245,9 +267,14 @@ function conferirCampos(
   return { corpo, linhas };
 }
 
-/** O valor de um campo, conferido e normalizado pelo tipo. */
+/**
+ * O valor de um campo, conferido e normalizado pelo tipo. MIS-C-12 (ERR-650): o tipo inteiro antes de normalizar — data, hora,
+ * mês, id e opção só como texto (a lista `['2026-12-24']` não vira data pelo `String`), o sim/não só como sim/não ou texto, a
+ * data pelo calendário (31/02 não passa) e a opção só entre as do catálogo (nada herdado, como "constructor").
+ */
 function valorDoCampo(c: CampoDaTarefa, v: unknown): { valor: unknown } | { erro: string } {
   const ruim = (como: string) => ({ erro: `"${c.rotulo}" (${c.nome}) precisa ser ${como}.` });
+  const texto = typeof v === 'string' ? v.trim() : null;
   switch (c.tipo) {
     case 'numero': {
       // "2,5" vira 2.5; nada de milhar ("1.234,5" não passa: a IA manda o número).
@@ -258,7 +285,7 @@ function valorDoCampo(c: CampoDaTarefa, v: unknown): { valor: unknown } | { erro
     }
     case 'booleano': {
       if (typeof v === 'boolean') return { valor: v };
-      const s = String(v).trim().toLowerCase();
+      const s = (texto ?? '').toLowerCase();
       if (s === 'true' || s === 'sim') return { valor: true };
       if (s === 'false' || s === 'nao' || s === 'não') return { valor: false };
       return ruim('true ou false');
@@ -266,7 +293,7 @@ function valorDoCampo(c: CampoDaTarefa, v: unknown): { valor: unknown } | { erro
     case 'ids': {
       const max = c.maxItens ?? 50;
       if (!Array.isArray(v) || !v.length || v.length > max) return ruim(`uma lista de 1 a ${max} ids que uma leitura trouxe`);
-      const ids = v.map((x) => String(x).trim().toLowerCase());
+      const ids = v.map((x) => (typeof x === 'string' ? x.trim().toLowerCase() : ''));
       if (ids.some((x) => !UUID.test(x))) return ruim('uma lista de ids que uma leitura trouxe');
       return { valor: [...new Set(ids)] };
     }
@@ -282,29 +309,29 @@ function valorDoCampo(c: CampoDaTarefa, v: unknown): { valor: unknown } | { erro
       return { valor: n };
     }
     case 'data': {
-      const s = String(v).trim();
-      if (!DATA.test(s) || Number.isNaN(Date.parse(`${s}T12:00:00Z`))) return ruim('uma data AAAA-MM-DD');
+      const s = texto ?? '';
+      if (!dataDoCalendario(s)) return ruim('uma data AAAA-MM-DD');
       return { valor: s };
     }
     case 'hora': {
-      const s = String(v).trim().slice(0, 5);
+      const s = texto ?? '';
       if (!HORA.test(s)) return ruim('uma hora HH:MM');
-      return { valor: s };
+      return { valor: s.slice(0, 5) };
     }
     case 'mes': {
       // C4 Onda 3: a competência AAAA-MM. Conferida aqui porque a rota do fechamento troca o mês torto pelo anterior, calada.
-      const s = String(v).trim();
+      const s = texto ?? '';
       if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(s)) return ruim('um mês AAAA-MM');
       return { valor: s };
     }
     case 'id': {
-      const s = String(v).trim().toLowerCase();
+      const s = (texto ?? '').toLowerCase();
       if (!UUID.test(s)) return ruim('um id que uma leitura trouxe');
       return { valor: s };
     }
     case 'opcao': {
-      const s = String(v).trim();
-      if (!c.opcoes || !(s in c.opcoes)) return ruim(`uma destas: ${Object.keys(c.opcoes ?? {}).join(', ')}`);
+      const s = texto ?? '';
+      if (!c.opcoes || !Object.prototype.hasOwnProperty.call(c.opcoes, s)) return ruim(`uma destas: ${Object.keys(c.opcoes ?? {}).join(', ')}`);
       return { valor: s };
     }
     default:

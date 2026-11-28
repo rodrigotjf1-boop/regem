@@ -176,8 +176,8 @@ export class MisterPropostasService implements OnModuleInit {
   }
 
   // Versão 10, C4: a tarefa pelo mapa (`fazer_no_regem`) mora no `MisterTarefasService`; aqui passa o "Autorizar" de quem pediu.
-  private tarefa: ((p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>) | null = null;
-  registrarTarefa(f: (p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>): void {
+  private tarefa: ((p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; nivel?: string | null; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>) | null = null;
+  registrarTarefa(f: (p: { id: string; tenantId: string; unidadeId: string | null; procedimento: string; nivel?: string | null; parametros: any; autorizadaPor: string | null }) => Promise<{ feita: boolean; texto: string }>): void {
     this.tarefa = f;
   }
 
@@ -199,7 +199,7 @@ export class MisterPropostasService implements OnModuleInit {
       values (${tenantId}::uuid, ${unidadeId}::uuid, ${avisoId}::uuid, ${procedimento}, ${JSON.stringify(parametros)}::jsonb, ${nivel},
               clock_timestamp() + make_interval(mins => ${prazoMin}::int))
       on conflict (aviso_id, procedimento) do update
-        set situacao = 'proposta', criada_em = clock_timestamp(), vence_em = excluded.vence_em, parametros = excluded.parametros,
+        set situacao = 'proposta', criada_em = clock_timestamp(), vence_em = excluded.vence_em, parametros = excluded.parametros, nivel = excluded.nivel,
             unidade_id = excluded.unidade_id, respondida_em = null, autorizada_por = null, telefone_final = null, executada_em = null,
             conferir_ate = null, concluida_em = null, resultado = null,
             link_hash = null, link_para = null, link_criado_em = null, link_aberto_em = null, pin_erros = 0, bloqueada_em = null
@@ -240,7 +240,7 @@ export class MisterPropostasService implements OnModuleInit {
         values (${a.tenantId}::uuid, ${a.unidadeId}::uuid, ${a.id}::uuid, ${p.procedimento}, ${JSON.stringify(p.parametros)}::jsonb, ${proc.nivel},
                 clock_timestamp() + make_interval(mins => ${proc.prazoMin}::int))
         on conflict (aviso_id, procedimento) do update
-          set situacao = 'proposta', vence_em = excluded.vence_em, concluida_em = null, resultado = null
+          set situacao = 'proposta', vence_em = excluded.vence_em, concluida_em = null, resultado = null, nivel = excluded.nivel
           where mister_proposta.situacao = 'vencida' or (mister_proposta.situacao = 'proposta' and mister_proposta.vence_em <= now())`);
       return await this.pendenteDoAviso(a.id);
     } catch (e: any) {
@@ -551,7 +551,7 @@ export class MisterPropostasService implements OnModuleInit {
                  else ${PROCEDIMENTOS.consultar_nota.conferirMin}::int end)
          where id = ${id}::uuid and situacao = 'autorizada'
         returning id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", procedimento, parametros,
-                  autorizada_por::text as "autorizadaPor", respondida_em as "respondidaEm"`),
+                  autorizada_por::text as "autorizadaPor", respondida_em as "respondidaEm", nivel`),
     );
     if (!p) return null;
     await this.auditar(p.tenantId, p.autorizadaPor, 'mister_proposta_executada', p.id, { procedimento: p.procedimento }, 'whatsapp', perfilDe(p));

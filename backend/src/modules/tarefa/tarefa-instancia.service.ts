@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -7,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { condUnidade } from '../../common/filtro-unidade';
 import { idTarefaInstancia } from '../../common/id-deterministico';
 import { gravarEntitlement } from '../../common/gravar-entitlement';
 import {
@@ -247,18 +249,29 @@ export class TarefaInstanciaService {
       throw new ForbiddenException('Sem permissão para alterar/excluir esta tarefa (criada por um nível acima).');
   }
 
-  async excluir(tenantId: string, id: string, motivo: string, atorCategoria = 'presidente') {
+  /**
+   * Exclui a tarefa do dia (some das listas), com o motivo. Rodada 7, MIS-C-06 (ERR-650): (1) só a tarefa da loja de quem
+   * exclui (`atual`, a loja da pessoa ou a escolhida pelo presidente; null = presidente na rede); (2) a tarefa que já tem a
+   * conclusão registrada (feita, em parte ou não feita) fica: o motivo da exclusão escrevia por cima do motivo da não
+   * conclusão, e a prova saía das listas. A trava vai na gravação (a conclusão que chega no meio não é apagada).
+   */
+  async excluir(tenantId: string, id: string, motivo: string, atorCategoria = 'presidente', atual: string | null = null) {
     if (!motivo?.trim()) throw new BadRequestException('Informe o motivo da exclusão.');
+    const daLoja = and(eq(tarefaInstancia.id, id), eq(tarefaInstancia.tenantId, tenantId), isNull(tarefaInstancia.deletedAt), condUnidade(tarefaInstancia.unidadeId, atual));
     const [inst] = await this.db
-      .select({ tarefaDefId: tarefaInstancia.tarefaDefId })
+      .select({ tarefaDefId: tarefaInstancia.tarefaDefId, concluidoEm: tarefaInstancia.concluidoEm })
       .from(tarefaInstancia)
-      .where(and(eq(tarefaInstancia.id, id), eq(tarefaInstancia.tenantId, tenantId), isNull(tarefaInstancia.deletedAt)));
+      .where(daLoja);
     if (!inst) throw new NotFoundException('Tarefa não encontrada');
     await this.assertPodeMexer(inst.tarefaDefId, atorCategoria);
-    await this.db
+    const jaConcluida = () => new ConflictException('Esta tarefa já tem a conclusão registrada: o registro fica como foi feito e não se exclui.');
+    if (inst.concluidoEm) throw jaConcluida();
+    const feitas = await this.db
       .update(tarefaInstancia)
       .set({ deletedAt: new Date(), motivo })
-      .where(and(eq(tarefaInstancia.id, id), eq(tarefaInstancia.tenantId, tenantId)));
+      .where(and(daLoja, isNull(tarefaInstancia.concluidoEm)))
+      .returning({ id: tarefaInstancia.id });
+    if (!feitas.length) throw jaConcluida();
     return { ok: true };
   }
 

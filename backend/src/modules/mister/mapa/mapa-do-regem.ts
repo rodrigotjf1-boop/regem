@@ -12,6 +12,10 @@
 // no ponto, em candidato ou geram a escala). Depois da revisão (com as 5 dos dias especiais, H1a): le 264 · botao 148 · pin 82 · tela 179 · interna 632.
 // Na Onda 2 (27/11/2026), o aviso e a situação "vindos da loja" (`delivery/aviso-da-loja`, `delivery/status-da-loja`) viraram
 // `interna`: só a credencial do servidor da loja abre essas rotas. Agora: le 264 · botao 146 · pin 82 · tela 179 · interna 634.
+// Rodada 7 de segurança, bloco C (28/11/2026, ERR-650): receber a compra, confirmar o recebimento (criam a conta a pagar) e o Pix
+// prioritário passaram a `pin`; nove leituras que listam pessoas da equipe (ciência, faltas, ranking, atendentes, operações de
+// caixa, a escala do dia, do período e da semana, os responsáveis) ganharam `pessoal`; doze leituras de dinheiro, `valores`.
+// Contadas agora: le 265 (167 que o Mister lê; 98 com dado de pessoa) · botao 143 · pin 88 · tela 176 · interna 635.
 //
 // As marcas:
 //   le       — só lê: o Mister pode consultar (C3), com a permissão do perfil de quem pergunta e o bilhete de uma chamada
@@ -35,6 +39,11 @@ export interface FuncaoDoMapa {
   frase: string;
   /** Só em `le`: a resposta traz dado de pessoa, e o Mister não a lê. */
   pessoal?: true;
+  /**
+   * Só em `le` (rodada 7, MIS-C-11, ERR-650): a resposta é dinheiro quase inteira (saldo, fluxo, DRE, faturamento, diferença do
+   * caixa) — quem não vê valores não a lê. O filtro por nome de campo não reconhece "saldoProjetado" nem "diferenca".
+   */
+  valores?: true;
   /** Os parâmetros de consulta que a função aceita (do contrato). */
   consulta?: readonly string[];
 }
@@ -161,7 +170,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'GET /api/v1/auditoria', marca: 'le', frase: 'auditoria: listar', pessoal: true },
   { rota: 'GET /api/v1/auditoria/verificar', marca: 'le', frase: 'auditoria: verificar', pessoal: true },
   { rota: 'GET /api/v1/auth/me', marca: 'interna', frase: 'auth: me' },
-  { rota: 'GET /api/v1/banco-repasses', marca: 'le', frase: 'Banco e repasses: os lançamentos do extrato importado e os repasses dos apps, com a situação de cada um (casado, a conferir, só no banco, esperado)', consulta: ['periodo', 'de', 'ate', 'situacao', 'fonte', 'busca', 'limite', 'deslocamento'] },
+  { rota: 'GET /api/v1/banco-repasses', marca: 'le', frase: 'Banco e repasses: os lançamentos do extrato importado e os repasses dos apps, com a situação de cada um (casado, a conferir, só no banco, esperado)', consulta: ['periodo', 'de', 'ate', 'situacao', 'fonte', 'busca', 'limite', 'deslocamento'], valores: true },
   { rota: 'GET /api/v1/bot/metricas', marca: 'interna', frase: 'bot: metricas' },
   { rota: 'GET /api/v1/bot/regras', marca: 'interna', frase: 'bot: listar' },
   { rota: 'GET /api/v1/calendario-da-loja', marca: 'le', frase: 'Calendário da loja: as datas especiais e os eventos do período (padrão: de hoje a 60 dias)', consulta: ['de', 'ate'] },
@@ -183,7 +192,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'GET /api/v1/cardapio/encomenda/regras-sinal', marca: 'le', frase: 'Encomendas: as regras do sinal (quanto se paga antes e até quando)' },
   { rota: 'GET /api/v1/cardapio/eventos', marca: 'le', frase: 'Eventos sazonais do cardápio digital (Natal, Dia das Mães…): a agenda e quais estão ligados' },
   { rota: 'GET /api/v1/cashback/planos', marca: 'le', frase: 'Cashback: os planos, com a porcentagem, a validade e as regras' },
-  { rota: 'GET /api/v1/cashback/relatorio', marca: 'le', frase: 'Cashback: o relatório de quanto foi dado, usado e venceu', consulta: ['inicio', 'fim', 'telefone'] },
+  { rota: 'GET /api/v1/cashback/relatorio', marca: 'le', frase: 'Cashback: o relatório de quanto foi dado, usado e venceu', consulta: ['inicio', 'fim', 'telefone'], valores: true },
   { rota: 'GET /api/v1/catalogo/conferencia', marca: 'le', frase: 'Conferir com os apps: as diferenças entre o cardápio do Regem e o do iFood ou da 99 (só no app, só no Regem, preço diferente, sem código)', consulta: ['canal', 'ler'] },
   { rota: 'GET /api/v1/catalogo/conferencia/fotos', marca: 'tela', frase: 'conferencia: fotos' },
   { rota: 'GET /api/v1/catalogo/conferencia/ligada', marca: 'le', frase: 'Conferir com os apps: se a conferência do catálogo está ligada nesta empresa' },
@@ -277,7 +286,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'GET /api/v1/distribuicao/telemetria', marca: 'interna', frase: 'distribuicao: telemetria' },
   { rota: 'GET /api/v1/distribuicao/usuarios', marca: 'interna', frase: 'distribuicao: usuarios' },
   { rota: 'GET /api/v1/documentos', marca: 'le', frase: 'Documentos da empresa (regras, avisos, manuais) que a equipe precisa ler' },
-  { rota: 'GET /api/v1/documentos/{id}/ciencias', marca: 'le', frase: 'Quem já deu ciência de um documento e quem falta' },
+  { rota: 'GET /api/v1/documentos/{id}/ciencias', marca: 'le', frase: 'Quem já deu ciência de um documento e quem falta', pessoal: true },
   { rota: 'GET /api/v1/documentos/sugestoes', marca: 'le', frase: 'Documentos sugeridos para o ramo da empresa' },
   { rota: 'GET /api/v1/edge/atualizacao/status', marca: 'interna', frase: 'edge: atualizacao status' },
   { rota: 'GET /api/v1/edge/bandeja/estado', marca: 'interna', frase: 'bandeja: estado' },
@@ -310,10 +319,10 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'GET /api/v1/equipamento/edge-ativo', marca: 'interna', frase: 'equipamento: edge ativo' },
   { rota: 'GET /api/v1/equipamento/historico', marca: 'interna', frase: 'equipamento: historico' },
   { rota: 'GET /api/v1/equipamento/impressoras', marca: 'interna', frase: 'equipamento: impressoras' },
-  { rota: 'GET /api/v1/escala', marca: 'le', frase: 'A escala de um dia: quem trabalha, em que setor e em que horário', consulta: ['data'] },
-  { rota: 'GET /api/v1/escala/faltas', marca: 'le', frase: 'Faltas do período anotadas na escala, por pessoa', consulta: ['de', 'ate'] },
-  { rota: 'GET /api/v1/escala/periodo', marca: 'le', frase: 'A escala de um período: as alocações por dia', consulta: ['de', 'ate'] },
-  { rota: 'GET /api/v1/escala/semana', marca: 'le', frase: 'A grade semanal da escala (a partir de uma segunda-feira)', consulta: ['inicio'] },
+  { rota: 'GET /api/v1/escala', marca: 'le', frase: 'A escala de um dia: quem trabalha, em que setor e em que horário', pessoal: true },
+  { rota: 'GET /api/v1/escala/faltas', marca: 'le', frase: 'Faltas do período anotadas na escala, por pessoa', pessoal: true },
+  { rota: 'GET /api/v1/escala/periodo', marca: 'le', frase: 'A escala de um período: as alocações por dia', pessoal: true },
+  { rota: 'GET /api/v1/escala/semana', marca: 'le', frase: 'A grade semanal da escala (a partir de uma segunda-feira)', pessoal: true },
   { rota: 'GET /api/v1/estoque/alertas', marca: 'le', frase: 'Alertas de estoque abertos: abaixo do mínimo (ponto de pedido) e vencendo (FEFO)' },
   { rota: 'GET /api/v1/estoque/categorias-item', marca: 'le', frase: 'Categorias dos produtos do estoque' },
   { rota: 'GET /api/v1/estoque/cmv', marca: 'le', frase: 'CMV do período: o real (estoque inicial + compras − final) contra o teórico das fichas, e o desvio', consulta: ['inicio', 'fim'] },
@@ -334,14 +343,14 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'GET /api/v1/fidelidade/planos/{id}/participantes', marca: 'le', frase: 'fidelidade: participantes', pessoal: true },
   { rota: 'GET /api/v1/fidelidade/relatorio', marca: 'le', frase: 'Fidelidade: o relatório de participantes, pontos dados e prêmios trocados', consulta: ['periodo'] },
   { rota: 'GET /api/v1/fidelidade/relatorio/periodo', marca: 'le', frase: 'fidelidade: relatorio periodo', pessoal: true },
-  { rota: 'GET /api/v1/financeiro/caixa', marca: 'le', frase: 'O caixa aberto agora: o saldo, as entradas por forma de pagamento, sangrias e suprimentos', consulta: ['origem'] },
+  { rota: 'GET /api/v1/financeiro/caixa', marca: 'le', frase: 'O caixa aberto agora: o saldo, as entradas por forma de pagamento, sangrias e suprimentos', consulta: ['origem'], valores: true },
   { rota: 'GET /api/v1/financeiro/caixa/config', marca: 'le', frase: 'Ajustes do caixa (se o atendente pode fazer sangria e suprimento)' },
-  { rota: 'GET /api/v1/financeiro/caixa/fechamentos', marca: 'le', frase: 'Fechamentos de caixa do período: o esperado, o contado e a diferença de cada turno', consulta: ['inicio', 'fim'] },
+  { rota: 'GET /api/v1/financeiro/caixa/fechamentos', marca: 'le', frase: 'Fechamentos de caixa do período: o esperado, o contado e a diferença de cada turno', consulta: ['inicio', 'fim'], valores: true },
   { rota: 'GET /api/v1/financeiro/caixa/pendencias', marca: 'le', frase: 'O que falta baixar antes de fechar o turno (entregas e retiradas não baixadas)', consulta: ['origem'] },
-  { rota: 'GET /api/v1/financeiro/dre', marca: 'le', frase: 'DRE do período: receita, custos, despesas e resultado', consulta: ['inicio', 'fim'] },
-  { rota: 'GET /api/v1/financeiro/fluxo', marca: 'le', frase: 'Fluxo de caixa do período: entradas, saídas e o saldo por dia', consulta: ['dias'] },
+  { rota: 'GET /api/v1/financeiro/dre', marca: 'le', frase: 'DRE do período: receita, custos, despesas e resultado', consulta: ['inicio', 'fim'], valores: true },
+  { rota: 'GET /api/v1/financeiro/fluxo', marca: 'le', frase: 'Fluxo de caixa do período: entradas, saídas e o saldo por dia', consulta: ['dias'], valores: true },
   { rota: 'GET /api/v1/financeiro/formas-pagamento', marca: 'le', frase: 'As formas de pagamento cadastradas' },
-  { rota: 'GET /api/v1/financeiro/resumo', marca: 'le', frase: 'Resumo financeiro: a pagar, a receber, vencidos e o saldo' },
+  { rota: 'GET /api/v1/financeiro/resumo', marca: 'le', frase: 'Resumo financeiro: a pagar, a receber, vencidos e o saldo', valores: true },
   { rota: 'GET /api/v1/financeiro/titulos', marca: 'le', frase: 'Contas a pagar e a receber: cada título com o valor, o vencimento e a situação', consulta: ['tipo', 'status'] },
   { rota: 'GET /api/v1/fiscal/config', marca: 'le', frase: 'Ajustes da nota fiscal (NFC-e): ambiente, série, regime e o que sai na nota', consulta: ['unidadeId'] },
   { rota: 'GET /api/v1/fiscal/contingencia', marca: 'le', frase: 'Notas fiscais em contingência (emitidas sem a SEFAZ) e a fila de envio' },
@@ -436,7 +445,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'GET /api/v1/mural/modelos', marca: 'le', frase: 'Modelos de aviso do mural para o ramo' },
   { rota: 'GET /api/v1/noticias-do-ramo', marca: 'le', frase: 'Notícias do ramo: as novidades do setor de alimentação, com as fontes', consulta: ['dia'] },
   { rota: 'GET /api/v1/noticias-do-ramo/loja', marca: 'interna', frase: 'noticias ramo: do servidor da loja' },
-  { rota: 'GET /api/v1/ocorrencias/ranking', marca: 'le', frase: 'Ranking das ocorrências da equipe (pontuação), só do presidente' },
+  { rota: 'GET /api/v1/ocorrencias/ranking', marca: 'le', frase: 'Ranking das ocorrências da equipe (pontuação), só do presidente', pessoal: true },
   { rota: 'GET /api/v1/onboarding/blueprint', marca: 'interna', frase: 'onboarding: blueprint' },
   { rota: 'GET /api/v1/onboarding/progresso', marca: 'interna', frase: 'onboarding: progresso' },
   { rota: 'GET /api/v1/onboarding/ramos', marca: 'interna', frase: 'onboarding: ramos' },
@@ -553,18 +562,18 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'GET /api/v1/rastreio/{token}/selo', marca: 'interna', frase: 'clube publico: selo' },
   { rota: 'GET /api/v1/recebimentos', marca: 'le', frase: 'Recebimentos de mercadoria do período: a nota, o fornecedor, o valor e a situação', consulta: ['inicio', 'fim'] },
   { rota: 'GET /api/v1/recebimentos/{id}', marca: 'le', frase: 'Um recebimento: os itens, as quantidades, os valores e a validade' },
-  { rota: 'GET /api/v1/relatorios/atendentes', marca: 'le', frase: 'Relatório por atendente: vendas e pedidos de cada um no período', consulta: ['inicio', 'fim'] },
+  { rota: 'GET /api/v1/relatorios/atendentes', marca: 'le', frase: 'Relatório por atendente: vendas e pedidos de cada um no período', pessoal: true },
   { rota: 'GET /api/v1/relatorios/balcao', marca: 'le', frase: 'Relatório do balcão: vendas, pedidos e ticket médio no período', consulta: ['inicio', 'fim'] },
-  { rota: 'GET /api/v1/relatorios/conferencia-valores', marca: 'le', frase: 'Conferência de valores por canal: venda bruta, descontos (quem paga), taxas e faturamento', consulta: ['inicio', 'fim'] },
+  { rota: 'GET /api/v1/relatorios/conferencia-valores', marca: 'le', frase: 'Conferência de valores por canal: venda bruta, descontos (quem paga), taxas e faturamento', consulta: ['inicio', 'fim'], valores: true },
   { rota: 'GET /api/v1/relatorios/delivery', marca: 'le', frase: 'Relatório do delivery: pedidos, vendas e ticket médio por canal no período', consulta: ['inicio', 'fim'] },
-  { rota: 'GET /api/v1/relatorios/faturamento', marca: 'le', frase: 'Faturamento do período (só o presidente): por dia, por canal e por forma de pagamento', consulta: ['inicio', 'fim'] },
-  { rota: 'GET /api/v1/relatorios/faturamento-delivery', marca: 'le', frase: 'Faturamento do delivery por canal no período', consulta: ['inicio', 'fim'] },
-  { rota: 'GET /api/v1/relatorios/operacoes-caixa', marca: 'le', frase: 'Operações de caixa do período: sangrias, suprimentos e quem fez', consulta: ['inicio', 'fim'] },
+  { rota: 'GET /api/v1/relatorios/faturamento', marca: 'le', frase: 'Faturamento do período (só o presidente): por dia, por canal e por forma de pagamento', consulta: ['inicio', 'fim'], valores: true },
+  { rota: 'GET /api/v1/relatorios/faturamento-delivery', marca: 'le', frase: 'Faturamento do delivery por canal no período', consulta: ['inicio', 'fim'], valores: true },
+  { rota: 'GET /api/v1/relatorios/operacoes-caixa', marca: 'le', frase: 'Operações de caixa do período: sangrias, suprimentos e quem fez', pessoal: true },
   { rota: 'GET /api/v1/relatorios/producao', marca: 'le', frase: 'Relatório da produção (cozinha): tempos e quantidades no período', consulta: ['inicio', 'fim', 'agrupamento'] },
   { rota: 'GET /api/v1/relatorios/produtos', marca: 'le', frase: 'Relatório de produtos vendidos no período: quantidade e valor de cada um', consulta: ['inicio', 'fim'] },
   { rota: 'GET /api/v1/relatorios/ranking-produtos', marca: 'le', frase: 'Ranking dos produtos mais vendidos no período', consulta: ['inicio', 'fim'] },
-  { rota: 'GET /api/v1/relatorios/turnos', marca: 'le', frase: 'Turnos de caixa do período: abertura, fechamento, vendas e diferença', consulta: ['inicio', 'fim'] },
-  { rota: 'GET /api/v1/relatorios/turnos/{id}', marca: 'le', frase: 'Um turno de caixa: as vendas por forma, sangrias, suprimentos e a diferença' },
+  { rota: 'GET /api/v1/relatorios/turnos', marca: 'le', frase: 'Turnos de caixa do período: abertura, fechamento, vendas e diferença', consulta: ['inicio', 'fim'], valores: true },
+  { rota: 'GET /api/v1/relatorios/turnos/{id}', marca: 'le', frase: 'Um turno de caixa: as vendas por forma, sangrias, suprimentos e a diferença', valores: true },
   { rota: 'GET /api/v1/relatorios/vendas', marca: 'le', frase: 'Relatório de vendas do período: por dia, por hora e por canal', consulta: ['inicio', 'fim'] },
   { rota: 'GET /api/v1/revenda', marca: 'interna', frase: 'licenca: revendas' },
   { rota: 'GET /api/v1/revenda/frota', marca: 'interna', frase: 'licenca: frota' },
@@ -579,7 +588,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'GET /api/v1/tarefas', marca: 'le', frase: 'As tarefas cadastradas (modelos), com o setor e a frequência' },
   { rota: 'GET /api/v1/tarefas-instancias', marca: 'le', frase: 'As tarefas de um dia: o responsável e se foram feitas', consulta: ['data'] },
   { rota: 'GET /api/v1/tarefas-instancias/politica-foto', marca: 'tela', frase: 'tarefa instancia: politica foto' },
-  { rota: 'GET /api/v1/tarefas-instancias/responsaveis', marca: 'le', frase: 'Quem está escalado numa função (e setor) num dia, para ser responsável por uma tarefa', consulta: ['data', 'funcaoId', 'setorId'] },
+  { rota: 'GET /api/v1/tarefas-instancias/responsaveis', marca: 'le', frase: 'Quem está escalado numa função (e setor) num dia, para ser responsável por uma tarefa', pessoal: true },
   { rota: 'GET /api/v1/tef/config', marca: 'interna', frase: 'tef: config' },
   { rota: 'GET /api/v1/tef/pagamentos', marca: 'interna', frase: 'tef: listar' },
   { rota: 'GET /api/v1/tef/pagamentos/{id}', marca: 'interna', frase: 'tef: ver' },
@@ -665,7 +674,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'PATCH /api/v1/colaboradores/{id}', marca: 'pin', frase: 'colaborador: alterar' },
   { rota: 'PATCH /api/v1/colaboradores/{id}/acesso', marca: 'pin', frase: 'colaborador: atualizar acesso' },
   { rota: 'PATCH /api/v1/contagem/listas/{id}', marca: 'botao', frase: 'contagem: alterar lista' },
-  { rota: 'PATCH /api/v1/delivery/pix-prioritario', marca: 'botao', frase: 'delivery: definir pix prioritario' },
+  { rota: 'PATCH /api/v1/delivery/pix-prioritario', marca: 'pin', frase: 'delivery: definir pix prioritario' },
   { rota: 'PATCH /api/v1/dias-especiais/{id}', marca: 'botao', frase: 'dia especial: alterar' },
   { rota: 'PATCH /api/v1/dispositivos/heartbeat', marca: 'interna', frase: 'totem nuvem: repassar' },
   { rota: 'PATCH /api/v1/documentos/{id}', marca: 'tela', frase: 'documento: alterar' },
@@ -831,7 +840,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'POST /api/v1/compras/listas/{id}/enviado', marca: 'botao', frase: 'compras: marcar enviado' },
   { rota: 'POST /api/v1/compras/listas/{id}/faltante', marca: 'botao', frase: 'compras: gerar lista do que faltou' },
   { rota: 'POST /api/v1/compras/listas/{id}/itens/{itemId}/validade', marca: 'botao', frase: 'compras: informar validade' },
-  { rota: 'POST /api/v1/compras/listas/{id}/receber', marca: 'botao', frase: 'compras: receber' },
+  { rota: 'POST /api/v1/compras/listas/{id}/receber', marca: 'pin', frase: 'compras: receber' },
   { rota: 'POST /api/v1/contagem/execucoes/{id}/salvar', marca: 'botao', frase: 'contagem: salvar' },
   { rota: 'POST /api/v1/contagem/listas', marca: 'botao', frase: 'contagem: criar lista' },
   { rota: 'POST /api/v1/contagem/listas/{id}/iniciar', marca: 'botao', frase: 'contagem: iniciar' },
@@ -1201,7 +1210,7 @@ export const MAPA_DO_REGEM: readonly FuncaoDoMapa[] = [
   { rota: 'POST /api/v1/rastreio/{token}/avaliacao', marca: 'interna', frase: 'nota do pedido publica: avaliar' },
   { rota: 'POST /api/v1/rastreio/{token}/premio/revelar', marca: 'interna', frase: 'clube publico: revelar' },
   { rota: 'POST /api/v1/recebimentos', marca: 'botao', frase: 'recebimento: criar' },
-  { rota: 'POST /api/v1/recebimentos/{id}/confirmar', marca: 'botao', frase: 'recebimento: confirmar' },
+  { rota: 'POST /api/v1/recebimentos/{id}/confirmar', marca: 'pin', frase: 'recebimento: confirmar' },
   { rota: 'POST /api/v1/revenda', marca: 'interna', frase: 'licenca: criar revenda' },
   { rota: 'POST /api/v1/revenda/token', marca: 'interna', frase: 'licenca: emitir' },
   { rota: 'POST /api/v1/setores', marca: 'botao', frase: 'setor: criar' },

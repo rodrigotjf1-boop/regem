@@ -48,7 +48,8 @@ export class JobsService {
       try {
         const f = await this.ponto.gerarFechamento(tenantId, competencia);
         const pend = Number(f.totalPendencias) || 0;
-        if (pend > 0) {
+        // O já enviado ao contador não é recalculado (ERR-650): não há pendência nova a avisar.
+        if (pend > 0 && !f.jaEnviado) {
           const titulo = `Fechamento de ponto ${mes}/${ano}: ${pend} pendência(s)`;
           const detalhe = 'Corrija as batidas faltantes em Gerenciamento de ponto e encaminhe o espelho ao RH.';
           this.events.emit('kds.alerta.sistema', {

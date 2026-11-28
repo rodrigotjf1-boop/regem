@@ -5,6 +5,7 @@ import { uuidDeChave } from '../../common/id-deterministico';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { TEXTOS_DAS_ACOES } from './mister-acoes';
 import { tarefaAberta } from './mapa/tarefas-abertas';
+import { funcaoDoMapa } from './mapa/busca-no-mapa';
 import { MisterFerramentasService, type EscopoDoMister, type ResultadoDaFerramenta } from './mister-ferramentas.service';
 import { origemDe } from './mister-imagem-numeros';
 import { MOTIVO_DO_PIN, MOTIVO_DO_QR, comMotivo, motivoDoPerfil } from './mister-motivo';
@@ -24,6 +25,16 @@ import { PEDIDO_MAX, textoAprendido } from './mister-aprendizado';
 // com a resposta de sucesso da API. Nasce desligado (`MISTER_FAZER_TAREFAS=1`).
 
 const recusa = (erro: string): ResultadoDaFerramenta => ({ ok: false, dados: { erro } });
+
+/**
+ * O id da proposta de uma tarefa: a mesma pessoa, a mesma rota, a mesma LOJA, o mesmo caminho e o mesmo corpo. A loja entra
+ * (rodada 7, MIS-C-04, ERR-650): a loja vai no cabeçalho, fora do corpo — sem ela, "estender a pausa" na loja B regravava a
+ * proposta da loja A (o mesmo id) e o "Autorizar" que a pessoa viu para a A fazia na B.
+ */
+export function idDaTarefa(tenantId: string, colaboradorId: string, rota: string, unidadeId: string | null, caminho: string, corpo: Record<string, unknown>): string {
+  const chave = createHash('sha256').update(`${unidadeId ?? ''}|${caminho}|${JSON.stringify(corpo)}`).digest('hex').slice(0, 32);
+  return uuidDeChave('mister:tarefa:', tenantId, ':', colaboradorId, ':', rota, ':', chave);
+}
 
 @Injectable()
 export class MisterTarefasService implements OnModuleInit {
@@ -50,15 +61,14 @@ export class MisterTarefasService implements OnModuleInit {
     if (e.pinPendente) return comMotivo('Para fazer pela conversa, confirme antes o seu PIN: o link vai logo depois desta resposta.', MOTIVO_DO_PIN);
     try {
       const unidadeId = loja.atual ?? (e.lojaUnica ? (e.lojas[0]?.id ?? null) : null);
-      const p = pedidoDaTarefa(en, { unidadeId }, origemDe(en.__origem).resultados);
+      const p = pedidoDaTarefa(en, { unidadeId, nome: loja.nome, variasLojas: !e.lojaUnica }, origemDe(en.__origem).resultados);
       if ('erro' in p) return recusa(p.erro);
       // C4 Onda 1: a tarefa marcada "pin" no mapa (apaga o que tem histórico, mexe em dinheiro ou pessoas) sai com o link
       // "Abrir no Regem", que pede o PIN — como as ações de PIN. A de botão, com "Autorizar" e "Não agora".
       const comPin = p.f.marca === 'pin';
       // Pela conexão por QR Code não há o botão "Autorizar" (o link do PIN funciona).
       if (!comPin && this.numero && (await this.numero.ler()).provedor === 'evolution') return comMotivo(TEXTOS_DAS_ACOES.semBotao, MOTIVO_DO_QR);
-      const chave = createHash('sha256').update(`${p.caminho}|${JSON.stringify(p.corpo)}`).digest('hex').slice(0, 32);
-      const avisoId = uuidDeChave('mister:tarefa:', e.tenantId, ':', e.colaboradorId, ':', p.f.rota, ':', chave);
+      const avisoId = idDaTarefa(e.tenantId, e.colaboradorId, p.f.rota, unidadeId, p.caminho, p.corpo);
       const prop = await this.propostas.gravarDaConversa(
         e.tenantId,
         unidadeId,
@@ -96,12 +106,17 @@ export class MisterTarefasService implements OnModuleInit {
    * O "Autorizar" de quem pediu: a tarefa ainda aberta e a pessoa ainda com acesso; a escrita pela própria API, como ela (as
    * travas da tela de novo); o "feito" só com a resposta de sucesso.
    */
-  async executar(p: { id: string; tenantId: string; parametros: any; autorizadaPor: string | null }): Promise<{ feita: boolean; texto: string }> {
+  async executar(p: { id: string; tenantId: string; nivel?: string | null; parametros: any; autorizadaPor: string | null }): Promise<{ feita: boolean; texto: string }> {
     const par = (p.parametros ?? {}) as Record<string, any>;
     const quem = p.autorizadaPor;
     if (!quem || quem !== String(par.colaboradorId ?? '')) return { feita: false, texto: 'a tarefa só vale com o "Autorizar" de quem pediu. Nada foi feito.' };
     if (!tarefasNoMister()) return { feita: false, texto: 'as tarefas pelo Mister foram desligadas. Nada foi feito.' };
     if (!tarefaAberta(par.rota)) return { feita: false, texto: 'essa tarefa não está mais aberta ao Mister. Nada foi feito.' };
+    // Rodada 7, MIS-C-05 (ERR-650): a marca VIGENTE do mapa decide, não a gravada. A proposta de botão de uma tarefa que passou
+    // a pedir o PIN não vale (o PIN não foi dado).
+    const marca = funcaoDoMapa(par.rota)?.marca;
+    if (marca !== 'botao' && marca !== 'pin') return { feita: false, texto: 'essa tarefa não está mais aberta ao Mister. Nada foi feito.' };
+    if (marca === 'pin' && p.nivel !== 'pin') return { feita: false, texto: 'essa tarefa agora pede o PIN. Nada foi feito; peça de novo para receber o link.' };
     const e = await this.ferramentas.escopoDaTela(p.tenantId, quem);
     if (!e) return { feita: false, texto: 'o seu acesso ao Mister mudou. Nada foi feito.' };
     const metodo = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(par.metodo) ? (par.metodo as 'POST' | 'PUT' | 'PATCH' | 'DELETE') : 'POST';
@@ -140,8 +155,7 @@ export class MisterTarefasService implements OnModuleInit {
     const p = pedidoDaTarefa({ rota, campos }, { unidadeId: null });
     if ('erro' in p) return { ok: false, texto: p.erro };
     if (p.f.marca !== 'pin') return { ok: false, texto: TEXTOS_DAS_TAREFAS.fora };
-    const chave = createHash('sha256').update(`${p.caminho}|${JSON.stringify(p.corpo)}`).digest('hex').slice(0, 32);
-    const avisoId = uuidDeChave('mister:tarefa:', q.tenantId, ':', q.colaboradorId, ':', p.f.rota, ':', chave);
+    const avisoId = idDaTarefa(q.tenantId, q.colaboradorId, p.f.rota, null, p.caminho, p.corpo);
     const prop = await this.propostas.gravarDaConversa(
       q.tenantId,
       null,

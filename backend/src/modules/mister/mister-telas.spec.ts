@@ -77,3 +77,38 @@ describe('C3 · o pedido de leitura', () => {
     expect(podeRodarJunto('ler_no_regem')).toBe(true);
   });
 });
+
+describe('Rodada 7, bloco C (ERR-650) · as leituras de pessoa e de dinheiro', () => {
+  it('MIS-C-10: as leituras que listam pessoas da equipe não vão à IA (V10-4)', () => {
+    for (const r of [
+      'GET /api/v1/documentos/{id}/ciencias',
+      'GET /api/v1/escala/faltas',
+      'GET /api/v1/ocorrencias/ranking',
+      'GET /api/v1/relatorios/atendentes',
+      'GET /api/v1/relatorios/operacoes-caixa',
+      'GET /api/v1/escala',
+      'GET /api/v1/escala/periodo',
+      'GET /api/v1/escala/semana',
+      'GET /api/v1/tarefas-instancias/responsaveis',
+    ]) {
+      expect([r, pedidoDaLeitura({ rota: r, parametros: { id: '11111111-1111-4111-8111-111111111111' } })]).toEqual([r, { erro: TEXTOS_DAS_TELAS.pessoal }]);
+    }
+  });
+
+  it('MIS-C-11: a tela que é dinheiro quase inteira não vai a quem não vê valores; o saldo do fluxo não passa pelo nome do campo', () => {
+    const fluxo = funcaoDoMapa('GET /api/v1/financeiro/fluxo')!;
+    expect(fluxo.valores).toBe(true);
+    const bruto = { saldoAtual: 1500.5, horizonteDias: 7, saldoFinal: -200, projecao: [{ data: '2026-11-28', saldoProjetado: 900, negativo: false }] };
+    const sem = resultadoDaLeitura(fluxo, 'Loja Centro', [], bruto, false);
+    expect(sem).toMatchObject({ ok: false, dados: { erro: TEXTOS_DAS_TELAS.soComValores } });
+    expect(JSON.stringify(sem)).not.toContain('1500');
+    expect(resultadoDaLeitura(fluxo, 'Loja Centro', [], bruto, true)).toMatchObject({ ok: true, dados: { resposta: { saldoAtual: 1500.5 } } });
+    // A leitura que não é dinheiro segue para quem não vê valores, sem os campos de dinheiro.
+    const estoque = funcaoDoMapa('GET /api/v1/estoque/itens')!;
+    expect(estoque.valores).toBeUndefined();
+    expect(resultadoDaLeitura(estoque, 'Loja Centro', [], [{ nome: 'Bacon', saldo: 4, custoMedio: 39.9 }], false)).toMatchObject({ ok: true, dados: { resposta: [{ nome: 'Bacon', saldo: 4 }] } });
+    for (const r of ['GET /api/v1/financeiro/resumo', 'GET /api/v1/financeiro/dre', 'GET /api/v1/financeiro/caixa/fechamentos', 'GET /api/v1/relatorios/turnos', 'GET /api/v1/relatorios/conferencia-valores']) {
+      expect([r, funcaoDoMapa(r)?.valores]).toEqual([r, true]);
+    }
+  });
+});

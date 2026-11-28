@@ -14819,6 +14819,43 @@ export function testesDoMisterComPostgres(): void {
         }
       });
 
+      it('ERR-650 (rodada 7, MIS-C-05): a proposta renovada leva a marca de agora, e a de botão de uma tarefa que passou a pedir o PIN não faz', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        await modulo(A, true);
+        const escritas: any[] = [];
+        const telasDeMentira = { escrever: async (e: any, metodo: string, caminho: string, corpo: any) => (escritas.push({ quem: e.colaboradorId, metodo, caminho, corpo }), { status: 200, mensagem: '', dados: { ok: true } }) };
+        const tarefas = new MisterTarefasService(db, ferramentas, propostasDasAcoes, telasDeMentira as any, numero, auditoria);
+        tarefas.onModuleInit();
+        const antes = process.env.MISTER_FAZER_TAREFAS;
+        process.env.MISTER_FAZER_TAREFAS = '1';
+        try {
+          const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+          const en = { rota: 'PATCH /api/v1/delivery/pix-prioritario', campos: { gateway: 'mercadopago' } };
+          const r = await ferramentas.executar(e, 'fazer_no_regem', en);
+          expect(r.proposta).toMatchObject({ nivel: 'pin' });
+          const id = r.proposta!.id;
+          // A proposta de ontem, quando a tarefa ainda era de botão: o mesmo pedido a renova — o mesmo id, com a marca de agora.
+          await q(`update mister_proposta set nivel = 'botao', situacao = 'feita' where id = $1`, [id]);
+          const r2 = await ferramentas.executar(e, 'fazer_no_regem', en);
+          expect(r2.proposta?.id).toBe(id);
+          expect((await q(`select nivel, situacao from mister_proposta where id = $1`, [id]))[0]).toEqual({ nivel: 'pin', situacao: 'proposta' });
+          // O botão "Autorizar" que ficou na conversa de ontem (o mesmo id) não autoriza mais.
+          await propostasDasAcoes.responder(`prop:${id}:sim`, quem(tel, 'ana', 'presidente'));
+          await new Promise((res) => setTimeout(res, 200));
+          expect(escritas).toEqual([]);
+          expect((await q(`select situacao from mister_proposta where id = $1`, [id]))[0].situacao).toBe('proposta');
+          // E se a de botão já estava autorizada quando a marca mudou: a execução confere a marca de agora e não faz.
+          await q(`update mister_proposta set nivel = 'botao', situacao = 'autorizada', autorizada_por = $2, respondida_em = now() where id = $1`, [id, pessoa.ana]);
+          await propostasDasAcoes.executar(id);
+          expect(await esperarFim(id)).toMatchObject({ situacao: 'nao_deu', resultado: expect.stringContaining('agora pede o PIN') });
+          expect(escritas).toEqual([]);
+        } finally {
+          if (antes === undefined) delete process.env.MISTER_FAZER_TAREFAS;
+          else process.env.MISTER_FAZER_TAREFAS = antes;
+        }
+      });
+
       it('C7: aprender pela tarefa feita — desligado não aprende; ligado, a tarefa feita vira exemplo sem dado pessoal, a parecida recebe, o presidente lista e esquece', async () => {
         const tel = telefone();
         await ligar('ana', tel);

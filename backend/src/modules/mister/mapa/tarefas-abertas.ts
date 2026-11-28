@@ -49,6 +49,12 @@ export interface TarefaAberta {
   /** A rota, como no mapa ("POST /api/v1/manutencao"). */
   rota: string;
   campos: readonly CampoDaTarefa[];
+  /**
+   * Rodada 7, MIS-C-08 (ERR-650): `empresa` = vale para a empresa inteira, qualquer que seja a loja da conversa (o fechamento do
+   * ponto, o Pix prioritário, a embalagem das fichas). O "Vou fazer" diz isso na empresa de mais de uma loja; as outras tarefas
+   * mostram a loja em que valem.
+   */
+  alcance?: 'empresa';
 }
 
 const PRIORIDADES = { baixa: 'baixa', normal: 'normal', alta: 'alta', critica: 'crítica' } as const;
@@ -82,7 +88,9 @@ const SINAIS_DA_OCORRENCIA = { positiva: 'a favor', negativa: 'contra' } as cons
 const TIPOS_DE_VISTORIA = { abertura: 'abertura', fechamento: 'fechamento', padrao: 'padrão' } as const;
 const TIPOS_DE_EVENTO = { show: 'show', promocao: 'promoção', feriado_municipal: 'feriado municipal', jogo_time: 'jogo do time', outro: 'outro' } as const;
 const REPETE_O_EVENTO = { nao: 'não repete', semana: 'toda semana', ano: 'todo ano' } as const;
-const NIVEIS_DA_FUNCAO = { presidente: 'presidente', gerente: 'gerente', supervisao: 'supervisão', execucao: 'execução' } as const;
+// Rodada 7, MIS-C-03 (ERR-650): pela conversa, só a função de operação. A função de gestão (presidente, gerente) dá acesso a quem a
+// receber: nasce pela tela.
+const NIVEIS_DA_FUNCAO = { supervisao: 'supervisão', execucao: 'execução' } as const;
 // C4 Onda 2: os valores que os serviços conferem (`common/pausa-do-canal.ts`, `produto/produto-canais.ts`, `setPixPrioritario`).
 const CANAIS_DA_PAUSA = { cardapio: 'cardápio digital', ifood: 'iFood', food99: '99' } as const;
 const GATEWAYS_DO_PIX = { mercadopago: 'Mercado Pago', pagseguro: 'PagBank', rede: 'Rede' } as const;
@@ -194,6 +202,7 @@ export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
     campos: [{ nome: 'dataRecebimento', tipo: 'data', rotulo: 'Para quando' }],
   },
   {
+    // PIN no mapa (rodada 7, MIS-C-01): o recebimento cria a conta a pagar do fornecedor.
     rota: 'POST /api/v1/compras/listas/{id}/receber',
     campos: [
       { nome: 'notaRef', tipo: 'texto', rotulo: 'Número da nota', maxLetras: 60 },
@@ -216,6 +225,7 @@ export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
       },
     ],
   },
+  // PIN no mapa (rodada 7, MIS-C-01): confirmar o recebimento cria a conta a pagar.
   { rota: 'POST /api/v1/recebimentos/{id}/confirmar', campos: [] },
   // PIN (a revisão da C4): apaga o fornecedor que tem notas e pedidos.
   { rota: 'DELETE /api/v1/fornecedores/{id}', campos: [] },
@@ -260,6 +270,7 @@ export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
     // Vale para a empresa inteira: muda o custo e a baixa do estoque de todas as fichas.
     rota: 'POST /api/v1/fichas/embalagem',
     campos: [{ nome: 'mesmaEmbalagem', tipo: 'booleano', rotulo: 'A mesma embalagem no balcão e no delivery', obrigatorio: true }],
+    alcance: 'empresa',
   },
   { rota: 'DELETE /api/v1/fichas/ingredientes/{id}', campos: [] },
 
@@ -301,6 +312,7 @@ export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
       { nome: 'setorId', tipo: 'id', rotulo: 'Setor' },
     ],
   },
+  // Os itens mudam só no checklist ainda não aprovado: o vigente (com o POP publicado) a rota recusa (rodada 7, MIS-C-07, ERR-650).
   {
     rota: 'POST /api/v1/checklists/{id}/itens',
     campos: [
@@ -403,8 +415,10 @@ export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
     ],
   },
   {
+    // PIN no mapa (rodada 7, MIS-C-02): ordena por onde saem as cobranças Pix da empresa inteira.
     rota: 'PATCH /api/v1/delivery/pix-prioritario',
     campos: [{ nome: 'gateway', tipo: 'opcao', rotulo: 'Pix pelo', obrigatorio: true, opcoes: GATEWAYS_DO_PIX }],
+    alcance: 'empresa',
   },
   // Cardápio: categorias e produtos (os ids vêm das leituras "Produtos do cardápio" e "As categorias do cardápio").
   {
@@ -500,10 +514,12 @@ export const TAREFAS_ABERTAS: readonly TarefaAberta[] = [
       { nome: 'unidadeId', tipo: 'loja', rotulo: 'Loja', obrigatorio: true },
     ],
   },
-  // Ponto: o fechamento do mês (as pendências de todos; o espelho vai pela tela).
+  // Ponto: o fechamento do mês (as pendências de todos; o espelho vai pela tela). É da empresa inteira, e o já enviado ao contador
+  // fica como foi enviado (ERR-650).
   {
     rota: 'POST /api/v1/ponto/fechamentos/gerar',
     campos: [{ nome: 'competencia', tipo: 'mes', rotulo: 'Mês', obrigatorio: true }],
+    alcance: 'empresa',
   },
 
   // ───────────── C4 Onda 4 (27/11/2026): dinheiro e fiscal — tudo com PIN ─────────────
