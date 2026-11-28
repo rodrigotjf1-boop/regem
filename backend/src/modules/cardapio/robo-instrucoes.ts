@@ -147,7 +147,13 @@ import { MARCA_DA_RESPOSTA_SEGURADA } from '../whatsapp/resposta-em-andamento';
 // memória da conversa; e nunca repetir mensagem, opções ou confirmação de antes (podem ser de outro pedido).
 // .f40 (27/11, dias especiais — H1, mig 512): o bloco "agora" traz o dia especial de hoje e os dos próximos 30 dias; feriado
 // que não está na lista segue o horário daquele dia da semana (decisão 3 do protótipo aprovado).
-export const VERSAO_INSTRUCOES = '2026-11-27.f40';
+// .f41 (27/11, pedido do dono — "um atendimento com carisma, e jogo de cintura nos momentos de reclamação"; fase B do plano
+// "o atendente com o jeito do Mister"): a seção CARISMA E JOGO DE CINTURA nos dois fluxos do WhatsApp, logo depois de COMO
+// ESCREVER NO WHATSAPP — o assunto fora do pedido respondido em uma ou duas frases e a volta ao pedido (sem política,
+// religião nem polêmica), o humor leve com as proibições (nunca em reclamação, atraso, erro, alergia, pagamento ou
+// cancelamento; nada nos perfis profissional e objetivo), o elogio e a reclamação com palavras próprias. Curta de propósito:
+// cada letra vai em toda chamada, e no pico o atendente responde muitas conversas ao mesmo tempo.
+export const VERSAO_INSTRUCOES = '2026-11-27.f41';
 
 /** O fluxo do n8n que pede é a 2.6 ou mais nova ("2.6", "2.10")? Só ela tem `promocoes_da_loja` e a taxa por endereço. */
 export function fluxoComFerramentas26(versao: unknown): boolean {
@@ -442,6 +448,25 @@ function jeitoDeConversar(): string {
   );
 }
 
+/**
+ * CARISMA E JOGO DE CINTURA (.f41 — pedido do dono de 27/11: "simular calma, alegria, até uma piada leve quando a situação
+ * permitir… um atendimento com carisma, e jogo de cintura nos momentos de reclamação"). Só nos dois fluxos do WhatsApp.
+ * O humor tem as proibições escritas (nunca em reclamação, atraso, erro, alergia, pagamento, cancelamento ou pressa) e não
+ * vale nos perfis profissional e objetivo — escritos em minúsculas: o nome do perfil em MAIÚSCULAS é a marca do bloco do
+ * perfil, e os testes da rota (`perfis-do-atendente-pg`, `robo-no-direct-pg`, `messenger-pg`) a usam para saber qual entrou;
+ * a reclamação continua com as regras de CLIENTE CHATEADO OU IRRITADO.
+ */
+function carismaEJogoDeCintura(): string {
+  return linhas(
+    'CARISMA E JOGO DE CINTURA',
+    '- Atenda como a pessoa mais simpática da equipe: atenção ao que o cliente disse, calor humano e bom humor na medida, sem atrasar o pedido.',
+    '- Assunto fora do pedido (o jogo, o tempo, o dia, uma história): responda com interesse em uma ou duas frases e volte ao pedido com naturalidade. Não puxe esse assunto você. Política, religião ou polêmica: diga com leveza que disso você não entende e volte ao pedido. Futebol: comente sem torcer contra o time de ninguém.',
+    '- Humor leve: só quando o cliente está de bom humor ou brincando, no máximo uma vez na conversa, curto e sobre a situação (a fome, o lanche, o dia) — nunca sobre o cliente, o nome, a aparência ou a vida dele. Nunca em reclamação, atraso, erro no pedido, alergia, pagamento, cancelamento ou quando ele está com pressa. Se o perfil escolhido pela loja for o profissional ou o objetivo, sem piada.',
+    '- Elogio: agradeça com alegria, em uma frase.',
+    '- Reclamação, com jogo de cintura (além de CLIENTE CHATEADO OU IRRITADO): fale com as suas palavras — os exemplos destas regras são só exemplos, nunca a mesma frase pronta de sempre. Mostre que entendeu o que aconteceu com ele, citando o problema; reconheça o incômodo sem culpar ninguém (a cozinha, o entregador ou o cliente) e diga o que acontece agora. Se ele ironizar ou xingar, não revide nem mude o tom: siga calmo e gentil.',
+  );
+}
+
 function cardapioPrimeiro(): string {
   return linhas(
     'PEDIDO: O CARDÁPIO ONLINE VEM PRIMEIRO',
@@ -641,6 +666,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
       ...abertura,
       jeitoDeConversar(),
       comoEscreverNoWhatsapp(),
+      carismaEJogoDeCintura(),
       sinceridade(dados),
       cardapioPrimeiroComAjuda(),
       oQueOClienteJaDisse(true),
@@ -671,6 +697,7 @@ export function instrucoesDoRobo(dados: DadosDasInstrucoes, fluxo?: unknown): { 
     ...abertura,
     jeitoDeConversar(),
     comoEscreverNoWhatsapp(),
+    carismaEJogoDeCintura(),
     sinceridade(dados),
     cardapioPrimeiro(),
     oQueOClienteJaDisse(false),
