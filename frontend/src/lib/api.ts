@@ -715,8 +715,11 @@ export const distApi = {
   pedirCandidataAoMentor: () => distReq('/distribuicao/mister/instrucoes/candidata', { method: 'POST', body: '{}' }),
   pedirVoltaDasInstrucoes: () => distReq('/distribuicao/mister/instrucoes/volta', { method: 'POST', body: '{}' }),
   avaliarCandidataDoMister: () => distReq('/distribuicao/mister/instrucoes/avaliar', { method: 'POST', body: '{}' }),
-  publicarCandidataDoMister: () => distReq('/distribuicao/mister/instrucoes/publicar', { method: 'POST', body: '{}' }),
-  descartarCandidataDoMister: () => distReq('/distribuicao/mister/instrucoes/descartar', { method: 'POST', body: '{}' }),
+  // Rodada 7, MIS-G-02: a candidata que a tela mostrou (outra no lugar dela é recusada com 409).
+  publicarCandidataDoMister: (candidataId: string) =>
+    distReq('/distribuicao/mister/instrucoes/publicar', { method: 'POST', body: JSON.stringify({ candidataId }) }),
+  descartarCandidataDoMister: (candidataId: string) =>
+    distReq('/distribuicao/mister/instrucoes/descartar', { method: 'POST', body: JSON.stringify({ candidataId }) }),
   // As dependências (F3, parte 2; mig 423): o inventário com a situação lida nas fontes oficiais, ler agora e decidir.
   dependencias: () => distReq('/distribuicao/dependencias'),
   lerDependencias: () => distReq('/distribuicao/dependencias/ler-agora', { method: 'POST', body: '{}' }),

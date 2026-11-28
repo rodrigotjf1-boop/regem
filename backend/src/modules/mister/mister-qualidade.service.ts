@@ -4,7 +4,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { hojeISO, somarDias } from '../../common/data';
 import { PRECOS_LIDOS_EM, UsoDaChamada, custoEstimadoUsd } from '../ia/ia.regras';
 import { FUSO_SQL } from '../../common/fuso-sql';
-import { FERRAMENTA_DO_QUE_FALTA, RECURSO_DAS_PERGUNTAS, ROTULO_DO_TEMA, temaDoQueFalta } from './mister-agente.regras';
+import { FERRAMENTA_DO_QUE_FALTA, RECURSO_DAS_PERGUNTAS, ROTULO_DO_TEMA, ehFerramenta, temaDoQueFalta } from './mister-agente.regras';
 import {
   DecisaoValendo,
   EntradaDoQueMelhorar,
@@ -137,7 +137,7 @@ export class MisterQualidadeService {
          group by 1
          order by 2 desc, 1
          limit 20`),
-    );
+    ).filter((c) => ehFerramenta(c.nome)); // MIS-G-09: o nome inventado pela IA (gravado antes da correção) não aparece
     // O que pediram e o Mister não tem, por tema (a pergunta conta uma vez em cada tema anotado).
     const temas = linhas(
       await this.db.execute(sql`

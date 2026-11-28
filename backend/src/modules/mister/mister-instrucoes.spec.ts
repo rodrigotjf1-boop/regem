@@ -78,4 +78,26 @@ describe('as instruções candidatas do Mister (M2b)', () => {
     const pior = regraDePublicar({ versaoNoAr: 'noar', candidata, base, daCandidata: rodada('cand', [caso('1', false), caso('2', true)]) });
     expect(pior).toMatchObject({ pode: false, motivo: '1 pergunta passou a errar com a candidata.', novas: [{ id: '1' }] });
   });
+
+  it('ERR-659 (rodada 7, MIS-G-03): só compara com a mesma régua — o mesmo modelo e as mesmas perguntas', () => {
+    const candidata = { versaoBase: 'noar', versao: 'cand' };
+    const base = rodada('noar', [caso('1', true), caso('2', true)]);
+    // A pergunta nova ('3') que a candidata erra ficava fora da comparação: agora pede a avaliação da versão no ar de novo.
+    const comNova = rodada('cand', [caso('1', true), caso('2', true), caso('3', false)]);
+    expect(regraDePublicar({ versaoNoAr: 'noar', candidata, base, daCandidata: comNova })).toMatchObject({ pode: false, motivo: expect.stringContaining('perguntas da avaliação mudaram') });
+    // A mesma id com outra pergunta também.
+    const trocada = rodada('cand', [caso('1', true), { id: '2', pergunta: 'outra pergunta', ok: true }]);
+    expect(regraDePublicar({ versaoNoAr: 'noar', candidata, base, daCandidata: trocada }).pode).toBe(false);
+    // Outro modelo.
+    const outroModelo = { ...rodada('cand', [caso('1', true), caso('2', true)]), modelo: 'claude-sonnet-5-5' };
+    expect(regraDePublicar({ versaoNoAr: 'noar', candidata, base: { ...base, modelo: 'claude-haiku-5-5' }, daCandidata: outroModelo }).motivo).toContain('modelos diferentes');
+    // A mesma régua: publica.
+    expect(regraDePublicar({ versaoNoAr: 'noar', candidata, base: { ...base, modelo: 'm' }, daCandidata: { ...rodada('cand', base.casos), modelo: 'm' } }).pode).toBe(true);
+  });
+
+  it('ERR-659 (MIS-G-05): a linha que aparece mais de uma vez não diz qual trocar — fica de fora', () => {
+    const repetida = ['Você é o Mister.', '- Responda curto.', '- Responda curto.', ''].join('\n');
+    const r = aplicarTrocas(repetida, [{ id: 'x', sai: '- Responda curto.', entra: '- Responda curto, com os números.' }]);
+    expect(r).toMatchObject({ texto: repetida, aplicadas: [], quebradas: ['x'] });
+  });
 });

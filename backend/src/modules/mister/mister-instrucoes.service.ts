@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, Logger, Not
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ehServidorLocal } from '../../common/modo';
+import { AutorDaDistribuicao, inserirAuditoriaDaDistribuicao } from '../distribuicao/distribuicao-auditoria';
 import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { PRECOS_POR_MILHAO, custoEstimadoUsd } from '../ia/ia.regras';
 import { INSTRUCOES_DO_MISTER } from './mister-agente.regras';
@@ -34,6 +35,8 @@ const semTabela = (e: any) => e?.code === '42P01' || e?.cause?.code === '42P01';
 const unica = (e: any) => e?.code === '23505' || e?.cause?.code === '23505';
 /** Quanto o texto no ar fica em memória: o publicar limpa na hora neste processo; as outras réplicas leem em até 30 s. */
 const CACHE_MS = 30_000;
+/** MIS-G-02: a candidata da tela não é mais a candidata (alguém descartou e pediu outra no meio). */
+const CANDIDATA_MUDOU = 'A candidata mudou desde que você abriu esta tela. Recarregue e confira a que está agora antes de publicar ou descartar.';
 const MOTIVO_DA_IA: Record<string, string> = {
   sem_chave: 'A chave de IA da distribuição não está configurada neste servidor.',
   chave_recusada: 'A chave de IA da distribuição foi recusada.',
@@ -64,6 +67,7 @@ const rodadaDe = (r: any): (RodadaParaComparar & { id: string; acertos: number; 
         casosInteiros: Array.isArray(r.casos) ? r.casos : [],
         custoUsd: r.custoUsd === null || r.custoUsd === undefined ? null : Number(r.custoUsd),
         iniciadaEm: r.iniciadaEm,
+        modelo: r.modelo ? String(r.modelo) : null,
       }
     : null;
 
@@ -94,7 +98,19 @@ export class MisterInstrucoesService {
   /** O texto no ar (o do código com as trocas publicadas) e a versão. Sem a tabela ou sem troca: o código, sem mudar nada. */
   async noAr(): Promise<InstrucoesNoAr> {
     if (this.cache && Date.now() - this.cache.em < CACHE_MS) return this.cache.valor;
-    const r = aplicarTrocas(INSTRUCOES_DO_MISTER, await this.trocasNoAr());
+    let trocas: Awaited<ReturnType<MisterInstrucoesService['trocasNoAr']>>;
+    try {
+      trocas = await this.trocasNoAr();
+    } catch (e: any) {
+      // Rodada 7, MIS-G-05 (ERR-659): a leitura que falha não troca o texto avaliado pelo do código — vale o último lido (mesmo
+      // vencido no tempo); sem nenhum, o erro segue (e o agente cai no texto do código com o aviso no log, como antes).
+      if (this.cache) {
+        this.logger.warn(`instruções do Mister: a leitura das trocas falhou; sigo com o texto lido por último — ${e?.message ?? e}`);
+        return this.cache.valor;
+      }
+      throw e;
+    }
+    const r = aplicarTrocas(INSTRUCOES_DO_MISTER, trocas);
     const valor = { texto: r.texto, versao: versaoDoTexto(r.texto), aplicadas: r.aplicadas, quebradas: r.quebradas };
     this.cache = { em: Date.now(), valor };
     return valor;
@@ -121,7 +137,7 @@ export class MisterInstrucoesService {
   private async rodada(where: any, db: any = this.db) {
     const [r] = linhas(
       await db.execute(sql`
-        select id::text as id, situacao, versao, total, feitas, acertos, casos, custo_usd::float8 as "custoUsd", iniciada_em as "iniciadaEm"
+        select id::text as id, situacao, versao, total, feitas, acertos, casos, custo_usd::float8 as "custoUsd", iniciada_em as "iniciadaEm", modelo
           from mister_avaliacao where ${where} order by iniciada_em desc limit 1`),
     );
     return rodadaDe(r);
@@ -250,40 +266,57 @@ export class MisterInstrucoesService {
     await this.db.execute(sql`update mister_instrucao_troca set avaliacao_id = ${avaliacaoId}::uuid where id = ${candidataId}::uuid and situacao = 'candidata'`);
   }
 
-  /** Publica a candidata — a regra conferida DENTRO da transação, com a candidata travada (dois toques: um publica). */
-  async publicar(quem: string | null) {
+  /**
+   * Publica a candidata — a regra conferida DENTRO da transação, com a candidata travada (dois toques: um publica).
+   * Rodada 7: MIS-G-02 (ERR-659) — com o `candidataId` que a tela mostrou, outra candidata (alguém descartou e pediu outra
+   * enquanto a tela estava aberta) é recusada; MIS-G-06 — quem publica vai à auditoria da distribuição na MESMA transação.
+   */
+  async publicar(quem: AutorDaDistribuicao | string | null, candidataId?: string | null) {
     this.exigirNuvem();
+    const autor = quem && typeof quem === 'object' ? quem : null;
+    const nome = autor ? autor.nome : quem;
     const r = await this.db.transaction(async (tx) => {
       const c = await this.candidata(tx, true);
       if (!c) throw new NotFoundException('Não há candidata para publicar.');
+      if (candidataId && c.id !== candidataId) throw new ConflictException(CANDIDATA_MUDOU);
       const trocas = await this.trocasNoAr(tx);
       const versaoNoAr = versaoDoTexto(aplicarTrocas(INSTRUCOES_DO_MISTER, trocas).texto);
       const base = await this.baseDe(versaoNoAr, tx);
       const daCandidata = c.avaliacaoId ? await this.rodada(sql`id = ${c.avaliacaoId}::uuid`, tx) : null;
       const regra = regraDePublicar({ versaoNoAr, candidata: c, base, daCandidata });
       if (!regra.pode) throw new ConflictException(regra.motivo);
-      const por = quem ? String(quem).slice(0, 80) : null;
+      const por = nome ? String(nome).slice(0, 80) : null;
       if (c.tipo === 'volta') {
         await tx.execute(sql`update mister_instrucao_troca set situacao = 'retirada', retirada_em = now() where id = ${c.trocaAlvo}::uuid and situacao = 'no_ar'`);
         await tx.execute(sql`update mister_instrucao_troca set situacao = 'feita', publicada_por = ${por}, publicada_em = now() where id = ${c.id}::uuid`);
       } else {
         await tx.execute(sql`update mister_instrucao_troca set situacao = 'no_ar', publicada_por = ${por}, publicada_em = now() where id = ${c.id}::uuid`);
       }
+      if (autor) await inserirAuditoriaDaDistribuicao(tx, autor, 'publicou_instrucoes_do_mister', null, { candidata: c.id, tipo: c.tipo, versao: c.versao });
       return { id: c.id, tipo: c.tipo, versao: c.versao };
     });
     this.cache = null;
     return r;
   }
 
-  async descartar(quem: string | null) {
+  async descartar(quem: AutorDaDistribuicao | string | null, candidataId?: string | null) {
     this.exigirNuvem();
-    const [c] = linhas(
-      await this.db.execute(sql`
-        update mister_instrucao_troca set situacao = 'descartada', descartada_por = ${quem ? String(quem).slice(0, 80) : null}, descartada_em = now()
-         where situacao = 'candidata'
-        returning id::text as id`),
-    );
-    if (!c) throw new NotFoundException('Não há candidata para descartar.');
-    return c;
+    const autor = quem && typeof quem === 'object' ? quem : null;
+    const nome = autor ? autor.nome : quem;
+    return this.db.transaction(async (tx) => {
+      const [c] = linhas(
+        await tx.execute(sql`
+          update mister_instrucao_troca set situacao = 'descartada', descartada_por = ${nome ? String(nome).slice(0, 80) : null}, descartada_em = now()
+           where situacao = 'candidata' ${candidataId ? sql`and id = ${candidataId}::uuid` : sql``}
+          returning id::text as id`),
+      );
+      if (!c) {
+        // MIS-G-02: com o id da tela, a candidata que mudou não é descartada no lugar dela.
+        if (candidataId && (await this.candidata(tx))) throw new ConflictException(CANDIDATA_MUDOU);
+        throw new NotFoundException('Não há candidata para descartar.');
+      }
+      if (autor) await inserirAuditoriaDaDistribuicao(tx, autor, 'descartou_candidata_do_mister', null, { candidata: c.id });
+      return c;
+    });
   }
 }

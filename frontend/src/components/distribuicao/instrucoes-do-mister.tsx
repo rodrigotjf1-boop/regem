@@ -234,7 +234,7 @@ export function InstrucoesDoMister() {
                   type="button"
                   className={NEUTRO}
                   disabled={rodando || !!ocupado}
-                  onClick={() => void agir('descartar', () => distApi.descartarCandidataDoMister(), 'Candidata descartada (fica na auditoria do console).')}
+                  onClick={() => void agir('descartar', () => distApi.descartarCandidataDoMister(c.id), 'Candidata descartada (fica na auditoria do console).')}
                 >
                   Descartar a candidata
                 </button>
@@ -285,7 +285,7 @@ export function InstrucoesDoMister() {
           texto="O Mister passa a responder com ela em todas as empresas (as perguntas, os relatórios e a avaliação). A troca anterior fica guardada e volta pelo mesmo caminho."
           acao="Publicar"
           ocupado={ocupado === 'publicar'}
-          onConfirmar={() => void agir('publicar', () => distApi.publicarCandidataDoMister(), 'Publicada: o Mister já responde com a versão nova.')}
+          onConfirmar={() => void agir('publicar', () => distApi.publicarCandidataDoMister(c.id), 'Publicada: o Mister já responde com a versão nova.')}
           onFechar={() => setConfirmar(false)}
         />
       )}

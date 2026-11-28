@@ -6,6 +6,7 @@ import { FUSO_SQL } from '../../common/fuso-sql';
 import { FalhaDaIa, IaEmpresaService } from '../ia/ia-empresa.service';
 import { UsoDaChamada, custoEstimadoUsd } from '../ia/ia.regras';
 import { modeloDasPerguntas } from './mister-laco';
+import { ehFerramenta } from './mister-agente.regras';
 import { MisterSegurancaService } from './mister-seguranca.service';
 import {
   DIAS_DA_ANALISE,
@@ -110,7 +111,8 @@ export class MisterSentinelaService {
       dias,
       seguranca,
       telefonesComCodigoErrado: telefones.map((t) => ({ final: String(t.final), vezes: Number(t.vezes) || 0, de: String(t.de), ate: String(t.ate) })),
-      notasPorConsulta: notas.map((n) => ({ nota: String(n.nota), consulta: String(n.consulta), vezes: Number(n.vezes) || 0, empresas: Number(n.empresas) || 0 })),
+      // MIS-G-09: só o nome do catálogo vai à IA da distribuição (o inventado vira "desconhecida").
+      notasPorConsulta: notas.map((n) => ({ nota: String(n.nota), consulta: n.consulta === '(sem consulta)' || ehFerramenta(n.consulta) ? String(n.consulta) : 'desconhecida', vezes: Number(n.vezes) || 0, empresas: Number(n.empresas) || 0 })),
       motivosSemResposta: motivos.map((m) => ({ motivo: String(m.motivo), vezes: Number(m.vezes) || 0 })),
     };
   }
@@ -206,8 +208,9 @@ export class MisterSentinelaService {
             values (${id}::uuid, ${i}, ${p.nivel}, ${p.titulo}, ${p.viu}, ${p.proposta}, ${p.impacto})`);
       });
     } catch (e: any) {
+      // Rodada 7, MIS-G-10 (ERR-659): a mensagem interna (do banco: tabela, coluna, host) fica no log do servidor, nunca no console.
       const motivo =
-        e instanceof FalhaDaIa ? (MOTIVO_DA_FALHA[e.motivo] ?? 'a IA não respondeu; tente de novo daqui a pouco') : `a análise parou: ${String(e?.message ?? e).slice(0, 200)}`;
+        e instanceof FalhaDaIa ? (MOTIVO_DA_FALHA[e.motivo] ?? 'a IA não respondeu; tente de novo daqui a pouco') : 'a análise parou por um erro interno; o detalhe ficou no log do servidor';
       if (!(e instanceof FalhaDaIa)) this.logger.error(`análise ${id}: ${e?.message ?? e}`, e?.stack);
       await this.fechar(id, modelo, uso, eventos, motivo);
     }

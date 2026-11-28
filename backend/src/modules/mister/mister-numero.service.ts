@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { exigirBooleano } from '../../common/exigir';
 import { lerCorpoAte } from '../../common/ssrf-guard';
+import { inserirAuditoriaDaDistribuicao } from '../distribuicao/distribuicao-auditoria';
 import { escolherNumeroDaWaba, pedirCopiaDoApp } from '../whatsapp/coexistencia-meta';
 import { tierParaNumero } from '../whatsapp/limite-meta';
 import {
@@ -131,7 +132,8 @@ type RespostaHttp = { ok: boolean; status: number; json: () => Promise<any>; tex
 /** M3a: a mídia que chega pelo número do Mister só vem dos domínios da Meta (como a do WhatsApp das lojas). */
 const HOSTS_DA_MIDIA = ['fbsbx.com', 'fbcdn.net', 'facebook.com', 'whatsapp.net'];
 const MAX_MIDIA_DO_MISTER = 20 * 1024 * 1024;
-export type Autor = { nome: string };
+/** Quem mexeu no número, no console (o `DistCtx`: o id vai à auditoria da distribuição — MIS-G-06). */
+export type Autor = { nome: string; sub?: string | null; perfil?: string | null };
 
 /** Q1: o número que as pessoas veem e salvam — o da forma em uso (o celular do QR, com o Evolution). */
 export const numeroEmUso = (n: NumeroDoMister): string | null => (n.provedor === 'evolution' ? n.instanciaNumero : n.numero);
@@ -801,14 +803,18 @@ export class MisterNumeroService {
     const pin = soDigitos(d.pin);
     if (forma === 'api' && pin.length !== 6) throw new BadRequestException('Na forma "só na API oficial", informe o PIN de seis dígitos do número.');
 
-    let phoneId = String(d.phoneNumberId ?? '').trim();
-    if (!ID_DA_META.test(phoneId)) {
-      // Na coexistência o evento da Meta pode vir sem o número: ele se acha na conta (o que está no aplicativo).
+    const numerosDaConta = async (): Promise<any[]> => {
       const res = await this.buscar(`${GRAPH}/${wabaId}/phone_numbers?fields=id,display_phone_number,is_on_biz_app,platform_type`, {
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => null);
       const j: any = res && res.ok ? await res.json().catch(() => ({})) : {};
-      phoneId = escolherNumeroDaWaba(Array.isArray(j?.data) ? j.data : [], forma === 'coexistencia');
+      return Array.isArray(j?.data) ? j.data : [];
+    };
+    let phoneId = String(d.phoneNumberId ?? '').trim();
+    const informado = ID_DA_META.test(phoneId);
+    if (!informado) {
+      // Na coexistência o evento da Meta pode vir sem o número: ele se acha na conta (o que está no aplicativo).
+      phoneId = escolherNumeroDaWaba(await numerosDaConta(), forma === 'coexistencia');
       if (!phoneId)
         throw new BadRequestException(
           forma === 'coexistencia'
@@ -820,6 +826,10 @@ export class MisterNumeroService {
     // O número do Mister é só dele: um número que já atende uma loja não vira o do Mister.
     const daLoja = await this.lojaDoNumero(phoneId);
     if (daLoja) throw new BadRequestException(`Este número já é o WhatsApp de uma loja (${daLoja}). O número do Mister precisa ser só dele.`);
+    // Rodada 7, MIS-G-07 (ERR-659): o número informado precisa ser DESTA conta da Meta (como o "conectar número existente" das
+    // lojas confere) — o token da distribuição alcança as contas das lojas, e um par trocado ligava o Mister ao número de outra.
+    if (informado && !(await numerosDaConta()).some((n) => String(n?.id ?? '') === phoneId))
+      throw new BadRequestException('Este número não está na conta do WhatsApp Business que a Meta informou. Tente conectar de novo.');
 
     const avisos: string[] = [];
     // 1) Troca o código da janela pela confirmação do vínculo (a Meta exige; o acesso usado depois é o da distribuição).
@@ -830,12 +840,15 @@ export class MisterNumeroService {
       await this.buscar(`${GRAPH}/oauth/access_token?client_id=${appId}&client_secret=${appSecret}&code=${encodeURIComponent(code)}`).catch(() => null);
     }
     // 2) Assina o aplicativo na conta: sem isso as mensagens do número não chegam ao Regem.
+    //    MIS-G-07: sem a assinatura confirmada (`success: true`), o número NÃO é gravado como conectado — "conectado" que não
+    //    recebe mensagem nenhuma enganava o console (o "conectar número existente" das lojas já recusa assim).
     const assinou = await this.buscar(`${GRAPH}/${wabaId}/subscribed_apps`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => null);
-    if (!assinou || !assinou.ok) {
-      const j: any = assinou ? await assinou.json().catch(() => ({})) : {};
+    const respostaDaAssinatura: any = assinou ? await assinou.json().catch(() => ({})) : {};
+    if (!assinou || !assinou.ok || respostaDaAssinatura?.success !== true) {
+      const j = respostaDaAssinatura;
       const dito = String(j?.error?.error_user_msg || j?.error?.message || (assinou ? `HTTP ${assinou.status}` : 'sem resposta')).slice(0, 200);
       this.logger.warn(`número do Mister: a assinatura do aplicativo na conta falhou — ${dito}`);
-      avisos.push(`A Meta não confirmou a assinatura do aplicativo na conta (${dito}). Sem ela as mensagens não chegam: conecte de novo.`);
+      throw new BadRequestException(`A Meta não confirmou a assinatura do aplicativo na conta (${dito}). Sem ela as mensagens não chegam: conecte de novo.`);
     }
     // 3) Só na API: registra o número (na coexistência o aplicativo do celular já registrou).
     if (forma === 'api') {
@@ -859,14 +872,18 @@ export class MisterNumeroService {
       numero = soDigitos(j?.display_phone_number) || null;
       nome = j?.verified_name ? String(j.verified_name).slice(0, 120) : null;
     }
-    // 5) Guarda. A chave geral NÃO muda: conectar o número não liga o Mister.
-    await this.db.execute(sql`
-      insert into mister_numero (id, phone_id, waba_id, numero, nome_exibido, forma, situacao, motivo, conectado_em, situacao_em, alterado_por, atualizado_em)
-      values (1, ${phoneId}, ${wabaId}, ${numero}, ${nome}, ${forma}, 'conectado', null, now(), now(), ${autor.nome}, now())
-      on conflict (id) do update set
-        phone_id = excluded.phone_id, waba_id = excluded.waba_id, numero = excluded.numero, nome_exibido = excluded.nome_exibido,
-        forma = excluded.forma, situacao = 'conectado', motivo = null, conectado_em = now(), situacao_em = now(),
-        alterado_por = excluded.alterado_por, atualizado_em = now()`);
+    // 5) Guarda. A chave geral NÃO muda: conectar o número não liga o Mister. MIS-G-06: a auditoria da distribuição (com o id
+    //    de quem conectou) na MESMA transação — sem ela, o número não troca.
+    await this.db.transaction(async (tx: any) => {
+      await tx.execute(sql`
+        insert into mister_numero (id, phone_id, waba_id, numero, nome_exibido, forma, situacao, motivo, conectado_em, situacao_em, alterado_por, atualizado_em)
+        values (1, ${phoneId}, ${wabaId}, ${numero}, ${nome}, ${forma}, 'conectado', null, now(), now(), ${autor.nome}, now())
+        on conflict (id) do update set
+          phone_id = excluded.phone_id, waba_id = excluded.waba_id, numero = excluded.numero, nome_exibido = excluded.nome_exibido,
+          forma = excluded.forma, situacao = 'conectado', motivo = null, conectado_em = now(), situacao_em = now(),
+          alterado_por = excluded.alterado_por, atualizado_em = now()`);
+      await inserirAuditoriaDaDistribuicao(tx, autor, 'conectou_numero_mister', null, { forma, final: String(numero ?? '').slice(-4) });
+    });
     // 6) Coexistência: a Meta desfaz a conexão em 24 h se a cópia dos dados do aplicativo não for pedida. O Mister não
     //    usa essa cópia — o que chega dela (contatos e conversas do celular) não é de loja nenhuma e é descartado.
     if (forma === 'coexistencia') {

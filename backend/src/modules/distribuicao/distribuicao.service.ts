@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -16,6 +17,8 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { gerarSegredoBase32, verificarTotp, otpauthUri } from './totp';
 import { assinaturaConfere, mensagemV1, mensagemV2 } from '../../common/update-assinatura';
 import { exigirBooleano } from '../../common/exigir';
+import { segredoDaDistribuicao } from './segredo-da-distribuicao';
+import { inserirAuditoriaDaDistribuicao } from './distribuicao-auditoria';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -31,10 +34,12 @@ const canaisDo = (detalhe: any, chave: string): string[] =>
   Array.isArray(detalhe?.[chave]) ? (detalhe[chave] as unknown[]).map(String).sort() : [];
 
 // Console da distribuição (Fase 1): realm de auth SEPARADO das lojas. Token assinado
-// com `escopo: 'distribuicao'` e secret próprio (DIST_JWT_SECRET, cai no JWT_SECRET em
-// dev) — um token de loja nunca passa aqui e vice-versa.
+// com `escopo: 'distribuicao'` e secret próprio (`segredoDaDistribuicao`: o DIST_JWT_SECRET ou, sem ele, uma chave DERIVADA
+// do das lojas — nunca a mesma, ERR-659) — um token de loja nunca passa aqui e vice-versa.
 @Injectable()
 export class DistribuicaoService {
+  private readonly logger = new Logger('Distribuicao');
+
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly jwt: JwtService,
@@ -42,7 +47,7 @@ export class DistribuicaoService {
   ) {}
 
   private segredo(): string {
-    return process.env.DIST_JWT_SECRET || process.env.JWT_SECRET || '';
+    return segredoDaDistribuicao(); // MIS-G-01: nunca a chave das lojas
   }
 
   async login(email: string, senha: string, codigo?: string, ip?: string) {
@@ -593,12 +598,11 @@ export class DistribuicaoService {
   // Auditoria imutável (append-only). Nunca deve quebrar a ação principal.
   async auditar(autor: any, acao: string, alvo?: string | null, detalhe: any = {}, ip?: string) {
     try {
-      await this.db.execute(sql`
-        insert into distribuicao_auditoria (usuario_id, usuario_nome, perfil, acao, alvo, detalhe, ip)
-        values (${autor?.id ?? autor?.sub ?? null}, ${autor?.nome ?? null}, ${autor?.perfil ?? null},
-                ${acao}, ${alvo ?? null}, ${JSON.stringify(detalhe ?? {})}::jsonb, ${ip ?? null})`);
-    } catch {
-      /* auditoria best-effort */
+      await inserirAuditoriaDaDistribuicao(this.db, autor, acao, alvo, detalhe, ip);
+    } catch (e: any) {
+      // Best-effort onde a ação já valeu e não pode ser desfeita (o desligamento de quem perdeu o celular): a falha fica no
+      // log com quem e o quê (MIS-G-06), nunca calada. A ação que pode esperar audita na transação dela.
+      this.logger.error(`auditoria da distribuição não gravou "${acao}" (alvo ${alvo ?? '-'}, por ${autor?.id ?? autor?.sub ?? '?'}) — ${e?.message ?? e}`);
     }
   }
 }

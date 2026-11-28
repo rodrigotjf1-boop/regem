@@ -10,6 +10,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { DistribuicaoService } from './distribuicao.service';
+import { segredoDaDistribuicao } from './segredo-da-distribuicao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -30,9 +31,7 @@ export class DistribuicaoGuard implements CanActivate {
     if (!h.startsWith('Bearer ')) throw new UnauthorizedException();
     let payload: any;
     try {
-      payload = this.jwt.verify(h.slice(7), {
-        secret: process.env.DIST_JWT_SECRET || process.env.JWT_SECRET,
-      });
+      payload = this.jwt.verify(h.slice(7), { secret: segredoDaDistribuicao() });
     } catch {
       throw new UnauthorizedException();
     }
