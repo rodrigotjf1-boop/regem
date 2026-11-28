@@ -105,6 +105,9 @@
 - _(ERR-655 — rodada 7, bloco D: propostas, botões e página do PIN do Mister (o áudio do PIN fora da IA, a proposta nova a cada
   pedido diferente, o teto de PIN por pessoa, a execução parada, o link vencido sem o pedido, a loja e os valores de agora)
   (28/11): SEM migration e só da nuvem. Não pede `.zip` nem `.exe`.)_
+- _(ERR-656 — rodada 7, bloco E: o que a IA do Mister recebe e o que sai (a memória e o gráfico pelo acesso de agora, exemplos só
+  da própria pessoa, só o presidente anota na memória da empresa, relatório automático só consulta, a regra não liga na mesma
+  vez da IA) (28/11): SEM migration e só da nuvem. Não pede `.zip` nem `.exe`.)_
 - **Mister C7 — aprender pela tarefa feita (26/11; mig 508, só na nuvem).** O `sync-daemon.mjs` ganhou `mister_aprendizado` na
   lista das tabelas só da nuvem (SO_NUVEM). Na loja não muda nada: a tabela não existe no banco dela e nada a escreve. Vai no
   próximo `.exe` por ter tocado o `sync-daemon` (sem pressa; o daemon antigo não lê a tabela).

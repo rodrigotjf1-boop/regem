@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ehServidorLocal } from '../../common/modo';
 import { IaEmpresaService } from '../ia/ia-empresa.service';
-import { MotivoSemResposta, TETOS, TEXTOS_DO_AGENTE, blocoDaConversa, filtrarSaida, fraseDoMotivo, TrocaDaMemoria, juntarPerguntas, semValoresNoTexto } from './mister-agente.regras';
+import { FERRAMENTA_DAS_REGRAS, FERRAMENTA_DO_QUE_FALTA, MotivoSemResposta, TETOS, TEXTOS_DO_AGENTE, blocoDaConversa, ehConsulta, filtrarSaida, fraseDoMotivo, TrocaDaMemoria, juntarPerguntas, semLinksNoTexto, semValoresNoTexto } from './mister-agente.regras';
 import { EscopoDoMister, MisterFerramentasService } from './mister-ferramentas.service';
 import { MisterFilaService, PerguntaNaFila, Trilha } from './mister-fila.service';
 import { FimDaPergunta, Vagas, modeloDasAnalises, modeloDasPerguntas, responderComFerramentas } from './mister-laco';
@@ -53,6 +53,16 @@ export type { FimDaPergunta } from './mister-laco';
 
 const mascarar = (t: string) => (t.length > 4 ? `***${t.slice(-4)}` : '***');
 
+/**
+ * Rodada 7, MIS-E-07 (ERR-656): a memória das últimas trocas pelo acesso de AGORA. Com a sessão com PIN pendente, nenhuma (o que
+ * foi dito antes pode ter valores e nomes, que esperam o PIN); sem "ver valores" (perdeu a permissão), o R$ das trocas antigas
+ * fica oculto — antes, a memória ia como foi gravada e a IA podia repetir o número.
+ */
+export function memoriaDoAcesso(memoria: TrocaDaMemoria[], escopo: { verValores: boolean; pinPendente?: boolean }): TrocaDaMemoria[] {
+  if (escopo.pinPendente) return [];
+  if (escopo.verValores) return memoria;
+  return memoria.map((t) => ({ ...t, pergunta: semValoresNoTexto(t.pergunta), resposta: semValoresNoTexto(t.resposta) }));
+}
 
 @Injectable()
 export class MisterAgenteService implements OnModuleInit {
@@ -205,7 +215,9 @@ export class MisterAgenteService implements OnModuleInit {
       }
 
       if (ultima.wamid) this.numero.mostrarDigitando(ultima.wamid);
-      const memoria = await this.fila.memoria(ultima.tenantId, ultima.colaboradorId);
+      // Rodada 7, MIS-E-07 (ERR-656): a memória (as trocas das últimas horas) segue o acesso de AGORA — com a sessão com PIN
+      // pendente, nada (os valores e os dados de pessoas esperam o PIN); sem "ver valores", o R$ das respostas antigas fica oculto.
+      const memoria = memoriaDoAcesso(await this.fila.memoria(ultima.tenantId, ultima.colaboradorId), escopo);
       const fim = await this.responder(escopo, memoria, pergunta);
       // ERR-647 (rodada 7, MIS-A-02, B-03, B-04): a volta da IA leva até ~2 min — o acesso conferido no começo pode ter caído no
       // meio (desligou, "Perdi o celular", rebaixado, módulo, chave geral, a sessão com PIN venceu). Confere de novo ANTES de
@@ -224,6 +236,9 @@ export class MisterAgenteService implements OnModuleInit {
       }
 
       const saida = filtrarSaida(fim.texto, fim.resultados);
+      // Rodada 7, MIS-E-10 (ERR-656): quem não vê valores (ou está com a sessão com PIN pendente) não recebe R$ na resposta —
+      // nem o número que a IA repetiu de uma troca antiga. Antes, o valor sem origem só virava nota e saía.
+      if (!agora.verValores || agora.pinPendente) saida.texto = semValoresNoTexto(saida.texto);
       const trilha: Trilha = { ...fim.trilha, conferencia: saida.notas };
       if (saida.notas.length) this.logger.warn(`mister: a resposta a ${mascarar(ultima.telefone)} saiu com nota do filtro (${saida.notas.join(', ')})`);
       // Versão 4: a REAÇÃO (a linha REACAO da resposta, como no atendente) vai à mensagem da pessoa. Quando ela é a resposta
@@ -281,8 +296,10 @@ export class MisterAgenteService implements OnModuleInit {
       for (const p of fim.propostas) {
         try {
           // F4.2: a de PIN (cancelar com o estorno) vai com o link "Abrir no Regem", nunca com botões.
-          if (p.nivel === 'pin') await this.ferramentas.enviarLinkDaProposta(escopo, p, ultima.telefone);
-          else await this.numero.enviar(ultima.telefone, { texto: p.pergunta, botoes: p.botoes });
+          // Rodada 7, MIS-E-11 (ERR-656): o cartão leva nomes de cadastro (o produto, a conta, o fornecedor) — link escrito num
+          // nome sai do texto (o link oficial do PIN e os botões vão à parte, não no texto).
+          if (p.nivel === 'pin') await this.ferramentas.enviarLinkDaProposta(escopo, { ...p, pergunta: semLinksNoTexto(p.pergunta) }, ultima.telefone);
+          else await this.numero.enviar(ultima.telefone, { texto: semLinksNoTexto(p.pergunta), botoes: p.botoes });
         } catch (e: any) {
           this.logger.warn(`mister: a proposta ${p.id} não saiu para ${mascarar(ultima.telefone)} (${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)})`);
         }
@@ -291,7 +308,7 @@ export class MisterAgenteService implements OnModuleInit {
       // da resposta, como a proposta. Falhou o envio: fica no log (a lista espera e vence sozinha).
       for (const m of fim.mensagens) {
         try {
-          await this.numero.enviar(ultima.telefone, m.botoes?.length ? { texto: m.texto, botoes: m.botoes } : { texto: m.texto });
+          await this.numero.enviar(ultima.telefone, m.botoes?.length ? { texto: semLinksNoTexto(m.texto), botoes: m.botoes } : { texto: semLinksNoTexto(m.texto) });
         } catch (e: any) {
           this.logger.warn(`mister: a mensagem da ação não saiu para ${mascarar(ultima.telefone)} (${e instanceof FalhaDoEnvioDoMister ? e.motivo : (e?.message ?? e)})`);
         }
@@ -376,6 +393,8 @@ export class MisterAgenteService implements OnModuleInit {
     // medidor dela, e as ferramentas no escopo que o servidor resolveu. F4.3: a proposta que uma ferramenta criou fica
     // de lado (não vai ao modelo) — quem chamou manda os botões depois da resposta.
     const propostas: PropostaPendente[] = [];
+    // Rodada 7 (ERR-656): a regra proposta NESTA pergunta não é ligada nesta pergunta — o "confirmar" é a resposta da pessoa.
+    let regraPropostaAgora = false;
     // M3c.2: o relatório que uma consulta trouxe (o mesmo pedido duas vezes conta uma).
     const anexos: AnexoDaResposta[] = [];
     // M3g: os botões da resposta (o "Desfazer" da correção), sem repetir.
@@ -418,12 +437,31 @@ export class MisterAgenteService implements OnModuleInit {
           ...andamento,
           // Versão 10, C7: até 3 exemplos de tarefas parecidas que a empresa confirmou (com "Aprender pela tarefa feita" ligado).
           // Não no relatório (não é pergunta de alguém).
-          exemplos: this.aprendizado && !opcoes.recurso ? await this.aprendizado.exemplosParaAConversa(escopo.tenantId, pergunta, escopo.verValores && !escopo.pinPendente) : [],
+          // Rodada 7, MIS-E-06 (ERR-656): os de todos só para o presidente da empresa inteira; os outros, só os próprios; nada com o PIN pendente.
+          exemplos:
+            this.aprendizado && !opcoes.recurso
+              ? await this.aprendizado.exemplosParaAConversa(escopo.tenantId, pergunta, escopo.verValores && !escopo.pinPendente, {
+                  colaboradorId: escopo.colaboradorId,
+                  todaEmpresa: escopo.nivel === 'presidente' && !escopo.presa,
+                  pinPendente: !!escopo.pinPendente,
+                })
+              : [],
           // Versão 10, C8: as ideias da semana dos últimos 3 dias, para o "faz a 2". Não no relatório.
           ideias: this.relatorios && !opcoes.recurso ? await this.ideiasDaConversa(escopo) : [],
         }),
         pedir: (p) => this.ia.pedir(escopo.tenantId, p),
-        executar: (nome, entrada) => this.vagas.com(() => this.ferramentas.executar(escopo, nome, entrada)),
+        executar: (nome, entrada) => {
+          const en = (entrada && typeof entrada === 'object' && !Array.isArray(entrada) ? entrada : {}) as Record<string, unknown>;
+          // Rodada 7, MIS-E-14 (ERR-656): o relatório automático (ninguém conversando) só LÊ — memória, regra, lembrete, link,
+          // correção de documento e cadastro ficam de fora no servidor (antes, só o pedido à IA dizia isso).
+          if (opcoes.recurso && !ehConsulta(nome) && nome !== FERRAMENTA_DO_QUE_FALTA) return Promise.resolve({ ok: false, dados: { erro: TEXTOS_DO_AGENTE.soLeituraNoRelatorio } });
+          // Rodada 7 (o extra do bloco E): a IA não propõe E confirma a regra na mesma vez — ligar é a resposta da pessoa.
+          if (nome === FERRAMENTA_DAS_REGRAS) {
+            if (en.acao === 'propor') regraPropostaAgora = true;
+            else if (en.acao === 'confirmar' && regraPropostaAgora) return Promise.resolve({ ok: false, dados: { erro: TEXTOS_DO_AGENTE.regraEsperaAPessoa } });
+          }
+          return this.vagas.com(() => this.ferramentas.executar(escopo, nome, entrada));
+        },
         // Na ordem do pedido (as consultas juntas terminam em qualquer ordem): os anexos e as imagens saem na ordem pedida.
         colher: (r) => {
           if (r.proposta && !propostas.some((p) => p.id === r.proposta!.id)) propostas.push(r.proposta);

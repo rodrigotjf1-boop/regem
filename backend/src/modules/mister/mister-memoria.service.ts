@@ -129,6 +129,10 @@ export class MisterMemoriaService {
     const c = conferirMemoria(texto);
     if ('erro' in c) return { ok: false, erro: c.erro };
     if (sobre && sobre !== quem.colaboradorId && !quem.presidente) return { ok: false, erro: 'Só o presidente anota sobre outra pessoa.' };
+    // Rodada 7, MIS-E-05 (ERR-656): a memória da EMPRESA entra na conversa de todos (decisão 5 do protótipo: o presidente vê e
+    // muda tudo; o gerente cuida da dele). Antes, o gerente anotava nela pela conversa — e a nota dele passava a valer para o
+    // presidente e para os relatórios.
+    if (!sobre && !quem.presidente) return { ok: false, erro: 'Só o presidente anota na memória da empresa. Posso anotar só para você (a sua memória).' };
     const limite = sobre ? LIMITE_DA_PESSOA : LIMITE_DA_EMPRESA;
     try {
       const r = await this.db.transaction(async (tx: any) => {

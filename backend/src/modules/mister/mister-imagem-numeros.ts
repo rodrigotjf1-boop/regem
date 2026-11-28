@@ -243,3 +243,11 @@ export function textoDaImagemConferida(numeros: string[]): string {
 
 /** A imagem saiu, mas a conferência não rodou (sem a IA, prazo, recusa, formato). */
 export const TEXTO_DA_IMAGEM_SEM_CONFERENCIA = 'Não consegui conferir os números desta imagem: confira antes de mandar adiante.';
+
+/**
+ * Rodada 7, MIS-E-13 (ERR-656): o pedido não tinha número e a imagem trouxe valor (a IA de imagem às vezes inventa preço): sai
+ * com o aviso — a pessoa pode estar para mandar ao cliente um "R$ 19,90" que ninguém pediu.
+ */
+export function textoDaImagemComNumerosAMais(sobraram: string[]): string {
+  return `A imagem trouxe valor que você não pediu (${lista(sobraram.slice(0, 4))}): confira antes de mandar adiante.`;
+}

@@ -3307,6 +3307,21 @@ achados conferidos no código; o D-08 não procede (o público da campanha já �
   conferido antes de gravar. **D-09:** a loja de agora na execução. **D-10:** o R$ oculto ao gerente sem valores no pedido ao
   presidente.
 
+**Rodada 7 — bloco E, "o que a IA recebe e o que sai" (28/11/2026; ERR-656, V126; SEM migration; só na nuvem):** os 14 achados
+conferidos no código; o E-02 não procede (a ação que a IA propõe passa pelo botão ou pelo PIN, com o "Vou fazer").
+- **E-07:** a memória da conversa e `conversas_anteriores` seguem o acesso de agora — sem valores, o R$ oculto; com o PIN
+  pendente, nada. **E-12:** o gráfico guardado leva o acesso junto, e "refaz" recusa se mudou.
+- **E-06:** exemplos aprendidos só da própria pessoa (o presidente sem loja presa vê os de todos), nada com o PIN pendente; ponto,
+  escala e pagamento de entregador não viram exemplo. **E-05:** só o presidente anota na memória da empresa.
+- **E-14:** no relatório automático o Mister só consulta (nada de anotar, lembrar ou propor) e o texto esconde o R$ de quem não
+  vê valores. **I-11 (adiantado):** a IA não propõe E liga a regra na mesma vez — ligar é a resposta da pessoa.
+- **E-04:** insumo novo pela nota ou pela lista volta ao botão de cadastro. **E-09:** o que foi lido da foto não conta como fala
+  da pessoa na conferência dos números. **E-11:** link escrito num nome de cadastro sai do cartão; o título do gráfico livre
+  confere a origem dos números. **E-13:** a imagem confere os números mesmo sem número no pedido. **E-08 (parte):** CMV e
+  inteligência do estoque marcados como valores. **E-01:** exemplos e ideias entram como dado, não como ordem.
+- **Para depois:** E-03 na conversa (o automático já bloqueia), os campos livres `obs`/`justificativa` (E-08) e a política de CPF e
+  telefone na saída (E-10).
+
 ### Dias especiais H2b — o feriado pelo Mister (27/11/2026; SEM migration; só na nuvem)
 
 Fase H2b do protótipo `mockups/regem-dias-especiais.html` (aba "No Mister"; decisões 4 e 8).
