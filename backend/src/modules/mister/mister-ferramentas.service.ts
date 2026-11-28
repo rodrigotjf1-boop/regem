@@ -250,6 +250,8 @@ const GRUPOS_DE_CLIENTES: ReadonlyArray<[string, string]> = [
 
 export const FERRAMENTAS_DE_PESSOAS: readonly string[] = ['equipe_do_dia', 'faltas_e_horas'];
 export const SESSAO_PEDE_PIN = 'Os dados das pessoas esperam o PIN: o link para confirmar vai logo depois desta resposta. Diga isso em uma frase.';
+/** ERR-641: a correção do boleto lançado com a sessão com PIN vencida. */
+export const DOCUMENTO_PEDE_PIN = 'O documento espera o PIN: o link para confirmar vai logo depois desta resposta. Diga isso em uma frase.';
 
 export interface ResultadoDaFerramenta {
   ok: boolean;
@@ -1273,6 +1275,9 @@ export class MisterFerramentasService {
   /** M3g — corrigir o vencimento do boleto que o Mister lançou (conversa 22). O "Desfazer" vai como botão na resposta. */
   private async corrigirDocumento(e: EscopoDoMister, en: Record<string, unknown>): Promise<ResultadoDaFerramenta> {
     if (!this.documentos) return recusa('Não consigo corrigir agora.');
+    // ERR-641: mudar a conta a pagar é como a ação de botão — com a sessão com PIN vencida, espera o PIN (o link vai depois da
+    // resposta, pelo agente), como o documento em aberto (`ferramentaDoDocumento`).
+    if (e.pinPendente) return recusa(DOCUMENTO_PEDE_PIN);
     const r = await this.documentos.corrigirVencimento(e, en.boleto, en.vencimento);
     if ('erro' in r) return recusa(r.erro);
     return { ok: true, dados: r.dados, ...(r.botoes.length ? { botoes: r.botoes } : {}) };

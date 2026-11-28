@@ -73,10 +73,11 @@ import { PontoService } from '../ponto/ponto.service';
 import { MuralService } from '../mural/mural.service';
 import { TETO_DE_LINKS_VIVOS, TEXTOS_DO_LINK_PUBLICO } from './mister-link-publico';
 import { MisterPropostasService } from './mister-propostas.service';
-import { TEXTOS_DA_PROPOSTA, TEXTOS_DO_LINK } from './mister-procedimentos';
+import { desligarVinculo } from './mister-desligar';
+import { TEXTOS_DA_PROPOSTA, TEXTOS_DA_SESSAO, TEXTOS_DO_LINK } from './mister-procedimentos';
 import { MODELO_DO_AVISO } from './mister-modelos';
 import { EvolutionEntradaService } from '../whatsapp/evolution-entrada.service';
-import { MisterFerramentasService, SESSAO_PEDE_PIN } from './mister-ferramentas.service';
+import { DOCUMENTO_PEDE_PIN, MisterFerramentasService, SESSAO_PEDE_PIN } from './mister-ferramentas.service';
 import { GraphFotoService } from '../graph/graph-foto.service';
 import { MisterMidiaService } from './mister-midia.service';
 import { TEXTOS_DA_MIDIA, chaveDaFala, primeiroDoMesQueVem } from './mister-midia.regras';
@@ -6168,6 +6169,124 @@ export function testesDoMisterComPostgres(): void {
       }
     });
 
+    // ERR-642 (rodada 7 de segurança, MIS-A-10): a sessão com PIN e o link moravam na pessoa, não na ligação — o celular novo
+    // herdava o PIN confirmado no antigo, e o link mandado ao antigo voltava a valer depois de ligar de novo.
+    it('ERR-642: ligar outro celular (ou desligar) tira a sessão com PIN, o link da ligação anterior não vale e um novo sai; os links públicos dela caem', async () => {
+      const tel = telefone();
+      const tel2 = telefone();
+      await ligar('ana', tel);
+      await modulo(A, true);
+      await q(`update colaborador set pin_hash = $2 where id = $1`, [pessoa.ana, bcrypt.hashSync('2580', 4)]);
+      const links = new MisterPropostasService(db, numero, entrada, fiscalDeMentira as any, auditoria, modulos);
+      const comPropostas = new MisterFerramentasService(
+        db, modulos, new DashboardService(db), new RelatoriosService(db, { custoEfetivoMapa: async () => ({}) } as any), new EstoqueService(db, auditoria as AuditoriaService),
+        deliveryDeMentira as any, cozinhaDeMentira as any, servidorDeMentira as any, vendasDeMentira as any, escalaDeMentira as any, pontoDeMentira as any,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, links,
+      );
+      const codigoDe = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+      const linkPublico = async () =>
+        (
+          await q(
+            `insert into mister_link_publico (tenant_id, criado_por, tipo, titulo, nome_do_pdf, plano, link_hash, vence_em)
+             values ($1, $2, 'resumo', 'Resumo', 'resumo.pdf', '{}'::jsonb, $3, now() + interval '7 days') returning id`,
+            [A, pessoa.ana, randomUUID()],
+          )
+        )[0].id as string;
+      const revogado = async (id: string) => (await q(`select revogado_em is not null as r from mister_link_publico where id = $1`, [id]))[0].r;
+      await q(`insert into mister_conversa_config (tenant_id, pin_a_cada_h) values ($1, 12) on conflict (tenant_id) do update set pin_a_cada_h = 12`, [A]);
+      try {
+        // O link da sessão sai ao celular de agora; o PIN confirmado vale 12 horas.
+        const s = (await links.proporSessao(A, pessoa.ana, 12))!;
+        const c = codigoDe(await links.enviarLink(s.p.id, pessoa.ana, tel, s.p.pergunta));
+        expect((await links.verPeloLink(c)).titulo).toBe('Autorizar: liberar os valores e os dados de pessoas no Mister?');
+        await q(`update mister_vinculo set pin_ate = now() + interval '1 hour' where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]);
+        expect((await comPropostas.escopo(A, pessoa.ana, tel))!.pinPendente ?? false).toBe(false);
+        const l1 = await linkPublico();
+
+        // Outro celular, pelo código: começa sem a sessão; o link mandado ao antigo não vale; a sessão renova (o link novo sai); o link público cai.
+        await ligar('ana', tel2);
+        expect((await q(`select pin_ate from mister_vinculo where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]))[0].pin_ate).toBeNull();
+        expect((await comPropostas.escopo(A, pessoa.ana, tel2))!.pinPendente).toBe(true);
+        await expect(links.verPeloLink(c)).rejects.toBeInstanceOf(NotFoundException);
+        await expect(links.autorizarPeloLink(c, '2580')).rejects.toBeInstanceOf(NotFoundException);
+        expect((await links.proporSessao(A, pessoa.ana, 12))!.nova).toBe(true);
+        expect(await revogado(l1)).toBe(true);
+
+        // Desligar também tira a sessão e derruba os links públicos.
+        await q(`update mister_vinculo set pin_ate = now() + interval '1 hour' where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]);
+        const l2 = await linkPublico();
+        expect(await desligarVinculo(db, { tenantId: A, colaboradorId: pessoa.ana, motivo: 'pessoa' })).not.toBeNull();
+        expect((await q(`select pin_ate from mister_vinculo where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]))[0].pin_ate).toBeNull();
+        expect(await revogado(l2)).toBe(true);
+      } finally {
+        await q(`update mister_conversa_config set pin_a_cada_h = null where tenant_id = $1`, [A]);
+        await q(`delete from mister_link_publico where tenant_id = $1`, [A]);
+      }
+    });
+
+    // ERR-644 (rodada 7 de segurança, MIS-A-03): o link com PIN não olhava a chave geral do Mister, e a execução (a rotina retoma a
+    // autorização que ficou para trás) não reconferia o acesso antes do efeito.
+    it('ERR-644: o link com PIN respeita a chave geral; a execução confere a chave, quem autorizou, o módulo e a idade antes do efeito', async () => {
+      const tel = telefone();
+      await ligar('ana', tel);
+      await modulo(A, true);
+      const links = new MisterPropostasService(db, numero, entrada, fiscalDeMentira as any, auditoria, modulos);
+      const codigoDe = (url: string | null) => /\/m\/([A-Za-z0-9_-]{32})$/.exec(String(url))?.[1] ?? '';
+      const autorizada = async (respondida = "interval '1 minute'", por: string | null = pessoa.ana) =>
+        (
+          await q(
+            `insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, situacao, vence_em, respondida_em, autorizada_por)
+             values ($1, null, $2, 'consultar_nota', '{}'::jsonb, 'botao', 'autorizada', now() + interval '10 minutes', now() - ${respondida}, $3) returning id`,
+            [A, randomUUID(), por],
+          )
+        )[0].id as string;
+      const fim = async (id: string) => (await q(`select situacao, resultado from mister_proposta where id = $1`, [id]))[0];
+      consultas.length = 0;
+      try {
+        // A chave geral desligada: o link não abre nem autoriza (a proposta continua pendente).
+        const [{ id: pp }] = await q(
+          `insert into mister_proposta (tenant_id, unidade_id, aviso_id, procedimento, parametros, nivel, vence_em)
+           values ($1, null, $2, 'cancelar_pedido', '{}'::jsonb, 'pin', now() + interval '15 minutes') returning id`,
+          [A, randomUUID()],
+        );
+        const c = codigoDe(await links.enviarLink(pp, pessoa.ana, tel, 'Cancelar?'));
+        await numeroConectado(false);
+        await expect(links.verPeloLink(c)).rejects.toBeInstanceOf(NotFoundException);
+        await expect(links.autorizarPeloLink(c, '0000')).rejects.toBeInstanceOf(NotFoundException);
+        expect((await fim(pp)).situacao).toBe('proposta');
+        // ...e a autorização que ficou para trás não executa.
+        const p1 = await autorizada();
+        expect(await links.executar(p1)).toBe('nao_deu');
+        expect((await fim(p1)).resultado).toContain('desligado');
+        await numeroConectado(true);
+
+        // A autorização parada há mais de 10 minutos não executa.
+        const p2 = await autorizada("interval '11 minutes'");
+        expect(await links.executar(p2)).toBe('nao_deu');
+        expect((await fim(p2)).resultado).toContain('parada por mais de 10 minutos');
+        // Quem autorizou não fala mais com o Mister (desligou) — nada feito.
+        const p3 = await autorizada();
+        await q(`update mister_vinculo set ligado_em = null where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]);
+        expect(await links.executar(p3)).toBe('nao_deu');
+        expect((await fim(p3)).resultado).toContain('não fala mais com o Mister');
+        await q(`update mister_vinculo set ligado_em = now() where tenant_id = $1 and colaborador_id = $2`, [A, pessoa.ana]);
+        // O módulo desligado — nada feito.
+        const p4 = await autorizada();
+        await modulo(A, false);
+        expect(await links.executar(p4)).toBe('nao_deu');
+        expect((await fim(p4)).resultado).toContain('desligado nesta loja');
+        await modulo(A, true);
+        // Sem nenhum dos casos acima, executa (a consulta à SEFAZ foi chamada só agora).
+        expect(consultas).toEqual([]);
+        const p5 = await autorizada();
+        await links.executar(p5);
+        expect(consultas).toHaveLength(1);
+      } finally {
+        await numeroConectado(true);
+        await modulo(A, true);
+      }
+    });
+
     it('F4.2a: o link com PIN — vale uma vez, só o resumo fica no banco, 5 PIN errados bloqueiam (nem em paralelo passa de 5), o novo envio derruba o anterior, a régua de acesso da conversa e o botão não autoriza', async () => {
       const tel = telefone();
       await ligar('ana', tel);
@@ -8225,6 +8344,73 @@ export function testesDoMisterComPostgres(): void {
         await agenteDoc.esvaziar();
         expect(numero.enviadas).toEqual([expect.objectContaining({ texto: 'Corrigi o vencimento para 29/11.', botoes: [{ id: `doc:volta:${d.id}:2026-11-30`, titulo: 'Desfazer' }] })]);
         expect((await titulos())[0].vencimento).toBe('2026-11-29');
+      });
+
+      // ERR-641 (rodada 7 de segurança, MIS-A-04): a sessão com PIN valia para a conversa e para o "Autorizar", e o documento passava
+      // por fora — a foto mostrava o valor e lançava a conta sozinha, e os botões lançavam, pagavam e desfaziam com o PIN vencido.
+      it('ERR-641: com a sessão com PIN vencida, a foto, os botões e a correção do documento esperam o PIN; o "Mandar outra foto" passa', async () => {
+        const links = new MisterPropostasService(db, numero, entrada, fiscalDeMentira as any, auditoria, modulos);
+        (documentos as any).propostas = links;
+        const comDocumentos = new MisterFerramentasService(
+          db, modulos, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any,
+          undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, numero, documentos,
+        );
+        const pinAte = (intervalo: string) => q(`update mister_vinculo set pin_ate = now() + $2::interval where tenant_id = $1 and colaborador_id = $3`, [A, intervalo, pessoa.ana]);
+        const boletoQueConfere = () => leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' });
+        await q(`insert into mister_conversa_config (tenant_id, pin_a_cada_h) values ($1, 12) on conflict (tenant_id) do update set pin_a_cada_h = 12`, [A]);
+        try {
+          // A foto, sem o PIN: nada baixado, a IA não lê, nenhum documento nem conta — o aviso e o link da sessão.
+          ia.roteiro = [boletoQueConfere()];
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          expect(baixou()).toEqual([]);
+          expect(ia.pedidos).toHaveLength(0);
+          expect(await docs()).toEqual([]);
+          expect(await titulos()).toEqual([]);
+          expect(numero.enviadas.map((m) => m.texto)).toContain(TEXTOS_DA_SESSAO.fotoPedePin);
+          expect(await q(`select procedimento, situacao from mister_proposta where tenant_id = $1 and procedimento = 'abrir_sessao'`, [A])).toEqual([
+            { procedimento: 'abrir_sessao', situacao: 'proposta' },
+          ]);
+
+          // Com o PIN valendo, a mesma foto lança (o caminho de sempre).
+          await pinAte('1 hour');
+          numero.pedidos.length = 0;
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          const [d] = await docs();
+          expect(d.situacao).toBe('lancado');
+          expect((await titulos())[0]).toMatchObject({ status: 'aberto', vencimento: '2026-11-25' });
+
+          // O PIN venceu: "Desfazer" e "Já paguei" esperam (a conta continua em aberto) e a correção do vencimento pela conversa também.
+          await pinAte('-1 minute');
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:desfazer:${d.id}`)).toBe('respondeu_proposta');
+          expect(await tocar(telAna, `doc:pago:${d.id}`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.map((m) => m.texto).filter((t) => t === TEXTOS_DA_SESSAO.botaoPedePin)).toHaveLength(2);
+          expect((await titulos())[0]).toMatchObject({ status: 'aberto', vencimento: '2026-11-25' });
+          expect((await docs())[0].situacao).toBe('lancado');
+          const e = (await comDocumentos.escopo(A, pessoa.ana, telAna))!;
+          expect(e.pinPendente).toBe(true);
+          expect(await comDocumentos.executar(e, 'corrigir_documento', { boleto: 'distribuidora', vencimento: '2026-11-28' })).toEqual({ ok: false, dados: { erro: DOCUMENTO_PEDE_PIN } });
+          expect((await titulos())[0].vencimento).toBe('2026-11-25');
+
+          // A conta de consumo (pergunta antes): com o PIN vencido, "Lançar" espera; "Mandar outra foto" não mexe em dinheiro e passa.
+          await pinAte('1 hour');
+          ia.roteiro = [leitura({ tipo: 'conta', linhaDigitavel: LINHA_DA_CONTA, beneficiario: 'Light', valor: '480,00', vencimento: '2026-11-28' })];
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          const conta = (await docs()).find((x: any) => x.tipo === 'conta');
+          expect(conta.situacao).toBe('confirmar');
+          await pinAte('-1 minute');
+          numero.pedidos.length = 0;
+          expect(await tocar(telAna, `doc:lancar:${conta.id}`)).toBe('respondeu_proposta');
+          expect(numero.enviadas.map((m) => m.texto)).toContain(TEXTOS_DA_SESSAO.botaoPedePin);
+          expect(await titulos()).toHaveLength(1);
+          expect(await tocar(telAna, `doc:outra:${conta.id}`)).toBe('respondeu_proposta');
+          expect((await docs()).find((x: any) => x.id === conta.id).situacao).toBe('recusado');
+        } finally {
+          (documentos as any).propostas = undefined;
+          // As suítes seguintes (a lista, as regras) contam com a sessão desligada, o padrão.
+          await q(`update mister_conversa_config set pin_a_cada_h = null where tenant_id = $1`, [A]);
+          await q(`update mister_vinculo set pin_ate = null where tenant_id = $1`, [A]);
+        }
       });
 
       it('a conta de consumo pergunta antes; o gerente e a outra empresa não lançam; o toque repetido não lança duas vezes; paga, não desfaz', async () => {
@@ -10378,6 +10564,24 @@ export function testesDoMisterComPostgres(): void {
         expect(await linha('carlos')).toMatchObject({ telefone: null, desligado_motivo: 'vencido' });
       });
 
+      // ERR-643 (rodada 7 de segurança, MIS-A-13): a volta lê os vencidos e desliga um por um — quem conversou ou ligou de novo no
+      // meio não pode cair. A condição vai na gravação (a linha travada), não só na leitura.
+      it('ERR-643: o desligamento por 60 dias confere a conversa na própria gravação — quem escreveu depois da leitura fica', async () => {
+        const telAna = telefone();
+        await ligar('ana', telAna);
+        // Lido como vencido; antes da gravação, a pessoa escreveu (ultima_entrada_em agora): não desliga, a memória fica.
+        await q(`update mister_vinculo set ligado_em = now() - interval '90 days', ultima_entrada_em = now() where colaborador_id = $1`, [pessoa.ana]);
+        expect(await desligarVinculo(db, { tenantId: A, colaboradorId: pessoa.ana, motivo: 'vencido', soSeParadoHaDias: 60 })).toBeNull();
+        expect((await linha('ana')).telefone).toBe(telAna);
+        // Religou há pouco (ligado_em agora, sem conversa): também fica.
+        await q(`update mister_vinculo set ligado_em = now(), ultima_entrada_em = null where colaborador_id = $1`, [pessoa.ana]);
+        expect(await desligarVinculo(db, { tenantId: A, colaboradorId: pessoa.ana, motivo: 'vencido', soSeParadoHaDias: 60 })).toBeNull();
+        // Parado de verdade: desliga.
+        await q(`update mister_vinculo set ligado_em = now() - interval '90 days', ultima_entrada_em = now() - interval '61 days' where colaborador_id = $1`, [pessoa.ana]);
+        expect(await desligarVinculo(db, { tenantId: A, colaboradorId: pessoa.ana, motivo: 'vencido', soSeParadoHaDias: 60 })).not.toBeNull();
+        expect(await linha('ana')).toMatchObject({ telefone: null, desligado_motivo: 'vencido' });
+      });
+
       it('o telefone ligado avisa os presidentes com "Não reconheço"; só o presidente desliga, e só aquela ligação', async () => {
         avisos.ligados = null;
         try {
@@ -10861,6 +11065,17 @@ export function testesDoMisterComPostgres(): void {
         expect(await tocar(tel, `lc:${l.id}:fo:0`)).toBe('respondeu_proposta');
         expect(textos()).toEqual(['🛒 Lista de compras · Distribuidora Sul\n• Bacon em tiras, 10 kg (Sadia)\n• Tomate, 40 kg (pediu 2 caixas)\nFica de fora: guardanapo.\n\nCrio o pedido em Estoque › Pedidos?']);
         expect(await q(`select count(*)::int as n from compra_lista where tenant_id = $1`, [A])).toEqual([{ n: 0 }]);
+        // ERR-641: com a sessão com PIN ligada e o PIN vencido, "Criar o pedido" espera o PIN (a lista continua para confirmar).
+        await q(`insert into mister_conversa_config (tenant_id, pin_a_cada_h) values ($1, 12) on conflict (tenant_id) do update set pin_a_cada_h = 12`, [A]);
+        try {
+          numero.pedidos.length = 0;
+          expect(await tocar(tel, `lc:${l.id}:criar`)).toBe('respondeu_proposta');
+          expect(textos()).toEqual(['Para isso, confirme antes o seu PIN: peça o link ao Mister.']);
+          expect(await q(`select count(*)::int as n from compra_lista where tenant_id = $1`, [A])).toEqual([{ n: 0 }]);
+          expect((await q(`select situacao from mister_lista_compra where id = $1`, [l.id]))[0].situacao).toBe('confirmar');
+        } finally {
+          await q(`update mister_conversa_config set pin_a_cada_h = null where tenant_id = $1`, [A]);
+        }
         // "Criar o pedido": pelo serviço da tela (a marca conferida por ele), uma vez
         numero.pedidos.length = 0;
         expect(await Promise.all([tocar(tel, `lc:${l.id}:criar`), tocar(tel, `lc:${l.id}:criar`)])).toEqual(['respondeu_proposta', 'respondeu_proposta']);

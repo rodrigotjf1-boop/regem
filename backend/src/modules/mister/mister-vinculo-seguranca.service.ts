@@ -98,7 +98,8 @@ export class MisterVinculoSegurancaService implements OnModuleInit {
     );
     let saiu = 0;
     for (const v of vencidos) {
-      const d = await desligarVinculo(this.db, { tenantId: v.tenantId, colaboradorId: v.colaboradorId, motivo: 'vencido' });
+      // ERR-643: a conversa ou a religação entre a leitura e a gravação salva o vínculo (a condição vai na linha travada).
+      const d = await desligarVinculo(this.db, { tenantId: v.tenantId, colaboradorId: v.colaboradorId, motivo: 'vencido', soSeParadoHaDias: DIAS_SEM_CONVERSA });
       if (!d) continue;
       saiu++;
       await this.auditoria?.registrar({

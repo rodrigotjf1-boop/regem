@@ -83,6 +83,9 @@
   migration e só da nuvem. Não pede `.zip` nem `.exe`.)_
 - _(ERR-639 — a avaliação do Mister responde à tarefa de PIN como a conversa (27/11): SEM migration e só da nuvem. Não pede
   `.zip` nem `.exe`.)_
+- _(ERR-641 a ERR-644 — rodada 7 de segurança, bloco A, parte 1: o documento e a lista esperam o PIN, a sessão com PIN e o
+  link presos à ligação do celular, a régua de acesso na execução e no link, a rotina dos 60 dias (27/11): SEM migration e só
+  da nuvem. Não pede `.zip` nem `.exe`.)_
 - **Mister C7 — aprender pela tarefa feita (26/11; mig 508, só na nuvem).** O `sync-daemon.mjs` ganhou `mister_aprendizado` na
   lista das tabelas só da nuvem (SO_NUVEM). Na loja não muda nada: a tabela não existe no banco dela e nada a escreve. Vai no
   próximo `.exe` por ter tocado o `sync-daemon` (sem pressa; o daemon antigo não lê a tabela).

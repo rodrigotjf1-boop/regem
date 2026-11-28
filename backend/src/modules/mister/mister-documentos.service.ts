@@ -31,6 +31,13 @@ import { PdfDoDocumento, gerarPdfDoDocumento, nomeDoPdf } from './documento-pdf'
 import { MisterNumeroService } from './mister-numero.service';
 import { Resposta } from './mister.regras';
 import { MidiaService } from '../midia/midia.service';
+import { MisterPropostasService } from './mister-propostas.service';
+import { TEXTOS_DA_SESSAO } from './mister-procedimentos';
+import { esperaOPin } from './mister-sessao';
+
+/** O botão de documento que não mexe em dinheiro nem mostra valor: "Mandar outra foto" / "Cancelar" (ERR-641). */
+const BOTAO_SEM_EFEITO = 'outra';
+const ID_DO_DOCUMENTO_NO_BOTAO = /^doc:([a-z]+):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
 
 const DIAS_DA_LISTA = [7, 30, 90] as const;
 /** Para achar o boleto pelo nome dito (M3g): minúsculas, sem acento. */
@@ -135,7 +142,33 @@ export class MisterDocumentosService implements OnModuleInit {
     @Optional() private readonly notas?: MisterNotasService,
     // 27/11/2026 (pedido do dono): a foto do boleto, da conta ou da nota fica guardada na conta a pagar que o Mister lança.
     @Optional() private readonly midia?: MidiaService,
+    // ERR-641: a sessão com PIN (a mesma régua e o mesmo link do "Autorizar" das propostas).
+    @Optional() private readonly propostas?: MisterPropostasService,
   ) {}
+
+  /**
+   * ERR-641 (rodada 7 de segurança, MIS-A-04): com a sessão com PIN ligada e o PIN desta pessoa vencido, o documento espera
+   * o PIN — a foto (que mostra o valor e pode lançar sozinha) e os botões que lançam, pagam, desfazem, escolhem ou mostram o
+   * PDF. A MESMA régua do "Autorizar" das propostas (`sessaoPendente`, que manda o link). Devolve se esperou: a pessoa já
+   * foi avisada e nada foi lido nem gravado.
+   */
+  private esperarOPin(tenantId: string, colaboradorId: string, telefone: string, texto: string): Promise<boolean> {
+    return esperaOPin(this.db, this.propostas, (t) => this.falar(telefone, { texto: t }), { tenantId, colaboradorId, telefone, texto });
+  }
+
+  /** O toque num botão de documento espera o PIN? Só o presidente da empresa do documento (os outros recebem a recusa de sempre). */
+  private async botaoEsperaOPin(botaoId: string, quem: QuemTocou): Promise<boolean> {
+    const m = ID_DO_DOCUMENTO_NO_BOTAO.exec(botaoId);
+    if (!m || m[1] === BOTAO_SEM_EFEITO || !quem.vinculos.length) return false;
+    const [d] = linhas(
+      await this.db.execute(sql`
+        select tenant_id::text as "tenantId" from mister_documento
+         where id = ${m[2]}::uuid and tenant_id in (${sql.join(quem.vinculos.map((v) => sql`${v.tenantId}::uuid`), sql`, `)})`),
+    );
+    const v = d && quem.vinculos.find((x) => x.tenantId === d.tenantId);
+    if (!v || v.nivel !== 'presidente') return false;
+    return this.esperarOPin(v.tenantId, v.colaboradorId, quem.telefone, TEXTOS_DA_SESSAO.botaoPedePin);
+  }
 
   /**
    * Guarda a foto (imagem; o PDF fica de fora) na mídia da empresa e devolve o endereço, que vai para a conta a pagar no
@@ -188,6 +221,8 @@ export class MisterDocumentosService implements OnModuleInit {
       await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.soPresidente });
       return true;
     }
+    // ERR-641: a sessão com PIN vencida — antes de baixar e de ler (nem a IA é paga à toa).
+    if (await this.esperarOPin(quem.tenantId, quem.colaboradorId, quem.telefone, TEXTOS_DA_SESSAO.fotoPedePin)) return true;
     if (!(await this.ia.temAcesso(quem.tenantId))) {
       await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.semIa });
       return true;
@@ -293,6 +328,9 @@ export class MisterDocumentosService implements OnModuleInit {
   // ───────────────────────────── os botões ──────────────────────────
 
   async responderBotao(botaoId: string, quem: QuemTocou): Promise<boolean> {
+    // ERR-641: o toque que lança, paga, desfaz, escolhe o insumo ou mostra o PDF espera o PIN (a sessão vencida) — antes de
+    // qualquer dono do botão. Só o "Mandar outra foto" / "Cancelar" passa (não mexe em dinheiro).
+    if (await this.botaoEsperaOPin(String(botaoId ?? ''), quem)) return true;
     // M3b: a escolha do insumo de um item da nota ("doc:ni:…") é do serviço das notas.
     if (String(botaoId ?? '').startsWith('doc:ni:')) return this.notas ? this.notas.escolher(botaoId, quem) : false;
     // Versão 6, M6h: o "Como deseja lançar?" do cupom fiscal ("doc:cl:…") também é do serviço das notas.

@@ -447,7 +447,7 @@ export class MisterEntradaService {
     // O número pode estar preso, nesta empresa, a quem não pode mais falar com o Mister: solta antes de ligar.
     await this.db.execute(sql`
       update mister_vinculo g
-         set telefone = null, ligado_em = null, pausado_em = null, atualizado_em = now()
+         set telefone = null, ligado_em = null, pausado_em = null, pin_ate = null, atualizado_em = now()
        where g.tenant_id = ${dono.tenantId}::uuid and g.telefone = ${tel}
          and not exists (
            select 1
@@ -468,7 +468,9 @@ export class MisterEntradaService {
             select id, telefone as anterior from mister_vinculo where codigo = ${codigo} and codigo_expira_em > now() for update)
           update mister_vinculo g
              set telefone = ${tel}, ligado_em = now(), pausado_em = null, codigo = null, codigo_expira_em = null,
-                 ultima_entrada_em = now(), desligado_em = null, desligado_motivo = null, atualizado_em = now()
+                 ultima_entrada_em = now(), desligado_em = null, desligado_motivo = null, atualizado_em = now(),
+                 -- ERR-642 (rodada 7, MIS-A-10): ligar (o celular novo, ou o mesmo de novo) começa sem a sessão com PIN do anterior.
+                 pin_ate = null
             from antes, colaborador c
             left join funcao f on f.id = c.funcao_id
             left join perfil_acesso p on p.id = c.perfil_acesso_id
@@ -509,6 +511,14 @@ export class MisterEntradaService {
       await this.db.execute(sql`
         update mister_conversa set desligado_em = clock_timestamp(), desligado_motivo = 'pessoa', atualizado_em = now()
          where telefone = ${anterior} and not exists (select 1 from mister_vinculo v where v.telefone = ${anterior} and v.ligado_em is not null)`);
+      // ERR-642: os links públicos que ela pediu chegaram ao celular antigo — deixam de valer (como no desligar).
+      await this.db
+        .execute(sql`
+          update mister_link_publico set revogado_em = clock_timestamp()
+           where tenant_id = ${g.tenantId}::uuid and criado_por = ${g.colaboradorId}::uuid and revogado_em is null and vence_em > now()`)
+        .catch((e: any) => {
+          if (!['42P01'].includes(e?.code ?? e?.cause?.code)) throw e;
+        });
     }
     await this.auditoria?.registrar({
       tenantId: g.tenantId,
