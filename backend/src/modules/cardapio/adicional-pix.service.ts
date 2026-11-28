@@ -9,6 +9,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { CardapioService } from './cardapio.service';
 import { lerMudanca, linhasDaMudanca, type MudancaDoRobo, r2 } from './robo-mudanca';
+import { PedidoTravaService } from '../pedido-trava/pedido-trava.service';
 // (o `robo-mudanca.ts` importa os textos do `adicional-pix.ts`; este serviço importa dos dois)
 import {
   CONFERIR_DEPOIS_DE_VENCIDO_MIN,
@@ -50,6 +51,7 @@ export class AdicionalPixService {
     private readonly evolution: WhatsappService,
     private readonly cloud: WhatsappCloudService,
     @Optional() private readonly events?: EventEmitter2,
+    @Optional() private readonly travas?: PedidoTravaService,
   ) {}
 
   /**
@@ -232,6 +234,8 @@ export class AdicionalPixService {
         returning *, (select status from pedido_externo where id = pedido_id) as status_do_pedido`),
     );
     if (!vencido) return 'nada';
+    // O Pix venceu: a trava do pedido (que o acompanhava) acaba — o aviso ao cliente é o do Pix vencido, logo abaixo.
+    await this.fimDaTrava(vencido, 'vencida');
     this.avisarAEquipe(String(vencido.tenant_id), String(vencido.id));
     if (vencido.status_do_pedido !== 'cancelado') await this.enviar(vencido, textoDoVencido(this.numero(vencido), vencido.descricao));
     return 'vencido';
@@ -419,6 +423,16 @@ export class AdicionalPixService {
         update robo_carrinho set mudanca = mudanca || ${JSON.stringify({ situacao, avisada: true })}::jsonb
          where tenant_id = ${x.tenant_id}::uuid and mudanca->>'id' = ${String(x.id)}`)
       .catch((e: any) => this.logger.warn(`adicional ${x.id}: a conversa não foi marcada (${e?.message ?? e})`));
+    // A trava do pedido (mig 517) acaba com a mudança: entrou → "confirmada"; não entrou → "descartada". "Pedida" (loja com
+    // servidor): a trava segue até o servidor decidir — a conferência dela já para de segurar com a alteração decidida.
+    if (situacao !== 'pedida') await this.fimDaTrava(x, situacao === 'aplicada' ? 'confirmada' : 'descartada');
+  }
+
+  /** O fim da trava do pedido da mudança `x` (o id da trava é o da mudança). Nunca lança (V3). */
+  private async fimDaTrava(x: any, situacao: 'confirmada' | 'descartada' | 'vencida'): Promise<void> {
+    await this.travas
+      ?.encerrar(String(x.tenant_id), String(x.id), situacao)
+      .catch((e: any) => this.logger.warn(`adicional ${x.id}: a trava do pedido não acabou (${e?.message ?? e})`));
   }
 
   /** O alerta da Central muda (abriu, pagou, entrou, venceu): as telas da fila relêem (`atendimento:mudou`). */

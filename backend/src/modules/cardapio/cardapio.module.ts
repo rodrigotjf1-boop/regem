@@ -39,6 +39,7 @@ import { BannerIaController } from './banner-ia.controller';
 import { BannerIaService } from './banner-ia.service';
 import { RoboVozController } from './robo-voz.controller';
 import { VozDoAtendenteService } from './voz-do-atendente.service';
+import { PedidoTravaModule } from '../pedido-trava/pedido-trava.module';
 
 @Module({
   // WhatsappModule: o resumo do pedido feito pelo robô sai por escrito pela via da loja (robo-pedido.service.ts).
@@ -49,7 +50,7 @@ import { VozDoAtendenteService } from './voz-do-atendente.service';
   // ModuloModule (F3 de Vagas): o robô só manda o link da página de vagas com o módulo "vagas" ligado na loja.
   // IaModule: a leitura da foto do cliente fala com o modelo pela porta única da IA da empresa (o medidor de uso).
   // GraphModule (mig 450): a foto vai primeiro ao DMS Graph, com a ligação da empresa; a IA da empresa fica de reserva.
-  imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule, CashbackModule, WhatsappModule, ChegadaModule, AniversarioModule, InstagramModule, MessengerModule, ModuloModule, IaModule, GraphModule, MidiaModule],
+  imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule, CashbackModule, WhatsappModule, ChegadaModule, AniversarioModule, InstagramModule, MessengerModule, ModuloModule, IaModule, GraphModule, MidiaModule, PedidoTravaModule],
   // DiasEspeciaisController (mig 512, H1): os dias especiais do horário da loja.
   // RoboVozController (27/11, fase A do "atendente com o jeito do Mister"): a voz do atendente pelo DMS Graph.
   controllers: [CardapioController, BannerIaController, CardapioPublicoController, EventosCardapioController, RoboConsultasController, RoboPedidoController, DiasEspeciaisController, RoboVozController],

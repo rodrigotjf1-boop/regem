@@ -345,6 +345,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // O histórico do pedido ALTERADO (mig 362): a equipe altera no computador da loja OU na tela da nuvem (e o robô, na
   // nuvem) → SOBE E DESCE. Uma linha por alteração, com o id de quem pede. À parte de `pedido_externo` pelo mesmo motivo.
   { tabela: 'pedido_alteracao', direcao: 'ambos', cursor: 'updated_at' },
+  // A trava do pedido enquanto o cliente altera (mig 517): a nuvem trava (o robô mora lá) e a loja recusa o "Pronto" e o
+  // "Despachar" daqui; o "Liberar o pedido" dado aqui sobe (a nuvem descarta a mudança e avisa o cliente) → SOBE E DESCE.
+  // Uma linha por mudança, com o id da mudança. À parte de `pedido_externo` pelo mesmo motivo. Encerrada não volta a ativa.
+  { tabela: 'pedido_trava', direcao: 'ambos', cursor: 'updated_at' },
   // Os avisos do KDS guardados (mig 412, onda 3 da auditoria do KDS): o histórico e o "Ciente" de cada lado → SOBE E
   // DESCE. O Farol (só a nuvem busca) e o "Testar" feito na nuvem descem marcados `entregar_na_loja`, e o servidor da loja
   // os mostra; o "Ciente" dado de qualquer lado não se desfaz (sync.service e sync-daemon).
@@ -477,6 +481,8 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   'pedido_repetido_ok',
   // O histórico do pedido alterado (mig 362): o que a nuvem gravou antes de a loja receber o `.zip` desce.
   'pedido_alteracao',
+  // A trava do pedido em alteração (mig 517): idem (poucas linhas, de vida curta).
+  'pedido_trava',
   // A pausa por canal (mig 392): a que a nuvem gravou antes de a loja receber o `.zip` desce (poucas linhas).
   'pausa_canal',
   // Os dias especiais (mig 512): os que a nuvem gravou antes de a loja receber o `.zip` descem (poucas linhas).
@@ -572,6 +578,8 @@ export const LOJA_COLUNA = new Set<string>([
   'pedido_repetido_ok',
   // O histórico do pedido alterado (mig 362): idem.
   'pedido_alteracao',
+  // A trava do pedido em alteração (mig 517): idem.
+  'pedido_trava',
   // Os avisos do KDS (mig 412): cada loja recebe os dela (e os da empresa inteira, sem loja).
   'alerta_kds',
 ]);

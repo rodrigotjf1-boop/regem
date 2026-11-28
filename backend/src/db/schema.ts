@@ -2788,6 +2788,27 @@ export const pedidoAlteracao = pgTable('pedido_alteracao', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// A TRAVA DO PEDIDO ENQUANTO O CLIENTE ALTERA (mig 517): uma linha por mudança do robô (id = o da mudança). Vale com
+// `situacao = 'ativa'` e `ate` no futuro: "Pronto", "Despachar" e "Saiu" recusam. À parte de `pedido_externo` (que
+// sincroniza pela linha inteira). Regras em `modules/pedido-trava/pedido-trava.ts`.
+export const pedidoTrava = pgTable('pedido_trava', {
+  id: uuid('id').primaryKey(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  pedidoId: uuid('pedido_id').notNull(),
+  quer: text('quer').notNull().default(''),
+  ate: timestamp('ate', { withTimezone: true }).notNull(),
+  situacao: text('situacao').notNull().default('ativa'), // ativa | confirmada | desistiu | vencida | liberada | descartada
+  motivo: text('motivo'),
+  porId: uuid('por_id'),
+  porNome: text('por_nome'),
+  encerradaEm: timestamp('encerrada_em', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Registro dos envios do pedido (mig 305): o que o Regem mandou ao canal e ao cliente a cada
 // mudança de status, se deu certo e o motivo quando não deu. NÃO sincroniza: cada servidor
 // (nuvem / loja) guarda o que ele mesmo tentou. Não guarda corpo, token nem telefone.

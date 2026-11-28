@@ -16,6 +16,9 @@ import { AtendimentoService, consultaDosAvisosDoEndereco } from '../atendimento/
 import { sql } from 'drizzle-orm';
 import { CardapioService } from './cardapio.service';
 import { RoboPedidoService } from './robo-pedido.service';
+import * as bcrypt from 'bcryptjs';
+import { PedidoTravaService } from '../pedido-trava/pedido-trava.service';
+import { horaDaTrava, textoDaTravaVencida, textoDoPedidoLiberado } from '../pedido-trava/pedido-trava';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -86,6 +89,15 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
   // que manda "Endereço atualizado!" — pelos mesmos envios de teste.
   const atendimentoDeVerdade = new AtendimentoService(db, eventos, delivery, auditoria, undefined, oficial, whats);
   const roboComEquipe = new RoboPedidoService(db, cardapio, whats, oficial, delivery, atendimentoDeVerdade);
+  // A trava do pedido enquanto o cliente altera (mig 517): a cozinha, o Delivery e o robô COM a trava (os de cima, sem ela,
+  // seguem provando o caminho de antes — o texto da conferência sem a linha da trava).
+  const travas = new PedidoTravaService(db, auditoria, eventos);
+  const producaoComTrava = new ProducaoPedidoService(db, auditoria, eventos, undefined, undefined, travas);
+  const deliveryComTrava = new (DeliveryService as any)(
+    db, vendas, producaoComTrava, cashback, beneficio(), eventos, { flashPedidos: () => undefined },
+    undefined, undefined, undefined, undefined, undefined, undefined, auditoria, undefined, undefined, undefined, travas,
+  ) as DeliveryService;
+  const roboComTrava = new RoboPedidoService(db, cardapio, whats, oficial, deliveryComTrava, atendimento, undefined, travas);
   const empresas: string[] = [];
   const antes = { segredo: process.env.BOT_RESOLVER_SECRET, edge: process.env.EDGE_MODE, osrm: process.env.OSRM_URL };
 
@@ -126,6 +138,10 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
       await aplicar('269_impressora_status_codepage_comando_destino.sql');
     }
     if (!(await tem('pedido_alteracao'))) await aplicar('362_pedido_alteracao.sql');
+    // A trava do pedido enquanto o cliente altera (mig 517; não é só-nuvem — o banco do CI já a tem, ERR-273). A rotina do
+    // fim da trava (nuvem) lê o Pix do item (mig 373, só-nuvem): a spec cria (o banco do CI é de loja — V44).
+    if (!(await tem('pedido_trava'))) await aplicar('517_pedido_trava.sql');
+    if (!(await tem('pedido_adicional_pix'))) await aplicar('373_pedido_adicional_pix.sql');
     // O índice parcial da rotina do "Endereço atualizado!" (PR 3b-2) — idempotente.
     await aplicar('364_pedido_alteracao_aviso_do_endereco.sql');
   });
@@ -139,7 +155,7 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
     if (antes.edge !== undefined) process.env.EDGE_MODE = antes.edge;
     if (antes.osrm !== undefined) process.env.OSRM_URL = antes.osrm;
     if (empresas.length) {
-      for (const t of ['atendimento_chamado', 'robo_carrinho', 'robo_config', 'pedido_alteracao', 'pedido_envio', 'pedido_notificacao', 'impressao_job', 'producao_pedido',
+      for (const t of ['atendimento_chamado', 'robo_carrinho', 'robo_config', 'pedido_trava', 'pedido_alteracao', 'pedido_envio', 'pedido_notificacao', 'impressao_job', 'producao_pedido',
         'cashback_movimento', 'cashback_saldo', 'cashback_plano', 'pedido_externo', 'lancamento_caixa', 'comanda', 'cliente_endereco', 'cliente',
         'cardapio_senha_seq', 'cardapio_bairro', 'cardapio_config', 'produto', 'categoria_produto', 'equipamento', 'edge_heartbeat', 'edge_comando',
         'colaborador', 'funcao', 'unidade'])
@@ -986,5 +1002,146 @@ descrever('o robô muda o pedido já feito (Postgres)', () => {
     const r: any = await roboComEquipe.mexerNosItens(await l.ctx(), { acao: 'pedido_endereco' });
     expect(r).toMatchObject({ ok: false, motivo: 'desligado', chamaEquipe: true });
     expect(await casos(l)).toEqual([]);
+  });
+
+  // ── A TRAVA DO PEDIDO ENQUANTO O CLIENTE ALTERA (mig 517; protótipo `mockups/regem-pedido-em-alteracao.html`, TR-1 a
+  //    TR-8, aprovado em 28/11/2026). A conferência trava; "Pronto", "Despachar" e o "Pronto" da cozinha recusam; cada
+  //    final destrava; a rotina da nuvem avisa o vencido e o liberado uma vez.
+  describe('a trava do pedido enquanto o cliente altera (mig 517)', () => {
+    const travaDe = async (pedidoId: string) =>
+      q(`select id, situacao, quer, ate, motivo, por_nome, encerrada_em from pedido_trava where pedido_id = $1 order by created_at`, [pedidoId]);
+    const recusaDaTrava = { response: { code: 'PEDIDO_EM_ALTERACAO' } };
+    const cartaoDe = async (comandaId: string) =>
+      (await q(`select id, status from producao_pedido where comanda_id = $1 and destino_tipo = 'kds' order by criado_em limit 1`, [comandaId]))[0];
+    const mudancaNaConversa = async (l: Loja) =>
+      (await q(`select mudanca from robo_carrinho where tenant_id = $1 and telefone_chave is not null order by criado_em desc limit 1`, [l.t]))[0]?.mudanca ?? null;
+
+    it('TR-1/TR-2/TR-8: a conferência trava o pedido; Pronto, Despachar e o Pronto da cozinha recusam; "Pode alterar" destrava', async () => {
+      const l = await loja();
+      const p = await pedidoAceito(l, { troco: 100 });
+      const c = await l.ctx();
+      const r: any = await roboComTrava.mexerNosItens(c, { acao: 'pedido_por', produto: 'batata' });
+      expect(r).toMatchObject({ ok: true, feito: 'conferência da mudança enviada', proximo: { campo: 'confirmar_mudanca' } });
+      // A IA ouve que o Regem PEDIU — nunca que a cozinha parou (TR-8).
+      expect(r.proximo.pergunta).toContain('nunca diga que a cozinha parou');
+      const [t] = await travaDe(p.id);
+      expect(t).toMatchObject({ situacao: 'ativa', quer: '➕ 1 Batata de teste — R$ 12,00' });
+      const minutos = (new Date(t.ate).getTime() - Date.now()) / 60_000;
+      expect(minutos).toBeGreaterThan(9);
+      expect(minutos).toBeLessThanOrEqual(10);
+      // A conferência termina com a linha da trava (a hora no fuso da operação).
+      expect(ultimo().texto.endsWith(`⏸ Pedi para a cozinha segurar o seu pedido enquanto você confere (até ${horaDaTrava(t.ate)}).`)).toBe(true);
+
+      // TR-2: o painel e o despacho direto recusam com o código; o KDS vai ao preparo, mas o "Pronto" final espera.
+      await expect(deliveryComTrava.avancar(l.t, p.id)).rejects.toMatchObject(recusaDaTrava);
+      await expect(deliveryComTrava.despachar(l.t, p.id)).rejects.toMatchObject(recusaDaTrava);
+      const cartao = await cartaoDe(p.comandaId);
+      await producaoComTrava.avancar(l.t, l.gestor, cartao.id); // recebido → preparo: segue
+      await expect(producaoComTrava.avancar(l.t, l.gestor, cartao.id)).rejects.toMatchObject(recusaDaTrava);
+      expect((await cartaoDe(p.comandaId)).status).toBe('preparo');
+      // As telas recebem a trava: o KDS (por comanda) e o painel do Delivery.
+      const fila: any = await producaoComTrava.filaKds(l.t, { unidadeId: l.u });
+      expect(fila.pedidos.find((x: any) => x.comandaId === p.comandaId)).toMatchObject({ travaQuer: '➕ 1 Batata de teste — R$ 12,00' });
+      expect(fila.pedidos.find((x: any) => x.comandaId === p.comandaId).travadoAte).toBe(new Date(t.ate).toISOString());
+      const painel: any[] = await deliveryComTrava.listar(l.t, l.u);
+      expect(painel.find((x) => x.id === p.id)).toMatchObject({ travaQuer: '➕ 1 Batata de teste — R$ 12,00' });
+
+      // "Pode alterar": a mudança entra e a cozinha segue.
+      const ok: any = await roboComTrava.mexerNosItens(c, { acao: 'confirmar_mudanca' });
+      expect(ok).toMatchObject({ ok: true, feito: 'mudança feita no pedido' });
+      expect((await travaDe(p.id))[0]).toMatchObject({ situacao: 'confirmada' });
+      expect((await travaDe(p.id))[0].encerrada_em).not.toBeNull();
+      const pronto: any = await deliveryComTrava.avancar(l.t, p.id);
+      expect(pronto.status).toBe('pronto');
+    });
+
+    it('"Deixar como estava" destrava; outra mudança no lugar descarta a trava antiga; sem resposta em 10 min, o cliente sabe uma vez', async () => {
+      const l = await loja();
+      const p = await pedidoAceito(l, { troco: 100 });
+      const c = await l.ctx();
+      await roboComTrava.mexerNosItens(c, { acao: 'pedido_por', produto: 'batata' });
+      const d: any = await roboComTrava.mexerNosItens(c, { acao: 'desistir_da_mudanca' });
+      expect(d).toMatchObject({ ok: true, feito: 'mudança desfeita: o pedido nº 57 continua como estava' });
+      expect((await travaDe(p.id)).map((x: any) => x.situacao)).toEqual(['desistiu']);
+
+      // Duas mudanças seguidas sem resposta: a primeira trava sai como "descartada" quando a segunda conferência sai.
+      await roboComTrava.mexerNosItens(c, { acao: 'pedido_por', produto: 'batata' });
+      await roboComTrava.mexerNosItens(c, { acao: 'pedido_por', produto: 'suco' });
+      expect((await travaDe(p.id)).map((x: any) => x.situacao)).toEqual(['desistiu', 'descartada', 'ativa']);
+
+      // TR-3/TR-5: o prazo passou — o pedido já segue (o fim por tempo não espera ninguém gravar), e a rotina avisa.
+      await q(`update pedido_trava set ate = now() - interval '1 minute' where pedido_id = $1 and situacao = 'ativa'`, [p.id]);
+      const pronto: any = await deliveryComTrava.avancar(l.t, p.id);
+      expect(pronto.status).toBe('pronto');
+      enviados.length = 0;
+      await roboComTrava.avisarFimDasTravas();
+      expect(l.doCliente().map((e) => e.texto)).toEqual([textoDaTravaVencida('57')]);
+      expect((await travaDe(p.id)).map((x: any) => x.situacao)).toEqual(['desistiu', 'descartada', 'vencida']);
+      expect(await mudancaNaConversa(l)).toBeNull(); // a mudança saiu da conversa: o "Pode alterar" atrasado não a aplica
+      // Uma vez só.
+      await roboComTrava.avisarFimDasTravas();
+      expect(l.doCliente()).toHaveLength(1);
+    });
+
+    it('loja com servidor: na versão sem a trava, nada de travar nem prometer; na versão com ela, trava até o servidor decidir', async () => {
+      const l = await loja();
+      const p = await pedidoAceito(l, { troco: 100 });
+      const c = await l.ctx();
+      await q(`insert into edge_heartbeat (tenant_id, unidade_id, versao) values ($1,$2,'1.30.16')`, [l.t, l.u]);
+      let r: any = await roboComTrava.mexerNosItens(c, { acao: 'pedido_por', produto: 'batata' });
+      expect(r.feito).toBe('conferência da mudança enviada');
+      expect(ultimo().texto).not.toContain('⏸');
+      expect(r.proximo.pergunta).not.toContain('cozinha parou');
+      expect(await travaDe(p.id)).toEqual([]);
+      await roboComTrava.mexerNosItens(c, { acao: 'desistir_da_mudanca' });
+
+      // O servidor da loja atualizado: trava; o "Pode alterar" vai como "pedida" e a trava segura até o servidor decidir.
+      await q(`insert into edge_heartbeat (tenant_id, unidade_id, versao) values ($1,$2,'1.30.17')`, [l.t, l.u]);
+      await roboComTrava.mexerNosItens(c, { acao: 'pedido_por', produto: 'batata' });
+      expect(ultimo().texto).toContain('⏸ Pedi para a cozinha segurar o seu pedido');
+      r = await roboComTrava.mexerNosItens(c, { acao: 'confirmar_mudanca' });
+      expect(r.feito).toContain('pedida ao servidor da loja');
+      const [t] = await travaDe(p.id);
+      expect(t.situacao).toBe('ativa');
+      await expect(travas.exigirSemTrava(l.t, p.id)).rejects.toMatchObject(recusaDaTrava);
+      // O servidor da loja aplicou (a decisão sobe): a trava para de segurar na hora; a rotina da decisão grava o fim.
+      await q(`update pedido_alteracao set situacao = 'aplicada' where id = $1`, [t.id]);
+      await expect(travas.exigirSemTrava(l.t, p.id)).resolves.toBeUndefined();
+      await roboComTrava.avisarDecisoesDasMudancas();
+      expect((await travaDe(p.id))[0].situacao).toBe('confirmada');
+    });
+
+    it('TR-4: "Liberar o pedido" com a senha do gerente e o motivo; a nuvem descarta a mudança e avisa o cliente uma vez', async () => {
+      const l = await loja();
+      await q(`update colaborador set senha_hash = $1 where id = $2`, [await bcrypt.hash('4321', 4), l.gestor]);
+      const p = await pedidoAceito(l, { troco: 100 });
+      const c = await l.ctx();
+      await roboComTrava.mexerNosItens(c, { acao: 'pedido_por', produto: 'batata' });
+      const quem = { tenantId: l.t, colaboradorId: l.gestor, categoria: 'gerente' };
+      await expect(travas.liberar(quem, p.id, { senha: '4321', motivo: '   ' })).rejects.toMatchObject({ response: { code: 'MOTIVO_OBRIGATORIO' } });
+      await expect(travas.liberar(quem, p.id, { senha: 'errada', motivo: 'entregador já está aqui' })).rejects.toThrow('Senha de gestor inválida.');
+      expect((await travaDe(p.id))[0].situacao).toBe('ativa');
+
+      const r: any = await travas.liberar(quem, p.id, { senha: '4321', motivo: 'entregador já está aqui' });
+      expect(r).toEqual({ ok: true, liberadas: 1, liberadoPor: 'Ana de teste' });
+      expect((await travaDe(p.id))[0]).toMatchObject({ situacao: 'liberada', motivo: 'entregador já está aqui', por_nome: 'Ana de teste' });
+      // Liberado: o pedido segue como estava (sem a batata).
+      const pronto: any = await deliveryComTrava.avancar(l.t, p.id);
+      expect(pronto.status).toBe('pronto');
+      expect((await daVenda(p.comandaId)).map((i: any) => i.descricao)).not.toContain('Batata de teste');
+      // Liberar de novo não faz nada.
+      expect(await travas.liberar(quem, p.id, { senha: '4321', motivo: 'de novo' })).toMatchObject({ liberadas: 0 });
+
+      enviados.length = 0;
+      await roboComTrava.avisarFimDasTravas();
+      expect(l.doCliente().map((e) => e.texto)).toEqual([textoDoPedidoLiberado('57', false)]);
+      expect(await mudancaNaConversa(l)).toBeNull();
+      await roboComTrava.avisarFimDasTravas();
+      expect(l.doCliente()).toHaveLength(1);
+      // O "Pode alterar" que chegar depois não aplica a mudança descartada.
+      const tarde: any = await roboComTrava.mexerNosItens(c, { acao: 'confirmar_mudanca' });
+      expect(tarde).toMatchObject({ ok: false, motivo: 'sem_mudanca' });
+      expect(await alteracoes(p.id)).toHaveLength(0);
+    });
   });
 });

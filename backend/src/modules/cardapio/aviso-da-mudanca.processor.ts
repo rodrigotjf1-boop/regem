@@ -23,13 +23,20 @@ export class AvisoDaMudancaProcessor {
   async processar(): Promise<number> {
     if (ehServidorLocal() || this.rodando) return 0;
     this.rodando = true;
+    let n = 0;
     try {
-      return await this.robo.avisarDecisoesDasMudancas();
+      n += await this.robo.avisarDecisoesDasMudancas();
     } catch (e: any) {
       this.logger.warn(`aviso da decisão da mudança: a volta falhou — ${e?.message ?? e}`);
-      return 0;
+    }
+    // A trava do pedido enquanto o cliente altera (mig 517): vencida sem resposta e liberada pela loja → avisa o cliente.
+    try {
+      n += await this.robo.avisarFimDasTravas();
+    } catch (e: any) {
+      this.logger.warn(`fim das travas dos pedidos: a volta falhou — ${e?.message ?? e}`);
     } finally {
       this.rodando = false;
     }
+    return n;
   }
 }

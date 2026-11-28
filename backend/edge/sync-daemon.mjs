@@ -301,6 +301,9 @@ const PUSH_TABLES = [
   { tabela: 'pedido_repetido_ok', cursor: 'updated_at' },
   // O histórico do pedido alterado (mig 362): alterado aqui, sobe; o id vem de quem pediu a alteração.
   { tabela: 'pedido_alteracao', cursor: 'updated_at' },
+  // A trava do pedido em alteração (mig 517): o "Liberar o pedido" dado aqui sobe (a nuvem descarta a mudança e avisa o
+  // cliente); o id é o da mudança do robô.
+  { tabela: 'pedido_trava', cursor: 'updated_at' },
   // Os avisos do KDS mostrados aqui e o "Ciente" dado aqui (mig 412): sobem para o histórico da nuvem.
   { tabela: 'alerta_kds', cursor: 'updated_at' },
   { tabela: 'alerta_estoque', cursor: 'atualizado_em' },
@@ -543,6 +546,11 @@ function condicaoSobrescrever(tabela, cols) {
     if (tabela === 'producao_pedido' && cols.has('status')) {
       vence.push(`(excluded.status = 'cancelado' and ${q(tabela)}.status <> 'cancelado')`);
     }
+    // O FIM DA TRAVA DO PEDIDO VENCE, MESMO MAIS VELHO (mig 517): o cliente confirmou, desistiu ou a trava venceu na nuvem
+    // — desce mesmo com a data daqui mais nova (a trava ativa daqui não segura o pedido depois do fim).
+    if (tabela === 'pedido_trava' && cols.has('situacao')) {
+      vence.push(`(excluded.situacao <> 'ativa' and ${q(tabela)}.situacao = 'ativa')`);
+    }
     // O "CIENTE" DO AVISO DO KDS VENCE, MESMO MAIS VELHO (mig 412): dado na nuvem, desce mesmo com a data daqui mais nova.
     if (tabela === 'alerta_kds' && cols.has('ciente_em')) {
       vence.push(`(excluded.ciente_em is not null and ${q(tabela)}.ciente_em is null)`);
@@ -580,6 +588,12 @@ function condicaoSobrescrever(tabela, cols) {
   // DE NOVO (item em dobro). Mesma regra no envio para a nuvem (sync.service, `naoVoltaAPedida` e `decisaoVence`).
   if (tabela === 'pedido_alteracao' && cols.has('situacao')) {
     cond.push(`not (${q(tabela)}.situacao <> 'pedida' and excluded.situacao = 'pedida')`);
+  }
+  // A TRAVA DO PEDIDO ENCERRADA AQUI NÃO VOLTA A "ATIVA" (mig 517): o "Liberar o pedido" dado aqui com o relógio atrasado
+  // sai com data ANTERIOR à da trava que a nuvem criou — pela data, a cópia "ativa" da nuvem voltaria e o pedido ficaria
+  // preso de novo. Mesma regra no envio para a nuvem (sync.service, `travaNaoReabre`).
+  if (tabela === 'pedido_trava' && cols.has('situacao')) {
+    cond.push(`not (${q(tabela)}.situacao <> 'ativa' and excluded.situacao = 'ativa')`);
   }
   // E o "Ciente" dado AQUI não se desfaz por uma cópia sem ele (mig 412). Mesma regra no envio (sync.service).
   if (tabela === 'alerta_kds' && cols.has('ciente_em')) {

@@ -7,12 +7,13 @@ import { AvisosDoEntregadorService } from './avisos-do-entregador.service';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { ClienteModule } from '../cliente/cliente.module';
 import { PonteChatModule } from '../ponte-chat/ponte-chat.module';
+import { PedidoTravaModule } from '../pedido-trava/pedido-trava.module';
 
 // App do Entregador — só nuvem (CLOUD_ONLY em app.module). Reusa Delivery + Cliente. PonteChatModule: o "o entregador
 // está chegando" no chat do iFood e da 99, pela ponte (parte A2), e o chat do entregador com o cliente (09/11/2026).
 // AvisosDoEntregadorService (mig 391): os avisos do atendimento ao entregador e a resposta dele.
 @Module({
-  imports: [DeliveryModule, ClienteModule, PonteChatModule],
+  imports: [DeliveryModule, ClienteModule, PonteChatModule, PedidoTravaModule],
   controllers: [EntregadorController, RastreioController],
   providers: [EntregadorService, ChatDoEntregadorService, AvisosDoEntregadorService],
 })
