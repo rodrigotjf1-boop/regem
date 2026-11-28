@@ -134,6 +134,8 @@ export class WhatsappProvedorService {
           .where(eq(cardapioConfig.waCloudPhoneId, pid));
         if (donos.some((d) => d.tenantId !== cfg.tenantId))
           throw new BadRequestException('Este número da API oficial já pertence a outra loja.');
+        // ERR-649 (rodada 7, MIS-A-01): a troca de provedor também recusa o número do Mister (a trava única da Meta).
+        await this.cloud.recusarNumeroDoMister(pid);
         patch.waCloudPhoneId = pid;
         patch.waCloudWabaId = String(dto?.waCloudWabaId ?? '').trim() || null;
         patch.waCloudNumero = String(dto?.waCloudNumero ?? '').replace(/\D/g, '') || null;

@@ -94,8 +94,9 @@ export class VendasController {
 
   @Get('mesas/:id')
   @RequireModulo('mesas')
-  getMesa(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.getMesa(user.tenantId, id);
+  getMesa(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
+    // ERR-645 (rodada 7, MIS-B-02): a mesa de outra loja é "não encontrada" para quem tem loja; o presidente abre qualquer uma.
+    return this.service.getMesa(user.tenantId, id, user.categoria === 'presidente' ? null : atual);
   }
 
   @Post('mesas/:id/comandas')
@@ -131,8 +132,9 @@ export class VendasController {
   @Get('comandas')
   @RequirePerm('mesas')
   @RequireModulo('mesas')
-  listarComandas(@CurrentUser() user: AuthUser) {
-    return this.service.listarComandas(user.tenantId);
+  listarComandas(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    // ERR-645 (rodada 7, MIS-B-02): a loja de quem pede (e as "da rede"); o presidente, a loja escolhida ou todas — como as mesas.
+    return this.service.listarComandas(user.tenantId, atual);
   }
 
   @Post('comandas')
@@ -145,8 +147,9 @@ export class VendasController {
   }
 
   @Get('comandas/:id')
-  getComanda(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.getComanda(user.tenantId, id);
+  getComanda(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
+    // ERR-645 (rodada 7, MIS-B-02): a comanda de outra loja (itens, valores, CPF) é "não encontrada" para quem tem loja.
+    return this.service.getComanda(user.tenantId, id, user.categoria === 'presidente' ? null : atual);
   }
 
   @Post('comandas/:id/itens')

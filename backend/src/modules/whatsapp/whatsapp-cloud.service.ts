@@ -851,6 +851,14 @@ export class WhatsappCloudService {
           }
         }
 
+        // ERR-649 (rodada 7 de segurança, MIS-A-01): o número do Mister vem ANTES das lojas. Se uma loja tiver o identificador
+        // dele no cadastro (erro de cadastro; os caminhos de cadastro agora recusam), as mensagens — com os códigos de ligar —,
+        // os ecos e o histórico dele nunca vão para a caixa da loja.
+        if (this.mister && (v?.messages?.length || v?.message_echoes?.length || v?.history?.length) && (await this.mister.ehONumeroDoMister(phoneNumberId))) {
+          if (v?.messages?.length) await this.mister.receberDaMeta(phoneNumberId, v);
+          continue;
+        }
+
         // COEXISTÊNCIA — ecos das mensagens que o LOJISTA envia pelo app/WhatsApp Web
         // (smb_message_echoes). NÃO é mensagem do cliente: registra como SAÍDA no inbox
         // (o atendente vê o que foi dito à mão) e PAUSA o robô naquela conversa — o dono
@@ -2807,8 +2815,7 @@ export class WhatsappCloudService {
         );
     }
     // O número do Mister é da distribuição: nenhuma loja o conecta como dela.
-    if (await this.mister?.ehONumeroDoMister(phoneId))
-      throw new BadRequestException('Este número é o do Mister, o assistente do Regem. Conecte o número da sua loja.');
+    await this.recusarNumeroDoMister(phoneId);
 
     // 1) Troca o code por token — confirma o vínculo. best-effort (não bloqueia).
     const appId = process.env.WA_CLOUD_APP_ID ?? '';
@@ -3109,6 +3116,16 @@ export class WhatsappCloudService {
     };
   }
 
+  /**
+   * ERR-649 (rodada 7 de segurança, MIS-A-01): a trava ÚNICA do número do Mister — todo caminho que grava o identificador da
+   * Meta como de uma loja (o cadastro pela Meta, o cadastro à mão, a troca de provedor) passa por aqui. O número do Mister é
+   * da distribuição: numa loja, as mensagens dele (com os códigos de ligar de outras empresas) cairiam na caixa dela.
+   */
+  async recusarNumeroDoMister(phoneId: string): Promise<void> {
+    if (phoneId && (await this.mister?.ehONumeroDoMister(String(phoneId).trim())))
+      throw new BadRequestException('Este número é o do Mister, o assistente do Regem. Conecte o número da sua loja.');
+  }
+
   // ===== Número que JÁ está na API oficial, ligado à mão (tela › "avançado") =====
   // O cadastro pela Meta (finalizarEmbeddedSignup) inscreve o nosso app na conta WABA; o caminho à mão só gravava os
   // códigos. Numa conta que não é a nossa (a do lojista, ou a de um número que entrou pelo app do RegemCast, no mesmo
@@ -3120,6 +3137,8 @@ export class WhatsappCloudService {
     const waba = String(wabaId ?? '').trim();
     if (!/^[0-9]{5,32}$/.test(waba))
       throw new BadRequestException('Informe o WABA ID (a conta do WhatsApp Business na Meta), só com números.');
+    // ERR-649 (rodada 7, MIS-A-01): o cadastro à mão também recusa o número do Mister (antes, só o da Meta recusava).
+    await this.recusarNumeroDoMister(phone);
     const lido = await this.verificarNumero(phone);
 
     // O número decide de qual loja é a mensagem que chega e por quem a campanha sai: em duas empresas, não, em nenhum papel

@@ -281,6 +281,33 @@ descrever('venda, comanda, acerto e conta a pagar uma vez só (Postgres)', () =>
     }
   });
 
+  // ERR-645 (rodada 7 de segurança, MIS-B-02): as comandas abertas, a comanda e a mesa por id filtravam só a empresa — quem tem
+  // loja via as das outras lojas (itens, valores, CPF), pela tela e pelo Mister.
+  it('ERR-645: comandas abertas, comanda e mesa por id ficam na loja de quem pede (e as da rede); o presidente vê todas', async () => {
+    const [{ id: outra }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Outra loja') returning id`, [T]);
+    try {
+      const [{ id: daLoja }] = await q(`insert into comanda (tenant_id, unidade_id, status, cliente) values ($1, $2, 'aberta', 'Da loja') returning id`, [T, loja]);
+      const [{ id: daOutra }] = await q(`insert into comanda (tenant_id, unidade_id, status, cliente, cpf) values ($1, $2, 'aberta', 'Da outra', '12345678909') returning id`, [T, outra]);
+      const [{ id: daRede }] = await q(`insert into comanda (tenant_id, unidade_id, status, cliente) values ($1, null, 'aberta', 'Da rede') returning id`, [T]);
+      const [{ id: mesaOutra }] = await q(`insert into mesa (tenant_id, unidade_id, numero, status) values ($1, $2, '77', 'aberta') returning id`, [T, outra]);
+      const ids = (l: any[]) => l.map((c) => c.id).filter((id) => [daLoja, daOutra, daRede].includes(id)).sort();
+      // A loja: a dela e a da rede; a da outra loja, não.
+      expect(ids(await vendas.listarComandas(T, loja))).toEqual([daLoja, daRede].sort());
+      // O presidente na rede toda: as três.
+      expect(ids(await vendas.listarComandas(T, null))).toEqual([daLoja, daOutra, daRede].sort());
+      // Por id: a da outra loja e a mesa da outra loja são "não encontradas" para a loja; o presidente abre.
+      await expect(vendas.getComanda(T, daOutra, loja)).rejects.toThrow('Comanda não encontrada');
+      expect((await vendas.getComanda(T, daRede, loja)).id).toBe(daRede);
+      expect((await vendas.getComanda(T, daOutra, null)).id).toBe(daOutra);
+      await expect(vendas.getMesa(T, mesaOutra, loja)).rejects.toThrow('Mesa não encontrada');
+      expect((await vendas.getMesa(T, mesaOutra, null)).id).toBe(mesaOutra);
+    } finally {
+      await q(`delete from mesa where tenant_id = $1 and unidade_id = $2`, [T, outra]).catch(() => undefined);
+      await q(`delete from comanda where tenant_id = $1 and cliente in ('Da loja', 'Da outra', 'Da rede')`, [T]).catch(() => undefined);
+      await q(`delete from unidade where id = $1`, [outra]).catch(() => undefined);
+    }
+  });
+
   it('PDV-A-01: o ajuste de centavos que zeraria ou negativaria a maior parte recusa a venda', async () => {
     const [{ id: centavo }] = await q(`insert into produto (tenant_id, nome, preco_venda) values ($1, 'Bala', 0.01) returning id`, [T]);
     await expect(

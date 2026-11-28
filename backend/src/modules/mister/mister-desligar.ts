@@ -47,18 +47,25 @@ export interface Desligado {
  */
 export async function desligarVinculo(
   db: DrizzleDB,
-  p: { tenantId: string; colaboradorId: string; motivo: MotivoDoDesligamento; soSeLigadoEm?: string | null },
+  p: { tenantId: string; colaboradorId: string; motivo: MotivoDoDesligamento; soSeLigadoEm?: string | null; soSeParadoHaDias?: number },
 ): Promise<Desligado | null> {
   const doAviso = p.soSeLigadoEm ? sql`and to_char(ligado_em at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') = ${p.soSeLigadoEm}` : sql``;
+  // ERR-643 (rodada 7, MIS-A-13): a rotina dos vínculos parados lê os vencidos e desliga um por um — a conversa ou a religação que
+  // entrou no meio salva o vínculo. A condição mora AQUI, na linha travada (o Postgres a reavalia na versão mais nova).
+  const parado =
+    p.soSeParadoHaDias != null
+      ? sql`and ligado_em is not null and greatest(ligado_em, coalesce(ultima_entrada_em, ligado_em)) < clock_timestamp() - make_interval(days => ${p.soSeParadoHaDias}::int)`
+      : sql``;
   const [d] = linhas(
     await db.execute(sql`
       with antes as (
         select id, telefone from mister_vinculo
          where tenant_id = ${p.tenantId}::uuid and colaborador_id = ${p.colaboradorId}::uuid
-           and (telefone is not null or codigo is not null) ${doAviso}
+           and (telefone is not null or codigo is not null) ${doAviso} ${parado}
          for update)
       update mister_vinculo g
-         set telefone = null, ligado_em = null, pausado_em = null, codigo = null, codigo_expira_em = null,
+         -- ERR-642 (rodada 7, MIS-A-10): a sessão com PIN sai junto — o telefone que ligar depois confirma o PIN de novo.
+         set telefone = null, ligado_em = null, pausado_em = null, codigo = null, codigo_expira_em = null, pin_ate = null,
              desligado_em = case when antes.telefone is not null then clock_timestamp() else g.desligado_em end,
              desligado_motivo = case when antes.telefone is not null then ${p.motivo} else g.desligado_motivo end,
              atualizado_em = now()
@@ -76,6 +83,15 @@ export async function desligarVinculo(
     await db.execute(sql`
       update mister_conversa set desligado_em = clock_timestamp(), desligado_motivo = ${p.motivo}, atualizado_em = now()
        where telefone = ${d.telefone}`);
+    // ERR-642 (rodada 7, ao lado do MIS-A-10): os links públicos que esta pessoa pediu chegaram ao telefone que saiu — o celular
+    // perdido ainda os abriria por até 7 dias. Deixam de valer junto.
+    await db
+      .execute(sql`
+        update mister_link_publico set revogado_em = clock_timestamp()
+         where tenant_id = ${p.tenantId}::uuid and criado_por = ${p.colaboradorId}::uuid and revogado_em is null and vence_em > now()`)
+      .catch((e: any) => {
+        if (!semTabela(e)) throw e;
+      });
   }
   return { id: String(d.id), telefone: d.telefone ? String(d.telefone) : null };
 }

@@ -173,13 +173,17 @@ export class JwtAuthGuard implements CanActivate {
         setorUnidadeId: setor.unidadeId,
         perfilNivel: perfilAcesso.nivel,
         permissoes: perfilAcesso.permissoes,
+        empresaExcluida: empresa.deletedAt,
       })
       .from(colaborador)
+      .innerJoin(empresa, eq(empresa.id, colaborador.tenantId))
       .leftJoin(funcao, eq(colaborador.funcaoId, funcao.id))
       .leftJoin(setor, eq(funcao.setorId, setor.id))
       .leftJoin(perfilAcesso, eq(colaborador.perfilAcessoId, perfilAcesso.id))
       .where(and(eq(colaborador.id, b.colaboradorId), eq(colaborador.tenantId, b.tenantId)));
-    if (!row || row.deletedAt || row.status === 'bloqueado') throw new UnauthorizedException('Acesso encerrado.');
+    // ERR-647 (rodada 7, MIS-B-04): a régua do Mister (`pessoaVale`) — a pessoa ATIVA (qualquer outra situação não lê) e a empresa
+    // viva. Antes, só "excluída ou bloqueada" e a empresa não era olhada.
+    if (!row || row.deletedAt || row.status !== 'ativo' || row.empresaExcluida) throw new UnauthorizedException('Acesso encerrado.');
     const categoria = (row.perfilNivel ?? row.funcaoCategoria ?? 'execucao') as string;
     req.user = {
       colaboradorId: b.colaboradorId,

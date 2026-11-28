@@ -94,6 +94,7 @@ import { mesmaEmbalagemDaEmpresa } from '../fichas/fichas-carga';
 import { instanteDe } from '../../common/fuso-sql';
 import { consumirLotes, devolverLotes } from '../../common/lotes';
 import { custoMedioDaSaida } from '../../common/custo-loja';
+import { condUnidadeOuRede, sqlUnidadeOuRede } from '../../common/filtro-unidade';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -2912,7 +2913,11 @@ export class VendasService {
     });
   }
 
-  async listarComandas(tenantId: string) {
+  /**
+   * As comandas avulsas abertas. `unidadeId` = a loja de quem pede (`@UnidadeAtual()`): a dela e as "da rede" (sem loja, V4);
+   * null = o presidente na rede toda. ERR-645 (rodada 7, MIS-B-02): filtrava só a empresa — a loja via as das outras.
+   */
+  async listarComandas(tenantId: string, unidadeId: string | null = null) {
     const res: any = await this.db.execute(sql`
       select c.id, c.mesa, c.cliente, c.aberta_em as "abertaEm",
              coalesce(sum(ci.quantidade * ci.preco_unitario),0) as total,
@@ -2920,6 +2925,7 @@ export class VendasService {
       from comanda c
       left join comanda_item ci on ci.comanda_id = c.id
       where c.tenant_id = ${tenantId} and c.status = 'aberta' and c.mesa_id is null
+        ${sqlUnidadeOuRede('c.unidade_id', unidadeId)}
       group by c.id
       order by c.aberta_em desc
     `);
@@ -3014,12 +3020,13 @@ export class VendasService {
     return res.rows ?? res;
   }
 
-  // Mesa + suas comandas abertas (cada uma com itens e total).
-  async getMesa(tenantId: string, mesaId: string) {
+  // Mesa + suas comandas abertas (cada uma com itens e total). `unidadeId` = a loja de quem pede (null = todas): a mesa de
+  // outra loja é "não encontrada" (ERR-645).
+  async getMesa(tenantId: string, mesaId: string, unidadeId: string | null = null) {
     const [m] = await this.db
       .select()
       .from(mesa)
-      .where(and(eq(mesa.id, mesaId), eq(mesa.tenantId, tenantId)));
+      .where(and(eq(mesa.id, mesaId), eq(mesa.tenantId, tenantId), condUnidadeOuRede(mesa.unidadeId, unidadeId)));
     if (!m) throw new NotFoundException('Mesa não encontrada');
     const comandas = await this.db
       .select()
@@ -3134,11 +3141,12 @@ export class VendasService {
     return { mesaId, comandas: cupons.length, total: Number(total.toFixed(2)), cupons };
   }
 
-  async getComanda(tenantId: string, id: string) {
+  /** A comanda com os itens. `unidadeId` = a loja de quem pede (null = todas): a de outra loja é "não encontrada" (ERR-645). */
+  async getComanda(tenantId: string, id: string, unidadeId: string | null = null) {
     const [c] = await this.db
       .select()
       .from(comanda)
-      .where(and(eq(comanda.id, id), eq(comanda.tenantId, tenantId)));
+      .where(and(eq(comanda.id, id), eq(comanda.tenantId, tenantId), condUnidadeOuRede(comanda.unidadeId, unidadeId)));
     if (!c) throw new NotFoundException('Comanda não encontrada');
     const itens = await this.db
       .select()

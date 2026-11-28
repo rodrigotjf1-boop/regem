@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -16,7 +17,7 @@ import { RequirePerm } from '../../auth/require-perm.decorator';
 import { ModuloGuard } from '../../auth/modulo.guard';
 import { RequireModulo } from '../../auth/require-modulo.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
-import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
+import { NIL_UUID, UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { ProducaoPedidoService } from './producao-pedido.service';
 
@@ -24,6 +25,18 @@ import { ProducaoPedidoService } from './producao-pedido.service';
 const GESTOR = ['presidente', 'gerente', 'supervisao'];
 /** Quem fez, para a auditoria do KDS. */
 const ator = (user: AuthUser) => ({ id: user.colaboradorId, perfil: user.categoria });
+
+/**
+ * ERR-646 (rodada 7, MIS-B-01): a loja em que um ajuste por loja (cores, senha) é GRAVADO. O presidente escolhe (a do corpo, ou
+ * null = o padrão da empresa); quem tem loja grava SÓ na sua — nunca em outra nem no padrão da empresa. Sem loja definida: recusa.
+ */
+export function lojaDoAjuste(user: AuthUser, atual: string | null, pedida: unknown): string | null {
+  const doCorpo = typeof pedida === 'string' && pedida ? pedida : null;
+  // O presidente, e a empresa de UMA loja só (`atual` null = a única, marcada pelo UnidadeUnicaInterceptor): como antes.
+  if (user.categoria === 'presidente' || atual === null) return doCorpo;
+  if (atual === NIL_UUID) throw new ForbiddenException('Seu cadastro não tem loja: peça ao presidente para ajustar.');
+  return atual;
+}
 
 // Produção (Fase F1). Ver decisoes-design. KDS informa/avança; PDV é dono do ciclo.
 @Controller('producao')
@@ -272,16 +285,18 @@ export class ProducaoPedidoController {
     );
   }
 
+  // ERR-646 (rodada 7, MIS-B-01): a loja do ajuste vinha da consulta/do corpo sem conferir — o gerente de uma loja lia e mudava
+  // o de outra (ou o padrão da empresa). Agora o presidente escolhe; os outros ficam na loja deles.
   @Get('cores')
-  cores(@CurrentUser() user: AuthUser, @Query('unidadeId') unidadeId?: string) {
-    return this.service.getCores(user.tenantId, unidadeId || null);
+  cores(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Query('unidadeId') unidadeId?: string) {
+    return this.service.getCores(user.tenantId, user.categoria === 'presidente' ? unidadeId || null : atual);
   }
 
   @Put('cores')
   @Roles('presidente', 'gerente')
   @RequirePerm('producao_kds')
-  setCores(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.setCores(user.tenantId, dto?.unidadeId || null, {
+  setCores(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Body() dto: any) {
+    return this.service.setCores(user.tenantId, lojaDoAjuste(user, atual, dto?.unidadeId), {
       verdeAteMin: dto?.verdeAteMin,
       amareloAteMin: dto?.amareloAteMin,
       usaPreparo: dto?.usaPreparo,
@@ -291,17 +306,17 @@ export class ProducaoPedidoController {
 
   // Config da senha (período de reset) — gerente/presidente.
   @Get('senha/config')
-  senhaConfig(@CurrentUser() user: AuthUser, @Query('unidadeId') unidadeId?: string) {
-    return this.service.getSenhaConfig(user.tenantId, unidadeId || null);
+  senhaConfig(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Query('unidadeId') unidadeId?: string) {
+    return this.service.getSenhaConfig(user.tenantId, user.categoria === 'presidente' ? unidadeId || null : atual);
   }
 
   @Put('senha/config')
   @Roles('presidente', 'gerente')
   @RequirePerm('producao_kds')
-  setSenhaPeriodo(@CurrentUser() user: AuthUser, @Body() dto: any) {
+  setSenhaPeriodo(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Body() dto: any) {
     return this.service.setSenhaPeriodo(
       user.tenantId,
-      dto?.unidadeId || null,
+      lojaDoAjuste(user, atual, dto?.unidadeId),
       dto?.periodo,
       ator(user),
     );

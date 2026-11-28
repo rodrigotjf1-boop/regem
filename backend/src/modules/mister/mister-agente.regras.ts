@@ -2086,6 +2086,8 @@ export const TEXTOS_DO_AGENTE = {
   demorou: 'Demorei demais para responder à sua pergunta. Pode mandar de novo?',
   soTexto: 'Por enquanto eu só leio mensagem de texto. Escreva a sua pergunta.',
   emManutencao: 'As perguntas ao Mister estão em manutenção. Tente de novo mais tarde.',
+  /** ERR-647: o acesso aos valores mudou enquanto a resposta era preparada (a sessão com PIN venceu, a permissão saiu). */
+  acessoMudou: 'O seu acesso mudou enquanto eu preparava a resposta. Pergunte de novo, por favor.',
   limite: (n: number) => `Você chegou ao limite de ${n} perguntas em 24 horas. Volto a responder quando as mais antigas saírem da conta.`,
   limiteDaEmpresa: 'A empresa chegou ao limite de perguntas ao Mister em 24 horas. Volto a responder quando as mais antigas saírem da conta.',
   semChave: (nivel: NivelDoMister) =>

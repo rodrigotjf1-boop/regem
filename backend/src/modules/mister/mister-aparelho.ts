@@ -8,13 +8,13 @@ const HASH_VALIDO = /^[A-Za-z0-9+/=_-]{1,200}$/;
 const digitos = (v: unknown): string => String(v ?? '').replace(/\D/g, '');
 
 /**
- * O hash do aparelho de quem mandou a mensagem, em `contacts[].identity_key_hash`. Vale o contato com o `wa_id` de quem
- * mandou; se o webhook traz um contato só, é ele. Com vários e nenhum igual, não há como saber de quem é: `null`.
+ * O hash do aparelho de quem mandou a mensagem, em `contacts[].identity_key_hash`. Vale SÓ o contato com o `wa_id` de quem
+ * mandou (ERR-648, rodada 7, MIS-A-12: antes, um contato único com outro `wa_id` também valia). Nenhum igual: `null`.
  */
 export function hashDoRemetente(contatos: unknown, de: unknown): string | null {
   if (!Array.isArray(contatos) || !contatos.length) return null;
   const remetente = digitos(de);
-  const dele = contatos.find((c) => remetente && digitos((c as any)?.wa_id) === remetente) ?? (contatos.length === 1 ? contatos[0] : null);
+  const dele = remetente ? contatos.find((c) => digitos((c as any)?.wa_id) === remetente) : null;
   const hash = (dele as any)?.identity_key_hash;
   if (typeof hash !== 'string') return null;
   const limpo = hash.trim();

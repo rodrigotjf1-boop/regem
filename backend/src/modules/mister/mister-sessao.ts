@@ -22,6 +22,29 @@ const HORAS_VALIDAS = new Set([6, 12, 24]);
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const semColunaOuTabela = (e: any) => ['42703', '42P01'].includes(e?.code) || ['42703', '42P01'].includes(e?.cause?.code);
 
+/** Quem manda o link da sessão (o `MisterPropostasService.sessaoPendente`): avisa com `texto`, manda o link e diz se esperou. */
+export interface QuemPedeOPin {
+  sessaoPendente(tenantId: string, colaboradorId: string, telefone: string, texto?: string): Promise<boolean>;
+}
+
+/**
+ * ERR-641 (rodada 7 de segurança, MIS-A-04): a ação que não é proposta (a foto e os botões do documento, o "Criar o pedido"
+ * da lista) espera o PIN pela MESMA régua do "Autorizar". Sem o serviço das propostas (uma montagem de teste), ainda recusa —
+ * só não manda o link. Devolve se esperou: a pessoa já foi avisada e nada foi feito.
+ */
+export async function esperaOPin(
+  db: DrizzleDB,
+  propostas: QuemPedeOPin | undefined,
+  falar: (texto: string) => Promise<void>,
+  p: { tenantId: string; colaboradorId: string; telefone: string; texto?: string },
+): Promise<boolean> {
+  if (propostas) return propostas.sessaoPendente(p.tenantId, p.colaboradorId, p.telefone, p.texto);
+  const s = await estadoDaSessao(db, p.tenantId, p.colaboradorId);
+  if (!s.exigida || s.valida) return false;
+  await falar('Para isso, confirme antes o seu PIN: peça o link ao Mister.');
+  return true;
+}
+
 /** O estado da sessão de uma pessoa numa empresa. Nunca lança por falta da migration (devolve "não exigida"). */
 export async function estadoDaSessao(db: DrizzleDB, tenantId: string, colaboradorId: string): Promise<EstadoDaSessao> {
   try {
