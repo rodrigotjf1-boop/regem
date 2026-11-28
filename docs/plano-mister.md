@@ -3322,6 +3322,25 @@ conferidos no código; o E-02 não procede (a ação que a IA propõe passa pelo
 - **Para depois:** E-03 na conversa (o automático já bloqueia), os campos livres `obs`/`justificativa` (E-08) e a política de CPF e
   telefone na saída (E-10).
 
+**Rodada 7 — bloco F, "documentos, fotos e arquivos" (28/11/2026; ERR-658, V127; mig 518, só na nuvem, aplicada antes do merge):**
+os 11 achados conferidos no código por três leituras.
+- **F-05 (o grave):** o leitor de planilha (clientes, produtos e a lista do Mister) tem teto de coluna, de linhas e de posições,
+  conferido antes de crescer — uma célula de posição absurda parava a nuvem de todas as empresas.
+- **F-08:** o mesmo boleto em outra mensagem não vira a segunda conta (índice único do código de barras lançado, mig 518: "já
+  está nas contas a pagar"); a conta já criada não volta o documento a "confirmar".
+- **F-07:** o Pix lido da foto só fica se o recebedor bate com o beneficiário (e a chave CPF/CNPJ com o CNPJ do boleto); "Pix
+  para: NOME · CIDADE" ao lado do código no aviso, no PDF e na consulta.
+- **F-06:** só o fornecedor achado pelo CNPJ lança sozinho; pelo nome, ou com o CNPJ diferente, pergunta antes (e com o CNPJ
+  diferente não liga o fornecedor). Muda o que a loja vê: o boleto de fornecedor sem CNPJ no cadastro passa a pedir "Lançar".
+- **F-09:** Mister › Documentos (lista, PDF, desfazer) pela loja de agora; a correção do vencimento pela conversa, pela loja presa.
+- **F-10:** o link do relatório confere, a cada abertura, o acesso de agora de quem o emitiu (a loja e os valores).
+- **F-11:** o código do link (relatório, PIN e rastreio do pedido) sai do log e da telemetria também quando vem no caminho.
+- **F-03:** o download da mídia com prazo (20 s e 30 s) e o tamanho conferido na leitura. **F-04:** o tipo que vai à IA pelos
+  bytes. **F-02:** a foto da nota só é guardada depois que a leitura vale.
+- **Para depois:** F-01 — a URL pública e estável das fotos é o padrão do produto inteiro (ponto, desperdício, vistoria, as contas):
+  pede bucket privado e um plano próprio (hoje 0 contas com foto na nuvem); e o `redirect: 'error'` no download, que pede conferir
+  com a Meta de verdade antes.
+
 ### Dias especiais H2b — o feriado pelo Mister (27/11/2026; SEM migration; só na nuvem)
 
 Fase H2b do protótipo `mockups/regem-dias-especiais.html` (aba "No Mister"; decisões 4 e 8).

@@ -9,6 +9,7 @@
 
 import { FUSO_OPERACAO, dataNoFuso, horaNoFuso, somarDias } from '../../common/data';
 import { POLLER_ERRO_APOS_MS } from '../../common/falhas-do-poller';
+import { recebedorDoPix } from '../../common/documento-por-foto';
 import { diasParaVencer } from '../fiscal/certificado';
 import { pedidoComoNoQuadro } from './mister-agente.regras';
 import { GUIA_DE_USO } from './mister-guia-de-uso';
@@ -881,7 +882,10 @@ export function situacaoDoBoleto(b: BoletoAVencer): Situacao {
       (b.linhaDigitavel
         ? `Linha digitável: ${b.linhaDigitavel}`
         : 'Este boleto entrou sem a linha digitável (a foto não tinha o código de barras).') +
-      (b.pix ? '\n\nEste boleto tem Pix: o copia e cola vem na próxima mensagem.' : '') +
+      // Rodada 7, MIS-F-07: para quem vai o Pix, ao lado do código (confira no app do banco antes de pagar).
+      (b.pix
+        ? `\n\nEste boleto tem Pix: o copia e cola vem na próxima mensagem.${recebedorDoPix(b.pix) ? ` Pix para: ${recebedorDoPix(b.pix)}.` : ''}`
+        : '') +
       '\n\nPague no banco e toque em "Já paguei" para dar baixa.',
     dados: {
       marco: b.dias > 0 ? 'antes' : b.dias === 0 ? 'dia' : 'vencido',

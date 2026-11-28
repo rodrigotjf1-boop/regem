@@ -7,6 +7,7 @@ import { ModuleRef } from '@nestjs/core';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { Permissoes, perfilPadrao, podeAcessar } from '../../auth/permissoes';
 import { FUSO_OPERACAO, hojeISO, horaAgora, horaNoFuso, somarDias } from '../../common/data';
+import { recebedorDoPix } from '../../common/documento-por-foto';
 import { brutoPedido, comandaEhDeCanal, pedidoVale } from '../../common/faturamento';
 import { sqlUnidade, sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { lerEstacoes } from '../../common/fluxo-kds';
@@ -450,7 +451,11 @@ export class MisterFerramentasService {
     @Optional() private readonly moduleRef?: ModuleRef,
     // Versão 10, C3: procurar no mapa e ler a tela como a pessoa. Sem ele, "não consegui ler esta tela agora".
     @Optional() private readonly telas?: MisterTelasService,
-  ) {}
+  ) {
+    // Rodada 7, MIS-F-10 (ERR-658): o link público confere, a cada abertura, o acesso de AGORA de quem o emitiu (a loja e os
+    // valores) — pela mesma régua das telas, sem o serviço dos links depender deste (que já depende dele).
+    this.linksPublicos?.registrarEscopo((tenantId, colaboradorId) => this.escopoDaTela(tenantId, colaboradorId));
+  }
 
   // ───────────────────────────── de quem é a conversa ─────────────────────────────
 
@@ -1638,7 +1643,7 @@ export class MisterFerramentasService {
           situacao: situacao(p.vencimento ? String(p.vencimento) : null),
           // O código para pagar: só com os valores liberados (o mesmo de quem vê a conta na tela).
           ...(e.verValores && p.linhaDigitavel ? { linhaDigitavel: String(p.linhaDigitavel).slice(0, 60) } : {}),
-          ...(e.verValores && p.pix ? { pixCopiaECola: String(p.pix).slice(0, 512) } : {}),
+          ...(e.verValores && p.pix ? { pixCopiaECola: String(p.pix).slice(0, 512), pixPara: recebedorDoPix(p.pix) } : {}),
           ...(p.temFoto ? { fotoGuardada: true } : {}),
         })),
         ...(e.verValores ? {} : { aviso: SEM_VALORES }),

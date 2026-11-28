@@ -73,6 +73,10 @@ const MOTIVO: Record<string, string> = {
   conta: 'conta de consumo: o vencimento veio da foto',
   sem_codigo: 'sem o código de barras',
   fornecedor_novo: 'o beneficiário ainda não é seu fornecedor',
+  // Rodada 7, MIS-F-06 e F-08.
+  pelo_nome: 'o fornecedor foi achado pelo nome, sem o CNPJ para conferir',
+  cnpj_diferente: 'o CNPJ do boleto não é o do fornecedor com esse nome',
+  repetido: 'o mesmo boleto já está nas contas a pagar',
   modo: 'sua empresa pede para conferir antes',
   informado: 'completado com o que você disse na conversa',
   // A nota do fornecedor (M3b).

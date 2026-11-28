@@ -1,5 +1,5 @@
 import { deflateRawSync } from 'node:zlib';
-import { lerXlsx } from './ler-xlsx';
+import { lerXlsx, MAX_COLUNAS, MAX_LINHAS } from './ler-xlsx';
 import { mapearTabela } from './importar-planilha';
 
 // Leitor de .xlsx sem dependência. Os arquivos são MONTADOS aqui (ZIP + XML), nos dois
@@ -88,5 +88,29 @@ describe('leitor de Excel (.xlsx) sem dependência', () => {
 
   it('não é Excel → erro claro', () => {
     expect(() => lerXlsx(Buffer.from('PK não é zip de verdade'))).toThrow(/Excel/);
+  });
+
+  it('ERR-658 (rodada 7, MIS-F-05): a posição absurda da célula não enche a linha — volta na hora, até a coluna 256', () => {
+    const xml = planilha(
+      '<row r="1"><c r="A1" t="str"><v>Nome</v></c><c r="ZZZZZZZ1" t="str"><v>longe</v></c><c r="XFD1"><v>9</v></c>' +
+        '<c r="IV1" t="str"><v>última</v></c></row>',
+    );
+    const inicio = Date.now();
+    const [linha] = lerXlsx(zip({ 'xl/worksheets/sheet1.xml': xml }));
+    expect(Date.now() - inicio).toBeLessThan(2000);
+    expect(linha).toHaveLength(MAX_COLUNAS);
+    expect([linha[0], linha[MAX_COLUNAS - 1]]).toEqual(['Nome', 'última']);
+    expect(linha).not.toContain('longe');
+  });
+
+  it('ERR-658: linhas vazias depois do teto não contam; com conteúdo, "grande demais" antes de crescer', () => {
+    const vazias = '<row/>'.repeat(MAX_LINHAS + 5);
+    const so = lerXlsx(zip({ 'xl/worksheets/sheet1.xml': planilha(`<row r="1"><c r="A1" t="str"><v>x</v></c></row>${vazias}`) }));
+    expect(so).toHaveLength(MAX_LINHAS);
+    const comConteudo = `${vazias}<row><c r="A1" t="str"><v>depois do teto</v></c></row>`;
+    expect(() => lerXlsx(zip({ 'xl/worksheets/sheet1.xml': planilha(comConteudo) }))).toThrow(/grande demais/);
+    // muitas linhas com a última coluna preenchida: o total de posições tem teto
+    const largas = '<row><c r="IV1"><v>1</v></c></row>'.repeat(8_000);
+    expect(() => lerXlsx(zip({ 'xl/worksheets/sheet1.xml': planilha(largas) }))).toThrow(/grande demais/);
   });
 });

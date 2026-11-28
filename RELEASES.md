@@ -117,6 +117,11 @@
 - _(ERR-656 — rodada 7, bloco E: o que a IA do Mister recebe e o que sai (a memória e o gráfico pelo acesso de agora, exemplos só
   da própria pessoa, só o presidente anota na memória da empresa, relatório automático só consulta, a regra não liga na mesma
   vez da IA) (28/11): SEM migration e só da nuvem. Não pede `.zip` nem `.exe`.)_
+- _(ERR-658 — rodada 7, bloco F: documentos, fotos e arquivos (o leitor de planilha com teto antes de crescer, o mesmo boleto não
+  vira duas contas — mig 518, só na nuvem —, o Pix só do beneficiário, lançar sozinho só pelo CNPJ, a loja e os valores de agora na
+  tela e no link, o código do link fora do log) (28/11): o Mister é só da nuvem, mas o leitor de planilha (importar clientes e
+  produtos), o `urlParaLog` e o interceptador de telemetria da loja rodam no servidor da loja: entra no PRÓXIMO `.zip` (não pede
+  `.exe`).)_
 - **Mister C7 — aprender pela tarefa feita (26/11; mig 508, só na nuvem).** O `sync-daemon.mjs` ganhou `mister_aprendizado` na
   lista das tabelas só da nuvem (SO_NUVEM). Na loja não muda nada: a tabela não existe no banco dela e nada a escreve. Vai no
   próximo `.exe` por ter tocado o `sync-daemon` (sem pressa; o daemon antigo não lê a tabela).

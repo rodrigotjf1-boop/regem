@@ -155,7 +155,14 @@ function pixDaTranscricao(v: unknown): string | null {
 
 export type ModoDoBoleto = 'sozinho' | 'perguntar';
 /** Por que o Mister pergunta antes de lançar. `informado`: a pessoa completou na conversa o que a foto não trouxe. */
-export type PorqueConfirma = 'conta' | 'sem_codigo' | 'fornecedor_novo' | 'modo' | 'informado';
+export type PorqueConfirma = 'conta' | 'sem_codigo' | 'fornecedor_novo' | 'modo' | 'informado' | 'pelo_nome' | 'cnpj_diferente';
+
+/**
+ * Rodada 7, MIS-F-06 (ERR-658): como o fornecedor do boleto foi achado. Só o CNPJ lido igual ao do cadastro lança sozinho; o
+ * nome igual (sem CNPJ para conferir) ou o CNPJ lido DIFERENTE do cadastrado pergunta antes — o nome coincidente não garante
+ * quem recebe. `true`/`false` valem como antes (achado pelo CNPJ / não achado).
+ */
+export type FornecedorDoBoleto = boolean | 'cnpj' | 'nome' | 'cnpj_diferente' | null;
 /** De onde veio um campo: o código de barras (conferido, sem IA), a leitura da foto (IA) ou a pessoa na conversa. */
 export type OrigemDoCampo = 'codigo' | 'ia' | 'pessoa';
 
@@ -184,9 +191,40 @@ export interface DadosDoLancamento {
  * A decisão do documento. `fornecedorConhecido`: o beneficiário bate com um fornecedor cadastrado da empresa. O que o
  * código traz (valor e vencimento) vale sobre a IA; o que ele não traz, a IA preenche e a pessoa confirma.
  */
+const semAcentoDoPix = (s: unknown) =>
+  String(s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase();
+/** Palavras que não identificam ninguém (a forma da empresa, o ramo genérico). */
+const PALAVRAS_GENERICAS = new Set(['ltda', 'eireli', 'comercio', 'servicos', 'industria', 'brasil', 'empresa', 'pagamentos']);
+const palavrasDoNome = (s: unknown) => new Set(semAcentoDoPix(s).split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !PALAVRAS_GENERICAS.has(w)));
+
+/**
+ * Rodada 7, MIS-F-07 (ERR-658): o Pix impresso vai para QUEM o boleto diz? O CRC só prova que o texto não se partiu, não quem
+ * recebe — um boleto adulterado com o Pix de outra pessoa e o valor certo passava como "conferido". Fica só o Pix cujo
+ * recebedor (o nome do campo 59) tem uma palavra do beneficiário lido, e cuja chave, se for CPF/CNPJ, é o CNPJ do boleto.
+ * Sem como conferir, o Pix cai (o boleto continua: a linha digitável é a forma de pagar).
+ */
+export function pixDoBeneficiario(p: { nome: string | null; chave: string | null }, beneficiario: string | null, cnpj: string | null): boolean {
+  const chave = String(p.chave ?? '').trim();
+  const doc = String(cnpj ?? '').replace(/\D/g, '');
+  if (doc && /^(\d{11}|\d{14})$/.test(chave) && chave !== doc) return false;
+  const doBoleto = palavrasDoNome(beneficiario);
+  for (const w of palavrasDoNome(p.nome)) if (doBoleto.has(w)) return true;
+  return false;
+}
+
+/** O recebedor do Pix guardado, para mostrar ao lado do código ("Pix para: NOME · CIDADE"). */
+export function recebedorDoPix(pix: unknown): string | null {
+  const p = typeof pix === 'string' ? lerPixCopiaECola(pix) : null;
+  if (!p?.nome) return null;
+  return [p.nome.trim(), p.cidade?.trim()].filter(Boolean).join(' · ').slice(0, 80);
+}
+
 export function decidirDocumento(
   leitura: LeituraDaFoto,
-  fornecedorConhecido: boolean,
+  fornecedorConhecido: FornecedorDoBoleto,
   modo: ModoDoBoleto,
   hoje: Date = new Date(),
 ): DecisaoDoDocumento {
@@ -218,7 +256,8 @@ export function decidirDocumento(
   // outra cobrança, e cai). Sem valor dentro (o Pix de valor livre), vale.
   if (leitura.pix) {
     const p = lerPixCopiaECola(leitura.pix);
-    if (p && (p.valorCentavos == null || dados.valorCentavos == null || p.valorCentavos === dados.valorCentavos)) dados.pix = p.copiaECola;
+    if (p && (p.valorCentavos == null || dados.valorCentavos == null || p.valorCentavos === dados.valorCentavos) && pixDoBeneficiario(p, leitura.beneficiario, leitura.cnpj))
+      dados.pix = p.copiaECola;
   }
 
   const falta: Array<'valor' | 'vencimento'> = [];
@@ -237,6 +276,8 @@ export function decidirDocumento(
     return { acao: 'confirmar', dados, porque: 'conta' };
   }
   if (!fornecedorConhecido) return { acao: 'confirmar', dados, porque: 'fornecedor_novo' };
+  if (fornecedorConhecido === 'cnpj_diferente') return { acao: 'confirmar', dados, porque: 'cnpj_diferente' };
+  if (fornecedorConhecido === 'nome') return { acao: 'confirmar', dados, porque: 'pelo_nome' };
   if (modo !== 'sozinho') return { acao: 'confirmar', dados, porque: 'modo' };
   return { acao: 'lancar', dados };
 }
@@ -343,7 +384,11 @@ export const FRASES_DO_DOCUMENTO = {
             ? 'O código de barras conferiu; o que faltava você me disse.'
             : porque === 'fornecedor_novo'
               ? `O código de barras conferiu. ${d.beneficiario ?? 'O beneficiário'} ainda não está nos seus fornecedores.`
-              : 'O código de barras conferiu.';
+              : porque === 'cnpj_diferente'
+                ? 'O código de barras conferiu, mas o CNPJ do boleto não é o do fornecedor com esse nome no seu cadastro: confira quem recebe antes.'
+                : porque === 'pelo_nome'
+                  ? `O código de barras conferiu. Achei ${d.beneficiario ?? 'o beneficiário'} nos seus fornecedores pelo nome, sem o CNPJ para conferir.`
+                  : 'O código de barras conferiu.';
     return `${cabecalho(d)}\n\n${motivo} ${porque === 'informado' ? 'Lanço assim?' : 'Lanço nas contas a pagar?'}`;
   },
   // Conversa 13: pede outra foto OU que a pessoa diga só o que faltou (a resposta em texto completa o documento).
@@ -363,4 +408,6 @@ export const FRASES_DO_DOCUMENTO = {
   desfeito: 'Desfeito: o boleto saiu das contas a pagar.',
   naoDaParaDesfazer: 'Não dá mais para desfazer: esta conta já foi paga ou mudou na tela.',
   jaRespondido: 'Este documento já foi respondido.',
+  // Rodada 7, MIS-F-08: a mesma cobrança em outra mensagem (o código de barras de um lançado).
+  jaNasContas: 'Este boleto já está nas contas a pagar (o mesmo código de barras): não lancei de novo.',
 } as const;

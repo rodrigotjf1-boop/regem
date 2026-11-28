@@ -1,4 +1,5 @@
 import { ehServidorLocal } from '../../common/modo';
+import { urlParaLog } from '../../common/url-para-log';
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
@@ -45,7 +46,7 @@ export class TelemetriaInterceptor implements NestInterceptor {
         mensagem,
         stack: err?.stack ? String(err.stack).slice(0, 4000) : null,
         versao: process.env.APP_VERSION ?? null,
-        contexto: { rota: req?.url, metodo: req?.method },
+        contexto: { rota: urlParaLog(req?.url), metodo: req?.method },
       }),
     }).catch(() => {});
   }

@@ -1,6 +1,7 @@
 // pdfkit é CommonJS: o import por require (o mesmo do `cardapio-pdf.ts`; sem esModuleInterop, o default vira undefined).
 import PDFDocument = require('pdfkit');
 import { barrasItf } from '../../common/codigo-de-barras-itf';
+import { recebedorDoPix } from '../../common/documento-por-foto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -113,7 +114,11 @@ export function gerarPdfDoDocumento(d: PdfDoDocumento): Promise<Buffer> {
   campo('Fornecedor no Regem', d.fornecedor ?? 'não cadastrado', d.fornecedor ? 'cadastro' : null);
   if (d.linhaDigitavel) campo('Linha digitável', d.linhaDigitavel, 'codigo', true);
   // O Pix impresso no boleto, transcrito pela IA e conferido pelo CRC16 (o QR a IA não lê).
-  if (d.pix) campo('Pix copia e cola', d.pix, 'ia', true);
+  if (d.pix) {
+    // Rodada 7, MIS-F-07: para quem vai o Pix, ao lado do código.
+    if (recebedorDoPix(d.pix)) campo('Pix para', recebedorDoPix(d.pix)!, 'ia');
+    campo('Pix copia e cola', d.pix, 'ia', true);
+  }
 
   // O código de barras (ITF), desenhado: estreito = 1 módulo, largo = 3.
   const barras = d.codigoDeBarras ? barrasItf(d.codigoDeBarras) : null;

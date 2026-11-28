@@ -44,6 +44,7 @@ import {
   oQueOGraphViu,
   perguntaComFoto,
   tipoAceito,
+  tipoPelosBytes,
 } from './mister-midia.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -346,7 +347,8 @@ export class MisterMidiaService implements OnModuleInit {
     return visto;
   }
 
-  private blocoDoArquivo(buffer: Buffer, mime: string) {
+  private blocoDoArquivo(buffer: Buffer, declarado: string) {
+    const mime = tipoPelosBytes(buffer, declarado); // MIS-F-04
     return mime === 'application/pdf'
       ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } }
       : { type: 'image', source: { type: 'base64', media_type: mime, data: buffer.toString('base64') } };

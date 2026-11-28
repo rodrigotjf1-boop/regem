@@ -10,6 +10,12 @@ import { inflateRawSync } from 'node:zlib';
 
 const TETO_DESCOMPACTADO = 60 * 1024 * 1024; // 60 MB por arquivo interno
 const TETO_ENTRADAS = 500;
+// Rodada 7, MIS-F-05 (ERR-658): a posição da célula (`r="ZZZZZZZ1"`) enchia a linha com vazios ATÉ ela — 30 bytes viravam bilhões
+// de posições num laço síncrono, e a nuvem inteira parava. A coluna tem teto (célula formatada lá longe é ignorada, sem erro: o
+// Excel grava assim), e as linhas e o total de posições também, ANTES de crescer.
+export const MAX_COLUNAS = 256;
+export const MAX_LINHAS = 50_000;
+const TETO_CELULAS = 2_000_000;
 
 function entradasZip(buf: Buffer): Map<string, { metodo: number; comprimido: number; offsetLocal: number; tamanho: number }> {
   // End of Central Directory: assinatura 0x06054b50, a partir do fim (comentário até 64 KB).
@@ -83,22 +89,31 @@ export function lerXlsx(buf: Buffer): string[][] {
 
   const xml = lerEntrada(buf, ent.get(nomeSheet)!);
   const linhas: string[][] = [];
+  let posicoes = 0;
   // `<row r="5"/>` (linha vazia) também existe — não pode "engolir" a linha seguinte.
   for (const r of xml.matchAll(/<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g)) {
     const linha: string[] = [];
     for (const c of (r[1] ?? '').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
       const attrs = c[1];
-      const corpo = c[2] ?? '';
       const ref = (attrs.match(/\br="([A-Z]+\d+)"/) ?? [])[1];
+      const i = ref ? colunaIdx(ref) : linha.length;
+      if (i >= MAX_COLUNAS) continue;
+      posicoes += Math.max(0, i + 1 - linha.length);
+      if (posicoes > TETO_CELULAS) throw new Error('Planilha grande demais.');
+      const corpo = c[2] ?? '';
       const tipo = (attrs.match(/\bt="([^"]+)"/) ?? [])[1];
       const v = (corpo.match(/<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/) ?? [])[1];
       let texto = '';
       if (tipo === 's') texto = compartilhados[Number(v)] ?? '';
       else if (tipo === 'inlineStr') texto = textoRico(corpo);
       else if (v != null) texto = entidade(v);
-      const i = ref ? colunaIdx(ref) : linha.length;
       while (linha.length < i) linha.push('');
       linha[i] = texto;
+    }
+    if (linhas.length >= MAX_LINHAS) {
+      // Linha vazia (formatada) depois do teto não conta; com conteúdo, a planilha passou do que o Regem lê.
+      if (linha.some((t) => t.trim() !== '')) throw new Error('Planilha grande demais.');
+      continue;
     }
     linhas.push(linha);
   }

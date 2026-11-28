@@ -317,7 +317,15 @@ export class MisterNotasService implements OnModuleInit {
   // ───────────────────────────── a foto da nota ──────────────────────────
 
   /** A foto que a primeira leitura disse ser nota: lê os itens, confere e começa a conversa. */
-  async receber(quem: QuemMandou, wamid: string | null, bloco: any, modelo: string, fotoRef: string | null = null): Promise<void> {
+  async receber(
+    quem: QuemMandou,
+    wamid: string | null,
+    bloco: any,
+    modelo: string,
+    // Rodada 7, MIS-F-02 (ERR-658): a foto só é guardada DEPOIS que a leitura da nota vale (a função é chamada aqui). Antes,
+    // a foto subia primeiro e, com a leitura recusada, ficava publicada sem nada ligado a ela.
+    fotoRef: string | null | (() => Promise<string | null>) = null,
+  ): Promise<void> {
     let saida: string;
     let cortada = false;
     try {
@@ -353,6 +361,7 @@ export class MisterNotasService implements OnModuleInit {
     }
     // A foto nova toma o lugar da que esperava resposta sobre a leitura.
     await this.encerrarEmDuvida(quem, wamid);
+    const foto = typeof fotoRef === 'function' ? await fotoRef() : fotoRef;
 
     const fornecedorId = await this.fornecedorPeloCnpj(quem.tenantId, leitura.emitenteCnpj);
     const insumos = await this.insumos(quem.tenantId);
@@ -377,7 +386,7 @@ export class MisterNotasService implements OnModuleInit {
     const cupom = leitura.especie === 'cupom' && cupomNaInstalacao();
     const nota: NotaNoMister = {
       // 27/11/2026: a foto da nota (guardada na leitura) vai para o recebimento e para a conta a pagar no lançamento.
-      ...(fotoRef ? { fotoRef } : {}),
+      ...(foto ? { fotoRef: foto } : {}),
       chave: leitura.chave,
       numero: leitura.numero,
       emitenteNome: leitura.emitenteNome,

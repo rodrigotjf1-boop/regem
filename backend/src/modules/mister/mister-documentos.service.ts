@@ -1,6 +1,8 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { hojeISO, somarDias } from '../../common/data';
+import { sqlUnidade } from '../../common/filtro-unidade';
+import { tipoPelosBytes } from './mister-midia.regras';
 import {
   DadosDoLancamento,
   FRASE_DA_LEITURA_CORTADA,
@@ -85,6 +87,8 @@ const PREFIXO_DO_BOTAO = 'doc:';
 const PRAZO_DA_IA_MS = 40_000;
 const linhas = (r: any) => (r?.rows ?? r ?? []) as any[];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Rodada 7, MIS-F-08: o `lancar` achou o mesmo código de barras já lançado na empresa (mig 518). */
+const JA_LANCADO = 'ja_lancado' as const;
 
 /** O resumo da nota para a tela: sem as sugestões nem os ids dos insumos (só o que a gaveta mostra). */
 function resumoDaNota(n: NotaNoMister, recebimentoId: string | null): NonNullable<DocumentoNaTela['nota']> {
@@ -186,6 +190,12 @@ export class MisterDocumentosService implements OnModuleInit {
     }
   }
 
+  /** MIS-F-02: a foto que subiu e não ficou ligada a nada (a mesma mensagem lida de novo) sai do armazenamento. */
+  private async descartarFoto(fotoRef: string | null): Promise<void> {
+    if (!fotoRef || typeof (this.midia as any)?.remover !== 'function') return;
+    await this.midia!.remover(fotoRef).catch(() => false);
+  }
+
   /** A foto e os botões chegam pela entrada do WhatsApp, que mora no módulo de baixo. */
   onModuleInit(): void {
     this.entrada?.registrarDocumento((quem, midia, wamid) => this.receber(quem, midia, wamid));
@@ -235,10 +245,12 @@ export class MisterDocumentosService implements OnModuleInit {
 
     let texto: string;
     let cortada = false;
+    // MIS-F-04 (ERR-658): o tipo pelos bytes, não pelo declarado (o PNG declarado como JPEG era recusado pela IA).
+    const real = tipoPelosBytes(arquivo.buffer, tipo);
     const bloco =
-      tipo === 'application/pdf'
+      real === 'application/pdf'
         ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: arquivo.buffer.toString('base64') } }
-        : { type: 'image', source: { type: 'base64', media_type: tipo, data: arquivo.buffer.toString('base64') } };
+        : { type: 'image', source: { type: 'base64', media_type: real, data: arquivo.buffer.toString('base64') } };
     try {
       const r = await this.ia.pedir(quem.tenantId, {
         recurso: RECURSO_DO_DOCUMENTO,
@@ -268,19 +280,20 @@ export class MisterDocumentosService implements OnModuleInit {
       await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.outraFoto('ilegivel') });
       return true;
     }
-    const fornecedor = await this.fornecedorDe(quem.tenantId, leitura.cnpj, leitura.beneficiario);
-    const decisao = decidirDocumento(leitura, !!fornecedor, await this.modoDoBoleto(quem.tenantId));
+    const achado = await this.fornecedorDe(quem.tenantId, leitura.cnpj, leitura.beneficiario);
+    // MIS-F-06: com o CNPJ lido diferente do cadastrado, o fornecedor achado pelo nome NÃO é ligado ao documento.
+    const fornecedor = achado && achado.como !== 'cnpj_diferente' ? achado.id : null;
+    const decisao = decidirDocumento(leitura, achado?.como ?? null, await this.modoDoBoleto(quem.tenantId));
     // 27/11/2026: a leitura que vira conta (boleto, conta, nota) guarda a foto, para ela ir à conta a pagar no lançamento.
+    // MIS-F-02 (ERR-658): a nota guarda a foto só depois da segunda leitura valer (a função vai ao serviço das notas).
     const fotoRef =
-      decisao.acao === 'perguntar' || decisao.acao === 'confirmar' || decisao.acao === 'lancar' || (decisao.acao === 'nota' && this.notas?.ligadas())
-        ? await this.guardarFoto(quem.tenantId, arquivo.buffer, tipo)
-        : null;
+      decisao.acao === 'perguntar' || decisao.acao === 'confirmar' || decisao.acao === 'lancar' ? await this.guardarFoto(quem.tenantId, arquivo.buffer, tipo) : null;
 
     switch (decisao.acao) {
       case 'nota':
         // M3b: com as notas ligadas, a leitura dos itens e a conversa (sempre pergunta antes de lançar).
         if (this.notas?.ligadas()) {
-          await this.notas.receber(quem, wamid, bloco, this.modelo(), fotoRef);
+          await this.notas.receber(quem, wamid, bloco, this.modelo(), () => this.guardarFoto(quem.tenantId, arquivo.buffer, tipo));
           return true;
         }
         await this.registrar(quem, wamid, { tipo: 'nota', situacao: 'recusado', motivo: 'nota' });
@@ -295,12 +308,13 @@ export class MisterDocumentosService implements OnModuleInit {
         await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.outraFoto(decisao.porque) });
         return true;
       case 'perguntar':
-        await this.registrar(quem, wamid, { tipo: decisao.dados.tipo, situacao: 'falta', motivo: decisao.falta.join(','), dados: decisao.dados, fornecedorId: fornecedor, fotoRef });
+        if (!(await this.registrar(quem, wamid, { tipo: decisao.dados.tipo, situacao: 'falta', motivo: decisao.falta.join(','), dados: decisao.dados, fornecedorId: fornecedor, fotoRef })))
+          await this.descartarFoto(fotoRef);
         await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.perguntar(decisao.falta) });
         return true;
       case 'confirmar': {
         const id = await this.registrar(quem, wamid, { tipo: decisao.dados.tipo, situacao: 'confirmar', motivo: decisao.porque, dados: decisao.dados, fornecedorId: fornecedor, fotoRef });
-        if (!id) return true;
+        if (!id) return this.descartarFoto(fotoRef).then(() => true);
         await this.falar(quem.telefone, {
           texto: FRASES_DO_DOCUMENTO.confirmar(decisao.dados, decisao.porque),
           botoes: [botao('lancar', id, 'Lançar'), botao('outra', id, 'Mandar outra foto')],
@@ -309,8 +323,12 @@ export class MisterDocumentosService implements OnModuleInit {
       }
       case 'lancar': {
         const id = await this.registrar(quem, wamid, { tipo: decisao.dados.tipo, situacao: 'confirmar', motivo: 'sozinho', dados: decisao.dados, fornecedorId: fornecedor, fotoRef });
-        if (!id) return true;
+        if (!id) return this.descartarFoto(fotoRef).then(() => true);
         const titulo = await this.lancar(id, quem.tenantId, quem.colaboradorId, quem.unidadeId);
+        if (titulo === JA_LANCADO) {
+          await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.jaNasContas });
+          return true;
+        }
         if (!titulo) {
           // Não lançou (a conta a pagar foi recusada): fica para a pessoa decidir.
           await this.falar(quem.telefone, {
@@ -387,8 +405,8 @@ export class MisterDocumentosService implements OnModuleInit {
         return true;
       }
       const titulo = await this.lancar(d.id, d.tenantId, v.colaboradorId, d.unidadeId ?? null);
-      if (!titulo) {
-        await this.falar(quem.telefone, { texto: FRASES_DO_DOCUMENTO.jaRespondido });
+      if (!titulo || titulo === JA_LANCADO) {
+        await this.falar(quem.telefone, { texto: titulo === JA_LANCADO ? FRASES_DO_DOCUMENTO.jaNasContas : FRASES_DO_DOCUMENTO.jaRespondido });
         return true;
       }
       const [dados] = linhas(await this.db.execute(sql`select dados from mister_documento where id = ${d.id}::uuid`));
@@ -548,8 +566,12 @@ export class MisterDocumentosService implements OnModuleInit {
 
   // ───────────────────────────── a tela ("Documentos") ──────────────────────────
 
-  /** Os documentos da empresa no período (7, 30 ou 90 dias; os mais novos primeiro, até 200). Só o presidente (a rota). */
-  async listar(tenantId: string, diasPedidos?: unknown): Promise<{ dias: number; limite: number; documentos: DocumentoNaTela[] }> {
+  /**
+   * Os documentos da empresa no período (7, 30 ou 90 dias; os mais novos primeiro, até 200). Só o presidente (a rota).
+   * Rodada 7, MIS-F-09 (ERR-658): a loja de agora (`@UnidadeAtual()`), a mesma régua da tela do Financeiro, onde a conta
+   * lançada mora — o presidente preso a uma loja via, baixava e desfazia os boletos das outras.
+   */
+  async listar(tenantId: string, diasPedidos?: unknown, atual: string | null = null): Promise<{ dias: number; limite: number; documentos: DocumentoNaTela[] }> {
     const dias = DIAS_DA_LISTA.find((x) => String(x) === String(diasPedidos ?? '')) ?? 30;
     let lidas: any[] = [];
     try {
@@ -563,7 +585,7 @@ export class MisterDocumentosService implements OnModuleInit {
             left join colaborador c on c.id = d.colaborador_id and c.tenant_id = d.tenant_id
             left join fornecedor f on f.id = d.fornecedor_id and f.tenant_id = d.tenant_id
             left join titulo_financeiro t on t.id = d.titulo_id and t.tenant_id = d.tenant_id
-           where d.tenant_id = ${tenantId}::uuid and d.criado_em > now() - make_interval(days => ${dias})
+           where d.tenant_id = ${tenantId}::uuid and d.criado_em > now() - make_interval(days => ${dias}) ${sqlUnidade('d.unidade_id', atual)}
            order by d.criado_em desc
            limit ${LIMITE_DA_LISTA}`),
       );
@@ -615,7 +637,7 @@ export class MisterDocumentosService implements OnModuleInit {
    * isso é na tela de Contas a pagar.
    */
   async corrigirVencimento(
-    e: { tenantId: string; colaboradorId: string; nivel: string },
+    e: { tenantId: string; colaboradorId: string; nivel: string; presa?: string | null; lojaUnica?: boolean },
     boleto: unknown,
     vencimento: unknown,
   ): Promise<{ dados: Record<string, unknown>; botoes: { id: string; titulo: string }[] } | { erro: string }> {
@@ -629,6 +651,8 @@ export class MisterDocumentosService implements OnModuleInit {
       .split(/\s+/)
       .filter((w) => w.length >= 3 && !['boleto', 'conta', 'da', 'do', 'de'].includes(w));
     if (!palavras.length) return { erro: 'Diga de quem é o boleto (o nome que aparece nele).' };
+    // MIS-F-09: o presidente preso a uma loja corrige só os boletos dela (a régua das rotas: empresa de uma loja só = sem filtro).
+    const daLoja = e.lojaUnica ? null : (e.presa ?? null);
     const lancados = linhas(
       await this.db.execute(sql`
         select d.id::text as id, d.beneficiario, f.nome as fornecedor, d.vencimento::text as vencimento, d.valor_centavos as "valorCentavos",
@@ -636,7 +660,7 @@ export class MisterDocumentosService implements OnModuleInit {
           from mister_documento d
           join titulo_financeiro t on t.id = d.titulo_id and t.tenant_id = d.tenant_id and t.status = 'aberto'
           left join fornecedor f on f.id = d.fornecedor_id and f.tenant_id = d.tenant_id
-         where d.tenant_id = ${e.tenantId}::uuid and d.situacao = 'lancado' and d.tipo in ('boleto', 'conta')
+         where d.tenant_id = ${e.tenantId}::uuid and d.situacao = 'lancado' and d.tipo in ('boleto', 'conta') ${sqlUnidade('d.unidade_id', daLoja)}
          order by d.criado_em desc
          limit 200`),
     );
@@ -658,7 +682,7 @@ export class MisterDocumentosService implements OnModuleInit {
     const d = casam[0];
     if (d.vencimento === novo) return { erro: `O vencimento desse boleto já é ${dm(novo)}.` };
     const antes = String(d.vencimento ?? '');
-    await this.mudarVencimento(e.tenantId, e.colaboradorId, d.tituloId, novo);
+    await this.mudarVencimento(e.tenantId, e.colaboradorId, d.tituloId, novo, daLoja);
     await this.db.execute(sql`
       update mister_documento set vencimento = ${novo}::date, atualizado_em = clock_timestamp(),
              dados = coalesce(dados, '{}'::jsonb) || jsonb_build_object('correcao', jsonb_build_object('de', ${antes || null}::text, 'para', ${novo}::text))
@@ -681,7 +705,7 @@ export class MisterDocumentosService implements OnModuleInit {
   }
 
   /** A conta inteira pelo MESMO serviço da tela, só com o vencimento novo. */
-  private async mudarVencimento(tenantId: string, atorId: string, tituloId: string, vencimento: string): Promise<void> {
+  private async mudarVencimento(tenantId: string, atorId: string, tituloId: string, vencimento: string, atual: string | null = null): Promise<void> {
     const [t] = linhas(
       await this.db.execute(sql`
         select tipo, descricao, categoria, fornecedor_id::text as "fornecedorId", valor::text as valor, recorrencia, foto_ref as "fotoRef"
@@ -694,7 +718,7 @@ export class MisterDocumentosService implements OnModuleInit {
       'presidente',
       tituloId,
       { tipo: t.tipo, descricao: t.descricao, categoria: t.categoria ?? undefined, fornecedorId: t.fornecedorId ?? undefined, valor: t.valor, vencimento, recorrencia: t.recorrencia ?? undefined, fotoRef: t.fotoRef ?? undefined } as any,
-      null,
+      atual,
     );
   }
 
@@ -730,15 +754,21 @@ export class MisterDocumentosService implements OnModuleInit {
   }
 
   /** "Desfazer o lançamento" pela tela: o mesmo caminho do botão da conversa. Devolve o documento como a tela mostra. */
-  async desfazerPelaTela(tenantId: string, atorId: string, atorPerfil: string, documentoId: string): Promise<{ resultado: 'feito' | 'nao_da' | 'ja_respondido' }> {
+  async desfazerPelaTela(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    documentoId: string,
+    atual: string | null = null,
+  ): Promise<{ resultado: 'feito' | 'nao_da' | 'ja_respondido' }> {
     if (!UUID.test(String(documentoId ?? ''))) throw new NotFoundException('Documento não encontrado.');
-    const d = await this.documentoDoBotao(documentoId, [tenantId]);
+    const d = await this.documentoDoBotao(documentoId, [tenantId], atual);
     if (!d) throw new NotFoundException('Documento não encontrado.');
     // M6h: o cupom lançado como só despesa se desfaz pela tela também (a conta paga: o estorno e o cancelamento).
     const cupomDespesa = d.tipo === 'nota' && d.especie === 'cupom' && d.comoLancar === 'despesa';
     if (d.tipo === 'nota' && !cupomDespesa)
       throw new BadRequestException(`A nota entrou pelo ${d.peloPedido ? 'Estoque › Pedidos' : 'Estoque › Recebimento'}: o que mudar nela é por lá.`);
-    const r = cupomDespesa && this.notas ? await this.notas.desfazerCupom(d, atorId, atorPerfil) : await this.desfazer(d, atorId, atorPerfil);
+    const r = cupomDespesa && this.notas ? await this.notas.desfazerCupom(d, atorId, atorPerfil) : await this.desfazer(d, atorId, atorPerfil, atual);
     if (r === 'nao_da') throw new BadRequestException(FRASES_DO_DOCUMENTO.naoDaParaDesfazer);
     if (r === 'ja_respondido') throw new BadRequestException(d.situacao === 'desfeito' ? 'Este lançamento já foi desfeito.' : 'Este documento não foi lançado.');
     return { resultado: r };
@@ -748,7 +778,7 @@ export class MisterDocumentosService implements OnModuleInit {
    * O PDF do boleto lançado (4b): os dados do documento, da conta a pagar e do cadastro — nada da IA além do que já foi
    * conferido. Só do documento lançado (com a conta). Devolve o arquivo, o nome e a legenda, ou null.
    */
-  async pdf(tenantId: string, documentoId: string): Promise<{ pdf: Buffer; nome: string; legenda: string } | null> {
+  async pdf(tenantId: string, documentoId: string, atual: string | null = null): Promise<{ pdf: Buffer; nome: string; legenda: string } | null> {
     if (!UUID.test(String(documentoId ?? ''))) return null;
     const [l] = linhas(
       await this.db.execute(sql`
@@ -761,7 +791,7 @@ export class MisterDocumentosService implements OnModuleInit {
           left join fornecedor f on f.id = d.fornecedor_id and f.tenant_id = d.tenant_id
           left join titulo_financeiro t on t.id = d.titulo_id and t.tenant_id = d.tenant_id
          where d.id = ${documentoId}::uuid and d.tenant_id = ${tenantId}::uuid and d.situacao = 'lancado' and d.titulo_id is not null
-           and d.tipo in ('boleto', 'conta')`),
+           and d.tipo in ('boleto', 'conta') ${sqlUnidade('d.unidade_id', atual)}`),
     );
     if (!l) return null;
     const dados: PdfDoDocumento = {
@@ -820,10 +850,15 @@ export class MisterDocumentosService implements OnModuleInit {
    * Desfaz o lançamento: só o documento lançado, e só com a conta a pagar ainda em aberto — pelo MESMO cancelamento da
    * tela do Financeiro (que recusa a conta paga). Depois, a passagem condicional "lancado" → "desfeito".
    */
-  private async desfazer(d: { id: string; tenantId: string; situacao: string; tituloId: string | null }, atorId: string, atorPerfil: string): Promise<'feito' | 'nao_da' | 'ja_respondido'> {
+  private async desfazer(
+    d: { id: string; tenantId: string; situacao: string; tituloId: string | null },
+    atorId: string,
+    atorPerfil: string,
+    atual: string | null = null,
+  ): Promise<'feito' | 'nao_da' | 'ja_respondido'> {
     if (d.situacao !== 'lancado' || !d.tituloId) return 'ja_respondido';
     try {
-      await this.financeiro.cancelar(d.tenantId, atorId, atorPerfil, d.tituloId, null);
+      await this.financeiro.cancelar(d.tenantId, atorId, atorPerfil, d.tituloId, atual);
     } catch {
       return 'nao_da';
     }
@@ -840,14 +875,14 @@ export class MisterDocumentosService implements OnModuleInit {
    * O documento do botão, só entre as empresas de quem tocou. A situação lida aqui é só para a resposta: quem garante o
    * "uma vez" é a passagem condicional do `lancar` (e o teste segura duas leituras juntas para provar isso).
    */
-  protected async documentoDoBotao(documentoId: string, empresas: string[]): Promise<any | null> {
+  protected async documentoDoBotao(documentoId: string, empresas: string[], atual: string | null = null): Promise<any | null> {
     const [d] = linhas(
       await this.db.execute(sql`
         select id::text as id, tenant_id::text as "tenantId", unidade_id::text as "unidadeId", situacao, tipo, titulo_id::text as "tituloId",
                dados->'nota'->>'especie' as especie, dados->'nota'->>'comoLancar' as "comoLancar",
                dados->'nota'->'pedido'->>'resposta' = 'receber' as "peloPedido"
           from mister_documento
-         where id = ${documentoId}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)})`),
+         where id = ${documentoId}::uuid and tenant_id in (${sql.join(empresas.map((t) => sql`${t}::uuid`), sql`, `)}) ${sqlUnidade('unidade_id', atual)}`),
     );
     return d ?? null;
   }
@@ -857,14 +892,26 @@ export class MisterDocumentosService implements OnModuleInit {
    * repetido e o de outro aparelho não passam), depois a conta pelo serviço da tela. Se a conta for recusada, o documento
    * volta a "confirmar". Devolve o id da conta, ou null.
    */
-  private async lancar(documentoId: string, tenantId: string, colaboradorId: string, unidadeId: string | null): Promise<string | null> {
-    const [d] = linhas(
+  private async lancar(documentoId: string, tenantId: string, colaboradorId: string, unidadeId: string | null): Promise<string | null | typeof JA_LANCADO> {
+    let d: any;
+    try {
+      [d] = linhas(
+        await this.db.execute(sql`
+          update mister_documento set situacao = 'lancado', respondido_em = now(), atualizado_em = clock_timestamp()
+           where id = ${documentoId}::uuid and tenant_id = ${tenantId}::uuid and situacao = 'confirmar'
+          returning tipo, valor_centavos as "valorCentavos", vencimento::text as vencimento, beneficiario, fornecedor_id::text as "fornecedorId", dados ->> 'fotoRef' as "fotoRef"`),
+      );
+    } catch (e: any) {
+      // Rodada 7, MIS-F-08 (mig 518): o mesmo código de barras já está lançado nesta empresa — a cobrança chegou de novo em
+      // outra mensagem. O documento sai do caminho ("recusado · repetido") e nenhuma conta nasce.
+      if (e?.code !== '23505' && e?.cause?.code !== '23505') throw e;
       await this.db.execute(sql`
-        update mister_documento set situacao = 'lancado', respondido_em = now(), atualizado_em = clock_timestamp()
-         where id = ${documentoId}::uuid and tenant_id = ${tenantId}::uuid and situacao = 'confirmar'
-        returning tipo, valor_centavos as "valorCentavos", vencimento::text as vencimento, beneficiario, fornecedor_id::text as "fornecedorId", dados ->> 'fotoRef' as "fotoRef"`),
-    );
+        update mister_documento set situacao = 'recusado', motivo = 'repetido', respondido_em = now(), atualizado_em = clock_timestamp()
+         where id = ${documentoId}::uuid and tenant_id = ${tenantId}::uuid and situacao = 'confirmar'`);
+      return JA_LANCADO;
+    }
     if (!d || d.valorCentavos == null) return null;
+    let criada: string | null = null;
     try {
       const t: any = await this.financeiro.criar(
         tenantId,
@@ -882,10 +929,20 @@ export class MisterDocumentosService implements OnModuleInit {
         unidadeId,
         { origem: 'mister' },
       );
+      criada = t.id;
       await this.db.execute(sql`update mister_documento set titulo_id = ${t.id}::uuid, atualizado_em = clock_timestamp() where id = ${documentoId}::uuid`);
       await this.auditar(tenantId, colaboradorId, 'mister_documento_lancado', documentoId, { titulo: t.id, valor: Number(d.valorCentavos) / 100 });
       return t.id;
     } catch (e: any) {
+      // MIS-F-08: a conta JÁ nasceu e só a ligação falhou — o documento fica "lancado" (voltar a "confirmar" deixava um novo
+      // "Lançar" criar a segunda conta); a ligação é tentada mais uma vez e o erro fica no log.
+      if (criada) {
+        this.logger.error(`documento ${documentoId}: a conta ${criada} nasceu, mas a ligação ao documento falhou — ${e?.message ?? e}`, e?.stack);
+        await this.db
+          .execute(sql`update mister_documento set titulo_id = ${criada}::uuid, atualizado_em = clock_timestamp() where id = ${documentoId}::uuid and titulo_id is null`)
+          .catch(() => undefined);
+        return criada;
+      }
       this.logger.warn(`documento ${documentoId}: a conta a pagar foi recusada — ${e?.message ?? e}`);
       await this.db.execute(sql`update mister_documento set situacao = 'confirmar', respondido_em = null where id = ${documentoId}::uuid and situacao = 'lancado' and titulo_id is null`);
       return null;
@@ -914,14 +971,19 @@ export class MisterDocumentosService implements OnModuleInit {
   }
 
   /** O fornecedor cadastrado do beneficiário: pelo CNPJ, ou pelo nome igual (sem caixa e sem espaços a mais). */
-  private async fornecedorDe(tenantId: string, cnpj: string | null, nome: string | null): Promise<string | null> {
+  private async fornecedorDe(
+    tenantId: string,
+    cnpj: string | null,
+    nome: string | null,
+  ): Promise<{ id: string; como: 'cnpj' | 'nome' | 'cnpj_diferente' } | null> {
     const doc = String(cnpj ?? '').replace(/\D/g, '') || null;
     const nomeLimpo = String(nome ?? '').trim().replace(/\s+/g, ' ').toLowerCase() || null;
     if (!doc && !nomeLimpo) return null;
     // No `sql` do Drizzle a barra vai dobrada ('\\D'), senão o Postgres recebe 'D'.
     const [f] = linhas(
       await this.db.execute(sql`
-        select id::text as id, (regexp_replace(coalesce(cnpj, ''), '\\D', '', 'g') = ${doc ?? ''}) as "peloCnpj"
+        select id::text as id, (regexp_replace(coalesce(cnpj, ''), '\\D', '', 'g') = ${doc ?? ''}) as "peloCnpj",
+               regexp_replace(coalesce(cnpj, ''), '\\D', '', 'g') as "cnpjCadastrado"
           from fornecedor
          where tenant_id = ${tenantId}::uuid and deleted_at is null
            and ((${doc}::text is not null and regexp_replace(coalesce(cnpj, ''), '\\D', '', 'g') = ${doc}::text)
@@ -929,7 +991,11 @@ export class MisterDocumentosService implements OnModuleInit {
          order by 2 desc, created_at
          limit 1`),
     );
-    return f?.id ?? null;
+    if (!f) return null;
+    if (doc && f.peloCnpj) return { id: f.id, como: 'cnpj' };
+    // Achado pelo nome: o CNPJ lido que não é o do cadastro é sinal de outro recebedor; sem um dos dois, não há o que conferir.
+    if (doc && f.cnpjCadastrado && f.cnpjCadastrado !== doc) return { id: f.id, como: 'cnpj_diferente' };
+    return { id: f.id, como: 'nome' };
   }
 
   private async falar(telefone: string, resposta: Resposta): Promise<void> {

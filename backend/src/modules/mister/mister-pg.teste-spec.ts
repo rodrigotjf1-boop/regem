@@ -270,8 +270,8 @@ class IaDeMentira extends IaEmpresaService {
 class DocumentosDeTeste extends MisterDocumentosService {
   juntar = 0;
   private esperando: Array<() => void> = [];
-  protected async documentoDoBotao(documentoId: string, empresas: string[]) {
-    const d = await super.documentoDoBotao(documentoId, empresas);
+  protected async documentoDoBotao(documentoId: string, empresas: string[], atual: string | null = null) {
+    const d = await super.documentoDoBotao(documentoId, empresas, atual);
     if (this.juntar > 1)
       await new Promise<void>((solta) => {
         this.esperando.push(solta);
@@ -537,7 +537,7 @@ export function testesDoMisterComPostgres(): void {
     beforeAll(async () => {
       // A 415, a 417 e a 418 são só da nuvem: o banco do CI é o de uma loja (ERR-273). Duas vezes: as migrations são idempotentes.
       for (let i = 0; i < 2; i++)
-        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '501_mister_ligar_pela_ia.sql', '502_mister_ia_forte_nas_tarefas.sql', '503_mister_modelos_de_compra.sql', '506_mister_respostas_escritas.sql', '507_mister_pin_falado.sql', '508_mister_aprendizado.sql', '509_mister_imagem_na_conversa.sql', '516_mister_senha_do_codigo.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
+        for (const arq of ['415_ia_por_empresa.sql', '417_mister_numero_e_entrada.sql', '418_mister_perguntas.sql', '419_mister_avisos.sql', '420_mister_relatorios.sql', '424_mister_avaliacao.sql', '428_mister_proposta.sql', '432_mister_melhoria_decisao.sql', '433_mister_proposta_link.sql', '372_pedido_estorno.sql', '434_mister_analise.sql', '435_mister_instrucao_troca.sql', '436_mister_numero_provedor.sql', '437_mister_numero_qr.sql', '439_mister_documento.sql', '440_mister_conversa_config.sql', '441_mister_nota.sql', '443_mister_link_publico.sql', '444_mister_recado.sql', '445_whatsapp_gasto.sql', '446_mister_aviso_valores.sql', '447_mister_jeito.sql', '448_whatsapp_gasto_fonte.sql', '449_mister_memoria.sql', '451_whatsapp_gasto_modelos_erro.sql', '452_mister_vigia.sql', '462_mister_resumo_em_arquivo.sql', '468_mister_desligamento.sql', '472_mister_regra.sql', '473_sessao_corte.sql', '475_mister_lista_compra.sql', '476_mister_sessao_pin.sql', '414_vigia_incidente.sql', '478_mister_padrao.sql', '484_mister_aparelho.sql', '490_mister_analises.sql', '491_mister_padrao_descarte.sql', '492_mister_dado_informado.sql', '493_mister_voz_com_emocao.sql', '495_mister_lista_lida.sql', '496_mister_boletim_do_ramo.sql', '498_mister_linha_amanha.sql', '499_banco_e_repasses.sql', '501_mister_ligar_pela_ia.sql', '502_mister_ia_forte_nas_tarefas.sql', '503_mister_modelos_de_compra.sql', '506_mister_respostas_escritas.sql', '507_mister_pin_falado.sql', '508_mister_aprendizado.sql', '509_mister_imagem_na_conversa.sql', '516_mister_senha_do_codigo.sql', '518_mister_documento_codigo_unico.sql', '195_campanhas.sql', '198_campanha_instancia_tipo.sql', '226_campanha_marketing.sql', '227_whatsapp_template.sql', '228_campanha_ab_cliques.sql', '477_campanha_premio_surpresa.sql', '480_campanha_hora_habitual.sql'])
           await repetirNaCorridaDeCatalogo(async () => {
             const c = await pool.connect();
             try {
@@ -7855,6 +7855,22 @@ export function testesDoMisterComPostgres(): void {
         expect(linha).toEqual({ tipo: 'resumo', quem: pessoa.ana });
         expect((await links.pdf(codigo)).pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
 
+        // ERR-658 (rodada 7, MIS-F-10): a cada abertura, o acesso de AGORA de quem emitiu. Presa a outra loja (a do link não é
+        // mais dela, ou o link é de "todas"): o mesmo 404; de volta, abre de novo.
+        links.registrarEscopo((t, c) => ferramentas.escopoDaTela(t, c));
+        expect((await links.ver(codigo)).tipo).toBe('resumo');
+        const [{ loja: lojaDaAna }] = await q(`select unidade_id::text as loja from colaborador where id = $1`, [pessoa.ana]);
+        const [{ id: praiaF10 }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja Praia F10') returning id::text as id`, [A]);
+        try {
+          await q(`update colaborador set unidade_id = $2 where id = $1`, [pessoa.ana, praiaF10]);
+          await expect(links.ver(codigo)).rejects.toMatchObject({ status: 404, message: TEXTOS_DO_LINK_PUBLICO.naoVale });
+          await expect(links.pdf(codigo)).rejects.toMatchObject({ status: 404 });
+        } finally {
+          await q(`update colaborador set unidade_id = $2 where id = $1`, [pessoa.ana, lojaDaAna]);
+          await q(`delete from unidade where id = $1`, [praiaF10]);
+        }
+        expect((await links.ver(codigo)).tipo).toBe('resumo');
+
         // 5. Outra pessoa (o Carlos, da mesma empresa) tocando no botão da Ana: não é dele.
         numero.pedidos.length = 0;
         expect(await mandar(telCarlos, '📄 PDF', { botaoId: `rsm:pdf:${vez.id}` })).toBe('respondeu_proposta');
@@ -7901,6 +7917,8 @@ export function testesDoMisterComPostgres(): void {
       /** R$ 1.284,90, vence 25/11/2026 (boleto bancário feito à mão, os mesmos vetores do `common/boleto.spec.ts`). */
       const LINHA_DO_BOLETO = '00191234546789012345767890123457716410000128490';
       const CODIGO_DO_BOLETO = '00197164100001284901234567890123456789012345';
+      /** Rodada 7, MIS-F-08: OUTRO boleto do mesmo valor e vencimento (outro campo livre; os dígitos pelas mesmas regras). */
+      const LINHA_DO_BOLETO_2 = '00199876504321098765743210987657816410000128490';
       /** R$ 480,00 (arrecadação, segmento 3): o vencimento não está no código. */
       const LINHA_DA_CONTA = '836400000045800001234569789012345672890123456786';
       const CNPJ = '12345678000195';
@@ -7987,6 +8005,45 @@ export function testesDoMisterComPostgres(): void {
         expect(await titulos()).toHaveLength(1);
       });
 
+      it('ERR-658 (rodada 7, MIS-F-08): o mesmo boleto em outra mensagem (a foto e depois o PDF, um encaminhamento) não vira a segunda conta', async () => {
+        const mesmo = () => leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' });
+        ia.roteiro = [mesmo()];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        numero.pedidos.length = 0;
+        ia.roteiro = [mesmo()];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        expect(numero.enviadas.map((m) => m.texto)).toEqual([FRASES_DO_DOCUMENTO.jaNasContas]);
+        expect(await titulos()).toHaveLength(1);
+        expect((await docs()).map((d) => [d.situacao, d.motivo])).toEqual([
+          ['lancado', 'sozinho'],
+          ['recusado', 'repetido'],
+        ]);
+        // Desfeito, o mesmo boleto pode entrar de novo (o desfeito sai do índice).
+        const [primeiro] = await docs();
+        expect(await tocar(telAna, `doc:desfazer:${primeiro.id}`)).toBe('respondeu_proposta');
+        numero.pedidos.length = 0;
+        ia.roteiro = [mesmo()];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        expect(numero.enviadas[0].texto).toContain('Lancei nas contas a pagar');
+        expect((await titulos()).map((t) => t.status).sort()).toEqual(['aberto', 'cancelado']);
+        // As duas mensagens AO MESMO TEMPO: uma conta só.
+        await q(`delete from titulo_financeiro where tenant_id = $1`, [A]);
+        await q(`delete from mister_documento where tenant_id = $1`, [A]);
+        ia.roteiro = [mesmo(), mesmo()];
+        await Promise.all([foto(telAna, novaMidia()), foto(telAna, novaMidia())]);
+        expect(await titulos()).toHaveLength(1);
+        expect((await docs()).filter((d) => d.situacao === 'lancado')).toHaveLength(1);
+      });
+
+      it('ERR-658 (rodada 7, MIS-F-06): o nome do fornecedor com OUTRO CNPJ não lança sozinho nem liga o fornecedor', async () => {
+        ia.roteiro = [leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'Distribuidora Carne Boa', cnpj: '11222333000181', valor: '1.284,90', vencimento: '2026-11-25' })];
+        expect(await foto(telAna, novaMidia())).toBe('documento');
+        expect(await titulos()).toEqual([]);
+        const [d] = await docs();
+        expect(d).toMatchObject({ situacao: 'confirmar', motivo: 'cnpj_diferente', fornecedor_id: null });
+        expect(numero.enviadas.slice(-1)[0].texto).toContain('confira quem recebe antes');
+      });
+
       // 27/11/2026 (pedido do dono): a foto do boleto fica guardada na conta a pagar que o Mister lança. Sem a mídia, a conta
       // entra sem a foto, como antes.
       it('a foto do boleto vai para a conta a pagar (foto_ref); sem a mídia, a conta entra sem a foto', async () => {
@@ -8016,6 +8073,28 @@ export function testesDoMisterComPostgres(): void {
           expect(d2.situacao).toBe('lancado');
           expect(d2.dados.fotoRef).toBeUndefined();
         } finally {
+          (documentos as any).midia = undefined;
+          await q(`delete from mister_documento where tenant_id = $1`, [A]);
+        }
+      });
+
+      it('ERR-658 (rodada 7, MIS-F-02): a foto da nota só é guardada depois que a leitura vale; recusada, nada sobe', async () => {
+        const guardadas: string[] = [];
+        (documentos as any).midia = {
+          uploadBuffer: async (tenantId: string) => {
+            guardadas.push(tenantId);
+            return { url: `https://midia.teste/${tenantId}/nota.jpg` };
+          },
+        };
+        process.env.MISTER_NOTAS = '1';
+        try {
+          // A primeira leitura diz "nota"; a segunda (os itens) volta fora do formato: a nota é recusada e a foto não sobe.
+          ia.roteiro = [leitura({ tipo: 'nota' }), falar('isto não é a leitura de uma nota')];
+          expect(await foto(telAna, novaMidia())).toBe('documento');
+          expect((await docs()).map((d) => [d.situacao, d.motivo])).toEqual([['recusado', 'leitura_fora_do_formato']]);
+          expect(guardadas).toEqual([]);
+        } finally {
+          delete process.env.MISTER_NOTAS;
           (documentos as any).midia = undefined;
           await q(`delete from mister_documento where tenant_id = $1`, [A]);
         }
@@ -8746,10 +8825,14 @@ export function testesDoMisterComPostgres(): void {
         expect((await docs())[2]).toMatchObject({ situacao: 'falta', motivo: 'valor' });
         expect(await titulos()).toEqual([]);
 
-        // Sem o CNPJ, o fornecedor é achado pelo nome igual (sem caixa e sem os espaços a mais): lança sozinho.
+        // Sem o CNPJ, o fornecedor é achado pelo nome igual (sem caixa e sem os espaços a mais) e fica ligado — mas, desde a
+        // rodada 7 (MIS-F-06, ERR-658), o nome sozinho não garante quem recebe: pergunta antes de lançar.
         ia.roteiro = [leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: '  distribuidora   CARNE boa ', valor: '1.284,90', vencimento: '2026-11-25' })];
         expect(await foto(telAna, novaMidia())).toBe('documento');
-        expect((await docs())[3]).toMatchObject({ situacao: 'lancado', fornecedor_id: fornecedorDeA });
+        expect((await docs())[3]).toMatchObject({ situacao: 'confirmar', motivo: 'pelo_nome', fornecedor_id: fornecedorDeA });
+        expect(await titulos()).toEqual([]);
+        numero.pedidos.length = 0;
+        expect(await tocar(telAna, `doc:lancar:${(await docs())[3].id}`)).toBe('respondeu_proposta');
         expect(await titulos()).toMatchObject([{ fornecedor_id: fornecedorDeA, status: 'aberto' }]);
       });
 
@@ -9063,7 +9146,8 @@ export function testesDoMisterComPostgres(): void {
       it('a parte "Documentos": a situação pela conta (pago, cancelado), quem mandou e o "Desfazer" pela tela — só da empresa e só com a conta em aberto', async () => {
         ia.roteiro = [
           leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' }),
-          leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' }),
+          // MIS-F-08: dois boletos do mesmo fornecedor e valor são cobranças DIFERENTES só com códigos diferentes.
+          leitura({ linhaDigitavel: LINHA_DO_BOLETO_2, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25' }),
           leitura({ tipo: 'conta', linhaDigitavel: LINHA_DA_CONTA, beneficiario: 'Light', valor: '480,00', vencimento: '2026-11-28' }),
         ];
         expect(await foto(telAna, novaMidia())).toBe('documento');
@@ -9085,6 +9169,30 @@ export function testesDoMisterComPostgres(): void {
         // O período fora do pedido vira o padrão; a outra empresa não vê nada.
         expect((await documentos.listar(A, '9999')).dias).toBe(30);
         expect((await documentos.listar(B, '90')).documentos).toEqual([]);
+
+        // ERR-658 (rodada 7, MIS-F-09): o presidente preso a uma loja vê, baixa e desfaz só os documentos DELA (a régua da
+        // tela do Financeiro); pela conversa, só corrige o vencimento dos boletos dela.
+        const [{ id: praia }] = await q(`insert into unidade (tenant_id, nome) values ($1, 'Loja Praia F09') returning id::text as id`, [A]);
+        const [{ loja: lojaDoSegundo }] = await q(`select unidade_id::text as loja from mister_documento where id = $1`, [segundo.id]);
+        const tituloDe = `(select titulo_id from mister_documento where id = $1)`;
+        try {
+          await q(`update mister_documento set unidade_id = $2 where id = $1`, [segundo.id, praia]);
+          await q(`update titulo_financeiro set unidade_id = $2 where id = ${tituloDe}`, [segundo.id, praia]);
+          expect((await documentos.listar(A, '30', lojaDeA)).documentos.map((x) => x.id)).not.toContain(segundo.id);
+          expect((await documentos.listar(A, '30', praia)).documentos.map((x) => x.id)).toEqual([segundo.id]);
+          expect((await documentos.listar(A, '30', null)).documentos.map((x) => x.id)).toContain(segundo.id);
+          expect(await documentos.pdf(A, segundo.id, lojaDeA)).toBeNull();
+          await expect(documentos.desfazerPelaTela(A, pessoa.ana, 'presidente', segundo.id, lojaDeA)).rejects.toBeInstanceOf(NotFoundException);
+          expect((await q(`select situacao from mister_documento where id = $1`, [segundo.id]))[0].situacao).toBe('lancado');
+          const presaNoCentro = { tenantId: A, colaboradorId: pessoa.ana, nivel: 'presidente', presa: lojaDeA, lojaUnica: false };
+          expect(await documentos.corrigirVencimento(presaNoCentro, 'Distribuidora Carne Boa', somarDias(hojeISO(), 10))).toEqual({
+            erro: 'Não achei boleto lançado pelo Mister, ainda em aberto, com esse nome.',
+          });
+        } finally {
+          await q(`update titulo_financeiro set unidade_id = $2 where id = ${tituloDe}`, [segundo.id, lojaDoSegundo]);
+          await q(`update mister_documento set unidade_id = $2 where id = $1`, [segundo.id, lojaDoSegundo]);
+          await q(`delete from unidade where id = $1`, [praia]);
+        }
 
         // Desfazer pela tela: o lançado em aberto sai; o pago não; o da outra empresa não existe para ela.
         await expect(documentos.desfazerPelaTela(B, pessoa.anaB, 'presidente', segundo.id)).rejects.toBeInstanceOf(NotFoundException);
@@ -9263,13 +9371,14 @@ export function testesDoMisterComPostgres(): void {
 
       it('o Pix impresso no boleto (4b): fica com o documento e vai na mensagem seguinte do aviso; com o valor de outra cobrança, cai', async () => {
         const pixDe = (valor: string) => {
-          const corpo = `00020126580014br.gov.bcb.pix0136123e4567-e12b-12d1-a456-42665544000052040000530398654${String(valor.length).padStart(2, '0')}${valor}5802BR5913Fulano de Tal6008BRASILIA62070503***6304`;
+          // O recebedor (campo 59) é o beneficiário do boleto: o Pix de outra pessoa cai (MIS-F-07).
+          const corpo = `00020126580014br.gov.bcb.pix0136123e4567-e12b-12d1-a456-42665544000052040000530398654${String(valor.length).padStart(2, '0')}${valor}5802BR5914CARNE BOA LTDA6008BRASILIA62070503***6304`;
           return corpo + crc16Pix(corpo);
         };
         const PIX = pixDe('1284.90');
         ia.roteiro = [
           leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25', pixCopiaECola: PIX }),
-          leitura({ linhaDigitavel: LINHA_DO_BOLETO, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25', pixCopiaECola: pixDe('99.00') }),
+          leitura({ linhaDigitavel: LINHA_DO_BOLETO_2, beneficiario: 'DISTRIBUIDORA CARNE BOA LTDA', cnpj: CNPJ, valor: '1.284,90', vencimento: '2026-11-25', pixCopiaECola: pixDe('99.00') }),
         ];
         expect(await foto(telAna, novaMidia())).toBe('documento');
         expect(await foto(telAna, novaMidia())).toBe('documento');
@@ -9283,7 +9392,7 @@ export function testesDoMisterComPostgres(): void {
           numero.pedidos.length = 0;
           await avisos.volta([A], new Date('2026-11-22T12:00:00Z'));
           expect(numero.enviadas.map((m) => m.para)).toEqual([telAna, telAna]);
-          expect(numero.enviadas[0].texto).toContain('Este boleto tem Pix: o copia e cola vem na próxima mensagem.');
+          expect(numero.enviadas[0].texto).toContain('Este boleto tem Pix: o copia e cola vem na próxima mensagem. Pix para: CARNE BOA LTDA · BRASILIA.');
           expect(numero.enviadas[1]).toEqual({ para: telAna, texto: PIX, botoes: [] });
           // No PDF também (o arquivo sai maior que o mesmo boleto sem o Pix).
           const com = (await documentos.pdf(A, comPix.id))!;

@@ -6,6 +6,8 @@ import {
   diaComSemana,
   lerLeituraDaFoto,
   lerRespostaDoQueFaltou,
+  pixDoBeneficiario,
+  recebedorDoPix,
 } from './documento-por-foto';
 import { crc16Pix } from './boleto';
 
@@ -91,6 +93,15 @@ describe('a decisão', () => {
   it('fornecedor novo: confirma antes', () => {
     expect(decidirDocumento(leitura({ linhaDigitavel: BANCARIO }), false, 'sozinho', HOJE)).toMatchObject({ acao: 'confirmar', porque: 'fornecedor_novo' });
   });
+  it('ERR-658 (rodada 7, MIS-F-06): só o fornecedor achado pelo CNPJ lança sozinho; pelo nome ou com o CNPJ diferente, confirma', () => {
+    expect(decidirDocumento(leitura({ linhaDigitavel: BANCARIO }), 'cnpj', 'sozinho', HOJE)).toMatchObject({ acao: 'lancar' });
+    const peloNome = decidirDocumento(leitura({ linhaDigitavel: BANCARIO, beneficiario: 'Ambev' }), 'nome', 'sozinho', HOJE) as any;
+    expect(peloNome).toMatchObject({ acao: 'confirmar', porque: 'pelo_nome' });
+    expect(FRASES_DO_DOCUMENTO.confirmar(peloNome.dados, 'pelo_nome')).toContain('pelo nome, sem o CNPJ para conferir');
+    const outro = decidirDocumento(leitura({ linhaDigitavel: BANCARIO, beneficiario: 'Ambev' }), 'cnpj_diferente', 'sozinho', HOJE) as any;
+    expect(outro).toMatchObject({ acao: 'confirmar', porque: 'cnpj_diferente' });
+    expect(FRASES_DO_DOCUMENTO.confirmar(outro.dados, 'cnpj_diferente')).toContain('confira quem recebe antes');
+  });
   it('a empresa no modo "pergunta antes": confirma mesmo com tudo certo', () => {
     expect(decidirDocumento(leitura({ linhaDigitavel: BANCARIO }), true, 'perguntar', HOJE)).toMatchObject({ acao: 'confirmar', porque: 'modo' });
   });
@@ -122,11 +133,24 @@ describe('a decisão', () => {
     expect(decidirDocumento(leitura({ legivel: false, valorCentavos: 48000, vencimento: '2026-11-30' }), true, 'sozinho', HOJE)).toEqual({ acao: 'outra_foto', porque: 'ilegivel' });
   });
   it('o Pix impresso vai junto quando o valor bate (ou ele não tem valor); com outro valor, cai', () => {
-    const decide = (pix: string) => decidirDocumento(leitura({ linhaDigitavel: BANCARIO, pix }), true, 'sozinho', HOJE) as any;
+    // O recebedor dos Pix de teste é "Fulano de Tal": o beneficiário lido é o mesmo (MIS-F-07).
+    const decide = (pix: string) => decidirDocumento(leitura({ linhaDigitavel: BANCARIO, pix, beneficiario: 'FULANO DE TAL COMERCIO LTDA' }), true, 'sozinho', HOJE) as any;
     expect(decide(pixComValor('1284.90')).dados.pix).toBe(pixComValor('1284.90'));
     expect(decide(PIX_SEM_VALOR).dados.pix).toBe(PIX_SEM_VALOR);
     expect(decide(pixComValor('99.00')).dados.pix).toBeNull();
     expect((decidirDocumento(leitura({ linhaDigitavel: BANCARIO }), true, 'sozinho', HOJE) as any).dados.pix).toBeNull();
+    expect(recebedorDoPix(PIX_SEM_VALOR)).toBe('Fulano de Tal · BRASILIA');
+  });
+  it('ERR-658 (rodada 7, MIS-F-07): o Pix de OUTRO recebedor cai, mesmo com o CRC e o valor certos', () => {
+    // O beneficiário do boleto é "Distribuidora Sabor Ltda."; o Pix vai para "Fulano de Tal".
+    expect((decidirDocumento(leitura({ linhaDigitavel: BANCARIO, pix: pixComValor('1284.90') }), true, 'sozinho', HOJE) as any).dados.pix).toBeNull();
+    // Só a forma da empresa em comum ("LTDA") não identifica ninguém.
+    expect(pixDoBeneficiario({ nome: 'FULANO LTDA', chave: null }, 'DISTRIBUIDORA SABOR LTDA', null)).toBe(false);
+    expect(pixDoBeneficiario({ nome: 'DISTRIB SABOR', chave: null }, 'DISTRIBUIDORA SABOR LTDA', null)).toBe(true);
+    // A chave CPF/CNPJ que não é o CNPJ do boleto: outro recebedor, mesmo com o nome parecido.
+    expect(pixDoBeneficiario({ nome: 'SABOR', chave: '11222333000181' }, 'DISTRIBUIDORA SABOR LTDA', '12.345.678/0001-95')).toBe(false);
+    expect(pixDoBeneficiario({ nome: 'SABOR', chave: '12345678000195' }, 'DISTRIBUIDORA SABOR LTDA', '12.345.678/0001-95')).toBe(true);
+    expect(pixDoBeneficiario({ nome: 'SABOR', chave: 'financeiro@sabor.com.br' }, 'DISTRIBUIDORA SABOR LTDA', '12345678000195')).toBe(true);
   });
   it('nota do fornecedor e outra imagem', () => {
     expect(decidirDocumento(leitura({ tipo: 'nota' }), true, 'sozinho', HOJE)).toEqual({ acao: 'nota' });
