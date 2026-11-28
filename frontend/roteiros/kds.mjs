@@ -580,8 +580,9 @@ export default async function roteiroKds({ nav, base, ok, foto, larguras, rapido
 
   // ── 4b. CLIENTE ALTERANDO (mig 517): a faixa e o que ele quer, o "Pronto" parado, o rodapé "Pausado"; a trava acaba e o
   //       cartão volta ao normal (o "Pronto" anda), sem o rodapé ──
-  Object.assign(S, { pedidos: [...pedidosIniciais(), pedidoTravado()], pausas: [], semSocket: false, nuvem: false, filaFalha: false, vistos: [] });
   for (const tema of ['claro', 'escuro']) {
+    // a fila de novo a cada tema: o claro termina a trava no fim (o "fim da trava" abaixo)
+    Object.assign(S, { pedidos: [...pedidosIniciais(), pedidoTravado()], pausas: [], semSocket: false, nuvem: false, filaFalha: false, vistos: [] });
     const { ctx, page, erros } = await abrir({ w: 1280, h: 900, tema });
     const c246 = page.locator('[data-kds-cartao="d246"]');
     await c246.waitFor({ timeout: 15000 });
