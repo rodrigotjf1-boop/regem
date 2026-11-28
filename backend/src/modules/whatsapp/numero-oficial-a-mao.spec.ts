@@ -79,6 +79,19 @@ describe('WhatsappCloudService.conectarNumeroExistente — número já na oficia
     expect(pedidos.some((p) => p.url.includes('subscribed_apps'))).toBe(false);
   });
 
+  // ERR-649 (rodada 7 de segurança, MIS-A-01): só o cadastro pela Meta recusava o número do Mister; o cadastro à mão (e a troca
+  // de provedor, pela mesma `recusarNumeroDoMister`) gravava.
+  it('ERR-649: o número do Mister não entra pelo cadastro à mão — recusa antes de falar com a Meta', async () => {
+    const { pedidos } = fetchFalso(metaOk);
+    const db: any = { select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }) };
+    const mister: any = { ehONumeroDoMister: async (p: string) => p === PHONE };
+    const svc = new WhatsappCloudService(db, undefined, undefined, mister);
+    await expect(svc.conectarNumeroExistente('tenant-1', 'principal', PHONE, WABA)).rejects.toThrow('é o do Mister');
+    await expect(svc.recusarNumeroDoMister(PHONE)).rejects.toThrow('é o do Mister');
+    await expect(svc.recusarNumeroDoMister('999999999')).resolves.toBeUndefined();
+    expect(pedidos).toEqual([]);
+  });
+
   it('confere o número, confere que é da conta e inscreve o nosso app nela', async () => {
     const { pedidos } = fetchFalso(metaOk);
     const r = await cloudCom().conectarNumeroExistente('tenant-1', 'principal', PHONE, WABA);

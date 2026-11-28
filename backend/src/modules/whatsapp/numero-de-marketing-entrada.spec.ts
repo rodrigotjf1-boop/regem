@@ -119,6 +119,19 @@ describe('o número de marketing na API oficial', () => {
     expect([saida.mock.calls.length, textos.length, db.gravadas.length, robo.length]).toEqual([0, 0, 0, 0]);
   });
 
+  // ERR-649 (rodada 7 de segurança, MIS-A-01): o webhook procurava a loja primeiro; com o identificador do Mister no cadastro de
+  // uma loja, as mensagens dele (os códigos de ligar de outras empresas) iam para a caixa dela.
+  it('ERR-649: o número do Mister vem antes da loja — mesmo no cadastro de uma loja, nada vai à caixa dela nem ao robô', async () => {
+    const { svc, db, robo } = montar();
+    const aoMister: string[] = [];
+    (svc as any).mister = { ehONumeroDoMister: async (p: string) => p === MKT, receberDaMeta: async (p: string) => (aoMister.push(p), true) };
+    (svc as any).lojaPorPhoneId = async () => ({ tenantId: 'loja-com-cadastro-errado', provedor: 'cloud' });
+    await svc.processar(evento('MISTER 123456', 'wamid.M1'));
+    expect(aoMister).toEqual([MKT]);
+    expect(db.gravadas).toEqual([]);
+    expect(robo).toEqual([]);
+  });
+
   it('número que não é principal nem de marketing de ninguém segue "não vinculado": nada acontece', async () => {
     const saida = jest.spyOn(consentimento, 'registrarSaida');
     const { svc, textos } = montar();

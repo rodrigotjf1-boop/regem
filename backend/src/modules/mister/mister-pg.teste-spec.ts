@@ -7087,6 +7087,10 @@ export function testesDoMisterComPostgres(): void {
         // ── A troca: a volta para a oficial pede a oficial conectada; a ida para o QR, o celular conectado.
         await qr.trocar({ para: 'oficial' });
         expect((await doEvolution.ler()).provedor).toBe('oficial');
+        // ERR-649 (rodada 7, MIS-A-05): a reconexão sozinha do celular ainda pareado (a Evolution reiniciou) não desfaz a escolha
+        // da API oficial feita no console — antes, qualquer "open" trocava a forma para o QR.
+        await conexao(inst, { state: 'open', wuid: '5521988887777@s.whatsapp.net' });
+        expect((await doEvolution.ler()).provedor).toBe('oficial');
         await expect(qr.trocar({ para: 'outra' })).rejects.toBeInstanceOf(BadRequestException);
         expect((await qr.trocar({ para: 'qr' })).provedor).toBe('evolution');
         expect(await esperarAnuncios(3)).toHaveLength(2); // o mesmo número: nada de anúncio
