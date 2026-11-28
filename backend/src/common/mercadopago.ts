@@ -45,6 +45,18 @@ export type PixCriado = {
   ticketUrl: string | null; // link de pagamento (fallback)
 };
 
+// O Mercado Pago só garante o Pix com vencimento de 30 minutos a 30 dias depois de criado (doc oficial do Checkout API,
+// "Integrar Pix"). Abaixo disso ele ACEITA a data, mas a cobrança deixa de receber antes do horário: o Pix de 5 min do
+// adicional (pedido 77, 27/11/2026) foi recusado no Itaú e no Nubank com 1 minuto de vida — "o banco recebedor está com
+// problema" (ERR-653). Por isso o MP recebe sempre o mínimo dele com 1 minuto de folga; o PRAZO do Regem (10 min do
+// pedido e do adicional) vale pelas rotinas, que cancelam a cobrança no MP quando ele acaba (`cancelarPagamentoMP`).
+export const MINIMO_DO_VENCIMENTO_NO_MP_MS = 31 * 60_000;
+
+/** O vencimento que vai ao Mercado Pago: o pedido, ou o mínimo do MP (com folga) se o pedido for mais curto. */
+export function vencimentoNoMP(expiraEm: Date, agora = Date.now()): Date {
+  return new Date(Math.max(expiraEm.getTime(), agora + MINIMO_DO_VENCIMENTO_NO_MP_MS));
+}
+
 // Cria um pagamento PIX. `valor` em reais. `idempotencia` evita cobrança dupla.
 export async function criarPixMP(
   token: string,
@@ -56,7 +68,7 @@ export async function criarPixMP(
     referenciaExterna: string; // = pedidoId (correlação)
     notificationUrl?: string;
     idempotencia: string;
-    expiraEm?: Date; // date_of_expiration: o MP recusa pagamento após esse instante
+    expiraEm?: Date; // o prazo do Regem; o date_of_expiration sai pelo `vencimentoNoMP` (nunca abaixo do mínimo do MP)
   },
 ): Promise<PixCriado> {
   // O MP valida o formato do e-mail do pagador (rejeita TLD .local, vazio, etc.).
@@ -76,7 +88,7 @@ export async function criarPixMP(
       first_name: dados.nome || 'Cliente',
     },
   };
-  if (dados.expiraEm) body.date_of_expiration = isoOffset(dados.expiraEm);
+  if (dados.expiraEm) body.date_of_expiration = isoOffset(vencimentoNoMP(dados.expiraEm));
   const postar = (b: Record<string, unknown>) =>
     fetch(`${API}/v1/payments`, {
       method: 'POST',
@@ -91,8 +103,8 @@ export async function criarPixMP(
   let res: Response;
   try {
     res = await postar(body);
-    // Se o MP recusar E havia date_of_expiration, tenta SEM ela (o mínimo de expiração
-    // do MP varia) — não vale quebrar o PIX por causa disso; o cron cancela em 10 min.
+    // Se o MP recusar E havia date_of_expiration, tenta SEM ela (vale 24 h) — não vale quebrar o
+    // PIX por causa disso; as rotinas do Regem cancelam a cobrança no MP quando o prazo dele acaba.
     if (!res.ok && body.date_of_expiration) {
       const semExp = { ...body };
       delete semExp.date_of_expiration;

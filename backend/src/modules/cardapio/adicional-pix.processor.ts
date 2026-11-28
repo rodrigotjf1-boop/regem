@@ -6,7 +6,7 @@ import { AdicionalPixService } from './adicional-pix.service';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /**
- * A ROTINA do Pix do adicional (mig 373). Só na NUVEM (os gateways e o robô moram lá), de 30 em 30 s — o Pix vale 5 min,
+ * A ROTINA do Pix do adicional (mig 373). Só na NUVEM (os gateways e o robô moram lá), de 30 em 30 s — o Pix vale 10 min,
  * e o pagamento confirmado tem de entrar logo (o pedido está em produção). Uma volta por vez; a que falha não derruba a
  * próxima, o motivo vai para o log.
  */

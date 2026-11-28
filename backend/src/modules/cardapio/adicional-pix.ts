@@ -13,8 +13,9 @@ const noPedido = (numero: string | null | undefined) => (numero ? `pedido nº ${
  * 06/11: "informar ao cliente que ele tem 5 min para pagar, se não o link expira"), mas no teste real de 27/11 o código
  * venceu antes de o cliente conseguir pagar (copiar, abrir o banco e confirmar leva 3 a 6 min; às 5 min a rotina cancela o
  * Pix no gateway) — o dono, 28/11: "o pix dizia 5 min só que já era criado e expirava, não dando para realizar o pagamento".
- * O Mercado Pago nem aceita menos de 30 min no `date_of_expiration` (documentação do Pix: de 30 min a 30 dias): ele recusa e
- * o `mercadopago.ts` repete sem a data — quem fecha no prazo é a rotina daqui, que cancela o Pix ao vencer.
+ * No Mercado Pago, este prazo NÃO vai como vencimento: o MP só garante o Pix de 30 min a 30 dias, e com 5 min a cobrança
+ * parou de receber com 1 minuto de vida ("o banco recebedor está com problema" — ERR-653). O MP recebe o mínimo dele
+ * (`vencimentoNoMP`, em `common/mercadopago.ts`), e quem fecha no prazo é a rotina daqui, que cancela o Pix ao vencer.
  */
 export const VALIDADE_DO_PIX_DO_ADICIONAL_MIN = 10;
 /** Depois de vencido, a Rede (que não deixa cancelar o QR) ainda é conferida por este tempo: pagou tarde, devolve. */

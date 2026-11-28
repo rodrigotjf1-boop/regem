@@ -360,7 +360,7 @@ export const opcoesDaConferencia = (trocoPossivel: boolean) =>
 
 /**
  * A conferência da mudança no pedido JÁ PAGO no Pix (mig 373): as linhas da mudança, o total de antes → depois e o aviso
- * do Pix da diferença (5 minutos; sem pagar, o pedido pode sair sem o item). Sem troco: o pedido está pago.
+ * do Pix da diferença (`VALIDADE_DO_PIX_DO_ADICIONAL_MIN`; sem pagar, o pedido pode sair sem o item). Sem troco: o pedido está pago.
  */
 export function textoDaConferenciaPeloPix(numero: string | null, op: OperacaoDoRobo, totalAntes: number, totalDepois: number): string {
   return [...cabecalho(numero, op, totalAntes, totalDepois), '', avisoDoPixNaConferencia(deltaDaMudanca(op)), '', 'Mando o Pix? 👇'].join('\n');
