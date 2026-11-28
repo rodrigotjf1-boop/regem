@@ -194,7 +194,7 @@ descrever('pedido alterado pela equipe (Postgres real)', () => {
     const vias = await viasAlteradas(p.comandaId);
     expect(vias.map((v: any) => [v.equipamento_id, v.via])).toEqual([[l.caixa, 'cliente'], [l.cozinha, 'producao']]);
     const daCozinha = vias.find((v: any) => v.via === 'producao').conteudo as string;
-    expect(daCozinha.split('\n').slice(0, 3)).toEqual(['@CBD4 PEDIDO', '@CBD4 ALTERADO', '@CB Descarte TODAS as vias anteriores']);
+    expect(daCozinha.split('\n').slice(0, 5)).toEqual(['@CBD4 PEDIDO', '@CBD4 ALTERADO', '@CBD Descarte TODAS', '@CBD as vias', '@CBD anteriores']);
     expect(daCozinha).toContain('@B + NOVO  1 Batata de teste');
     expect(daCozinha).toContain('1x Batata de teste << NOVO');
     expect(daCozinha).toContain('1x X-Bacon de teste');

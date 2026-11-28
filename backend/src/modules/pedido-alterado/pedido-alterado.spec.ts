@@ -3,6 +3,7 @@ import {
   enderecoEmLinha,
   itensDoPedidoDepois,
   lerAjusteAlterado,
+  LINHAS_DO_DESCARTE,
   linhasDoAlteradoNaCozinha,
   linhasDoAlteradoNoEntregador,
   mudaACozinha,
@@ -152,13 +153,27 @@ describe('pedido alterado — a via e o resumo', () => {
     ],
   });
 
-  it('cozinha: PEDIDO e ALTERADO em 4×, um em cada linha; "Descarte TODAS as vias anteriores"; NOVO e TIRAR', () => {
+  it('cozinha: PEDIDO e ALTERADO em 4×, um em cada linha; "Descarte TODAS as vias anteriores" em 2× (o protótipo); NOVO e TIRAR', () => {
     const v = linhasDoAlteradoNaCozinha(troca, '19:51');
-    expect(v.split('\n').slice(0, 3)).toEqual(['@CBD4 PEDIDO', '@CBD4 ALTERADO', '@CB Descarte TODAS as vias anteriores']);
+    expect(v.split('\n').slice(0, 5)).toEqual(['@CBD4 PEDIDO', '@CBD4 ALTERADO', '@CBD Descarte TODAS', '@CBD as vias', '@CBD anteriores']);
     expect(v).toContain('@CB O QUE MUDOU - 19:51');
     expect(v).toContain('@B + NOVO  1 Guaraná Antarctica lata');
     expect(v).toContain('@B - TIRAR 1 Coca-Cola lata');
     expect(v).not.toMatch(/[·→]/); // fora do ASCII some na impressora sem página de código
+  });
+
+  // 28/11 (o dono: "verifique se a reimpressão sai com a frase para descartar a via anterior em destaque"): a frase em 2×,
+  // em linhas que cabem no papel de 58 mm (32 colunas; 16 em letra dobrada), nas duas vias.
+  it('a frase do descarte em letra dobrada, nas vias da cozinha e do entregador, cada linha cabendo no papel de 58 mm', () => {
+    for (const v of [linhasDoAlteradoNaCozinha(troca, '19:51'), linhasDoAlteradoNoEntregador(troca, '19:51')]) {
+      const linhas = v.split('\n');
+      expect(linhas.slice(2, 5)).toEqual([...LINHAS_DO_DESCARTE]);
+      for (const l of LINHAS_DO_DESCARTE) {
+        expect(l.startsWith('@CBD ')).toBe(true);
+        expect(l.slice('@CBD '.length).length).toBeLessThanOrEqual(16);
+      }
+      expect(LINHAS_DO_DESCARTE.map((l) => l.slice('@CBD '.length)).join(' ')).toBe('Descarte TODAS as vias anteriores');
+    }
   });
 
   it('o texto do pedido nunca vira comando da impressora (ERR-334)', () => {

@@ -8,8 +8,16 @@ const noPedido = (numero: string | null | undefined) => (numero ? `pedido nº ${
 // textos que o cliente e a equipe leem e o que cada situação quer dizer. Quem gera, acompanha e aplica é o
 // `adicional-pix.service.ts`; quem oferece é o robô (`robo-pedido.service.ts`, pela conferência da mudança).
 
-/** O Pix do adicional vale 5 minutos (o dono: "informar ao cliente que ele tem 5 min para pagar, se não o link expira"). */
-export const VALIDADE_DO_PIX_DO_ADICIONAL_MIN = 5;
+/**
+ * O Pix do adicional vale 10 minutos, o MESMO prazo do Pix do pedido (que o cliente paga sem problema). Nasceu com 5 (o dono,
+ * 06/11: "informar ao cliente que ele tem 5 min para pagar, se não o link expira"), mas no teste real de 27/11 o código
+ * venceu antes de o cliente conseguir pagar (copiar, abrir o banco e confirmar leva 3 a 6 min; às 5 min a rotina cancela o
+ * Pix no gateway) — o dono, 28/11: "o pix dizia 5 min só que já era criado e expirava, não dando para realizar o pagamento".
+ * No Mercado Pago, este prazo NÃO vai como vencimento: o MP só garante o Pix de 30 min a 30 dias, e com 5 min a cobrança
+ * parou de receber com 1 minuto de vida ("o banco recebedor está com problema" — ERR-653). O MP recebe o mínimo dele
+ * (`vencimentoNoMP`, em `common/mercadopago.ts`), e quem fecha no prazo é a rotina daqui, que cancela o Pix ao vencer.
+ */
+export const VALIDADE_DO_PIX_DO_ADICIONAL_MIN = 10;
 /** Depois de vencido, a Rede (que não deixa cancelar o QR) ainda é conferida por este tempo: pagou tarde, devolve. */
 export const CONFERIR_DEPOIS_DE_VENCIDO_MIN = 30;
 /** O estorno do adicional que não entrou: 3 tentativas; na 3ª falha, caso URGENTE no Atendimento (devolver à mão). */
