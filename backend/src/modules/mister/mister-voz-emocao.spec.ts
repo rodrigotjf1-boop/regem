@@ -6,6 +6,23 @@ import { CONVERSA_PADRAO, conferirConversa } from './mister-conversa-config.serv
 import { EstiloDaVoz, TONS_DE_QUEM_FALA, TonsNaMemoria, TomDeQuemFala, chaveDaFala, estiloDaVoz, oQueOGraphOuviu, tomDoLote } from './mister-midia.regras';
 import { MisterMidiaService } from './mister-midia.service';
 
+/** Um OGG/Opus mínimo de `segundos` (o cabeçalho OpusHead e a última página com a posição) — a duração se mede. */
+const oggOpusDe = (segundos: number) => {
+  const pagina = (posicao: number, corpo: Buffer) => {
+    const h = Buffer.alloc(27);
+    h.write('OggS', 0, 'ascii');
+    h.writeBigUInt64LE(BigInt(posicao), 6);
+    return Buffer.concat([h, corpo]);
+  };
+  const cab = Buffer.alloc(19);
+  cab.write('OpusHead', 0, 'ascii');
+  cab[8] = 1;
+  cab[9] = 1;
+  cab.writeUInt16LE(312, 10);
+  cab.writeUInt32LE(48_000, 12);
+  return Buffer.concat([pagina(0, cab), pagina(0, Buffer.from('OpusTags')), pagina(312 + segundos * 48_000, Buffer.alloc(30, 9))]);
+};
+
 // A voz com emoção (versão 7, V7d; decisões V7-4, V7-5 e V7-6): a regra pura do estilo, o tom só em memória e o caminho com o
 // DMS Graph antigo (0.11.1, que recusa os argumentos novos): o áudio nunca deixa de sair por causa da emoção.
 
@@ -192,7 +209,8 @@ describe('o serviço: o Graph antigo nunca impede o áudio', () => {
     const numero = {
       enviarAudio: async (_t: string, b: Buffer) => void enviados.push(b),
       enviar: async () => undefined,
-      baixarMidia: async () => ({ buffer: Buffer.concat([Buffer.from('OggS'), Buffer.alloc(40)]), mime: 'audio/ogg' }),
+      // Um Ogg/Opus de 9 s com a duração que dá para medir (MIS-H-07: o áudio sem duração medida não é ouvido).
+      baixarMidia: async () => ({ buffer: oggOpusDe(9), mime: 'audio/ogg' }),
     };
     const graph = {
       ligacaoParaFoto: async () => ({ id: 'l', segredo: 's' }),

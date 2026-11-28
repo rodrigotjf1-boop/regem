@@ -45,6 +45,14 @@ export const TETOS = {
   /** O tempo de uma pergunta inteira e o de cada chamada ao modelo. */
   prazoMs: 75_000,
   prazoDaChamadaMs: 30_000,
+  /**
+   * Rodada 7, MIS-H-05 (ERR-660): o prazo é TOTAL (V106) — a chamada seguinte recebe só o que sobrou dos 75 s, e com menos
+   * que isto não chama mais; e o teto de tokens de entrada (com o cache) que UMA pergunta pode somar.
+   */
+  prazoMinimoDaChamadaMs: 5_000,
+  tokensDeEntradaPorPergunta: 400_000,
+  /** MIS-H-06: leituras de foto/documento (com IA) de uma empresa por dia — conferido antes de ler. */
+  leiturasDeMidiaPorEmpresaNoDia: 150,
   maxTokens: 2500,
   /** A análise mais profunda vai ao Sonnet, em que o raciocínio conta no teto junto com o texto (ERR-593). */
   maxTokensDaAnalise: 8000,
@@ -2104,6 +2112,8 @@ export const TEXTOS_DO_AGENTE = {
   regraEsperaAPessoa: 'A regra que você acabou de propor só é ligada com a resposta da pessoa (ou o botão "Confirmar"): mostre a proposta e espere. Nada foi ligado.',
   limite: (n: number) => `Você chegou ao limite de ${n} perguntas em 24 horas. Volto a responder quando as mais antigas saírem da conta.`,
   limiteDaEmpresa: 'A empresa chegou ao limite de perguntas ao Mister em 24 horas. Volto a responder quando as mais antigas saírem da conta.',
+  // Rodada 7, MIS-H-06: o teto de leituras de foto, documento e áudio da empresa no dia.
+  limiteDeMidia: 'A empresa chegou ao limite de fotos e documentos que o Mister lê hoje. Amanhã eu volto a ler; por texto, sigo respondendo.',
   semChave: (nivel: NivelDoMister) =>
     nivel === 'presidente'
       ? 'O Mister está sem IA nesta empresa. Cadastre a chave de IA no Regem, no menu Mister, em "IA e uso".'
@@ -2113,7 +2123,7 @@ export const TEXTOS_DO_AGENTE = {
       motivo === 'sem_credito'
         ? 'a chave de IA da empresa está sem crédito'
         : motivo === 'teto_atingido'
-          ? 'a conta de IA da empresa chegou ao limite de gasto definido nela'
+          ? 'a IA chegou ao limite de gasto (o da conta de IA da empresa, ou o de hoje na IA que o Regem inclui)'
           : 'a chave de IA da empresa foi recusada';
     return nivel === 'presidente'
       ? `A IA do Mister parou: ${oQue}. Veja no Regem, no menu Mister, em "IA e uso".`

@@ -111,6 +111,20 @@ export const PRECOS_POR_MILHAO: Record<string, UsoDaChamada> = {
   'claude-opus-5-5': { entrada: 4, cacheEscrita: 5, cacheLeitura: 0.2, saida: 20 },
 };
 
+/** O modelo de preço mais alto da tabela: o gasto de um modelo sem preço conta por ele no teto da IA incluída (nunca a menos). */
+export const MODELO_MAIS_CARO = 'claude-opus-5-5';
+
+/**
+ * Rodada 7, MIS-H-01 (ERR-660): o teto do DIA de cada empresa na IA que a distribuição inclui, em US$ — conferido antes de
+ * chamar. `IA_INCLUIDA_TETO_USD_DIA` muda (0 = nenhuma chamada na incluída); sem ela, US$ 2 por empresa por dia (o custo
+ * mínimo de início: em 28/11/2026 nenhuma empresa usava a incluída).
+ */
+export function tetoDaIaIncluidaUsd(env: NodeJS.ProcessEnv = process.env): number {
+  const bruto = String(env.IA_INCLUIDA_TETO_USD_DIA ?? '').trim();
+  const v = Number(bruto);
+  return bruto !== '' && Number.isFinite(v) && v >= 0 ? v : 2;
+}
+
 /** O custo estimado em US$ — ou null quando o modelo não está na tabela (nunca um preço inventado). */
 export function custoEstimadoUsd(modelo: string, uso: UsoDaChamada): number | null {
   const p = PRECOS_POR_MILHAO[modelo];

@@ -9,6 +9,7 @@ import { ehServidorLocal } from '../../common/modo';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
   FALHA_QUE_MARCA_A_CHAVE,
+  MODELO_MAIS_CARO,
   MotivoDaFalha,
   OrigemDaChave,
   PRECOS_LIDOS_EM,
@@ -24,6 +25,7 @@ import {
   lerUso,
   motivoDaChaveInvalida,
   periodoDoUso,
+  tetoDaIaIncluidaUsd,
 } from './ia.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -177,6 +179,16 @@ export class IaEmpresaService {
   async pedir(tenantId: string, p: PedidoDeIa): Promise<RespostaDaIa> {
     const acesso = await this.acesso(tenantId);
     if (!acesso) throw new FalhaDaIa('sem_chave', null);
+    // Rodada 7, MIS-H-01 (ERR-660): na IA que a distribuição inclui, o teto do dia da empresa é conferido ANTES de chamar — o
+    // medidor só grava depois, e o limite da conta da Anthropic é um só para todas as empresas (um estouro parava todas).
+    if (acesso.origem === 'distribuicao') {
+      const teto = tetoDaIaIncluidaUsd();
+      const gasto = await this.gastoDeHojeNaIncluida(tenantId);
+      if (gasto >= teto) {
+        this.logger.warn(`${p.recurso}: a empresa ${tenantId.slice(0, 8)} chegou ao teto de hoje na IA incluída (US$ ${gasto.toFixed(4)} de ${teto})`);
+        throw new FalhaDaIa('teto_atingido', 'distribuicao');
+      }
+    }
     let r: any;
     try {
       r = await this.chamar(acesso, p);
@@ -198,7 +210,10 @@ export class IaEmpresaService {
    * de cada avaliação fica na linha dela). Só na nuvem. Lança `FalhaDaIa` com o motivo.
    */
   async pedirPelaDistribuicao(p: PedidoDeIa): Promise<RespostaDaIa> {
-    const chave = ehServidorLocal() ? '' : this.chaveDaDistribuicao();
+    // MIS-H-01: o console (avaliação, Mentor, Sentinela) pode ter a chave de OUTRA conta da Anthropic, com limite próprio — sem
+    // ela, a da distribuição (e o gasto do console disputa o limite das lojas).
+    const doConsole = String(process.env.ANTHROPIC_API_KEY_CONSOLE ?? '').trim();
+    const chave = ehServidorLocal() ? '' : doConsole || this.chaveDaDistribuicao();
     if (!chave) throw new FalhaDaIa('sem_chave', null);
     const acesso: AcessoDeIa = { provedor: 'anthropic', chave, origem: 'distribuicao' };
     let r: any;
@@ -244,6 +259,30 @@ export class IaEmpresaService {
       conteudo: Array.isArray(r?.content) ? r.content : [],
       parou: typeof r?.stop_reason === 'string' ? r.stop_reason : null,
     };
+  }
+
+  /**
+   * MIS-H-01: o gasto de HOJE da empresa na IA incluída (a mesma conta do "IA e uso"; modelo sem preço conta pelo mais caro
+   * da tabela). Falha de leitura = 0 (o medidor não derruba quem chama — V3; o limite da conta segue como rede).
+   */
+  private async gastoDeHojeNaIncluida(tenantId: string): Promise<number> {
+    try {
+      const lidas = linhas(
+        await this.db.execute(sql`
+          select modelo, sum(tokens_entrada)::float8 as entrada, sum(tokens_cache_escrita)::float8 as "cacheEscrita",
+                 sum(tokens_cache_leitura)::float8 as "cacheLeitura", sum(tokens_saida)::float8 as saida
+            from ia_uso_dia
+           where tenant_id = ${tenantId}::uuid and dia = ${hojeISO()}::date and origem = 'distribuicao'
+           group by modelo`),
+      );
+      return lidas.reduce((s, l) => {
+        const tokens: UsoDaChamada = { entrada: Number(l.entrada) || 0, cacheEscrita: Number(l.cacheEscrita) || 0, cacheLeitura: Number(l.cacheLeitura) || 0, saida: Number(l.saida) || 0 };
+        return s + (custoEstimadoUsd(String(l.modelo), tokens) ?? custoEstimadoUsd(MODELO_MAIS_CARO, tokens) ?? 0);
+      }, 0);
+    } catch (e: any) {
+      if (!semTabela(e)) this.logger.warn(`o teto da IA incluída não leu o gasto (${e?.code ?? 'sem código'})`);
+      return 0;
+    }
   }
 
   /** Soma a chamada na linha do dia (uma gravação). Nunca lança: o medidor não derruba quem chamou (V3). */

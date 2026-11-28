@@ -23,7 +23,12 @@ import { MisterInstrucoesService } from './mister-instrucoes.service';
 //  • Não soma no medidor de nenhuma empresa: o uso e o custo ficam na linha da rodada.
 
 export const RECURSO_DA_AVALIACAO = 'mister_avaliacao';
-export const PRAZO_DA_RODADA_MIN = 20;
+/**
+ * Rodada 7, MIS-H-10 (ERR-660): a rodada vence pelo ÚLTIMO SINAL DE VIDA (`atualizado_em`, que cada caso gravado renova), não
+ * pelo início — 143 casos de até ~105 s passam de 20 min de verdade, e a rodada viva virava "interrompida" e liberava outra
+ * (os trabalhadores antigos seguiam gastando em dobro). Uma pergunta nunca leva 10 min.
+ */
+export const PRAZO_DA_RODADA_MIN = 10;
 const EM_PARALELO = 3;
 const PADRAO: PerfilDaAvaliacao = { nivel: 'presidente', verValores: true };
 const PARA_A_RODADA = ['sem_chave', 'chave_recusada', 'sem_credito', 'teto_atingido'];
@@ -56,7 +61,7 @@ export class MisterAvaliacaoService {
         update mister_avaliacao
            set situacao = 'interrompida', terminada_em = now(), atualizado_em = now(),
                motivo = coalesce(motivo, 'o servidor reiniciou no meio da rodada')
-         where situacao = 'rodando' and iniciada_em < now() - make_interval(mins => ${PRAZO_DA_RODADA_MIN})`);
+         where situacao = 'rodando' and atualizado_em < now() - make_interval(mins => ${PRAZO_DA_RODADA_MIN})`);
     } catch (e: any) {
       if (!semTabela(e)) this.logger.warn(`avaliação: não consegui encerrar as rodadas paradas — ${e?.message ?? e}`);
     }
@@ -105,7 +110,11 @@ export class MisterAvaliacaoService {
           parar = r.paraARodada;
           return;
         }
-        await this.gravarCaso(id, r.resultado, r.uso);
+        // MIS-H-10: a rodada que já não está de pé (venceu, outra começou) para aqui — nada de casos novos pagos em dobro.
+        if (!(await this.gravarCaso(id, r.resultado, r.uso))) {
+          parar = 'interrompida';
+          return;
+        }
       }
     };
     await Promise.all(Array.from({ length: Math.min(EM_PARALELO, casos.length) }, trabalhar));
@@ -145,9 +154,10 @@ export class MisterAvaliacaoService {
     return { resultado: conferirCaso(caso, fim, Date.now() - t0), uso, paraARodada };
   }
 
-  private async gravarCaso(id: string, r: ResultadoDoCaso, uso: UsoDaChamada): Promise<void> {
-    // Somas no banco (as perguntas em paralelo gravam na mesma linha) e só enquanto a rodada está de pé.
-    await this.db.execute(sql`
+  private async gravarCaso(id: string, r: ResultadoDoCaso, uso: UsoDaChamada): Promise<boolean> {
+    // Somas no banco (as perguntas em paralelo gravam na mesma linha) e só enquanto a rodada está de pé. Devolve se gravou.
+    const gravou = linhas(
+      await this.db.execute(sql`
       update mister_avaliacao
          set casos = casos || ${JSON.stringify([r])}::jsonb,
              feitas = feitas + 1,
@@ -157,7 +167,10 @@ export class MisterAvaliacaoService {
              tokens_cache_leitura = tokens_cache_leitura + ${uso.cacheLeitura},
              tokens_saida = tokens_saida + ${uso.saida},
              atualizado_em = now()
-       where id = ${id}::uuid and situacao = 'rodando'`);
+       where id = ${id}::uuid and situacao = 'rodando'
+      returning id`),
+    );
+    return gravou.length > 0;
   }
 
   private async fechar(id: string, modelo: string, parar: string | null): Promise<void> {
@@ -228,7 +241,7 @@ export class MisterAvaliacaoService {
 }
 
 /** A situação como a tela recebe: a "rodando" vencida já sai "interrompida" (a regra é esta, V80). */
-const situacaoLida = sql.raw(`case when situacao = 'rodando' and iniciada_em < now() - make_interval(mins => ${PRAZO_DA_RODADA_MIN}) then 'interrompida' else situacao end`);
+const situacaoLida = sql.raw(`case when situacao = 'rodando' and atualizado_em < now() - make_interval(mins => ${PRAZO_DA_RODADA_MIN}) then 'interrompida' else situacao end`);
 
 function rodadaDaLista(l: any) {
   return {

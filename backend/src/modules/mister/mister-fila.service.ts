@@ -3,7 +3,13 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { FUSO_SQL } from '../../common/fuso-sql';
-import { MotivoSemResposta, NivelDoMister, NotaDaSaida, TETOS, TrocaDaMemoria, tetoDaPergunta } from './mister-agente.regras';
+import { hojeISO } from '../../common/data';
+import { RECURSO_DO_DOCUMENTO } from '../../common/documento-por-foto';
+import { MotivoSemResposta, NivelDoMister, NotaDaSaida, TETOS, TEXTOS_DO_AGENTE, TrocaDaMemoria, tetoDaPergunta } from './mister-agente.regras';
+import { RECURSO_DA_FOTO_DO_MISTER } from './mister-midia.regras';
+
+/** MIS-H-06: as leituras de mídia que contam no teto do dia da empresa (a foto, a lista lida da foto e o documento). */
+const RECURSOS_DE_MIDIA = [RECURSO_DA_FOTO_DO_MISTER, RECURSO_DO_DOCUMENTO];
 import { lerAndamento } from './mister-andamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -42,6 +48,8 @@ export interface PerguntaNaFila {
   tentativas: number;
   /** Há quantos segundos a pergunta chegou. */
   esperaS: number;
+  /** MIS-H-04: o carimbo da pega (com os microssegundos) — o "dono" desta execução; o fim só grava com ele. */
+  pegaEm?: string | null;
 }
 
 export interface Trilha {
@@ -55,7 +63,12 @@ export interface Trilha {
 }
 
 const COLUNAS = sql`q.id, q.tenant_id as "tenantId", q.colaborador_id as "colaboradorId", q.nivel, q.telefone, q.wamid, q.pergunta, q.tentativas,
-                    extract(epoch from (now() - q.criado_em))::int as "esperaS"`;
+                    extract(epoch from (now() - q.criado_em))::int as "esperaS", q.pega_em::text as "pegaEm"`;
+/**
+ * Rodada 7, MIS-H-03 (ERR-660): quantas perguntas uma pessoa pode ter esperando (na fila ou sendo respondidas) — a rajada
+ * passava inteira para a fila e para uma pega só (um `concluir` com dezenas de milhares de ids estourava o banco).
+ */
+export const PENDENTES_POR_PESSOA = 20;
 
 @Injectable()
 export class MisterFilaService {
@@ -81,11 +94,15 @@ export class MisterFilaService {
   /** Põe a pergunta na fila. Devolve `false` quando a mesma mensagem já tinha entrado. */
   async enfileirar(dono: DonoDaPergunta, texto: string, chave: string | null, wamid: string | null): Promise<boolean> {
     const pergunta = String(texto ?? '').trim().slice(0, tetoDaPergunta(texto));
+    // MIS-H-03: o teto de pendências da pessoa conferido na MESMA instrução que insere (V98).
     const novas = linhas(
       await this.db.execute(sql`
         insert into mister_pergunta (tenant_id, colaborador_id, unidade_id, nivel, telefone, chave, wamid, pergunta)
-        values (${dono.tenantId}::uuid, ${dono.colaboradorId}::uuid, ${dono.unidadeId}::uuid, ${dono.nivel}, ${dono.telefone},
-                ${chave || randomUUID()}, ${wamid}, ${pergunta})
+        select ${dono.tenantId}::uuid, ${dono.colaboradorId}::uuid, ${dono.unidadeId}::uuid, ${dono.nivel}, ${dono.telefone},
+               ${chave || randomUUID()}, ${wamid}, ${pergunta}
+         where (select count(*) from mister_pergunta p
+                 where p.tenant_id = ${dono.tenantId}::uuid and p.colaborador_id = ${dono.colaboradorId}::uuid
+                   and p.situacao in ('na_fila', 'respondendo')) < ${PENDENTES_POR_PESSOA}
         on conflict (chave) do nothing
         returning id`),
     );
@@ -129,6 +146,10 @@ export class MisterFilaService {
            set situacao = 'respondendo', pega_em = now(), tentativas = q.tentativas + 1, atualizado_em = now()
           from conversa
          where q.tenant_id = conversa.tenant_id and q.colaborador_id = conversa.colaborador_id and q.situacao = 'na_fila'
+           -- MIS-H-03: no máximo PENDENTES_POR_PESSOA por pega (as mais antigas); o resto espera a próxima.
+           and q.id in (select p.id from mister_pergunta p
+                         where p.tenant_id = conversa.tenant_id and p.colaborador_id = conversa.colaborador_id and p.situacao = 'na_fila'
+                         order by p.criado_em, p.id limit ${PENDENTES_POR_PESSOA})
         returning ${COLUNAS}, q.criado_em as "criadoEm"`),
     ) as (PerguntaNaFila & { criadoEm: unknown })[];
     if (!pegas.length) return null;
@@ -138,8 +159,13 @@ export class MisterFilaService {
   }
 
   /** Fecha as perguntas de uma pega: respondidas (a resposta fica na última) ou sem resposta (com o motivo). */
-  async concluir(ids: string[], fim: { resposta?: string | null; motivo?: MotivoSemResposta | null; trilha?: Trilha; perguntaJunta?: string }): Promise<void> {
+  async concluir(
+    ids: string[],
+    fim: { resposta?: string | null; motivo?: MotivoSemResposta | null; trilha?: Trilha; perguntaJunta?: string; pegaEm?: string | null },
+  ): Promise<void> {
     if (!ids.length) return;
+    // MIS-H-04: com o carimbo da pega, só a execução DONA fecha as linhas (a vencida que outra pegou não fecha as da nova).
+    const pega = fim.pegaEm ?? null;
     const respondida = !fim.motivo;
     const t = fim.trilha ?? {};
     const ultima = ids[ids.length - 1];
@@ -162,7 +188,25 @@ export class MisterFilaService {
        where id in (${sql.join(
          ids.map((i) => sql`${i}::uuid`),
          sql`, `,
-       )}) and situacao = 'respondendo'`);
+       )}) and situacao = 'respondendo' and (${pega}::timestamptz is null or pega_em = ${pega}::timestamptz)`);
+  }
+
+  /**
+   * MIS-H-04: a pega ainda é desta execução? Confere (e marca o sinal de vida) ANTES de enviar: a execução que passou do prazo
+   * e foi devolvida à fila — e pega de novo por outra — não manda a resposta em dobro nem repete as ações.
+   */
+  async aindaEDaPega(ids: string[], pegaEm: string | null | undefined): Promise<boolean> {
+    if (!ids.length || !pegaEm) return true;
+    const minhas = linhas(
+      await this.db.execute(sql`
+        update mister_pergunta set atualizado_em = now()
+         where id in (${sql.join(
+           ids.map((i) => sql`${i}::uuid`),
+           sql`, `,
+         )}) and situacao = 'respondendo' and pega_em = ${pegaEm}::timestamptz
+        returning id`),
+    );
+    return minhas.length === ids.length;
   }
 
   /**
@@ -184,13 +228,40 @@ export class MisterFilaService {
     return fora;
   }
 
+  /**
+   * Rodada 7, MIS-H-06 (ERR-660): a frase do teto quando a foto/documento/áudio NÃO deve ser lido — o teto de perguntas da
+   * pessoa ou da empresa, ou o de leituras de mídia da empresa no dia (pelo medidor `ia_uso_dia`) — ou null (pode ler).
+   */
+  async limiteDeMidia(tenantId: string, colaboradorId: string): Promise<string | null> {
+    const uso = await this.usoEm24h(tenantId, colaboradorId);
+    if (uso.pessoa >= TETOS.porPessoaEm24h) return TEXTOS_DO_AGENTE.limite(TETOS.porPessoaEm24h);
+    if (uso.empresa >= TETOS.porEmpresaEm24h) return TEXTOS_DO_AGENTE.limiteDaEmpresa;
+    let leituras = 0;
+    try {
+      const [l] = linhas(
+        await this.db.execute(sql`
+          select coalesce(sum(chamadas), 0)::int as n from ia_uso_dia
+           where tenant_id = ${tenantId}::uuid and dia = ${hojeISO()}::date and recurso in (${sql.join(
+             RECURSOS_DE_MIDIA.map((r) => sql`${r}`),
+             sql`, `,
+           )})`),
+      );
+      leituras = Number(l?.n) || 0;
+    } catch {
+      /* sem o medidor (banco sem a 415): o teto das perguntas segue valendo */
+    }
+    return leituras >= TETOS.leiturasDeMidiaPorEmpresaNoDia ? TEXTOS_DO_AGENTE.limiteDeMidia : null;
+  }
+
   /** Quantas perguntas a pessoa e a empresa já tiveram RESPONDIDAS pela IA nas últimas 24 horas. */
   async usoEm24h(tenantId: string, colaboradorId: string): Promise<{ pessoa: number; empresa: number }> {
     const [l] = linhas(
       await this.db.execute(sql`
         select count(*) filter (where colaborador_id = ${colaboradorId}::uuid)::int as pessoa, count(*)::int as empresa
           from mister_pergunta
-         where tenant_id = ${tenantId}::uuid and criado_em > now() - interval '24 hours' and chamadas > 0`),
+         where tenant_id = ${tenantId}::uuid and criado_em > now() - interval '24 hours'
+           -- MIS-H-02 (ERR-660): a execução interrompida (o processo caiu no meio) também gastou IA — conta no teto.
+           and (chamadas > 0 or motivo = 'interrompida')`),
     );
     return { pessoa: Number(l?.pessoa) || 0, empresa: Number(l?.empresa) || 0 };
   }

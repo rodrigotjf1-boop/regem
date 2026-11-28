@@ -109,6 +109,9 @@ export interface ResultadoDaVoltaDosRelatorios {
 /** O motivo da linha cujo convite saiu e espera o toque; e o da que está sendo feita agora, depois do toque. */
 export const CONVITE_ENVIADO = 'convite_enviado';
 const FAZENDO_NO_TOQUE = 'fazendo_no_toque';
+/** MIS-H-08: quantas vezes o toque no convite pode tentar o resumo com IA (o que falha reabre o convite até aqui). */
+export const TOQUES_NO_CONVITE = 3;
+export const TOQUES_ESGOTADOS = 'Tentei fazer esse resumo 3 vezes e a IA não respondeu. Ele fica de fora; o próximo chega no horário de sempre.';
 /** O boletim fora das 24 horas, com a empresa sem o convite: não sai e não custa nada; a pessoa lê na tela. */
 export const FORA_SEM_CONVITE = 'fora_da_janela_sem_convite';
 
@@ -301,6 +304,8 @@ export class MisterRelatoriosService implements OnModuleInit {
       }
       const escopo = await this.ferramentas.escopo(tenantId, pessoa.colaboradorId, pessoa.telefone);
       if (!escopo || escopo.semLoja) return await naoSaiu('sem_acesso');
+      // Rodada 7, MIS-H-08 (ERR-660): a trava de emergência das perguntas para também o relatório com IA.
+      if (process.env.MISTER_PERGUNTAS_DESLIGADAS === '1') return await naoSaiu('manutencao');
       const fim = await this.agente.responder(escopo, [], perguntaDoRelatorio(tipo, devido), { recurso: RECURSO_DO_RELATORIO[tipo] });
       if (fim.motivo) return await naoSaiu(fim.motivo, { trilha: fim.trilha });
       const saida = filtrarSaida(fim.texto, fim.resultados);
@@ -341,13 +346,17 @@ export class MisterRelatoriosService implements OnModuleInit {
       quem.vinculos.map((v) => sql`(${v.tenantId}::uuid, ${v.colaboradorId}::uuid)`),
       sql`, `,
     );
+    // Rodada 7, MIS-H-08 (ERR-660): cada toque que pega a vez CONTA (na mesma gravação que confere o teto — V98); a IA que falha
+    // reabria o convite sem limite, e cada toque pagava até 6 voltas.
     const [vez] = linhas(
       await this.db.execute(sql`
         update mister_relatorio r
-           set motivo = ${FAZENDO_NO_TOQUE}, concluido_em = clock_timestamp()
+           set motivo = ${FAZENDO_NO_TOQUE}, concluido_em = clock_timestamp(),
+               trilha = jsonb_set(coalesce(r.trilha, '{}'::jsonb), '{toques}', to_jsonb(coalesce((r.trilha ->> 'toques')::int, 0) + 1))
          where r.id = ${id}::uuid and r.situacao = 'nao_enviado'
            and (r.motivo = ${CONVITE_ENVIADO}
                 or (r.motivo = ${FAZENDO_NO_TOQUE} and r.concluido_em < clock_timestamp() - make_interval(mins => ${RELATORIO_INTERROMPIDO_MIN})))
+           and coalesce((r.trilha ->> 'toques')::int, 0) < ${TOQUES_NO_CONVITE}
            and (r.tenant_id, r.colaborador_id) in (${donos})
         returning r.id::text as id, r.tenant_id::text as "tenantId", r.colaborador_id::text as "colaboradorId", r.tipo, r.trilha`),
     );
@@ -355,10 +364,15 @@ export class MisterRelatoriosService implements OnModuleInit {
       // Toque repetido: o resumo já feito vai de novo; o que está sendo feito agora não manda nada.
       const [l] = linhas(
         await this.db.execute(sql`
-          select id::text as id, situacao, motivo, texto from mister_relatorio r
+          select id::text as id, situacao, motivo, texto, trilha from mister_relatorio r
            where r.id = ${id}::uuid and (r.tenant_id, r.colaborador_id) in (${donos})`),
       );
       if (!l) return false;
+      // MIS-H-08: as tentativas acabaram — a pessoa sabe, em vez do silêncio.
+      if (!l.texto && l.motivo === CONVITE_ENVIADO && Number(l.trilha?.toques ?? 0) >= TOQUES_NO_CONVITE) {
+        await this.dizer(quem.telefone, TOQUES_ESGOTADOS);
+        return true;
+      }
       if (l.texto && (await this.dizer(quem.telefone, String(l.texto))) && l.situacao !== 'enviado')
         await this.db.execute(sql`update mister_relatorio set situacao = 'enviado', motivo = null, concluido_em = clock_timestamp() where id = ${l.id}::uuid and situacao = 'nao_enviado'`);
       return true;
@@ -443,6 +457,12 @@ export class MisterRelatoriosService implements OnModuleInit {
       if (!escopo || escopo.semLoja || (soAoPresidente(tipo) && escopo.nivel !== 'presidente')) {
         await this.db.execute(sql`update mister_relatorio set motivo = 'sem_acesso', concluido_em = clock_timestamp() where id = ${vez.id}::uuid and motivo = ${FAZENDO_NO_TOQUE}`);
         return false;
+      }
+      // MIS-H-08: a trava de emergência das perguntas vale também aqui.
+      if (process.env.MISTER_PERGUNTAS_DESLIGADAS === '1') {
+        await voltarAoConvite();
+        await this.dizer(quem.telefone, TEXTOS_DO_AGENTE.emManutencao);
+        return true;
       }
       if (quem.wamid) this.numero.mostrarDigitando(quem.wamid);
       const fim = await this.agente.responder(escopo, [], perguntaDoRelatorio(tipo, devido), { recurso: RECURSO_DO_RELATORIO[tipo] });
