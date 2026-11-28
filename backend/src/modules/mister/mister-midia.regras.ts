@@ -262,6 +262,18 @@ export function perguntaComFoto(v: OQueViu, legenda: unknown, via: 'graph' | 'ia
   ].join('\n');
 }
 
+/**
+ * Rodada 7, MIS-E-09 (ERR-656): o que a PESSOA disse numa pergunta — na pergunta com foto, só a legenda dela ("A pessoa escreveu
+ * junto"), nunca o que a foto mostra. É a "fala" que a conferência de origem dos números aceita (gráfico livre, imagem): o número
+ * lido da foto (um 7 lido como 1) não passa mais como "a pessoa disse". Outra pergunta: ela inteira.
+ */
+export function falaDaPessoa(pergunta: unknown): string {
+  const t = String(pergunta ?? '');
+  if (!t.startsWith(MARCA_DA_FOTO)) return t;
+  const m = /(?:^|\n)A pessoa escreveu junto: ([^\n]*)/.exec(t);
+  return m ? m[1] : '';
+}
+
 /** A linha que abre a resposta a uma pergunta com foto ("📷 Vi: …"), já no formato do WhatsApp — ou null. */
 export function linhaDoQueViu(pergunta: unknown): string | null {
   const m = new RegExp(`(?:^|\\n)${MARCA_DA_FOTO} ([^\\n]+)`).exec(String(pergunta ?? ''));

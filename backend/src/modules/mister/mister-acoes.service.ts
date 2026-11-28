@@ -18,6 +18,7 @@ import {
   PRAZO_DA_CONFERENCIA_MS,
   RECURSO_DA_CONFERENCIA_DA_IMAGEM,
   TEXTO_DA_IMAGEM_SEM_CONFERENCIA,
+  textoDaImagemComNumerosAMais,
   conferirNumeros,
   instrucoesDaConferencia,
   lerConferencia,
@@ -2337,6 +2338,11 @@ export class MisterAcoesService implements OnModuleInit {
         .catch((err: any) => this.logger.warn(`a auditoria da conferência da imagem ${p.id} falhou — ${err?.message ?? err}`));
       if (c && c.situacao !== 'bateu') return { feita: false, texto: textoDaImagemErrada(c) };
       conferencia = c ? textoDaImagemConferida(numeros) : TEXTO_DA_IMAGEM_SEM_CONFERENCIA;
+    } else {
+      // Rodada 7, MIS-E-13 (ERR-656): sem número no pedido, a imagem também é conferida — valor que ninguém pediu sai com o aviso
+      // (antes, ia sem conferência nenhuma). Não segura a imagem: o pedido não tinha número a errar.
+      const c = await this.conferirImagem(p.tenantId, r.bytes, r.mimeType, a.pedido);
+      conferencia = !c ? TEXTO_DA_IMAGEM_SEM_CONFERENCIA : c.sobraram.length ? textoDaImagemComNumerosAMais(c.sobraram) : '';
     }
     try {
       await this.numero.enviarImagem(v.telefone, r.bytes, '', r.mimeType);

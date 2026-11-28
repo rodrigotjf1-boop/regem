@@ -14,6 +14,7 @@ import { comAContaDasFases } from './mister-analises';
 import { comOQueDeixaDeChegar } from './mister-regra';
 import type { ResultadoDaFerramenta } from './mister-ferramentas.service';
 import type { Trilha } from './mister-fila.service';
+import { falaDaPessoa } from './mister-midia.regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -168,7 +169,8 @@ export async function responderComFerramentas(portas: PortasDoLaco, memoria: Tro
       // Versão 10, C10a e C10b: o `propor_acao` e o `grafico_livre` recebem a origem dos números (o que as consultas desta pergunta trouxeram e o que a
       // pessoa escreveu) para a imagem só levar número da loja que tem de onde vir. Sempre a do laço: o que o modelo puser
       // em `__origem` é sobrescrito. A trilha guarda a entrada do modelo, sem isto.
-      const falas = [pergunta, ...memoria.map((m) => m.pergunta)];
+      // Rodada 7, MIS-E-09 (ERR-656): da pergunta com foto, só o que a pessoa escreveu vale como fala (o texto da foto, não).
+      const falas = [falaDaPessoa(pergunta), ...memoria.map((m) => falaDaPessoa(m.pergunta))];
       const entradaDe = (p: any) => ((p.name === 'propor_acao' || p.name === 'grafico_livre' || p.name === 'fazer_no_regem') && p.input && typeof p.input === 'object' ? { ...p.input, __origem: { resultados: [...resultados], falas } } : p.input);
       const feitos = await rodarNaOrdem(
         rodam.map((p: any) => async () => {

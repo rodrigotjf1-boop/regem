@@ -9,7 +9,7 @@ import { podeAcessar } from '../../auth/permissoes';
 import { ModuloService } from '../modulo/modulo.service';
 import { RAMO_DA_EMPRESA_COM_BOLETIM, RAMO_DO_REGEM, type BoletimDoRamo } from '../pulso/pulso.regras';
 import { paginaPadrao } from '../vagas/vagas';
-import { TEXTOS_DO_AGENTE, filtrarSaida, fraseDoMotivo } from './mister-agente.regras';
+import { TEXTOS_DO_AGENTE, filtrarSaida, fraseDoMotivo, semValoresNoTexto } from './mister-agente.regras';
 import { MisterAgenteService } from './mister-agente.service';
 import { dentroDaJanelaDoWhatsapp } from './mister-avisos.regras';
 import { MisterEntradaService, QuemTocou } from './mister-entrada.service';
@@ -304,6 +304,8 @@ export class MisterRelatoriosService implements OnModuleInit {
       const fim = await this.agente.responder(escopo, [], perguntaDoRelatorio(tipo, devido), { recurso: RECURSO_DO_RELATORIO[tipo] });
       if (fim.motivo) return await naoSaiu(fim.motivo, { trilha: fim.trilha });
       const saida = filtrarSaida(fim.texto, fim.resultados);
+      // Rodada 7, MIS-E-10 (ERR-656): quem não vê valores não recebe R$ no relatório.
+      if (!escopo.verValores || escopo.pinPendente) saida.texto = semValoresNoTexto(saida.texto);
       const textoFinal = tipo === 'resumo_dia' && regra.linhaAmanha ? await this.comLinhaDeAmanha(escopo, devido.referencia, saida.texto) : saida.texto;
       const trilha: Record<string, unknown> = { ...fim.trilha, conferencia: saida.notas };
       try {
@@ -450,6 +452,7 @@ export class MisterRelatoriosService implements OnModuleInit {
         return true;
       }
       const saida = filtrarSaida(fim.texto, fim.resultados);
+      if (!escopo.verValores || escopo.pinPendente) saida.texto = semValoresNoTexto(saida.texto); // MIS-E-10 (ERR-656)
       // A linha "Amanhã" só vale se o resumo sai antes do dia seguinte ter passado.
       const regraAgora = regraDoRelatorioQueVale(tipo, (await this.config.salvas(vez.tenantId)).get(tipo));
       const aindaVale = tipo === 'resumo_dia' && regraAgora.linhaAmanha && hojeISO() <= somarDias(devido.referencia, 1);

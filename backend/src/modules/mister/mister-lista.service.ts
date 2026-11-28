@@ -23,6 +23,7 @@ import { InsumoDaLista, LEITURA_VALE_H, LISTA_VALE_H, MAX_LINHAS_DA_LISTA, Linha
 import { FalhaDoEnvioDoMister, MisterNumeroService } from './mister-numero.service';
 import { MisterPropostasService } from './mister-propostas.service';
 import { esperaOPin } from './mister-sessao';
+import { TEXTOS_DO_CADASTRO_NA_CONVERSA } from './mister-acoes-cadastro';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -624,25 +625,12 @@ export class MisterListaService implements OnModuleInit {
         const ln = itens[a.linha - 1];
         const nome = a.nome ?? ln.nomeNovo ?? ln.texto;
         const ja = acharInsumo(nome, insumos);
-        let insumo: InsumoDaLista;
-        if ('insumo' in ja) insumo = ja.insumo as InsumoDaLista;
-        else {
-          try {
-            const novo: any = await this.estoque.createItem(
-              e.tenantId,
-              { nome, unidadeMedida: a.medida ?? normalizarUnidade(ln.unidade ?? '') ?? 'unidade' } as any,
-              l.unidadeId ?? null,
-              { colaboradorId: e.colaboradorId, categoria: e.nivel } as any,
-            );
-            insumo = { id: novo.id, nome: novo.nome, nomeComercial: null, unidadeMedida: novo.unidadeMedida, marcas: [] };
-            insumos.push(insumo);
-          } catch (err: any) {
-            const msg = err instanceof BadRequestException ? String((err.getResponse() as any)?.message ?? err.message) : 'não deu para cadastrar';
-            return { erro: `Linha ${a.linha}: não consegui cadastrar "${nome}": ${msg}` };
-          }
-        }
+        // Rodada 7, MIS-E-04 (ERR-656): o insumo NOVO vai pela ação `cadastrar_insumo` (o "Vou fazer" e o botão, como no protótipo
+        // v9: "mostra antes de gravar"); o nome que já existe liga direto, como antes.
+        if (!('insumo' in ja)) return { erro: TEXTOS_DO_CADASTRO_NA_CONVERSA.antesDoBotao(a.linha, nome, a.medida ?? normalizarUnidade(ln.unidade ?? '') ?? 'unidade') };
+        const insumo = ja.insumo as InsumoDaLista;
         itens[a.linha - 1] = { ...ligarAoInsumo(ln, insumo, []), propostaDaIa: false };
-        feito.push(`Linha ${a.linha}: cadastrei "${insumo.nome}" em Estoque › Produtos.`);
+        feito.push(`Linha ${a.linha}: liguei a "${insumo.nome}", que já está em Estoque › Produtos.`);
       }
       // O "adicionar" por último: os números das linhas de antes não mudam. O insumo que já está na lista fica com a quantidade dita.
       let final = itens;

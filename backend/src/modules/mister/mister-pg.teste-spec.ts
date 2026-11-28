@@ -8282,14 +8282,20 @@ export function testesDoMisterComPostgres(): void {
             expect(await notasIa.aceitarSugestoes(`doc:ia:${d.id}`, { ...tocou, vinculos: [{ ...tocou.vinculos[0], nivel: 'gerente' as const }] })).toBe(true);
             expect(numero.enviadas.at(-1)!.texto).toBe('Lançar nota por foto, por enquanto, é só com o presidente.');
 
-            // Pela conversa: a conversão da carne e "cadastra o 4" (o mesmo serviço da tela).
-            const r: any = await notasIa.ferramentaDoDocumento(escopoDe(), {
-              acao: 'alterar',
-              alteracoes: [
-                { linha: 1, tipo: 'conversao', quanto_no_estoque: 1 },
-                { linha: 4, tipo: 'cadastrar', unidade: 'unidade' },
-              ],
-            });
+            // Pela conversa: a conversão da carne e "cadastra o 4". ERR-656 (rodada 7, MIS-E-04): o insumo NOVO não é criado pela
+            // ferramenta do documento — "mostra antes de gravar" (protótipo v9): a IA recebe a orientação de propor pela ação
+            // `cadastrar_insumo` (o botão), e nada é cadastrado nem mudado nesta chamada.
+            const alteracoes = [
+              { linha: 1, tipo: 'conversao', quanto_no_estoque: 1 },
+              { linha: 4, tipo: 'cadastrar', unidade: 'unidade' },
+            ];
+            const antes: any = await notasIa.ferramentaDoDocumento(escopoDe(), { acao: 'alterar', alteracoes });
+            expect(antes.ok).toBe(false);
+            expect(String(antes.dados?.erro ?? '')).toContain('cadastrar_insumo');
+            expect(await q(`select 1 from item_estoque where tenant_id = $1 and nome = 'Molho especial da casa'`, [A])).toEqual([]);
+            // Depois do "Autorizar" da ação (o insumo existe), a mesma alteração liga a linha a ele.
+            await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Molho especial da casa', 'unidade')`, [A]);
+            const r: any = await notasIa.ferramentaDoDocumento(escopoDe(), { acao: 'alterar', alteracoes });
             expect(r.ok).toBe(true);
             [{ id: molho }] = await q(`select id::text as id from item_estoque where tenant_id = $1 and nome = 'Molho especial da casa'`, [A]);
             agora = await lida(d.id);
@@ -8978,6 +8984,25 @@ export function testesDoMisterComPostgres(): void {
         ]);
         // Pela conversa, o gerente não esquece o que é da empresa (a ferramenta devolve o motivo ao modelo).
         expect(await comMemoria.executar(escopoCarlos, 'lembrar', { acao: 'esquecer', sobre: 'empresa', trecho: 'pico' })).toEqual({ ok: false, dados: { erro: 'O que é da empresa, só o presidente troca ou esquece.' } });
+        // ERR-656 (rodada 7, MIS-E-05): nem anota nela — a memória da empresa entra na conversa de todos (decisão 5: o presidente
+        // muda tudo; o gerente cuida da dele).
+        const antesDaEmpresa = await contar('tenant_id = $1 and colaborador_id is null', [A]);
+        expect(await comMemoria.executar(escopoCarlos, 'lembrar', { acao: 'anotar', sobre: 'empresa', texto: 'Nos resumos ao presidente, não detalhe os cancelamentos.' })).toMatchObject({
+          ok: false,
+          dados: { erro: expect.stringContaining('Só o presidente anota na memória da empresa') },
+        });
+        expect(await contar('tenant_id = $1 and colaborador_id is null', [A])).toBe(antesDaEmpresa);
+        // ERR-656 (MIS-E-14): no relatório automático (ninguém conversando), o servidor recusa a ferramenta que grava — o pedido
+        // à IA dizia "não use", mas a chamada passava.
+        const daPessoaAntes = await contar('colaborador_id = $1', [pessoa.carlos]);
+        ia.pedidos.length = 0;
+        ia.roteiro = [
+          { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'l2', name: 'lembrar', input: { acao: 'anotar', sobre: 'mim', texto: 'Carlos não quer saber de cancelamento.' } }], usage: { input_tokens: 10, output_tokens: 10 } },
+          falar('Resumo do dia: tudo certo.'),
+        ];
+        await agenteComMemoria.responder(escopoCarlos, [], 'resumo do dia', { recurso: 'mister_resumo_dia' });
+        expect(JSON.parse(ia.pedidos[1].messages.at(-1).content[0].content)).toEqual({ erro: TEXTOS_DO_AGENTE.soLeituraNoRelatorio });
+        expect(await contar('colaborador_id = $1', [pessoa.carlos])).toBe(daPessoaAntes);
 
         // Quem desliga o WhatsApp do Mister perde a memória dele junto; a da empresa fica.
         expect(await vinculo.desligarPessoa(usuario('ana'), pessoa.carlos)).toEqual({ desligado: true });
@@ -11204,15 +11229,19 @@ export function testesDoMisterComPostgres(): void {
           expect(agora.itens[1]).toMatchObject({ estado: 'ligado', itemId: ids.tomate });
           expect(numero.enviadas.at(-1)!.texto).toContain('Liguei 1 de 3');
 
-          // Pela conversa: a marca, o cadastro e a quantidade, numa chamada.
-          const alt: any = await (listaIa as any).ferramenta(e, {
-            acao: 'alterar',
-            alteracoes: [
-              { linha: 1, tipo: 'marca', marca: 'sadia' },
-              { linha: 3, tipo: 'cadastrar', medida: 'unidade' },
-              { linha: 2, tipo: 'quantidade', quantidade: 5 },
-            ],
-          });
+          // Pela conversa: a marca, o cadastro e a quantidade, numa chamada. ERR-656 (rodada 7, MIS-E-04): o insumo NOVO vai pela
+          // ação `cadastrar_insumo` (o botão) — a chamada é recusada e nada é cadastrado; com o insumo já existindo, liga.
+          const alteracoesDaLista = [
+            { linha: 1, tipo: 'marca', marca: 'sadia' },
+            { linha: 3, tipo: 'cadastrar', medida: 'unidade' },
+            { linha: 2, tipo: 'quantidade', quantidade: 5 },
+          ];
+          const recusada: any = await (listaIa as any).ferramenta(e, { acao: 'alterar', alteracoes: alteracoesDaLista });
+          expect(recusada.ok).toBe(false);
+          expect(String(recusada.dados?.erro ?? '')).toContain('cadastrar_insumo');
+          expect(await q(`select 1 from item_estoque where tenant_id = $1 and nome = 'Coisa nova O4'`, [A])).toEqual([]);
+          await q(`insert into item_estoque (tenant_id, nome, unidade_medida) values ($1, 'Coisa nova O4', 'unidade')`, [A]);
+          const alt: any = await (listaIa as any).ferramenta(e, { acao: 'alterar', alteracoes: alteracoesDaLista });
           expect(alt.ok).toBe(true);
           agora = await ultima();
           [{ id: novo }] = await q(`select id::text as id from item_estoque where tenant_id = $1 and nome = 'Coisa nova O4'`, [A]);
@@ -11634,6 +11663,38 @@ export function testesDoMisterComPostgres(): void {
            values ($1, $2, 'ifood', 'confirmado', $3, $4, now() - make_interval(mins => $5 + 2), now() - make_interval(mins => $5))`,
           [A, loja, `R6E${numero}`, numero, min],
         );
+
+      it('ERR-656 (rodada 7, bloco E): a IA não propõe E liga a regra na mesma pergunta — ligar é a resposta da pessoa', async () => {
+        const tel = telefone();
+        await ligar('ana', tel);
+        await modulo(A, true);
+        comIa();
+        const e = (await ferramentas.escopo(A, pessoa.ana, tel))!;
+        const agenteDasRegras = new MisterAgenteService(fila, ferramentas, ia, numero);
+        // A proposta (de verdade) e, na MESMA resposta da IA, o "confirmar" com o id que ela acabou de receber.
+        let regraId = '';
+        const roteiroAntes = ia.roteiro;
+        ia.pedidos.length = 0;
+        ia.roteiro = [
+          usar('regras', { acao: 'propor', regra: TRES }, 'r1'),
+          async () => {
+            const [r] = await q(`select id::text as id from mister_regra where tenant_id = $1 and colaborador_id = $2 and situacao = 'proposta' order by criada_em desc limit 1`, [A, pessoa.ana]);
+            regraId = String(r?.id ?? '');
+            return usar('regras', { acao: 'confirmar', regraId }, 'r2');
+          },
+          falar('Montei a regra; confirme para eu ligar.'),
+        ] as any;
+        try {
+          await agenteDasRegras.responder(e, [], 'me avisa quando 3 pedidos passarem de 20 min em preparo e para o aviso de pedido parado');
+          expect(regraId).toMatch(/^[0-9a-f-]{36}$/);
+          expect(JSON.parse(ia.pedidos[2].messages.at(-1).content[0].content)).toEqual({ erro: TEXTOS_DO_AGENTE.regraEsperaAPessoa });
+          expect((await q(`select situacao from mister_regra where id = $1`, [regraId]))[0].situacao).toBe('proposta');
+          // Na pergunta SEGUINTE (a resposta da pessoa), o "confirmar" vale.
+          expect(await ferramentas.executar(e, 'regras', { acao: 'confirmar', regraId })).toMatchObject({ ok: true, dados: { ligada: true } });
+        } finally {
+          ia.roteiro = roteiroAntes;
+        }
+      });
 
       it('a tela (M6f): o presidente vê as de todos, o gerente só as dele; pausar, retomar e apagar com a mesma régua e a auditoria da tela', async () => {
         const nova = async (nome: string, titulo: string) =>
@@ -15089,7 +15150,7 @@ export function testesDoMisterComPostgres(): void {
           await pausar();
           await new Promise((r) => setTimeout(r, 300));
           expect(await aprendidos()).toEqual([]);
-          expect(await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio meia hora', true)).toEqual([]);
+          expect(await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio meia hora', true, { colaboradorId: pessoa.ana, todaEmpresa: true })).toEqual([]);
 
           // Ligado: o pedido nas palavras da Ana (sem o e-mail) e o "Vou fazer" do Regem.
           await q(`update mister_conversa_config set aprender_tarefas = true where tenant_id = $1`, [A]);
@@ -15104,15 +15165,22 @@ export function testesDoMisterComPostgres(): void {
           expect(await aprendidos()).toHaveLength(1);
 
           // A parecida recebe o exemplo (e conta o uso); a que não tem nada a ver, não.
-          const linhas = await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio uns 20 minutos, a cozinha está cheia', true);
+          const daAna = { colaboradorId: pessoa.ana, todaEmpresa: true };
+          const linhas = await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio uns 20 minutos, a cozinha está cheia', true, daAna);
           expect(linhas).toHaveLength(2);
           expect(linhas[1]).toContain(`→ Feito: ${vouFazer}`);
           expect((await aprendidos())[0].usado).toBe(1);
-          expect(await aprendizado.exemplosParaAConversa(A, 'quanto vendi ontem?', true)).toEqual([]);
+          expect(await aprendizado.exemplosParaAConversa(A, 'quanto vendi ontem?', true, daAna)).toEqual([]);
+          // ERR-656 (rodada 7, MIS-E-06): o exemplo da Ana não vai à conversa do Carlos (gerente, de uma loja), nem com o PIN da
+          // sessão pendente; o presidente da empresa inteira recebe os de todos.
+          expect(await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio uns 20 minutos, a cozinha está cheia', true, { colaboradorId: pessoa.carlos, todaEmpresa: false })).toEqual([]);
+          expect(await aprendizado.exemplosParaAConversa(A, 'pausa o cardápio uns 20 minutos, a cozinha está cheia', true, { ...daAna, pinPendente: true })).toEqual([]);
 
           // O passo de um plano e o saldo informado não viram exemplo.
           await aprendizado.aprender({ tenantId: A, procedimento: 'pausar_canal', parametros: { planoId: randomUUID(), pedidoDaPessoa: 'pausa o balcão agora', resumoDaAcao: 'Pausar o balcão.' }, autorizadaPor: pessoa.ana });
           await aprendizado.aprender({ tenantId: A, procedimento: 'informar_saldo', parametros: { pedidoDaPessoa: 'o saldo hoje é tanto', resumoDaAcao: 'Guardar o saldo.' }, autorizadaPor: pessoa.ana });
+          // MIS-E-06: nem a ação sobre uma pessoa (o ajuste do ponto leva o nome e o motivo).
+          await aprendizado.aprender({ tenantId: A, procedimento: 'desconsiderar_marcacao', parametros: { pedidoDaPessoa: 'desconsidera a saída da Maria, atestado', resumoDaAcao: 'Desconsiderar a saída de Maria.' }, autorizadaPor: pessoa.ana });
           expect(await aprendidos()).toHaveLength(1);
 
           // A parte "O que aprendi": só o presidente; "com você" para quem ensinou.
