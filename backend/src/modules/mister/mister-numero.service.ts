@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { exigirBooleano } from '../../common/exigir';
+import { lerCorpoAte } from '../../common/ssrf-guard';
 import { escolherNumeroDaWaba, pedirCopiaDoApp } from '../whatsapp/coexistencia-meta';
 import { tierParaNumero } from '../whatsapp/limite-meta';
 import {
@@ -155,9 +156,16 @@ export class MisterNumeroService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
   /** A chamada à Meta. Separada para o teste trocar por uma resposta montada (nenhum teste fala com a Meta). */
-  protected buscar(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string | FormData }): Promise<RespostaHttp> {
+  protected buscar(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string | FormData; signal?: AbortSignal }): Promise<RespostaHttp> {
     return fetch(url, init) as unknown as Promise<RespostaHttp>;
   }
+
+  /**
+   * Rodada 7, MIS-F-03 (ERR-658): os prazos do download da mídia (os mesmos do WhatsApp das lojas). Sem eles, a CDN parada
+   * deixava a pessoa sem resposta por até 5 minutos e prendia o laço da entrada. Propriedades para o teste encurtar.
+   */
+  protected prazoDosMetadadosMs = 20_000;
+  protected prazoDoArquivoMs = 30_000;
 
   private token(): string {
     return process.env.WA_CLOUD_TOKEN ?? '';
@@ -174,7 +182,7 @@ export class MisterNumeroService {
     // Estrito: o id vai concatenado no endereço da Graph API.
     if (!/^[0-9]{5,32}$/.test(id) || !token) return null;
     const auth = { Authorization: `Bearer ${token}` };
-    const meta = await this.buscar(`${GRAPH}/${id}`, { headers: auth }).catch(() => null);
+    const meta = await this.buscar(`${GRAPH}/${id}`, { headers: auth, signal: AbortSignal.timeout(this.prazoDosMetadadosMs) }).catch(() => null);
     if (!meta?.ok) {
       this.logger.warn(`mídia ${id}: a Meta não deu os metadados (${meta?.status ?? 'sem resposta'})`);
       return null;
@@ -195,12 +203,24 @@ export class MisterNumeroService {
       this.logger.warn(`mídia ${id}: endereço fora dos domínios da Meta (${host})`);
       return null;
     }
-    const bin = await this.buscar(url, { headers: auth }).catch(() => null);
-    if (!bin?.ok || !bin.arrayBuffer) {
+    const bin = await this.buscar(url, { headers: auth, signal: AbortSignal.timeout(this.prazoDoArquivoMs) }).catch(() => null);
+    if (!bin?.ok || (!bin.arrayBuffer && !(bin as any).body)) {
       this.logger.warn(`mídia ${id}: o arquivo não veio (${bin?.status ?? 'sem resposta'})`);
       return null;
     }
-    const buffer = Buffer.from(await bin.arrayBuffer());
+    // MIS-F-03: o tamanho conferido ANTES de juntar tudo na memória (o `content-length` declarado e, na leitura, cada pedaço);
+    // o prazo vale também para a leitura do corpo. A resposta montada do teste (sem `body`) segue pelo `arrayBuffer`.
+    const real = bin as unknown as Response;
+    const buffer =
+      real.body && typeof real.headers?.get === 'function'
+        ? await lerCorpoAte(real, MAX_MIDIA_DO_MISTER).catch(() => null)
+        : bin.arrayBuffer
+          ? await bin.arrayBuffer().then((b) => Buffer.from(b)).catch(() => null)
+          : null;
+    if (!buffer) {
+      this.logger.warn(`mídia ${id}: o arquivo passou do limite ou do prazo`);
+      return null;
+    }
     return buffer.length > MAX_MIDIA_DO_MISTER ? null : { buffer, mime };
   }
 

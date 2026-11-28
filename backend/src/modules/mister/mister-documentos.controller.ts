@@ -7,6 +7,7 @@ import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { ModuloGuard } from '../../auth/modulo.guard';
 import { RequireModulo } from '../../auth/require-modulo.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { MisterDocumentosService } from './mister-documentos.service';
@@ -24,8 +25,8 @@ export class MisterDocumentosController {
   @CloudOnly()
   @Roles('presidente')
   @RequireModulo('mister')
-  listar(@CurrentUser() user: AuthUser, @Query('dias') dias?: string) {
-    return this.documentos.listar(user.tenantId, dias);
+  listar(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Query('dias') dias?: string) {
+    return this.documentos.listar(user.tenantId, dias, atual);
   }
 
   /** O PDF do boleto lançado (M3a parte 4b): o mesmo do "Ver o PDF" da conversa. Só do documento lançado. */
@@ -33,8 +34,8 @@ export class MisterDocumentosController {
   @CloudOnly()
   @Roles('presidente')
   @RequireModulo('mister')
-  async pdf(@CurrentUser() user: AuthUser, @Param('id') id: string, @Res() res: Response) {
-    const arquivo = await this.documentos.pdf(user.tenantId, id);
+  async pdf(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string, @Res() res: Response) {
+    const arquivo = await this.documentos.pdf(user.tenantId, id, atual);
     if (!arquivo) throw new NotFoundException('O PDF é do boleto lançado: este documento não foi lançado.');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${arquivo.nome}"`);
@@ -46,7 +47,7 @@ export class MisterDocumentosController {
   @CloudOnly()
   @Roles('presidente')
   @RequireModulo('mister')
-  desfazer(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.documentos.desfazerPelaTela(user.tenantId, user.colaboradorId, user.categoria, id);
+  desfazer(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
+    return this.documentos.desfazerPelaTela(user.tenantId, user.colaboradorId, user.categoria, id, atual);
   }
 }

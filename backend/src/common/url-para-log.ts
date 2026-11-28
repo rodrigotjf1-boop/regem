@@ -20,8 +20,13 @@ const CREDENCIAIS = new Set([
 ]);
 const PESSOAIS = new Set(['telefone', 'para', 'numero', 'cpf', 'documento']);
 
+// Rodada 7, MIS-F-11 (ERR-658): o código que ABRE a página sem login vem no CAMINHO, não na consulta — o relatório e o PIN do
+// Mister (`/publico/mister/relatorio/<código>`, `/publico/mister/link/<código>`) e o rastreio do pedido (`/rastreio/<token>`).
+// Num 500, o log e a telemetria guardavam o código, e quem os lê abria a página. O token do cardápio é público: fica.
+const CODIGO_NO_CAMINHO = /(\/(?:publico\/mister\/(?:relatorio|link)|rastreio)\/)[^/?#]+/gi;
+
 export function urlParaLog(url: string | null | undefined): string {
-  const bruto = String(url ?? '');
+  const bruto = String(url ?? '').replace(CODIGO_NO_CAMINHO, '$1***');
   const i = bruto.indexOf('?');
   if (i < 0) return bruto;
   const partes = bruto

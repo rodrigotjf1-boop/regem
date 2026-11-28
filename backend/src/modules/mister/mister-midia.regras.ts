@@ -1,4 +1,17 @@
 import { createHash } from 'crypto';
+import { detectarImagem } from '../midia/midia.service';
+
+/**
+ * Rodada 7, MIS-F-04 (ERR-658): o tipo do arquivo pelos BYTES (JPEG, PNG, GIF, WEBP, PDF), não pelo que o WhatsApp declarou —
+ * o PNG declarado como JPEG ia à IA com o tipo errado e era recusado ("a IA está parada"). Bytes que não reconhecemos seguem
+ * com o tipo declarado, como antes.
+ */
+export function tipoPelosBytes(buf: Buffer, declarado: string): string {
+  const imagem = detectarImagem(buf);
+  if (imagem) return imagem;
+  if (buf.length >= 5 && buf.subarray(0, 5).toString('latin1') === '%PDF-') return 'application/pdf';
+  return declarado;
+}
 import { semDadoPessoal } from '../graph/graph.regras';
 
 // A FOTO NO MISTER (versão 5, fase M5a; protótipo `mockups/regem-mister-ouve-ve-mostra.html`, aprovado em 19/11/2026).

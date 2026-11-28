@@ -56,4 +56,13 @@ describe('endereço no log', () => {
   it('pega o nome do parâmetro em maiúsculas ou codificado', () => {
     expect(urlParaLog('/x?SECRET=a1&%73ecret=b2')).toBe('/x?SECRET=***&%73ecret=***');
   });
+
+  it('ERR-658 (rodada 7, MIS-F-11): o código que abre a página vem no caminho — relatório e PIN do Mister, rastreio do pedido', () => {
+    const codigo = 'Q7kP2xZ9aB3cD4eF5gH6iJ7kL8mN9oP0';
+    expect(urlParaLog(`/api/v1/publico/mister/relatorio/${codigo}/pdf`)).toBe('/api/v1/publico/mister/relatorio/***/pdf');
+    expect(urlParaLog(`/api/v1/publico/mister/relatorio/${codigo}`)).toBe('/api/v1/publico/mister/relatorio/***');
+    expect(urlParaLog(`/api/v1/publico/mister/link/${codigo}/autorizar?x=1`)).toBe('/api/v1/publico/mister/link/***/autorizar?x=1');
+    expect(urlParaLog(`/api/v1/rastreio/${codigo}/avaliacao`)).toBe('/api/v1/rastreio/***/avaliacao');
+    expect(urlParaLog(`/api/v1/publico/mister/link/${codigo}?codigo=${codigo}`)).not.toContain(codigo);
+  });
 });

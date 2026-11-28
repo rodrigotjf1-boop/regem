@@ -51,6 +51,21 @@ export type NovoLinkPublico =
     }
   | { tipo: 'resumo' | 'grafico'; unidadeId: string | null; titulo: string; nomeDoPdf: string; plano: PlanoDoResumo };
 
+/** Rodada 7, MIS-F-10: quem emitiu ainda vê o que o link mostra? (A loja do link entre as dele; "todas" só sem loja presa; R$ só com valores.) */
+export function acessoAindaVale(
+  e: Awaited<ReturnType<EscopoDeQuemEmitiu>>,
+  l: { unidadeId: string | null; tipo: string; plano: any },
+): boolean {
+  if (!e || e.semLoja) return false;
+  if (!e.lojaUnica) {
+    if (l.unidadeId && !e.lojas.some((x) => x.id === l.unidadeId)) return false;
+    if (!l.unidadeId && e.presa) return false;
+  } else if (l.unidadeId && e.lojas.length && !e.lojas.some((x) => x.id === l.unidadeId)) return false;
+  if ((l.tipo === 'resumo' || l.tipo === 'grafico') && l.plano?.semValores === false && !e.verValores) return false;
+  if (l.tipo === 'insumo' && !e.verValores) return false;
+  return true;
+}
+
 /** O plano guardado tem a forma do tipo dele? (Outra forma não abre e não nasce.) */
 // O resumo e o gráfico da conversa usam o plano do resumo; o tipo da linha e o do plano têm de casar.
 const planoVale = (tipo: unknown, plano: unknown): boolean =>
@@ -58,15 +73,27 @@ const planoVale = (tipo: unknown, plano: unknown): boolean =>
     ? ehPlanoDoResumo(plano) && (plano.tipo === 'grafico') === (tipo === 'grafico')
     : tipo === 'insumo' && ehPlanoDoRelatorio(plano);
 
+/** O acesso de AGORA de quem emitiu o link (as lojas que vê, se está preso a uma, se vê valores) — ou null se não fala mais. */
+export type EscopoDeQuemEmitiu = (
+  tenantId: string,
+  colaboradorId: string,
+) => Promise<{ lojas: { id: string }[]; lojaUnica: boolean; presa: string | null; semLoja: boolean; verValores: boolean } | null>;
+
 @Injectable()
 export class MisterLinkPublicoService {
   private readonly logger = new Logger('MisterLinkPublico');
+  private escopoDe: EscopoDeQuemEmitiu | null = null;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     @Optional() private readonly auditoria?: AuditoriaService,
     @Optional() private readonly modulos?: ModuloService,
   ) {}
+
+  /** Rodada 7, MIS-F-10: quem resolve o acesso de agora (o serviço das ferramentas, com o `escopoDaTela`). */
+  registrarEscopo(fn: EscopoDeQuemEmitiu): void {
+    this.escopoDe = fn;
+  }
 
   /** A função está ligada nesta instalação? (Desligada: nenhum link nasce e nenhum abre.) */
   ligado(): boolean {
@@ -167,7 +194,7 @@ export class MisterLinkPublicoService {
       [l] = linhas(
         await this.db.execute(sql`
           select k.id::text as id, k.tenant_id::text as "tenantId", k.unidade_id::text as "unidadeId", k.tipo, k.titulo, k.nome_do_pdf as "nomeDoPdf",
-                 k.plano, k.vence_em as "venceEm", emp.nome as empresa
+                 k.plano, k.vence_em as "venceEm", emp.nome as empresa, k.criado_por::text as "criadoPor"
             from mister_link_publico k
             join empresa emp on emp.id = k.tenant_id
             join colaborador c on c.id = k.criado_por and c.tenant_id = k.tenant_id
@@ -185,6 +212,10 @@ export class MisterLinkPublicoService {
     }
     if (!l || !planoVale(l.tipo, l.plano)) throw fora();
     if (this.modulos && !(await this.modulos.ativo(l.tenantId, l.unidadeId ?? null, 'mister'))) throw fora();
+    // Rodada 7, MIS-F-10 (ERR-658): o relatório é uma FOTO de quando saiu — abre só se quem o emitiu ainda vê o que ele
+    // mostra: a loja dele (viva) ou todas, e os valores quando o relatório os traz. Mudou de loja, perdeu os valores ou a loja
+    // foi apagada: o mesmo 404.
+    if (this.escopoDe && !acessoAindaVale(await this.escopoDe(l.tenantId, l.criadoPor), l)) throw fora();
     return l;
   }
 
