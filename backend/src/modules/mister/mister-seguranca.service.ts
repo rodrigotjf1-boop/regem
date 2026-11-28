@@ -35,7 +35,7 @@ export class MisterSegurancaService {
       // Os telefones distintos de cada grupo (o mesmo telefone em dois desfechos conta uma vez).
       const [t] = linhas(
         await this.db.execute(sql`
-          select count(distinct telefone) filter (where desfecho in ('codigo_nao_vale', 'codigos_demais', 'codigo_calado'))::int as codigo,
+          select count(distinct telefone) filter (where desfecho in ('codigo_nao_vale', 'codigos_demais', 'codigo_calado', 'codigo_repetido'))::int as codigo,
                  count(distinct telefone) filter (where desfecho in ('fixa', 'fixa_calada'))::int as "naoLigado"
             from mister_mensagem
            where recebida_em > ${desde}`),
@@ -150,7 +150,7 @@ export class MisterSegurancaService {
         codigoNaoVale: Number(da('codigo_nao_vale').n) || 0,
         codigosDemais: Number(da('codigos_demais').n) || 0,
         codigoCalado: Number(da('codigo_calado').n) || 0,
-        codigoErrado: { quantas: somar('codigo_nao_vale', 'codigos_demais', 'codigo_calado'), telefones: telefones.codigo, calados },
+        codigoErrado: { quantas: somar('codigo_nao_vale', 'codigos_demais', 'codigo_calado', 'codigo_repetido'), telefones: telefones.codigo, calados },
         outraPessoa: Number(da('numero_de_outra_pessoa').n) || 0,
         perdeuOAcesso: Number(da('sem_acesso').n) || 0,
         naoLigado: { quantas: somar('fixa', 'fixa_calada'), telefones: telefones.naoLigado },
