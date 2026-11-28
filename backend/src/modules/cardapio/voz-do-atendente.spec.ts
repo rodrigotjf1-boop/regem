@@ -29,9 +29,17 @@ describe('a voz do atendente pelo DMS Graph', () => {
       expect(estiloDaVozDoAtendente(null, 'O X-Bacon custa 32 reais.', 'quanto é o x-bacon')).toEqual({ tom: 'neutro', risada: false, pausas: true });
     });
 
-    it('alegria e risada só com o cliente leve e sem tema delicado — no atendente, nunca em alergia, pagamento, Pix ou cancelamento', () => {
+    it('a risada SÓ com o cliente brincando (28/11: "perguntei sobre o cardápio e a atendente já iniciou com o sorriso"); animado = voz alegre, sem rir', () => {
       expect(estiloDaVozDoAtendente('brincando', 'Fome de leão hoje, hein! Vai um trio?', 'to com uma fome')).toEqual({ tom: 'animado', risada: true, pausas: true });
-      expect(estiloDaVozDoAtendente('animado', 'Que bom que gostou!', 'adorei o lanche')).toEqual({ tom: 'animado', risada: true, pausas: true });
+      // O caso do dono: pergunta do cardápio num tom alegre — a voz alegre, sem a risada no começo.
+      expect(estiloDaVozDoAtendente('animado', 'Temos o X-Bacon, o X-Salada e o Número 07. Quer que eu mande o cardápio?', 'o que vocês tem no cardápio')).toEqual({ tom: 'animado', risada: false, pausas: true });
+      expect(estiloDaVozDoAtendente('animado', 'Que bom que gostou!', 'adorei o lanche')).toEqual({ tom: 'animado', risada: false, pausas: true });
+      for (const tom of ['neutro', 'apressado', 'irritado', 'preocupado', null] as const) {
+        expect(estiloDaVozDoAtendente(tom, 'Fome de leão hoje, hein!', 'kkkk')).toMatchObject({ risada: false });
+      }
+    });
+
+    it('com o cliente brincando, também nunca ri em alergia, pagamento, Pix, estorno ou cancelamento', () => {
       for (const [resposta, pergunta] of [
         ['Seu Pix já chegou, obrigada!', 'paguei'],
         ['O pagamento é na entrega.', 'como pago'],
